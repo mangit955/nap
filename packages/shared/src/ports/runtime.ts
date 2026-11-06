@@ -14,6 +14,7 @@ import type { QueueLeaseIdentity } from "./project-computer-access.ts";
  * inventing a second one that would have to be mapped.
  */
 
+import type { PlanIntent } from "../agent-plan.ts";
 import type { TurnFailureReason } from "../events.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
 
@@ -47,7 +48,19 @@ type TurnRequestBase = {
 };
 
 export type TurnRequest = TurnRequestBase &
-  ({ kind?: "user"; message: string } | { kind: "test"; jobId: string; message?: never });
+  (
+    | {
+        kind?: "user";
+        message: string;
+        /**
+         * Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. Admission has
+         * validated its shape; whether an approved plan is still waiting is checked again under the
+         * lease, where the log cannot move.
+         */
+        plan?: PlanIntent | undefined;
+      }
+    | { kind: "test"; jobId: string; message?: never; plan?: never }
+  );
 
 export type TurnOutcome =
   | {

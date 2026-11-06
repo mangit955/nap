@@ -43,6 +43,11 @@ export type ToolContext = {
   signal?: AbortSignal | undefined;
   testMode?: boolean;
   /**
+   * A plan mode turn (ADR-0025). Narrows what runs as well as what is offered: commands are refused
+   * and helpers may only explore, whatever the toolset happened to include.
+   */
+  planning?: boolean;
+  /**
    * The tools this turn was offered. A call naming anything else is refused, even when the name
    * is real: an app test that invents `write_file` must not get to run it. Absent offers all.
    */
@@ -68,8 +73,10 @@ export type ToolOutcome = {
       stop?: never;
       /** The turn ends once this batch is answered — a question waits for the person. */
       endsTurn?: true;
+      /** What the turn that ends here is waiting on, for its `turn.completed`. */
+      awaits?: "plan_approval";
     }
-  | { ok: false; stop?: "computer_unsettled"; endsTurn?: never }
+  | { ok: false; stop?: "computer_unsettled"; endsTurn?: never; awaits?: never }
 );
 
 export type ToolHandler<Args> = (

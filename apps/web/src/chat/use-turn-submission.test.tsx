@@ -357,6 +357,27 @@ describe("the model a turn runs on", () => {
   });
 });
 
+describe("plan mode", () => {
+  it("sends a request for a plan, and an approval naming its plan, with the message", async () => {
+    const { fetchJson, bodies } = poster();
+    const { result } = submission(fetchJson);
+    const approve = {
+      intent: "approve",
+      planTurnId: "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+    } as const;
+
+    await act(async () => {
+      await result.current.submit("add a dark theme", undefined, undefined, { intent: "propose" });
+    });
+    await act(async () => {
+      await result.current.submit("Approved. Build this plan.", undefined, undefined, approve);
+    });
+
+    expect(bodies[0]).toEqual({ message: "add a dark theme", plan: { intent: "propose" } });
+    expect(bodies[1]).toEqual({ message: "Approved. Build this plan.", plan: approve });
+  });
+});
+
 describe("cancelling", () => {
   it("asks the server to stop the turn", async () => {
     const { fetchJson, calls } = poster();

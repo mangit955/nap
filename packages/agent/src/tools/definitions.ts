@@ -19,7 +19,12 @@
  * request — so wording here is paid for once and read on every turn.
  */
 
-import { PlanSchema, QuestionSchema, SubagentProfileSchema } from "@nap/shared/agent-plan";
+import {
+  PlanSchema,
+  ProposedPlanSchema,
+  QuestionSchema,
+  SubagentProfileSchema,
+} from "@nap/shared/agent-plan";
 import { ComputerActionSchema } from "@nap/shared/computer";
 import { TOOL_NAMES, type ToolName } from "@nap/shared/events";
 import type { LLMToolDefinition } from "@nap/shared/ports/llm-provider";
@@ -138,6 +143,7 @@ export const TOOL_SCHEMAS = {
   read_subagent: z.strictObject({
     subagent_id: z.string().min(1).describe("The id run_subagent returned"),
   }),
+  propose_plan: ProposedPlanSchema,
 } satisfies Record<ToolName, z.ZodType>;
 
 export type ToolSchemas = typeof TOOL_SCHEMAS;
@@ -188,6 +194,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Hand a self-contained task to a helper with its own fresh context, and get back its final report. Use explore to search a large codebase for where something lives, so the search does not fill your own context; several explore helpers can run at once. Do not use it for a file or two you could read yourself.",
   read_subagent:
     "Wait for a helper started with background set, and get its final report. Every background helper must be read before you finish.",
+  propose_plan:
+    "Put your finished plan in front of the person for approval, and end your turn. Call it once, after you have read enough to be specific. Nothing is built until they approve; if they ask for changes you will plan again.",
 };
 
 /**
@@ -223,6 +231,27 @@ export const APP_TEST_TOOL_NAMES: readonly ToolName[] = [
   "glob",
   "search_files",
   "computer",
+];
+
+/**
+ * What a plan mode turn may reach (ADR-0025): everything that looks and nothing that changes the
+ * project, plus the tool that ends the turn with a plan.
+ *
+ * Commands are refused even if offered accidentally: readers can invoke repository-configured
+ * programs. `run_subagent` only permits helpers that cannot write, enforced at execution. `shell_output` reads a command an earlier turn started. Absent on
+ * purpose: every edit tool, typing into or stopping a shell, the checklist (the plan *is* the
+ * deliverable), and the computer, whose clicks change the running app's state.
+ */
+export const PLAN_MODE_TOOL_NAMES: readonly ToolName[] = [
+  "read_file",
+  "list_files",
+  "glob",
+  "search_files",
+  "shell_output",
+  "ask_user",
+  "run_subagent",
+  "read_subagent",
+  "propose_plan",
 ];
 
 /** A definition whose name is known to be a real tool, so nothing downstream has to assert it. */

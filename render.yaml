@@ -29,7 +29,7 @@ services:
     plan: starter
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    # Migrations are a deploy step, run once per release rather than once per replica at boot.
+    # The worker migrates first; this repeat is an idempotent safeguard for manual API deploys.
     preDeployCommand: bun packages/db/scripts/migrate.ts
     # Closing a socket is quick, and clients reconnect with `?afterSeq=` against the event log.
     maxShutdownDelaySeconds: 60
@@ -103,6 +103,8 @@ services:
     plan: standard
     dockerfilePath: ./Dockerfile
     dockerCommand: bun apps/api/src/worker.ts
+    # Workers roll before the API, so queue migrations must exist before the new worker boots.
+    preDeployCommand: bun packages/db/scripts/migrate.ts
     maxShutdownDelaySeconds: 300
     numInstances: 1
     envVars: *env

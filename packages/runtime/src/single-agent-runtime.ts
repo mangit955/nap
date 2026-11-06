@@ -40,11 +40,13 @@ import type { ProjectComputer } from "./project-computer.ts";
 
 import { commitAll, currentSha } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import type { ProposedPlan } from "@nap/shared/agent-plan";
 import { appTestTarget } from "@nap/shared/app-testing";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
+import { approvedPlanOfJob, pendingPlan } from "@nap/shared/plan-mode";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -136,6 +138,8 @@ type JobRun = {
   sandboxId: string;
   jobId: string;
   objective: string;
+  /** The approved plan this job carries out, for every turn of it (ADR-0025). */
+  plan?: ProposedPlan | undefined;
   /** Failures already responded to, oldest first — the one thing a repair cannot rederive. */
   attempts: FailedAttempt[];
   /** Repair turns already spent. Non-zero for a job a restart is continuing. */
@@ -165,6 +169,14 @@ type JobEntry = {
    */
   fresh: boolean;
 };
+
+/**
+ * Why an approval built nothing: the plan it names had already been approved, revised or set
+ * aside by the time its turn ran. Said plainly, because the person approved something and is owed
+ * a reason nothing happened.
+ */
+const STALE_APPROVAL =
+  "That plan was no longer waiting for approval, so nothing was built. Approve the latest plan, or say what to build.";
 
 /** Git's own convention for a subject line, and what every log viewer is laid out for. */
 const COMMIT_SUBJECT_LIMIT = 72;
@@ -525,6 +537,7 @@ export class SingleAgentRuntime implements Runtime {
       sandboxId,
       jobId: continuation.jobId,
       objective: continuation.objective,
+      plan: approvedPlanOfJob(history, continuation.jobId),
       attempts: [...continuation.attempts],
       // Where the budget stopped, not where it starts. Resetting it is how a project that
       // restarts under a check it cannot pass repairs forever.
@@ -827,8 +840,23 @@ export class SingleAgentRuntime implements Runtime {
       emit("user.message", {
         text: request.message,
         ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+        ...(request.plan === undefined ? {} : { plan: request.plan }),
       });
       await sink.drain();
+
+      // An approval names a plan, and the plan must still be the one waiting. Admission checked
+      // this already; it is checked again here because only under the lease does the log stop
+      // moving — two tabs approving the same plan both pass admission, and only one may build it.
+      // Read from the history taken before this prompt was logged, which is what it answers.
+      const approved =
+        request.plan?.intent === "approve"
+          ? pendingPlan(history, request.plan.planTurnId)
+          : undefined;
+      if (request.plan?.intent === "approve" && approved === undefined) {
+        emit("turn.failed", { reason: "internal", message: STALE_APPROVAL });
+        await sink.drain();
+        return { ok: false, turnId, reason: "internal", message: STALE_APPROVAL };
+      }
 
       const sandboxId = await this.#acquire(session, request.signal);
       if (!sandboxId.ok) {
@@ -845,12 +873,41 @@ export class SingleAgentRuntime implements Runtime {
         };
       }
 
+      // A plan mode turn opens no job, as a compaction does not: it is not meant to change
+      // anything, so there is no commit to arbitrate, nothing to snapshot or photograph, and
+      // nothing an open could find unfinished and continue (ADR-0025). The approval opens the job.
+      if (request.plan?.intent === "propose") {
+        for (const notice of sandboxId.value.notices) emit("system.notice", notice);
+        const repository = sandboxId.value.repository;
+        const previewPort = repository === undefined ? this.#previewPort : repository.previewPort;
+        if (sandboxId.value.created)
+          await this.#announcePreview(sandboxId.value.id, emit, previewPort);
+        return await this.#attempt({
+          settings: {
+            ...request,
+            ...(repository === undefined ? {} : { workspace: "repository" }),
+          },
+          scope,
+          sandboxId: sandboxId.value.id,
+          previewPort,
+          prompt: request.message,
+          attachments: request.attachments,
+          promptSource: "user",
+          commitSubject: request.message,
+          history,
+          mode: "plan",
+        });
+      }
+
       // A job opens on a prompt, and this turn belongs to it. Opened after the sandbox is in
       // hand because a job that could never run is a job nothing will ever close — and the
       // objective repeats the message on purpose, so the log answers "what was asked" without
       // a reader having to work out which message belongs to which job.
       const jobId = crypto.randomUUID();
-      const objective = objectiveOf(request.message);
+      // A job carrying out a plan is for what the plan is for: "Approved" says nothing about it.
+      const objective = objectiveOf(approved === undefined ? request.message : approved.title);
+      const plan =
+        approved === undefined ? undefined : { title: approved.title, plan: approved.plan };
       emit("job.started", { jobId, objective });
 
       // Before the preview, which is about to show whatever state the notice is explaining.
@@ -872,6 +929,7 @@ export class SingleAgentRuntime implements Runtime {
         sandboxId: sandboxId.value.id,
         jobId,
         objective,
+        plan,
         attempts: [],
         repairs: 0,
         turn: scope,
@@ -889,9 +947,9 @@ export class SingleAgentRuntime implements Runtime {
         prompt: request.message,
         attachments: request.attachments,
         promptSource: "user",
-        commitSubject: request.message,
+        commitSubject: approved === undefined ? request.message : approved.title,
         history,
-        job: { objective, attempts: [] },
+        job: { objective, attempts: [], ...(plan === undefined ? {} : { plan }) },
       });
 
       return await this.#driveJob(run, { outcome, failed: null, announce: true, fresh: true });
@@ -1083,7 +1141,11 @@ export class SingleAgentRuntime implements Runtime {
           failed: repaired,
           previewPort: run.previewPort,
           attempt,
-          job: { objective, attempts: [...attempts] },
+          job: {
+            objective,
+            attempts: [...attempts],
+            ...(run.plan === undefined ? {} : { plan: run.plan }),
+          },
         }),
       );
       failed = null;
@@ -1125,6 +1187,8 @@ export class SingleAgentRuntime implements Runtime {
     manualCompaction?: { id: string; onSettled: () => void };
     appTest?: { run: AppTestRun; clock?: AppTestRecordingClock };
     previewPort: number | null;
+    /** A plan mode turn: read-only, ending on a proposal, and never committed (ADR-0025). */
+    mode?: "plan";
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
       options;
@@ -1150,6 +1214,7 @@ export class SingleAgentRuntime implements Runtime {
       history,
       historyFile,
       ...(job === undefined ? {} : { job }),
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
       ...(options.manualCompaction === undefined ? {} : { continuation: true }),
       sandbox: this.#options.sandbox,
       memory: this.#options.memory,
@@ -1239,12 +1304,19 @@ export class SingleAgentRuntime implements Runtime {
               history,
               historyFile,
               ...(job === undefined ? {} : { job }),
+              ...(options.mode === undefined ? {} : { mode: options.mode }),
               sandbox: this.#options.sandbox,
               memory: this.#options.memory,
             }),
         }),
         promptSource,
-        ...(options.manualCompaction !== undefined || options.appTest !== undefined
+        ...(options.mode === undefined ? {} : { mode: options.mode }),
+        // Nothing to commit after a plan mode turn: it may not change anything, and the agent
+        // skips the commit of a turn that ended on a proposal besides. Both, because a turn that
+        // stopped without proposing must not commit either.
+        ...(options.manualCompaction !== undefined ||
+        options.appTest !== undefined ||
+        options.mode === "plan"
           ? {}
           : {
               finalize: async () => {

@@ -234,6 +234,117 @@ describe("POST /sessions/:sessionId/turns", () => {
   });
 });
 
+describe("plan mode at admission", () => {
+  const PLAN_TURN = "6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d";
+  const at = "2026-11-03T12:00:00.000Z";
+
+  /** A session whose last turn proposed a plan and ended waiting on it. */
+  async function awaitingPlan(store: InMemoryEventStore): Promise<void> {
+    const envelope = { sessionId: SESSION, turnId: PLAN_TURN, createdAt: at };
+    await store.append({
+      ...envelope,
+      type: "user.message",
+      payload: { text: "add a dark theme", plan: { intent: "propose" } },
+    });
+    await store.append({
+      ...envelope,
+      type: "plan.proposed",
+      payload: { toolCallId: "plan", title: "Dark theme", plan: "1. Tokens" },
+    });
+    await store.append({
+      ...envelope,
+      type: "turn.completed",
+      payload: {
+        usage: { inputTokens: 1, outputTokens: 1 },
+        durationMs: 1,
+        commitSha: null,
+        awaiting: "plan_approval",
+      },
+    });
+  }
+
+  it("carries a request for a plan onto the queued turn", async () => {
+    const queue = new InMemoryTurnQueue();
+    const { app: hono } = app(queue);
+    const res = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "add a dark theme",
+      plan: { intent: "propose" },
+    });
+    expect(res.status).toBe(202);
+    expect(queue.enqueued[0]?.plan).toEqual({ intent: "propose" });
+  });
+
+  it("refuses a malformed plan intent before admitting anything", async () => {
+    const queue = new InMemoryTurnQueue();
+    const { app: hono } = app(queue);
+    for (const plan of [
+      { intent: "build" },
+      { intent: "approve" },
+      { intent: "approve", planTurnId: "x" },
+    ]) {
+      const res = await post(hono, `/sessions/${SESSION}/turns`, { message: "go", plan });
+      expect(res.status).toBe(400);
+    }
+    expect(queue.enqueued).toHaveLength(0);
+  });
+
+  it("refuses to compact in plan mode", async () => {
+    const queue = new InMemoryTurnQueue();
+    const { app: hono } = app(queue);
+    const res = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "/compact",
+      plan: { intent: "propose" },
+    });
+    expect(res.status).toBe(400);
+    expect(queue.enqueued).toHaveLength(0);
+  });
+
+  it("admits the approval of the plan that is waiting", async () => {
+    const queue = new InMemoryTurnQueue();
+    const store = new InMemoryEventStore();
+    await awaitingPlan(store);
+    const { app: hono } = app(queue, undefined, undefined, undefined, store);
+    const plan = { intent: "approve", planTurnId: PLAN_TURN };
+    const res = await post(hono, `/sessions/${SESSION}/turns`, { message: "Approved.", plan });
+    expect(res.status).toBe(202);
+    expect(queue.enqueued[0]?.plan).toEqual(plan);
+  });
+
+  it("409s an approval of a plan that is not waiting, and admits nothing", async () => {
+    const queue = new InMemoryTurnQueue();
+    const store = new InMemoryEventStore();
+    await awaitingPlan(store);
+    await store.append({
+      sessionId: SESSION,
+      turnId: UNKNOWN,
+      createdAt: at,
+      type: "user.message",
+      payload: { text: "never mind" },
+    });
+    const { app: hono } = app(queue, undefined, undefined, undefined, store);
+    const res = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Approved.",
+      plan: { intent: "approve", planTurnId: PLAN_TURN },
+    });
+    expect(res.status).toBe(409);
+    expect(queue.enqueued).toHaveLength(0);
+  });
+
+  it("409s an approval while another request is still queued, which would settle the plan first", async () => {
+    const queue = new InMemoryTurnQueue();
+    const store = new InMemoryEventStore();
+    await awaitingPlan(store);
+    const { app: hono } = app(queue, undefined, undefined, undefined, store);
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "something else" });
+    const res = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Approved.",
+      plan: { intent: "approve", planTurnId: PLAN_TURN },
+    });
+    expect(res.status).toBe(409);
+    expect(queue.enqueued).toHaveLength(1);
+  });
+});
+
 describe("POST /sessions/:sessionId/turns/cancel", () => {
   it("stops a request that has not been claimed yet", async () => {
     const queue = new InMemoryTurnQueue();

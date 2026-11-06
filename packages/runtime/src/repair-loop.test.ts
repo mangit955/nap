@@ -26,7 +26,7 @@ import { VERIFICATION_ROUND_LIMIT_MS } from "@nap/shared/command-windows";
 import type { NapEventType, PromptSource } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
-import type { StoredEvent } from "@nap/shared/ports/event-store";
+import type { PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 
@@ -225,6 +225,54 @@ describe("what a repair turn is told about its job", () => {
       "add a delete button",
       "add a delete button",
     ]);
+  });
+
+  it("carries the approved plan into every repair of the job that carries it out", async () => {
+    // A plan the person approved is the job's brief: a repair that lost it would be fixing a
+    // build against an objective of one title (ADR-0025).
+    const PLAN_TURN = "d00d0000-1111-4222-8333-444455556666";
+    const plan = { title: "Delete button", plan: "1. Add the button\n2. Wire it to the store" };
+    for (const event of [
+      {
+        type: "user.message",
+        payload: { text: "add a delete button", plan: { intent: "propose" } },
+      },
+      { type: "plan.proposed", payload: { toolCallId: "plan", ...plan } },
+      {
+        type: "turn.completed",
+        payload: {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 1,
+          commitSha: null,
+          awaiting: "plan_approval",
+        },
+      },
+    ])
+      await events.append({
+        ...event,
+        sessionId: SESSION_ID,
+        turnId: PLAN_TURN,
+        createdAt: "2026-11-03T12:00:00.000Z",
+      } as PendingEvent);
+    redUntil(2);
+
+    await new SingleAgentRuntime({
+      sessions,
+      sandbox,
+      context,
+      agent,
+      events,
+      bus: new InMemoryEventBus(),
+      memory: new NoopMemoryProvider(),
+    }).runTurn({
+      turnId: REQUEST_TURN_ID,
+      sessionId: SESSION_ID,
+      message: "Approved. Build this plan.",
+      plan: { intent: "approve", planTurnId: PLAN_TURN },
+    });
+
+    expect(await promptSources()).toEqual(["user", "verification"]);
+    expect(context.requests.map((request) => request.job?.plan)).toEqual([plan, plan]);
   });
 
   it("carries every failure so far, oldest first, and none on the turn that opens the job", async () => {

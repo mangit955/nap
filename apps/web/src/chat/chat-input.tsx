@@ -22,7 +22,7 @@ import {
 } from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import { ComposerAddMenu } from "./composer-add-menu.tsx";
-import { AttachmentTray, DictationButton } from "./composer-controls.tsx";
+import { AttachmentTray, DictationButton, PlanModeButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
 import type { FirstPrompt } from "./first-prompt.ts";
 import { ModelPicker } from "./model-picker.tsx";
@@ -67,7 +67,8 @@ export function ChatInput({
   timeline?: RefObject<HTMLElement | null> | undefined;
   error: string | undefined;
   firstPrompt?: FirstPrompt | undefined;
-  onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
+  /** `mode` is `"plan"` when the person asked for a plan before anything is built (ADR-0025). */
+  onSubmit: (message: string, attachments?: MediaAttachment[], mode?: "plan") => void;
   onCancel: () => void;
   /**
    * What this deployment will run a turn on. Empty hides the control entirely — a deployment
@@ -86,6 +87,9 @@ export function ChatInput({
   files?: readonly string[];
 }) {
   const [text, setText] = useState("");
+  // Stays on across sends until switched off: answering a plan with more words is asking for
+  // another plan, and a switch that reset itself would quietly turn the second reply into a build.
+  const [planning, setPlanning] = useState(false);
   const media = useMediaAttachments();
   const [sourceOpen, setSourceOpen] = useState(false);
   const [draftError, setDraftError] = useState<string>();
@@ -340,12 +344,13 @@ export function ChatInput({
     );
     sentMedia.current = media.attachments;
     media.setAttachments([]);
-    if (sentMedia.current.length === 0) onSubmit(message);
-    else
-      onSubmit(
-        message,
-        sentMedia.current.map((item) => item.media),
-      );
+    const sent = sentMedia.current.map((item) => item.media);
+    // `/compact` is a command about the conversation, not a request to plan or build anything,
+    // and the server refuses it with a plan intent, so the switch does not apply to it.
+    if (planning && message !== "/compact")
+      onSubmit(message, sent.length === 0 ? undefined : sent, "plan");
+    else if (sent.length === 0) onSubmit(message);
+    else onSubmit(message, sent);
   };
 
   const empty = text.trim() === "" && media.attachments.length === 0;
@@ -546,7 +551,9 @@ export function ChatInput({
                 ? "Queue a message after compaction…"
                 : running
                   ? "Working…"
-                  : "Ask a follow-up…"
+                  : planning
+                    ? "Describe what to plan — nothing is built until you approve…"
+                    : "Ask a follow-up…"
             }
             className="block min-h-12 w-full min-w-0 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-muted disabled:text-muted"
           />
@@ -563,6 +570,14 @@ export function ChatInput({
               closeWhen={`${visible}:${text}`}
             />
             <DictationButton dictation={dictation} disabled={running || media.processing} />
+            <PlanModeButton
+              pressed={planning}
+              disabled={!draftReady}
+              onToggle={() => {
+                setPlanning(!planning);
+                box.current?.focus();
+              }}
+            />
           </div>
           <div className="composer-primary-actions flex shrink-0 items-center gap-1.5">
             <ComposerAddMenu

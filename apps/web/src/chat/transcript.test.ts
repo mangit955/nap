@@ -226,6 +226,10 @@ const CASES = [
     },
   },
   {
+    type: "plan.proposed",
+    payload: { toolCallId: "p1", title: "Dark theme", plan: "1. Add colour tokens" },
+  },
+  {
     type: "subagent.started",
     payload: { toolCallId: "s1", subagentId: "helper-1", profile: "explore", task: "Find it" },
   },

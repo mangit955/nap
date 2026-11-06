@@ -84,7 +84,7 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: Deploy API, reaper, worker, then web
+      - name: Migrate and deploy worker, API, reaper, then web
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

@@ -205,6 +205,11 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
       multiSelect: false,
     },
   }),
+  "plan.proposed": stored({
+    ...base(101),
+    type: "plan.proposed",
+    payload: { toolCallId: "plan", title: "private title", plan: "private plan" },
+  }),
   "subagent.started": stored({
     ...base(42),
     type: "subagent.started",

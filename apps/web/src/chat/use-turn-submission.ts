@@ -25,6 +25,7 @@ import type { MediaAttachment } from "@nap/shared/media";
  * small, but it is exactly long enough to send the same message twice.
  */
 
+import type { PlanIntent } from "@nap/shared/agent-plan";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import {
   SessionActivitySchema,
@@ -50,7 +51,13 @@ import type { FetchJson } from "../files/use-project-files.ts";
 
 export type TurnSubmission = {
   /** True means admission succeeded; the turn itself runs on past this response. */
-  submit: (message: string, model?: string, attachments?: MediaAttachment[]) => Promise<boolean>;
+  submit: (
+    message: string,
+    model?: string,
+    attachments?: MediaAttachment[],
+    /** Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. */
+    plan?: PlanIntent,
+  ) => Promise<boolean>;
   startTest: (jobId: string, model?: string) => Promise<boolean>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
@@ -279,7 +286,12 @@ export function useTurnSubmission(options: {
 
   const admit = async (
     intent:
-      | { kind: "message"; message: string; attachments?: MediaAttachment[] | undefined }
+      | {
+          kind: "message";
+          message: string;
+          attachments?: MediaAttachment[] | undefined;
+          plan?: PlanIntent | undefined;
+        }
       | { kind: "test"; jobId: string },
     model?: string,
   ): Promise<boolean> => {
@@ -319,7 +331,7 @@ export function useTurnSubmission(options: {
           body: JSON.stringify(
             intent.kind === "test"
               ? { jobId: intent.jobId, model }
-              : { message: text, model, attachments },
+              : { message: text, model, attachments, plan: intent.plan },
           ),
         },
       );
@@ -355,8 +367,8 @@ export function useTurnSubmission(options: {
     }
   };
 
-  const submit: TurnSubmission["submit"] = (message, model, attachments) =>
-    admit({ kind: "message", message, attachments }, model);
+  const submit: TurnSubmission["submit"] = (message, model, attachments, plan) =>
+    admit({ kind: "message", message, attachments, plan }, model);
   const startTest: TurnSubmission["startTest"] = (jobId, model) =>
     admit({ kind: "test", jobId }, model);
 

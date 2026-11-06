@@ -40,6 +40,40 @@ it("replays old prompts and validates a repair's durable request and job ownersh
   }
 });
 
+it("carries a prompt's plan intent and a turn that ended awaiting approval, and still reads old ones", () => {
+  const asks = { intent: "propose" } as const;
+  const approves = { intent: "approve", planTurnId: JOB_ID } as const;
+  for (const plan of [asks, approves]) {
+    const prompt = { ...ENVELOPE, type: "user.message", payload: { text: "go", plan } };
+    expect(NapEventSchema.parse(JSON.parse(JSON.stringify(prompt)))).toEqual(prompt);
+  }
+  for (const plan of [
+    { intent: "approve" },
+    { intent: "approve", planTurnId: "not-a-uuid" },
+    { intent: "propose", planTurnId: JOB_ID },
+    { intent: "build" },
+  ])
+    expect(
+      NapEventSchema.safeParse({ ...ENVELOPE, type: "user.message", payload: { text: "go", plan } })
+        .success,
+    ).toBe(false);
+
+  const completed = {
+    ...ENVELOPE,
+    type: "turn.completed",
+    payload: { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 1, commitSha: null },
+  };
+  expect(NapEventSchema.parse(completed)).toEqual(completed);
+  const awaiting = { ...completed, payload: { ...completed.payload, awaiting: "plan_approval" } };
+  expect(NapEventSchema.parse(awaiting)).toEqual(awaiting);
+  expect(
+    NapEventSchema.safeParse({
+      ...completed,
+      payload: { ...completed.payload, awaiting: "answer" },
+    }).success,
+  ).toBe(false);
+});
+
 type Case = {
   readonly type: NapEvent["type"];
   readonly valid: NapEvent;
@@ -492,6 +526,20 @@ const CASES = [
       },
     },
     issuePath: ["payload", "options"],
+  },
+  {
+    type: "plan.proposed",
+    valid: {
+      ...ENVELOPE,
+      type: "plan.proposed",
+      payload: { toolCallId: "toolu_plan", title: "Dark theme", plan: "1. Add tokens" },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "plan.proposed",
+      payload: { toolCallId: "toolu_plan", title: "", plan: "1. Add tokens" },
+    },
+    issuePath: ["payload", "title"],
   },
   {
     type: "subagent.started",

@@ -132,11 +132,11 @@ function headUnreadable(): void {
  */
 const RESUME_TURN = "b1e5c0de-2222-4333-8444-555566667777";
 
-function open(turnId = RESUME_TURN) {
+function open(turnId = RESUME_TURN, context = new StubContextEngine()) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
-    context: new StubContextEngine(),
+    context,
     agent,
     events,
     bus: new InMemoryEventBus(),
@@ -376,6 +376,56 @@ describe("a job left in repair", () => {
     await open();
 
     expect((await jobs()).jobs.at(-1)?.objective).toBe("add a delete button");
+  });
+});
+
+describe("a job carrying out an approved plan", () => {
+  it("finds the plan again from the log and gives it to the repair it continues with", async () => {
+    // Nothing stores the plan on the job: the approving prompt opened it in the same turn, and
+    // names the plan mode turn that proposed it (ADR-0025).
+    const PLAN_TURN = "e1e1e1e1-2222-4333-8444-555566667777";
+    const plan = { title: "Delete button", plan: "1. Add the button\n2. Wire it to the store" };
+    for (const event of [
+      {
+        type: "user.message",
+        payload: { text: "add a delete button", plan: { intent: "propose" } },
+      },
+      { type: "plan.proposed", payload: { toolCallId: "plan", ...plan } },
+      {
+        type: "turn.completed",
+        payload: {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 1,
+          commitSha: null,
+          awaiting: "plan_approval",
+        },
+      },
+    ])
+      await events.append({
+        ...event,
+        sessionId: SESSION_ID,
+        turnId: PLAN_TURN,
+        createdAt: "2026-08-16T11:00:00.000Z",
+      } as PendingEvent);
+    await seedLog(
+      {
+        type: "user.message",
+        payload: {
+          text: "Approved. Build this plan.",
+          plan: { intent: "approve", planTurnId: PLAN_TURN },
+        },
+      },
+      started(plan.title),
+      committed(COMMIT_SHA),
+      ...redRound(),
+    );
+    green();
+    const context = new StubContextEngine();
+
+    await open(RESUME_TURN, context);
+
+    expect(agent.calls).toBe(1);
+    expect(context.requests.map((request) => request.job?.plan)).toEqual([plan]);
   });
 });
 

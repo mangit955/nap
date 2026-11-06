@@ -41,6 +41,12 @@ export async function runCommand(
   // sent. The rules live in ../safety/commands.ts; the check is made at this chokepoint so
   // no caller can reach the sandbox around it, and so a refusal comes back as an ordinary
   // failed result the model can read and work with.
+  if (ctx.planning === true)
+    return {
+      ok: false,
+      output:
+        "Commands are not available in plan mode. Use read_file, list_files, glob and search_files to investigate before proposing a plan.",
+    };
   const verdict = inspectCommand(args.command);
   if (!verdict.allowed) return { ok: false, output: verdict.message };
 

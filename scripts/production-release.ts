@@ -17,9 +17,9 @@ const VercelDeploy = z.object({
   meta: z.object({ githubCommitSha: z.string() }),
 });
 const services = [
+  ["worker", "srv-dbc2vg3rjlhs73al1lng"],
   ["api", "srv-dbc2u5m1egvs739agesg"],
   ["reaper", "srv-dbc2vg8n74is73f6cg10"],
-  ["worker", "srv-dbc2vg3rjlhs73al1lng"],
 ] as const;
 const project = "prj_Bq52DMps37jGzCZCoZW9K8puDUeV";
 const teamQuery = "?teamId=team_wMX8jYWlNAfotw26ahY1ldcJ";
@@ -69,12 +69,23 @@ export async function releaseProduction(input: unknown, overrides: Partial<Relea
   vercel.parse(
     await request(`https://api.vercel.com/v9/projects/${project}${teamQuery}`, config.vercelToken),
   );
-  for (const [, id] of services) {
-    z.object({ autoDeploy: z.literal("no") }).parse(
-      await request(`https://api.render.com/v1/services/${id}`, config.renderKey),
-    );
+  for (const [name, id] of services) {
+    const service = await request(`https://api.render.com/v1/services/${id}`, config.renderKey);
+    z.object({ autoDeploy: z.literal("no") }).parse(service);
+    // Blueprint changes are not applied by Trigger Deploy. Refuse before any deployment if the
+    // existing worker cannot migrate first; otherwise it boots against the old queue schema.
+    if (name === "worker")
+      z.object({
+        serviceDetails: z.object({
+          envSpecificDetails: z.object({
+            preDeployCommand: z.literal("bun packages/db/scripts/migrate.ts"),
+          }),
+        }),
+      }).parse(service);
   }
 
+  // The worker must finish replacing old processes before the API can admit new request shapes.
+  // Render completes a deploy only after old instances have shut down (docs/DEPLOY.md).
   for (const [name, id] of services) {
     const base = `https://api.render.com/v1/services/${id}/deploys`;
     const recent = z

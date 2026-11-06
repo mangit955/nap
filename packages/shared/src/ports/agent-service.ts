@@ -51,6 +51,12 @@ export type AgentTurnRequest = {
    * from any other, and only the caller that composed it knows where it came from.
    */
   promptSource?: PromptSource | undefined;
+  /**
+   * `plan` runs the turn in plan mode: read-only tools, and it ends by proposing a plan rather
+   * than changing anything (ADR-0025). Absent is an ordinary turn. Chosen per prompt by whoever
+   * sent it, so it is carried like `promptSource` rather than configured on the service.
+   */
+  mode?: "plan" | undefined;
   /** Called for each event as it happens, before it has been persisted. */
   onEvent: (event: PendingEvent) => void;
   /** Cancellation mid-turn must stop tool execution, not just ignore the result. */
@@ -81,7 +87,8 @@ export type AgentTurnRequest = {
    * turn changed no files".
    *
    * Absent, the turn completes with no commit, which is what a caller that does not
-   * version the workspace means.
+   * version the workspace means. Not called for a turn that ended awaiting approval of a plan:
+   * nothing was meant to change, so there is nothing to commit.
    */
   finalize?: () => Promise<{ commitSha: string | null }>;
 };

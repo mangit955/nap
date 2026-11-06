@@ -1048,3 +1048,74 @@ function textOfResult(message: LLMMessage | undefined): string {
     )
     .join("\n");
 }
+
+describe("a plan mode turn", () => {
+  const proposal = (id = "plan") =>
+    call("propose_plan", { title: "Dark theme", plan: "1. Add tokens\n2. Swap colours" }, id);
+
+  it("offers only the tools that look, ask or propose", async () => {
+    const { agent, provider } = run([[{ toolCalls: [proposal()] }]]);
+    await agent.runTurn(request({ mode: "plan" }));
+    const offered = provider.requests[0]?.tools.map((tool) => tool.name) ?? [];
+    expect(offered).toContain("propose_plan");
+    for (const name of ["write_file", "edit_file", "apply_patch", "todo_write", "shell_kill"])
+      expect(offered).not.toContain(name);
+  });
+
+  it("ends on the proposal awaiting approval, and never runs the commit it was handed", async () => {
+    let finalized = false;
+    const { agent, provider } = run([[{ toolCalls: [proposal()] }]]);
+
+    await agent.runTurn(
+      request({
+        mode: "plan",
+        finalize: async () => {
+          finalized = true;
+          return { commitSha: "deadbeef" };
+        },
+      }),
+    );
+
+    expect(provider.requests).toHaveLength(1);
+    expect(types().filter((type) => type !== "tool.call" && type !== "tool.result")).toEqual([
+      "turn.started",
+      "plan.proposed",
+      "turn.completed",
+    ]);
+    expect(payloads("turn.completed")[0]).toMatchObject({
+      commitSha: null,
+      awaiting: "plan_approval",
+    });
+    expect(finalized).toBe(false);
+    for (const event of events)
+      expect(NapEventSchema.safeParse({ ...event, seq: 0 }).success).toBe(true);
+  });
+
+  it("refuses an edit the model asks for anyway, and the file is untouched", async () => {
+    const { agent } = run([
+      [
+        { toolCalls: [call("write_file", { path: APP, contents: "changed\n" }, "w")] },
+        { toolCalls: [proposal()] },
+      ],
+    ]);
+    await agent.runTurn(request({ mode: "plan" }));
+    expect(payloads("tool.result")[0]).toMatchObject({ toolName: "write_file", ok: false });
+    const app = await manager.readFile(sandboxId, APP);
+    expect(app.ok && app.value).toBe("app\n");
+  });
+
+  it("is reminded once to propose when it tries to stop without a plan, then may stop", async () => {
+    const { agent, provider } = run([[{ text: "Looks fine." }, { text: "Nothing to change." }]]);
+    await agent.runTurn(request({ mode: "plan" }));
+    expect(provider.requests).toHaveLength(2);
+    expect(textOf(provider.requests[1]?.messages.at(-1))).toMatch(/propose_plan/);
+    expect(payloads("turn.completed")[0]).not.toHaveProperty("awaiting");
+  });
+
+  it("leaves an ordinary turn's commit and outcome as they were", async () => {
+    const { agent } = run([[{ text: "Done." }]]);
+    await agent.runTurn(request({ finalize: async () => ({ commitSha: "abc123" }) }));
+    expect(payloads("turn.completed")[0]).toMatchObject({ commitSha: "abc123" });
+    expect(payloads("turn.completed")[0]).not.toHaveProperty("awaiting");
+  });
+});

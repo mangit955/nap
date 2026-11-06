@@ -1,3 +1,4 @@
+import { PlanIntentSchema } from "@nap/shared/agent-plan";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 /**
  * The turn queue in Postgres — one in-flight request per session, cluster-wide.
@@ -102,6 +103,7 @@ export class PostgresTurnQueue implements TurnQueue {
       kind: request.kind,
       message: request.message,
       attachments: request.attachments ?? null,
+      plan: request.plan ?? null,
       model: request.model,
       billsToUser: request.billsToUser,
     });
@@ -264,6 +266,7 @@ export class PostgresTurnQueue implements TurnQueue {
           ...(leased.attachments === null
             ? {}
             : { attachments: MediaAttachmentsSchema.parse(leased.attachments) }),
+          ...(leased.plan === null ? {} : { plan: PlanIntentSchema.parse(leased.plan) }),
           model: leased.model,
           billsToUser: leased.billsToUser,
         },

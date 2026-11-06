@@ -13,7 +13,7 @@ const TOOLS = `read      read_file
 edit      write_file · edit_file · apply_patch (GPT models)
 search    list_files · glob · search_files
 execute   run_command · shell_output · shell_input · shell_kill
-plan      todo_write
+plan      todo_write · propose_plan (plan mode)
 ask       ask_user
 delegate  run_subagent · read_subagent (imported repositories)
 computer  computer (image models, when a desktop is composed)
@@ -48,6 +48,30 @@ export function Sandbox() {
         test can only look, a repair has nobody to answer a question, and a model is offered the
         editing format it was trained on. Reads run side by side; anything that changes the project
         runs alone, in order. A file has to be read in a turn before that turn may change it.
+      </P>
+
+      <P>
+        A person can also ask for a plan first. A turn sent in <Term>plan mode</Term> is offered
+        only the tools that look: file reads, searches, questions, and helpers that cannot write,
+        plus <Code>propose_plan</Code>. The narrowing is enforced when a call runs, not only in what
+        the model is shown. Edits and commands are refused and logged. Even a command that looks
+        like a read may run a program chosen by the repository's configuration, so planning uses the
+        dedicated file tools instead. The turn ends on the proposal (a title and up to 12,000
+        characters of Markdown), opens no job, commits nothing and is not snapshotted. If the model
+        tries to stop without proposing, it is reminded once.
+      </P>
+
+      <P>
+        The plan appears in the chat as a card. Approving it sends a message naming the turn that
+        proposed it; that turn opens a job named for the plan, and every turn of the job, repairs
+        included, carries the approved plan in its turn context, never cut to fit. Asking for
+        changes sends another plan mode message, and so does answering a question the planning turn
+        asked. Whether a plan is waiting, approved, revised or set aside is not stored anywhere: it
+        is whatever the next message did, folded from the event log. The card and the server both
+        use that fold, so an approval of a plan that has already been settled is refused on
+        admission and again under the lease, and settles nothing. If the turn that approved a plan
+        fails, the plan waits again and can be approved again, unless a newer request has replaced
+        it.
       </P>
 
       <P>

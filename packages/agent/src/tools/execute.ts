@@ -25,7 +25,7 @@ import { TOOL_KINDS } from "@nap/shared/tool-kinds";
 import type { z } from "zod";
 import { runComputer } from "./computer.ts";
 import { emit, type ToolContext, type ToolHandler, type ToolOutcome } from "./context.ts";
-import { askUser, todoWrite } from "./conversation.ts";
+import { askUser, proposePlan, todoWrite } from "./conversation.ts";
 import { TOOL_SCHEMAS, type ToolArgs } from "./definitions.ts";
 import { readSubagent, runSubagent } from "./delegate.ts";
 import { editFile, listFiles, readFile, writeFile } from "./files.ts";
@@ -68,6 +68,7 @@ const HANDLERS: { [K in ToolName]: ToolHandler<ToolArgs<K>> } = {
   ask_user: askUser,
   run_subagent: runSubagent,
   read_subagent: (args, _call, ctx) => readSubagent(args, ctx),
+  propose_plan: proposePlan,
 };
 
 /** The registry's schemas, seen through the same mapping the handlers are. */
@@ -100,9 +101,11 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
       ? undefined
       : ctx.testMode
         ? "App tests can read source and use the computer. Source changes and commands require a separate repair turn."
-        : TOOL_KINDS[name.data] === "ask"
-          ? "Nobody can answer a question from here. Decide on the most reasonable reading of what you were asked, and continue."
-          : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
+        : ctx.planning
+          ? `${name.data} is not available in plan mode, which changes nothing until the person approves a plan. Read what you need, then call propose_plan. Available tools: ${[...ctx.offered].join(", ")}.`
+          : TOOL_KINDS[name.data] === "ask"
+            ? "Nobody can answer a question from here. Decide on the most reasonable reading of what you were asked, and continue."
+            : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
 
   emit(ctx, {
     type: "tool.call",

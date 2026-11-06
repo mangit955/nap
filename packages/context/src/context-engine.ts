@@ -50,7 +50,12 @@ import { TOOL_KINDS, type ToolKind } from "@nap/shared/tool-kinds";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
-import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
+import {
+  PLAN_MODE_PROMPT,
+  REPOSITORY_SYSTEM_PROMPT,
+  renderApprovedPlan,
+  SYSTEM_PROMPT,
+} from "./system-prompt.ts";
 import { estimateTokens } from "./tokens.ts";
 
 /**
@@ -501,6 +506,12 @@ export class NapContextEngine implements ContextEngine {
     if (mediaTokens + MIN_BUDGET_TOKENS > this.#budgetTokens)
       throw new Error("Attachments exceed the context budget. Send fewer images.");
     let attempts: readonly FailedAttempt[] = request.job?.attempts ?? [];
+    /**
+     * What this turn's mode adds to the prompt. Never cut: a planning turn that forgot it was
+     * planning, or a job that forgot the plan it was approved to build, is the failure plan mode
+     * exists to prevent (ADR-0025).
+     */
+    const approved = request.job?.plan === undefined ? "" : renderApprovedPlan(request.job.plan);
     /** A ceiling on each quoted failure. Uncapped until the last resort below applies one. */
     let outputTokens: number | undefined;
 
@@ -512,9 +523,12 @@ export class NapContextEngine implements ContextEngine {
      * tells the model something it has just been told. Compared trimmed, because an objective
      * is a tidied copy of the message and whitespace is not a difference worth a section.
      */
+    // Also nothing on the opening turn of a job that carries out a plan: the plan section below
+    // says what was asked, at length, and an objective that repeats its title adds nothing.
     const brief = (): string =>
       request.job === undefined ||
-      (attempts.length === 0 && request.job.objective === request.userMessage.trim())
+      (attempts.length === 0 &&
+        (request.job.objective === request.userMessage.trim() || request.job.plan !== undefined))
         ? ""
         : renderJobBrief({
             objective: request.job.objective,
@@ -522,10 +536,11 @@ export class NapContextEngine implements ContextEngine {
             ...(outputTokens === undefined ? {} : { outputTokens }),
           });
 
-    const instructions = basePrompt(request.workspace);
+    const trusted = basePrompt(request.workspace);
+    const instructions = request.mode === "plan" ? `${trusted}\n\n${PLAN_MODE_PROMPT}` : trusted;
     const cost = (): number =>
       estimateTokens(instructions) +
-      estimateTokens(turnContext(digest, remembered, brief())) +
+      estimateTokens(turnContext(digest, remembered, brief(), approved)) +
       messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
@@ -588,7 +603,8 @@ export class NapContextEngine implements ContextEngine {
       // a quote can never be what silences the instruction the turn is actually carrying.
       outputTokens = 0;
       const floor =
-        estimateTokens(instructions) + estimateTokens(turnContext(digest, remembered, brief()));
+        estimateTokens(instructions) +
+        estimateTokens(turnContext(digest, remembered, brief(), approved));
       outputTokens = Math.max(
         this.#budgetTokens -
           floor -
@@ -619,12 +635,12 @@ export class NapContextEngine implements ContextEngine {
           ...history,
           { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
         ];
-    const context = turnContext(digest, remembered, brief());
+    const context = turnContext(digest, remembered, brief(), approved);
     if (context !== "") appendToLastUserMessage(messages, context);
 
     return {
       systemPrompt: instructions,
-      trustedInstructions: instructions,
+      trustedInstructions: trusted,
       budgetTokens: this.#budgetTokens,
       needsCompaction,
       messages,
@@ -670,7 +686,7 @@ function basePrompt(workspace?: "repository"): string {
  * anyway. It is also not trusted instructions: file names and quoted check output are project
  * data, and the user's role is the honest place for them.
  */
-function turnContext(digest: string, memories: Memory[], job: string): string {
+function turnContext(digest: string, memories: Memory[], job: string, approved: string): string {
   const sections: string[] = [];
 
   if (digest !== "") {
@@ -680,6 +696,9 @@ function turnContext(digest: string, memories: Memory[], job: string): string {
   if (job !== "") {
     sections.push(job);
   }
+
+  // Beside the job it belongs to, and constant across every turn of it.
+  if (approved !== "") sections.push(approved);
 
   // Absent, not empty, when there is nothing to say — an empty section is a section the
   // model reads on every turn in exchange for nothing.

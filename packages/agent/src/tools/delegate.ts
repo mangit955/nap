@@ -17,6 +17,12 @@ export async function runSubagent(
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
   if (ctx.subagents === undefined) return UNAVAILABLE;
+  // A plan mode turn changes nothing, and a helper it starts is no exception (ADR-0025).
+  if (ctx.planning === true && args.profile !== "explore")
+    return {
+      ok: false,
+      output: "Plan mode can only start explore helpers, which read and change nothing.",
+    };
   // A helper that writes runs while the agent waits, like any other write: in the background it
   // would be editing the tree at the same moment as the agent that started it.
   if (args.background === true && args.profile !== "explore")

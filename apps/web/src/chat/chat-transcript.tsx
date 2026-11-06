@@ -1,5 +1,6 @@
 "use client";
 
+import type { PlanIntent } from "@nap/shared/agent-plan";
 import type { MediaAttachment } from "@nap/shared/media";
 
 /**
@@ -26,7 +27,7 @@ import { ComputerNavigation } from "../computer/navigation.tsx";
 import { ScreenshotCard } from "../computer/screenshot-card.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
-import { PlanCard, QuestionCard } from "./agent-cards.tsx";
+import { type PlanActions, PlanCard, ProposedPlanCard, QuestionCard } from "./agent-cards.tsx";
 import { ChangedFilesCard } from "./changed-files-card.tsx";
 import { ChatMarkdown, ProjectFiles } from "./chat-markdown.tsx";
 import { CompactionRow } from "./compaction-row.tsx";
@@ -46,6 +47,16 @@ import {
 type TurnEnd = Extract<TranscriptItem, { kind: "turn-end" }>;
 type FailedTurn = Extract<TurnEnd, { outcome: "failed" }>;
 
+/**
+ * Sends a failed turn's prompt again. The plan intent goes with it, so a plan mode turn retried is
+ * still a plan mode turn rather than a build nobody approved.
+ */
+export type RetryHandler = (
+  message: string,
+  attachments?: MediaAttachment[],
+  plan?: PlanIntent,
+) => void;
+
 export function ChatTranscript({
   items,
   running = false,
@@ -53,6 +64,7 @@ export function ChatTranscript({
   startedAt,
   onRetry,
   onAnswer,
+  planActions,
   files = [],
   onOpenFile,
   onOpenChanges,
@@ -79,9 +91,11 @@ export function ChatTranscript({
   /** When the server says the open turn began. Absent until `turn.started` arrives. */
   startedAt?: string | undefined;
   /** Re-sends a failed turn's message. Absent means no retry is offered, not a broken button. */
-  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onRetry?: RetryHandler | undefined;
   /** Sends a question's chosen answer as the next message. Absent, a question cannot be clicked. */
   onAnswer?: ((text: string) => void) | undefined;
+  /** Approving or revising a proposed plan. Absent, a plan card can be read but not acted on. */
+  planActions?: PlanActions | undefined;
   /** The project's files, so a path in a reply can become a chip that opens it. */
   files?: readonly string[] | undefined;
   /** Opens a file in the Code tab. Absent, a path is still a chip, just not a button. */
@@ -157,6 +171,9 @@ export function ChatTranscript({
             <div key={row.id} className={spacingBefore(row, before)}>
               <Row
                 busy={running}
+                // A card's click is a message, and one already on its way has not reached the log:
+                // until it does the card still looks open, and a second click would send it twice.
+                answering={running || pending}
                 row={row}
                 live={row.kind === "item" && row.item.key === liveKey}
                 compactionFailure={
@@ -164,6 +181,7 @@ export function ChatTranscript({
                 }
                 onRetry={onRetry}
                 onAnswer={onAnswer}
+                planActions={planActions}
                 onToggleFold={(id) => toggle(setOpenFolds, id)}
                 onToggleGroup={(id) => toggle(setOpenGroups, id)}
               />
@@ -209,20 +227,25 @@ function spacingBefore(row: TimelineRow, previous: TimelineRow | undefined): str
 
 function Row({
   busy,
+  answering,
   row,
   live,
   compactionFailure,
   onRetry,
   onAnswer,
+  planActions,
   onToggleFold,
   onToggleGroup,
 }: {
   busy: boolean;
+  /** Whether a message is in flight or running, so a card must not send another. */
+  answering: boolean;
   row: TimelineRow;
   live: boolean;
   compactionFailure: FailedTurn | undefined;
-  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onRetry?: RetryHandler | undefined;
   onAnswer?: ((text: string) => void) | undefined;
+  planActions?: PlanActions | undefined;
   onToggleFold: (id: string) => void;
   onToggleGroup: (id: string) => void;
 }) {
@@ -231,11 +254,13 @@ function Row({
       return (
         <Item
           busy={busy}
+          answering={answering}
           item={row.item}
           live={live}
           compactionFailure={compactionFailure}
           onRetry={onRetry}
           onAnswer={onAnswer}
+          planActions={planActions}
         />
       );
     case "work-entry":
@@ -262,19 +287,23 @@ function Row({
 
 function Item({
   busy,
+  answering,
   item,
   live,
   onRetry,
   onAnswer,
+  planActions,
   compactionFailure,
 }: {
   busy: boolean;
+  answering: boolean;
   item: PassThroughItem;
   compactionFailure?: FailedTurn | undefined;
   /** Whether this item can still be added to. Only ever true of the last one, mid-turn. */
   live: boolean;
-  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onRetry?: RetryHandler | undefined;
   onAnswer?: ((text: string) => void) | undefined;
+  planActions?: PlanActions | undefined;
 }) {
   switch (item.kind) {
     case "app-test":
@@ -335,6 +364,11 @@ function Item({
                 </p>
               </div>
             ))}
+            {item.plan !== undefined && (
+              <p className="mb-1 font-medium text-[11px] text-accent-ink uppercase tracking-wide">
+                {item.plan.intent === "propose" ? "Plan mode" : "Approved plan"}
+              </p>
+            )}
             <p className="whitespace-pre-wrap">
               {/*
               Read aloud but not drawn: the two speakers are told apart visually by position and
@@ -431,6 +465,18 @@ function Item({
     case "plan":
       return <PlanCard items={item.items} />;
 
+    case "proposed-plan":
+      return (
+        <ProposedPlanCard
+          turnId={item.turnId}
+          title={item.title}
+          plan={item.plan}
+          status={item.status}
+          busy={answering}
+          actions={planActions}
+        />
+      );
+
     case "question":
       return (
         <QuestionCard
@@ -438,8 +484,10 @@ function Item({
           options={item.options}
           multiSelect={item.multiSelect}
           answer={item.answer}
-          busy={busy}
-          onAnswer={onAnswer}
+          busy={answering}
+          // A plan mode turn's question is answered in plan mode: the person asked for nothing
+          // to be built, and an option clicked instead of typed must not quietly change that.
+          onAnswer={item.planning ? planActions?.propose : onAnswer}
         />
       );
   }
@@ -538,7 +586,7 @@ function TurnFailure({
   insideCompaction = false,
 }: {
   item: FailedTurn;
-  onRetry?: ((message: string, attachments?: MediaAttachment[]) => void) | undefined;
+  onRetry?: RetryHandler | undefined;
   insideCompaction?: boolean;
 }) {
   const message = item.retryMessage;
@@ -577,9 +625,11 @@ function TurnFailure({
         <button
           type="button"
           onClick={() =>
-            item.retryAttachments === undefined
-              ? onRetry(message)
-              : onRetry(message, item.retryAttachments)
+            item.retryPlan !== undefined
+              ? onRetry(message, item.retryAttachments, item.retryPlan)
+              : item.retryAttachments === undefined
+                ? onRetry(message)
+                : onRetry(message, item.retryAttachments)
           }
           className={`mt-1.5 self-start rounded-chip border border-edge px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${insideCompaction ? "min-h-8" : ""}`}
         >

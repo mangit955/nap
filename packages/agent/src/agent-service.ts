@@ -43,6 +43,7 @@ import { CANCELLED, pause, stopAware } from "./cancellation.ts";
 import { DeltaStream } from "./delta-stream.ts";
 import { DirectoryRules } from "./hooks/directory-rules.ts";
 import type { TurnHook } from "./hooks/hook.ts";
+import { PlanMode } from "./hooks/plan-mode.ts";
 import { PlanTracking } from "./hooks/plan-tracking.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
 import { appendText, SubagentPool } from "./subagents.ts";
@@ -149,6 +150,8 @@ class Turn {
   #nativeContext = false;
   #nativeUsage = { inputTokens: 0, outputTokens: 0 };
   #usageIncomplete = false;
+  /** Set when the batch that ended the turn was waiting on the person, as a proposal is. */
+  #awaiting: "plan_approval" | undefined;
 
   constructor(
     request: AgentTurnRequest,
@@ -201,6 +204,7 @@ class Turn {
         includeRoot: request.context.rootRules === true,
       }),
       ...(this.#offered.has("todo_write") ? [new PlanTracking()] : []),
+      ...(request.mode === "plan" ? [new PlanMode()] : []),
       ...(options.hooks?.(request) ?? []),
     ];
   }
@@ -720,6 +724,7 @@ class Turn {
     this.#messages.push({ role: "user", content: results });
     this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(this.#messages));
 
+    this.#awaiting = outcomes.find((outcome) => outcome.ok && outcome.awaits !== undefined)?.awaits;
     return outcomes.some((outcome) => outcome.endsTurn === true) ? "ended" : "continue";
   }
 
@@ -740,8 +745,10 @@ class Turn {
     // Helpers nobody collected stop here, before the commit, so nothing they do lands after it.
     await this.#helpers?.settle();
     // Awaited before the event rather than after, so a turn is never reported done while
-    // the work it did is still uncommitted.
-    const finalized = await this.#request.finalize?.();
+    // the work it did is still uncommitted. A turn that ended on a proposal was not meant to
+    // change anything, and its commit is the caller's to skip as well as this one's (ADR-0025).
+    const finalized =
+      this.#awaiting === undefined ? await this.#request.finalize?.() : { commitSha: null };
     const helpers = this.#helpers?.usage() ?? { inputTokens: 0, outputTokens: 0 };
 
     this.#emit({
@@ -758,6 +765,7 @@ class Turn {
         },
         durationMs: this.#clock() - this.#startedAt,
         commitSha: finalized?.commitSha ?? null,
+        ...(this.#awaiting === undefined ? {} : { awaiting: this.#awaiting }),
       },
     });
   }
@@ -793,6 +801,7 @@ class Turn {
       sandboxId: this.#request.sandboxId,
       sandbox: this.#request.sandbox,
       testMode: this.#request.promptSource === "test",
+      planning: this.#request.mode === "plan",
       offered: this.#offered,
       ledger: this.#ledger,
       subagents: this.#helpers,
@@ -809,6 +818,7 @@ class Turn {
       family: modelFamily(this.#model),
       computer: this.#request.computer !== undefined && modelSupportsImages(this.#model),
       subagents: this.#request.context.subagentPrompts !== undefined,
+      mode: this.#request.mode,
     };
   }
 

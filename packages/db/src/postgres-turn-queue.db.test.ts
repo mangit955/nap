@@ -140,6 +140,26 @@ describe("enqueue", () => {
     expect(leased?.attachments).toEqual(attachments);
   });
 
+  it("round-trips a prompt's plan intent through a database lease, and leaves an ordinary one without", async () => {
+    const seed = await seedSession();
+    const plan = { intent: "approve" as const, planTurnId: crypto.randomUUID() };
+    await enqueueRequest(queue, {
+      ...seed,
+      kind: "turn",
+      message: "Approved. Build this plan.",
+      model: "anthropic/claude-opus-5",
+      billsToUser: false,
+      plan,
+    });
+    const leased = await queue.claim("plan-worker");
+    expect(leased?.plan).toEqual(plan);
+    if (leased) await queue.settle(leased.id, "plan-worker", "done");
+
+    await enqueueTurn(seed);
+    const ordinary = await queue.claim("plan-worker");
+    expect(ordinary).not.toHaveProperty("plan");
+  });
+
   it("writes a queued request under the id it was given", async () => {
     const seed = await seedSession();
     const { id } = await enqueueTurn(seed);

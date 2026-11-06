@@ -62,7 +62,7 @@ const FIRST_PROMPT = {
 };
 
 /** Every turn the pane asked for, so "the retry went through `submit`" is a countable thing. */
-let turns: { message: string; model?: string }[] = [];
+let turns: { message: string; model?: string; plan?: unknown }[] = [];
 
 /** A server that answers the three requests this pane makes on mount, and accepts a turn. */
 const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
@@ -73,7 +73,11 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
   if (url.includes("/account/api-key")) return json({ present: false });
   if (url.includes("/turns")) {
     if (init?.method !== "POST") return json({ id: url.split("/").at(-1), state: "queued" });
-    const body = JSON.parse(String(init?.body ?? "{}")) as { message: string; model?: string };
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      message: string;
+      model?: string;
+      plan?: unknown;
+    };
     turns.push(body);
     return json({ accepted: true, requestId: "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f" }, 202);
   }
@@ -104,6 +108,200 @@ beforeEach(() => {
   turns = [];
   window.sessionStorage.clear();
   window.localStorage.clear();
+});
+
+describe("LiveChatPane in plan mode", () => {
+  const PLAN_TURN = "00000000-0000-4000-8000-0000000000aa";
+  const NEXT_TURN = "00000000-0000-4000-8000-0000000000bb";
+  const LATE_TURN = "00000000-0000-4000-8000-0000000000cc";
+
+  /** A log whose last turn proposed a plan and ended waiting on it. */
+  function awaitingPlan(): SessionLog {
+    const events = [
+      ev("user.message", { text: "add a dark theme", plan: { intent: "propose" } }, 1, {
+        turnId: PLAN_TURN,
+      }),
+      ev("turn.started", { source: "user" }, 2, { turnId: PLAN_TURN }),
+      ev("plan.proposed", { toolCallId: "plan", title: "Dark theme", plan: "1. Tokens" }, 3, {
+        turnId: PLAN_TURN,
+      }),
+      ev(
+        "turn.completed",
+        {
+          usage: { inputTokens: 1, outputTokens: 1 },
+          durationMs: 1,
+          commitSha: null,
+          awaiting: "plan_approval",
+        },
+        4,
+        { turnId: PLAN_TURN },
+      ),
+    ];
+    return { ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) };
+  }
+
+  it("sends an approval that names the plan's turn", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={awaitingPlan()} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve plan" }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]?.plan).toEqual({ intent: "approve", planTurnId: PLAN_TURN });
+  });
+
+  it("sends requested changes as another request for a plan", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={awaitingPlan()} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Request changes" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "What should change?" }), {
+      target: { value: "keep light as default" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send changes" }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]).toMatchObject({
+      message: "keep light as default",
+      plan: { intent: "propose" },
+    });
+  });
+
+  it("sends a message typed with plan mode on as a request for a plan", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Plan mode" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "add search" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]).toMatchObject({ message: "add search", plan: { intent: "propose" } });
+  });
+
+  /** A log whose last turn asked a question and ended, in plan mode or not. */
+  function asked(plan: boolean): SessionLog {
+    const events = [
+      ev(
+        "user.message",
+        { text: "add auth", ...(plan ? { plan: { intent: "propose" } } : {}) },
+        1,
+        {
+          turnId: PLAN_TURN,
+        },
+      ),
+      ev("turn.started", { source: "user" }, 2, { turnId: PLAN_TURN }),
+      ev(
+        "agent.question",
+        {
+          toolCallId: "q1",
+          question: "Which provider?",
+          options: [
+            { label: "Email", description: null },
+            { label: "GitHub", description: null },
+          ],
+          multiSelect: false,
+        },
+        3,
+        { turnId: PLAN_TURN },
+      ),
+      ev(
+        "turn.completed",
+        { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 1, commitSha: null },
+        4,
+        { turnId: PLAN_TURN },
+      ),
+    ];
+    return { ...failedTurn(), events, lastSeq: 4, jobs: jobView(events) };
+  }
+
+  it("answers a question a plan mode turn asked as another plan mode turn, never as a build", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={asked(true)} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: /GitHub/ }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]).toMatchObject({ message: "GitHub", plan: { intent: "propose" } });
+  });
+
+  it("answers an ordinary question as an ordinary turn", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={asked(false)} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: /GitHub/ }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]?.message).toBe("GitHub");
+    expect(turns[0]?.plan).toBeUndefined();
+  });
+
+  it("offers the plan again when the turn approving it failed, and its retry approves it", async () => {
+    const base = awaitingPlan();
+    const events = [
+      ...base.events,
+      ev(
+        "user.message",
+        { text: "Approved. Build this plan.", plan: { intent: "approve", planTurnId: PLAN_TURN } },
+        5,
+        { turnId: NEXT_TURN },
+      ),
+      ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 6, {
+        turnId: NEXT_TURN,
+      }),
+    ];
+    const log = { ...base, events, lastSeq: 6, jobs: jobView(events) };
+    render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={fetchJson} />);
+    expect(await screen.findByRole("button", { name: "Approve plan" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]?.plan).toEqual({ intent: "approve", planTurnId: PLAN_TURN });
+  });
+
+  it("offers no retry of an approval whose plan is no longer waiting, which could only be refused", async () => {
+    const base = awaitingPlan();
+    const events = [
+      ...base.events,
+      ev("user.message", { text: "something else" }, 5, { turnId: NEXT_TURN }),
+      ev(
+        "turn.completed",
+        { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 1, commitSha: null },
+        6,
+        { turnId: NEXT_TURN },
+      ),
+      ev(
+        "user.message",
+        { text: "Approved. Build this plan.", plan: { intent: "approve", planTurnId: PLAN_TURN } },
+        7,
+        { turnId: LATE_TURN },
+      ),
+      ev("turn.failed", { reason: "internal", message: "That plan was no longer waiting." }, 8, {
+        turnId: LATE_TURN,
+      }),
+    ];
+    const log = { ...base, events, lastSeq: 8, jobs: jobView(events) };
+    render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={fetchJson} />);
+    expect(await screen.findByText("That plan was no longer waiting.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve plan" })).toBeNull();
+  });
+
+  it("cannot approve twice while the first approval is still on its way", async () => {
+    const hanging = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.includes("/turns") && init?.method === "POST") {
+        turns.push(JSON.parse(String(init.body ?? "{}")));
+        return new Promise<Response>(() => {});
+      }
+      return fetchJson(url, init);
+    };
+    render(<LiveChatPane sessionId={SESSION_ID} log={awaitingPlan()} fetchJson={hanging} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve plan" }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    const again = screen.getByRole("button", { name: "Approve plan" });
+    expect(again).toBeDisabled();
+    fireEvent.click(again);
+    expect(turns).toHaveLength(1);
+  });
+
+  it("retries a failed plan mode turn as a plan mode turn, never as a build", async () => {
+    const events = [
+      ev("user.message", { text: "add search", plan: { intent: "propose" } }, 1),
+      ev("turn.started", { source: "user" }, 2),
+      ev("turn.failed", { reason: "sandbox_unavailable", message: "no capacity" }, 3),
+    ];
+    const log = { ...failedTurn(), events, jobs: jobView(events) };
+    render(<LiveChatPane sessionId={SESSION_ID} log={log} fetchJson={fetchJson} />);
+    fireEvent.click(await screen.findByRole("button", { name: /try again/i }));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]).toMatchObject({ message: "add search", plan: { intent: "propose" } });
+  });
 });
 
 describe("LiveChatPane", () => {

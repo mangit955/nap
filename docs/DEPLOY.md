@@ -66,9 +66,23 @@ uses Vercel's deployment API with an explicit SHA instead of a branch-based depl
 another merge cannot change which frontend is deployed.
 
 `scripts/production-release.ts` checks both providers' credentials and confirms all three
-Render services have auto-deploy disabled before changing anything. It waits for the API to
-be live and `/readyz` to report `ok`, then waits for the reaper and worker before starting
-Vercel. It verifies each deployed commit and waits for Vercel to reach `READY`. Each deployment
+Render services have auto-deploy disabled before changing anything. It also requires the worker's
+Pre-Deploy Command to be `bun packages/db/scripts/migrate.ts`, read from Render's service
+configuration rather than assumed from `render.yaml`. Before merging this release, set that
+command on `nap-worker` in Render Settings. Triggering a deploy does not apply Blueprint changes;
+without this setting, the script stops before deploying any service.
+
+The script deploys the worker first. Its pre-deploy command applies pending migrations before
+new workers boot. It waits for that deployment to be `live`, then deploys the API, waits for
+`/readyz` to report `ok`, deploys the reaper, and starts Vercel. The API retains the same
+idempotent migration command as a safeguard for manual API deploys.
+[Render's deployment sequence](https://render.com/docs/deploys#zero-downtime-deploys) shuts down
+old instances before completing the deployment, including forced termination after the shutdown
+delay. Waiting for the worker deploy to complete therefore removes old claimers before the new
+API can admit a plan intent. This relies on Render's lifecycle contract; fakes test the order
+and wait, not the hosted shutdown behavior.
+
+The script verifies each deployed commit and waits for Vercel to reach `READY`. Each deployment
 has a twenty-minute timeout. A failed step stops the release; earlier successful steps remain
 deployed. Investigate the failed service before retrying. No database rollback runs automatically.
 
@@ -609,3 +623,29 @@ Existing VMs do not receive a rebuilt template. Close and reopen a project throu
 Prevent mixed old/new claim code while enabling scoped input. Block owner input at ingress, stop and drain all old workers, and wait for their exit. Deploy the migration and matching API, reaper, and worker code before reopening owner input. Pending queue requests may wait. Do not clear a reservation to expedite rollout, or delete one by hand: when a machine is gone for good, its owner abandons it from the chat, which also forgets the machine so it is never given input again, and loses anything not in the project's last snapshot. Before a machine's first reservation, input asks its driver which protocol it speaks. A VM created before scoped input could never drain a reservation, so it gets no reservation and no input, and the project otherwise keeps working; close and reopen it to get a machine with the new driver. Existing VMs do not receive a new driver by publishing a template. Production publication and integrated cloud validation remain separate approval gates.
 
 The desktop runtime uses Python 3 and libX11/libXtst for fixed full-keyboard and button release and state queries. These are explicit template dependencies. Verify the real installed input binary retains the inherited descriptor with the L2 production-driver probe before claiming the mechanism works. Cooperative fixed input programs, not arbitrary processes, are the containment boundary. Local time budgets do not expire admission reservations.
+
+## Plan mode rollout
+
+Plan mode adds the `turn_requests.plan` column (migration 0017), one event type (`plan.proposed`)
+and two optional payload fields (`user.message.plan`, `turn.completed.awaiting`). Every reader parses
+events strictly, so an old process or an open old browser tab rejects the new shapes. Old rows still
+parse, because both fields are optional.
+
+The danger runs the other way too. An old worker claims a queued request without reading the
+`plan` column, so it would run a plan mode request as an ordinary turn with every tool, and an
+approval as a build with no plan in its prompt. Once the new API is up, anything can send a plan
+intent, so no old worker may still be claiming by then.
+
+For Render, configure the worker migration command before merging, as described in the release
+procedure above. CI then enforces migration and worker replacement before API admission. Its
+preflight refuses a missing or different migration command before any deploy. For a manual or
+non-Render rollout:
+
+1. Apply migration 0017. The column is nullable, so the old API and old workers carry on.
+2. Stop and drain every old worker as in the repair ownership rollout above, then deploy the new
+   workers. They write the new shapes only when handed a plan intent, and the old API cannot admit
+   one, so the old API and reaper never meet those shapes.
+3. Deploy the API and the reaper.
+4. Deploy the web.
+
+See [ADR-0025](adr/0025-plan-mode-proposes-and-the-next-message-decides.md).
