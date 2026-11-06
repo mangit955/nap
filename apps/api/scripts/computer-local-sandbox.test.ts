@@ -396,6 +396,27 @@ describe.sequential("LocalDockerSandboxManager boundaries", () => {
     await manager.close();
   });
 
+  it("keeps a resumed sandbox alive for as long as the resume asked", async () => {
+    // A turn's keepalive rides on its resume, so a resume that ignored it would let a local
+    // sandbox expire under a conversation that is still going on. Wider margins than the test
+    // above, because a resume asks Docker first and that takes real time.
+    const manager = await openManager({ ttlMs: 400 });
+    const created = await manager.create("project-ttl");
+    if (!created.ok) throw new Error(created.error.message);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await manager.resume(created.value.id, { keepAliveMs: 900 })).toMatchObject({
+      ok: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(await manager.resume(created.value.id)).toMatchObject({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(await manager.resume(created.value.id)).toMatchObject({
+      ok: false,
+      error: { code: "destroyed" },
+    });
+    await manager.close();
+  });
+
   it("validates file paths, preserves quoted names and streams nonzero command results", async () => {
     const manager = await openManager();
     const created = await manager.create("project-files");

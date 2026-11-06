@@ -23,6 +23,7 @@ import type {
   ExecOutputHandler,
   ExecResult,
   FileNode,
+  ResumeOptions,
   Sandbox,
   SandboxError,
   SandboxManager,
@@ -213,10 +214,17 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
     };
   }
 
-  async resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>> {
+  async resume(
+    sandboxId: string,
+    options?: ResumeOptions,
+  ): Promise<Result<Pick<Sandbox, "id">, SandboxError>> {
     const found = this.#lookup(sandboxId);
     if (!found.ok) return found;
-    return { ok: true, value: { id: sandboxId, projectId: found.value.projectId } };
+    // Lengthened, never shortened, because that is what E2B's resume does with a deadline.
+    if (options?.keepAliveMs !== undefined) {
+      found.value.timeoutMs = Math.max(found.value.timeoutMs ?? 0, options.keepAliveMs);
+    }
+    return { ok: true, value: { id: sandboxId } };
   }
 
   async destroy(sandboxId: string): Promise<VoidResult<SandboxError>> {

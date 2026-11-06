@@ -32,7 +32,7 @@ beforeEach(async () => {
 function boundSandbox(manager: SandboxManager): SandboxManager {
   return {
     create: (projectId) => manager.create(projectId),
-    resume: (id) => manager.resume(id),
+    resume: (id, options) => manager.resume(id, options),
     destroy: (id) => manager.destroy(id),
     extendTimeout: (id, ms) => manager.extendTimeout(id, ms),
     writeFile: (id, path, contents) => manager.writeFile(id, path, contents),

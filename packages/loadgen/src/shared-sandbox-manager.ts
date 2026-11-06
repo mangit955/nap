@@ -145,7 +145,7 @@ export function sharedSandboxManager(
      * since, and a sandbox that is gone has to read as gone everywhere or a turn runs in one
      * nobody else can see. One primary-key lookup per turn, which is what it is worth.
      */
-    resume: async (sandboxId) => {
+    resume: async (sandboxId, options) => {
       const record = await store.find(sandboxId);
       const attached = attachments.get(sandboxId);
 
@@ -156,16 +156,22 @@ export function sharedSandboxManager(
         if (attached !== undefined) {
           attachments.delete(sandboxId);
           await inner.destroy(attached.localId);
-          return await inner.resume(attached.localId);
+          return await inner.resume(attached.localId, options);
         }
-        return await inner.resume(sandboxId);
+        return await inner.resume(sandboxId, options);
       }
 
-      if (attached === undefined) return await attach(record);
+      if (attached === undefined) {
+        const reattached = await attach(record);
+        if (!reattached.ok) return reattached;
+        // Through the new local sandbox, so the keepalive the resume carried is not dropped.
+        const kept = await inner.resume(local(sandboxId), options);
+        return kept.ok ? { ok: true, value: { id: sandboxId } } : kept;
+      }
 
-      const resumed = await inner.resume(attached.localId);
+      const resumed = await inner.resume(attached.localId, options);
       if (!resumed.ok) return resumed;
-      return { ok: true, value: { id: sandboxId, projectId: resumed.value.projectId } };
+      return { ok: true, value: { id: sandboxId } };
     },
 
     /**

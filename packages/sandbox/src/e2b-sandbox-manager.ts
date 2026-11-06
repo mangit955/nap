@@ -30,6 +30,7 @@ import type {
   ExecResult,
   FileNode,
   Sandbox as NapSandbox,
+  ResumeOptions,
   SandboxError,
   SandboxManager,
 } from "@nap/shared/ports/sandbox-manager";
@@ -65,8 +66,6 @@ export type E2BSandboxHandle = {
     ): Promise<E2BCommandResult>;
   };
   getHost(port: number): string;
-  /** Reads back what `create` stored, which is how a resume recovers the project id. */
-  getMetadata(): Promise<Record<string, string>>;
   /** Resets the sandbox's lifetime to `ms` from now. */
   setTimeout(ms: number): Promise<void>;
   kill(): Promise<boolean>;
@@ -86,7 +85,12 @@ export type E2BSandboxSummary = {
 
 export type E2BClient = {
   create(opts: { metadata: Record<string, string>; timeoutMs?: number }): Promise<E2BSandboxHandle>;
-  connect(sandboxId: string): Promise<E2BSandboxHandle>;
+  /**
+   * A handle on a sandbox that already exists, in one request — which also resumes it if it was
+   * paused and, given `timeoutMs`, lengthens its deadline to at least that from now. Given none,
+   * the SDK sends its own five-minute default, so even a plain connect can lengthen a deadline.
+   */
+  connect(sandboxId: string, opts?: { timeoutMs: number }): Promise<E2BSandboxHandle>;
   /**
    * Every sandbox running on this account, every page of it.
    *
@@ -121,7 +125,7 @@ export type E2BSandboxManagerOptions = {
   timeoutMs?: number;
 };
 
-/** Where the metadata key lives, so create and resume cannot drift apart. */
+/** Where the metadata key lives, so create and the inventory cannot drift apart. */
 const PROJECT_ID_KEY = "projectId";
 
 /** Generous enough for a cold dependency graph, short enough to fail a turn rather than hang it. */
@@ -210,7 +214,6 @@ function realClient(template: string | undefined): E2BClient {
       run: (cmd, opts) => sandbox.commands.run(cmd, { ...opts, background: false }),
     },
     getHost: (port) => sandbox.getHost(port),
-    getMetadata: async () => (await sandbox.getInfo()).metadata,
     setTimeout: (ms) => sandbox.setTimeout(ms),
     kill: () => sandbox.kill(),
   });
@@ -220,7 +223,7 @@ function realClient(template: string | undefined): E2BClient {
       adapt(
         template === undefined ? await Sandbox.create(opts) : await Sandbox.create(template, opts),
       ),
-    connect: async (sandboxId) => adapt(await Sandbox.connect(sandboxId)),
+    connect: async (sandboxId, opts) => adapt(await Sandbox.connect(sandboxId, opts)),
     // One page of one item. `list` returns a paginator that has made no request yet, so the
     // round trip only happens on `nextItems` — a probe that stopped at `Sandbox.list()` would
     // pass while the API was unreachable.
@@ -281,17 +284,29 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
     }
   }
 
-  async resume(sandboxId: string): Promise<Result<NapSandbox, SandboxError>> {
+  /**
+   * Always one `connect`, even for a sandbox this process is holding a handle to.
+   *
+   * That one request is the whole resume: it says whether the sandbox is still there, wakes it if
+   * it was paused, and carries the keepalive. A cached handle cannot answer the first of those —
+   * the reaper is another process, and E2B's own timer kills sandboxes nobody here destroyed — so
+   * skipping the request would only defer the discovery to the turn's first file operation. The
+   * fresh handle replaces the cached one.
+   */
+  async resume(
+    sandboxId: string,
+    options?: ResumeOptions,
+  ): Promise<Result<Pick<NapSandbox, "id">, SandboxError>> {
     const tombstone = this.#tombstone(sandboxId);
     if (tombstone !== undefined) return tombstone;
 
     try {
-      const handle = await this.#handle(sandboxId);
-      const metadata = await handle.getMetadata();
-      return {
-        ok: true,
-        value: { id: handle.sandboxId, projectId: metadata[PROJECT_ID_KEY] ?? "" },
-      };
+      const handle = await this.#client.connect(
+        sandboxId,
+        options?.keepAliveMs === undefined ? undefined : { timeoutMs: options.keepAliveMs },
+      );
+      this.#handles.set(sandboxId, handle);
+      return { ok: true, value: { id: handle.sandboxId } };
     } catch (cause) {
       return { ok: false, error: toSandboxError(cause) };
     }

@@ -30,7 +30,6 @@ function stubHandle(
       list: () => Promise.reject(new Error("files.list not stubbed")),
     },
     getHost: (port) => `${port}-sbx_stub.e2b.app`,
-    getMetadata: () => Promise.resolve({ projectId: "project" }),
     setTimeout: () => Promise.resolve(),
     kill: () => Promise.resolve(true),
     ...overrides,
@@ -595,20 +594,6 @@ describe("E2BSandboxManager lifecycle", () => {
     expect(created.value).toEqual({ id: "sbx_stub", projectId: "project-42" });
   });
 
-  it("recovers the project id on resume from sandbox metadata", async () => {
-    // Nothing else persists the association, so a resume in a later process can only
-    // learn which project a sandbox belongs to from what E2B stored at create time.
-    const manager = new E2BSandboxManager({
-      client: stubClient(stubHandle({ getMetadata: () => Promise.resolve({ projectId: "p-7" }) })),
-    });
-
-    const resumed = await manager.resume("sbx_stub");
-
-    expect(resumed.ok).toBe(true);
-    if (!resumed.ok) return;
-    expect(resumed.value.projectId).toBe("p-7");
-  });
-
   it("reports an unknown sandbox as not_found", async () => {
     const manager = new E2BSandboxManager({
       client: {
@@ -773,6 +758,109 @@ describe("keeping a sandbox alive", () => {
     const result = await manager.extendTimeout(sandboxId, 60_000);
 
     expect(result).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+});
+
+/**
+ * A provider that writes down every request the adapter makes to it, in order.
+ *
+ * Everything on the client and the handle is a round trip except `getHost`, which only formats a
+ * string, so everything else is counted. The point is the count: a turn resumes its sandbox before
+ * anything else happens, so each extra request here is latency every turn pays.
+ */
+function countingProvider(overrides: Partial<E2BClient> = {}) {
+  const requests: string[] = [];
+  const handle = (sandboxId: string): E2BSandboxHandle => ({
+    sandboxId,
+    files: {
+      read: () => {
+        requests.push("files.read");
+        return Promise.resolve("contents");
+      },
+      write: () => {
+        requests.push("files.write");
+        return Promise.resolve();
+      },
+      list: () => {
+        requests.push("files.list");
+        return Promise.resolve([]);
+      },
+    },
+    commands: {
+      run: () => {
+        requests.push("commands.run");
+        return Promise.resolve({ exitCode: 0, stdout: "", stderr: "" });
+      },
+    },
+    getHost: (port) => `${port}-${sandboxId}.e2b.app`,
+    setTimeout: (ms) => {
+      requests.push(`setTimeout(${ms})`);
+      return Promise.resolve();
+    },
+    kill: () => {
+      requests.push("kill");
+      return Promise.resolve(true);
+    },
+  });
+  const client: E2BClient = {
+    create: () => {
+      requests.push("create");
+      return Promise.resolve(handle("sbx_counted"));
+    },
+    connect: (sandboxId, opts) => {
+      requests.push(`connect(${opts?.timeoutMs})`);
+      return Promise.resolve(handle(sandboxId));
+    },
+    ping: () => Promise.reject(new Error("unused")),
+    list: () => Promise.reject(new Error("unused")),
+    ...overrides,
+  };
+  return { client, requests };
+}
+
+describe("resuming a sandbox", () => {
+  it("resumes one it is holding, and pushes its deadline out, in one request", async () => {
+    // Every turn starts here. Before, a held sandbox cost a metadata read and then a separate
+    // keepalive, two round trips one after the other, with nothing reading the metadata.
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    requests.length = 0;
+
+    const resumed = await manager.resume(created.value.id, { keepAliveMs: 90_000 });
+
+    expect(resumed).toEqual({ ok: true, value: { id: "sbx_counted" } });
+    expect(requests).toEqual(["connect(90000)"]);
+  });
+
+  it("resumes one it has never seen, a worker picking up another's project, in one request", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+
+    const resumed = await manager.resume("sbx_elsewhere", { keepAliveMs: 90_000 });
+
+    expect(resumed).toEqual({ ok: true, value: { id: "sbx_elsewhere" } });
+    expect(requests).toEqual(["connect(90000)"]);
+  });
+
+  it("leaves the deadline to the provider when no keepalive is asked for", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.resume("sbx_elsewhere");
+
+    expect(requests).toEqual(["connect(undefined)"]);
+  });
+
+  it("works through the handle the resume made, with no further connect", async () => {
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.resume("sbx_elsewhere", { keepAliveMs: 90_000 });
+    await manager.readFile("sbx_elsewhere", "/home/user/a.txt");
+
+    expect(requests).toEqual(["connect(90000)", "files.read"]);
   });
 });
 

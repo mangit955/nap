@@ -264,6 +264,17 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
       });
     });
 
+    it("resumes a sandbox and keeps it alive in the same call", async () => {
+      await withSandbox(async ({ manager, sandboxId, dir }) => {
+        // As above, a provider does not report its deadline back, so the answer is what is
+        // asserted — and that the sandbox is still usable through whatever the resume left behind.
+        const resumed = await manager.resume(sandboxId, { keepAliveMs: 5 * 60 * 1000 });
+
+        expect(resumed).toEqual({ ok: true, value: { id: sandboxId } });
+        expect((await manager.writeFile(sandboxId, `${dir}/after.txt`, "after")).ok).toBe(true);
+      });
+    });
+
     it("reports an unknown sandbox id as not_found", async () => {
       await withSandbox(async ({ manager }) => {
         const resumed = await manager.resume(harness.unknownSandboxId());
@@ -294,6 +305,7 @@ export function describeSandboxManagerConformance(harness: SandboxManagerHarness
           // sat and polled a dead address until the deadline.
           await manager.waitForPreview(sandboxId, 5173, { timeoutMs: 1_000 }),
           await manager.resume(sandboxId),
+          await manager.resume(sandboxId, { keepAliveMs: 60_000 }),
           await manager.extendTimeout(sandboxId, 60_000),
         ];
 

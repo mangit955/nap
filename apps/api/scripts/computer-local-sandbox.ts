@@ -22,6 +22,7 @@ import type {
   ExecOutputHandler,
   ExecResult,
   FileNode,
+  ResumeOptions,
   Sandbox,
   SandboxError,
   SandboxManager,
@@ -124,6 +125,11 @@ const ExecStatusSchema = z.strictObject({ exitCode: z.int().min(0).max(255) });
 
 function success<T>(value: T): Result<T, SandboxError> {
   return { ok: true, value };
+}
+
+/** What E2B accepts for a sandbox's lifetime, held to here so a local run fails the same way. */
+function validTtl(ms: number): boolean {
+  return Number.isInteger(ms) && ms >= 1 && ms <= 86_400_000;
 }
 
 function failure(code: SandboxError["code"], message: string): Result<never, SandboxError> {
@@ -649,7 +655,10 @@ export class LocalDockerSandboxManager implements SandboxManager {
     }
   }
 
-  async resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>> {
+  async resume(sandboxId: string, options?: ResumeOptions): Promise<Result<Sandbox, SandboxError>> {
+    const keepAliveMs = options?.keepAliveMs;
+    if (keepAliveMs !== undefined && !validTtl(keepAliveMs))
+      return failure("exec_failed", "Sandbox TTL must be an integer from 1 to 86400000 ms.");
     const found = this.#find(sandboxId);
     if (!found.ok) return found;
     const resource = found.value;
@@ -665,6 +674,14 @@ export class LocalDockerSandboxManager implements SandboxManager {
     ) {
       return failure("unavailable", "Local Docker sandbox identity could not be verified.");
     }
+    // Lengthened, never shortened, as E2B's resume does. The state is asked again because the
+    // timer may have fired while Docker was answering, and a removal must not be rescheduled.
+    if (
+      keepAliveMs !== undefined &&
+      resource.state === "live" &&
+      Date.now() + keepAliveMs > resource.expiresAt
+    )
+      this.#resetTimer(resource, keepAliveMs);
     return success({ id: resource.id, projectId: resource.projectId });
   }
 
@@ -678,7 +695,7 @@ export class LocalDockerSandboxManager implements SandboxManager {
   }
 
   async extendTimeout(sandboxId: string, ms: number): Promise<Result<void, SandboxError>> {
-    if (!Number.isInteger(ms) || ms < 1 || ms > 86_400_000)
+    if (!validTtl(ms))
       return failure("exec_failed", "Sandbox TTL must be an integer from 1 to 86400000 ms.");
     const found = this.#find(sandboxId);
     if (!found.ok) return found;
