@@ -11,7 +11,12 @@ import {
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { groupedCommand, stopGroupCommand } from "./e2b-exec-group.ts";
 import type { E2BClient, E2BSandboxHandle, E2BSandboxSummary } from "./e2b-sandbox-manager.ts";
-import { E2BSandboxManager, STOP_TIMEOUT_MS, toSandboxError } from "./e2b-sandbox-manager.ts";
+import {
+  E2BSandboxManager,
+  HANDLE_CACHE_LIMIT,
+  STOP_TIMEOUT_MS,
+  toSandboxError,
+} from "./e2b-sandbox-manager.ts";
 
 /**
  * A stub standing in for one E2B sandbox. Every method rejects unless the test
@@ -861,6 +866,134 @@ describe("resuming a sandbox", () => {
     await manager.readFile("sbx_elsewhere", "/home/user/a.txt");
 
     expect(requests).toEqual(["connect(90000)", "files.read"]);
+  });
+});
+
+describe("the handles it keeps", () => {
+  /** A provider whose handles each answer one read with `outcome`, then read normally. */
+  function flakyProvider(outcome: () => Promise<string>) {
+    let connects = 0;
+    const client: E2BClient = {
+      create: () => Promise.reject(new Error("unused")),
+      connect: (sandboxId) => {
+        connects += 1;
+        let first = connects === 1;
+        return Promise.resolve(
+          stubHandle({
+            sandboxId,
+            files: {
+              read: () => {
+                if (!first) return Promise.resolve("contents");
+                first = false;
+                return outcome();
+              },
+              write: () => Promise.resolve(),
+              list: () => Promise.resolve([]),
+            },
+          }),
+        );
+      },
+      ping: () => Promise.reject(new Error("unused")),
+      list: () => Promise.reject(new Error("unused")),
+    };
+    return { client, connects: () => connects };
+  }
+
+  it("forgets a handle whose sandbox has gone, so the next call reconnects rather than failing through it", async () => {
+    // The reaper is another process and E2B's own timer kills sandboxes nobody here destroyed, so
+    // a cached handle can outlive its sandbox. Kept, every later call would fail through it.
+    const { client, connects } = flakyProvider(() =>
+      Promise.reject(new SandboxNotFoundError("Sandbox is probably not running anymore")),
+    );
+    const manager = new E2BSandboxManager({ client });
+
+    expect(await manager.readFile("sbx_a", "/home/user/a.txt")).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    expect(await manager.readFile("sbx_a", "/home/user/a.txt")).toEqual({
+      ok: true,
+      value: "contents",
+    });
+    expect(connects()).toBe(2);
+  });
+
+  it("forgets one on a timeout too, which is how E2B reports a file operation on a dead sandbox", async () => {
+    const { client, connects } = flakyProvider(() =>
+      Promise.reject(new TimeoutError("502: This error is likely due to sandbox timeout")),
+    );
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+
+    expect(connects()).toBe(2);
+  });
+
+  it("keeps one through a failure that says nothing about the sandbox", async () => {
+    const { client, connects } = flakyProvider(() =>
+      Promise.reject(new FileNotFoundError("no such file")),
+    );
+    const manager = new E2BSandboxManager({ client });
+
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+    await manager.readFile("sbx_a", "/home/user/a.txt");
+
+    expect(connects()).toBe(1);
+  });
+
+  it("forgets one when a keepalive finds the sandbox gone", async () => {
+    let connects = 0;
+    const manager = new E2BSandboxManager({
+      client: {
+        create: () => Promise.reject(new Error("unused")),
+        connect: (sandboxId) => {
+          connects += 1;
+          return Promise.resolve(
+            stubHandle({
+              sandboxId,
+              setTimeout: () => Promise.reject(new SandboxNotFoundError("gone")),
+            }),
+          );
+        },
+        ping: () => Promise.reject(new Error("unused")),
+        list: () => Promise.reject(new Error("unused")),
+      },
+    });
+
+    await manager.extendTimeout("sbx_a", 60_000);
+    await manager.extendTimeout("sbx_a", 60_000);
+
+    expect(connects).toBe(2);
+  });
+
+  it("holds at most a bounded number, dropping the one used longest ago", async () => {
+    // A worker lives for days and serves thousands of projects. Without a bound, every sandbox it
+    // ever touched would stay in this map, handle and all.
+    const { client, requests } = countingProvider();
+    const manager = new E2BSandboxManager({ client });
+    for (let index = 0; index <= HANDLE_CACHE_LIMIT; index += 1) {
+      await manager.readFile(`sbx_${index}`, "/home/user/a.txt");
+    }
+    // The second, read again just now, is the most recently used and so is not the one dropped.
+    await manager.readFile("sbx_1", "/home/user/a.txt");
+    await manager.readFile(`sbx_${HANDLE_CACHE_LIMIT + 1}`, "/home/user/a.txt");
+    requests.length = 0;
+
+    await manager.readFile("sbx_1", "/home/user/a.txt");
+    await manager.readFile(`sbx_${HANDLE_CACHE_LIMIT + 1}`, "/home/user/a.txt");
+    expect(requests).toEqual(["files.read", "files.read"]);
+
+    await manager.readFile("sbx_0", "/home/user/a.txt");
+    await manager.readFile("sbx_2", "/home/user/a.txt");
+    expect(requests).toEqual([
+      "files.read",
+      "files.read",
+      "connect(undefined)",
+      "files.read",
+      "connect(undefined)",
+      "files.read",
+    ]);
   });
 });
 

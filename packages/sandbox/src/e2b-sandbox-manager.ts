@@ -162,6 +162,22 @@ function toFileNode(entry: E2BEntry): FileNode {
 }
 
 /**
+ * How many sandbox handles one manager keeps before dropping the one used longest ago.
+ *
+ * A handle is only a saving: dropping one costs the next call a `connect`. Far above how many
+ * turns a worker runs at once, so a turn's own handle is never the one dropped, and still small
+ * enough that a worker up for days does not hold one for every sandbox it ever touched.
+ */
+export const HANDLE_CACHE_LIMIT = 256;
+
+/**
+ * Failures after which a cached handle is not worth keeping. `not_found` is the provider saying the
+ * sandbox is gone. `timeout` is how E2B answers a file operation on a sandbox that has died, with a
+ * 502; it is also a command outliving its deadline, where dropping a good handle costs one connect.
+ */
+const STALE_HANDLE_CODES: ReadonlySet<SandboxError["code"]> = new Set(["not_found", "timeout"]);
+
+/**
  * How long a stop may take, within what the worker allows an aborted turn to finish in. Waited for,
  * so the next turn cannot start on top of what it was meant to stop.
  */
@@ -258,9 +274,14 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
   /** Ids this manager killed, so a use-after-destroy is distinguishable from a bad id. */
   readonly #destroyed = new Set<string>();
   /**
-   * Live handles, keyed by sandbox id. Connecting is a network round-trip and a single
-   * agent turn does dozens of file operations, so without this there would be an API
-   * call between every one of them.
+   * Live handles, keyed by sandbox id, least recently used first. Connecting is a network
+   * round-trip and a single agent turn does dozens of file operations, so without this there would
+   * be an API call between every one of them.
+   *
+   * Nothing here hears about a sandbox ending elsewhere — the reaper is another process, and E2B's
+   * own timer kills sandboxes nobody destroyed — so a handle is dropped when a call through it says
+   * the sandbox is gone, and the next call reconnects or reports the sandbox missing. Bounded by
+   * `HANDLE_CACHE_LIMIT`.
    */
   readonly #handles = new Map<string, E2BSandboxHandle>();
 
@@ -277,7 +298,7 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
         metadata: { [PROJECT_ID_KEY]: projectId },
         ...(this.#timeoutMs === undefined ? {} : { timeoutMs: this.#timeoutMs }),
       });
-      this.#handles.set(handle.sandboxId, handle);
+      this.#remember(handle.sandboxId, handle);
       return { ok: true, value: { id: handle.sandboxId, projectId } };
     } catch (cause) {
       return { ok: false, error: toSandboxError(cause) };
@@ -305,10 +326,12 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
         sandboxId,
         options?.keepAliveMs === undefined ? undefined : { timeoutMs: options.keepAliveMs },
       );
-      this.#handles.set(sandboxId, handle);
+      this.#remember(sandboxId, handle);
       return { ok: true, value: { id: handle.sandboxId } };
     } catch (cause) {
-      return { ok: false, error: toSandboxError(cause) };
+      const error = toSandboxError(cause);
+      if (STALE_HANDLE_CODES.has(error.code)) this.#handles.delete(sandboxId);
+      return { ok: false, error };
     }
   }
 
@@ -355,33 +378,21 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
   }
 
   async extendTimeout(sandboxId: string, ms: number): Promise<VoidResult<SandboxError>> {
-    const tombstone = this.#tombstone(sandboxId);
-    if (tombstone !== undefined) return tombstone;
-
-    try {
-      const handle = await this.#handle(sandboxId);
+    return this.#withSandbox(sandboxId, async (handle) => {
       // Resets to `ms` from now rather than adding to what is left, which is what makes this
       // a keepalive: every turn puts the whole budget back.
       await handle.setTimeout(ms);
-      return { ok: true, value: undefined };
-    } catch (cause) {
-      return { ok: false, error: toSandboxError(cause) };
-    }
+      return undefined;
+    });
   }
 
   async destroy(sandboxId: string): Promise<VoidResult<SandboxError>> {
-    const tombstone = this.#tombstone(sandboxId);
-    if (tombstone !== undefined) return tombstone;
-
-    try {
-      const handle = await this.#handle(sandboxId);
+    return this.#withSandbox(sandboxId, async (handle) => {
       await handle.kill();
       this.#handles.delete(sandboxId);
       this.#destroyed.add(sandboxId);
-      return { ok: true, value: undefined };
-    } catch (cause) {
-      return { ok: false, error: toSandboxError(cause) };
-    }
+      return undefined;
+    });
   }
 
   async writeFile(
@@ -500,7 +511,11 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
     };
   }
 
-  /** Connects, runs `body`, and funnels every failure through one mapping. */
+  /**
+   * Connects, runs `body`, and funnels every failure through one mapping — dropping the handle when
+   * the failure says its sandbox is gone. Only that handle: another call may already have replaced
+   * it with a good one.
+   */
   async #withSandbox<T>(
     sandboxId: string,
     body: (handle: E2BSandboxHandle) => Promise<T>,
@@ -508,20 +523,33 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
     const tombstone = this.#tombstone(sandboxId);
     if (tombstone !== undefined) return tombstone;
 
+    let handle: E2BSandboxHandle | undefined;
     try {
-      return { ok: true, value: await body(await this.#handle(sandboxId)) };
+      handle = await this.#handle(sandboxId);
+      return { ok: true, value: await body(handle) };
     } catch (cause) {
-      return { ok: false, error: toSandboxError(cause) };
+      const error = toSandboxError(cause);
+      if (STALE_HANDLE_CODES.has(error.code) && this.#handles.get(sandboxId) === handle) {
+        this.#handles.delete(sandboxId);
+      }
+      return { ok: false, error };
     }
   }
 
   async #handle(sandboxId: string): Promise<E2BSandboxHandle> {
-    const cached = this.#handles.get(sandboxId);
-    if (cached !== undefined) return cached;
-
-    const handle = await this.#client.connect(sandboxId);
-    this.#handles.set(sandboxId, handle);
+    const handle = this.#handles.get(sandboxId) ?? (await this.#client.connect(sandboxId));
+    this.#remember(sandboxId, handle);
     return handle;
+  }
+
+  /** Stores a handle as the most recently used, dropping the least recent past the limit. */
+  #remember(sandboxId: string, handle: E2BSandboxHandle): void {
+    // Deleted first, because a `Map` keeps a re-set key where it was rather than moving it last.
+    this.#handles.delete(sandboxId);
+    this.#handles.set(sandboxId, handle);
+    if (this.#handles.size <= HANDLE_CACHE_LIMIT) return;
+    const oldest = this.#handles.keys().next();
+    if (oldest.done !== true) this.#handles.delete(oldest.value);
   }
 
   #tombstone(sandboxId: string): { ok: false; error: SandboxError } | undefined {
