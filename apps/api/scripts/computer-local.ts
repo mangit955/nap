@@ -205,7 +205,7 @@ try {
     sandbox,
     desktop,
     recordings: desktop,
-    computerAccess: { access: new PostgresProjectComputerAccess(db), secret },
+    computerAccess: { access: new PostgresProjectComputerAccess(db, { claims: null }), secret },
     objects: new InMemoryObjectStore(),
     provider,
     encryptionKey: encryptionKeyFrom(randomBytes(32).toString("base64")),

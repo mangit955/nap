@@ -17,6 +17,8 @@
 
 import { z } from "zod";
 
+export const MAX_WORKER_FALLBACK_POLL_SECONDS = 30;
+
 const BaseSchema = z.object({
   DATABASE_URL: z.string().min(1),
   /**
@@ -308,7 +310,12 @@ const BaseSchema = z.object({
    * in `infra/k8s/base/deployment-worker.yaml` restarts a pod silent for 120 seconds, and an idle
    * worker is silent for this long between ticks.
    */
-  NAP_WORKER_FALLBACK_POLL_SECONDS: z.coerce.number().int().positive().max(30).default(5),
+  NAP_WORKER_FALLBACK_POLL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_WORKER_FALLBACK_POLL_SECONDS)
+    .default(5),
 
   /**
    * How long a draining worker waits for the turns it is already running before aborting them.

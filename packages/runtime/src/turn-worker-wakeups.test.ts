@@ -27,14 +27,16 @@ const PROMPTLY_MS = 10;
 
 const workers: TurnWorker[] = [];
 const runtimes: HangingRuntime[] = [];
+const warnings = vi.fn();
 
 beforeEach(() => {
+  warnings.mockClear();
   vi.useFakeTimers();
   const quiet = () => {};
   const logger: Logger = {
     debug: quiet,
     info: quiet,
-    warn: quiet,
+    warn: warnings,
     error: quiet,
     child: () => logger,
   };
@@ -157,6 +159,35 @@ describe("an idle worker that can hear wake-ups", () => {
     expect(claim.mock.calls.length).toBeGreaterThanOrEqual(60_000 / FALLBACK_MS - 1);
   });
 
+  it("coalesces a continuous notification stream to at most ten empty claims per second", async () => {
+    const { listener, announcer } = channel();
+    const queue = new InMemoryTurnQueue();
+    const claim = vi.spyOn(queue, "claim");
+    start(queue, new HangingRuntime(), { claims: listener() });
+    await idle();
+    const before = claim.mock.calls.length;
+    for (let i = 0; i < 1_000; i++) {
+      announcer.announce();
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(claim.mock.calls.length - before).toBeLessThanOrEqual(11);
+  });
+
+  it("makes no claim on notifications while all its slots are full", async () => {
+    const { listener, announcer } = channel();
+    const queue = new InMemoryTurnQueue();
+    await enqueueTurn(queue);
+    const claim = vi.spyOn(queue, "claim");
+    start(queue, new HangingRuntime(), { claims: listener() });
+    await idle();
+    const before = claim.mock.calls.length;
+    for (let i = 0; i < 50; i++) {
+      announcer.announce();
+      await vi.advanceTimersByTimeAsync(10);
+    }
+    expect(claim.mock.calls.length).toBe(before);
+  });
+
   it("claims an announced request at once, rather than at its next poll", async () => {
     const { listener, announcer } = channel();
     const queue = new InMemoryTurnQueue({ claims: announcer });
@@ -177,23 +208,27 @@ describe("an idle worker that can hear wake-ups", () => {
     const queue = new InMemoryTurnQueue({ claims: announcer });
     const runtime = new HangingRuntime();
     const claim = queue.claim.bind(queue);
-    let release: (() => void) | null = null;
+    start(queue, runtime, { claims: listener() });
+    await idle();
+    let release = () => {};
+    let blocked = false;
     vi.spyOn(queue, "claim").mockImplementation(async (owner) => {
       const answer = await claim(owner);
-      if (release === null) {
+      if (!blocked) {
+        blocked = true;
         await new Promise<void>((resolve) => {
           release = resolve;
         });
       }
       return answer;
     });
-    start(queue, runtime, { claims: listener() });
+    announcer.announce();
     await vi.advanceTimersByTimeAsync(PROMPTLY_MS);
-    expect(release).not.toBeNull();
+    expect(blocked).toBe(true);
 
     await enqueueTurn(queue);
-    (release as unknown as () => void)();
-    await vi.advanceTimersByTimeAsync(PROMPTLY_MS);
+    release();
+    await vi.advanceTimersByTimeAsync(FAST_MS + PROMPTLY_MS);
 
     expect(runtime.turns).toHaveLength(1);
   });
@@ -270,7 +305,8 @@ describe("work that becomes claimable without an enqueue", () => {
     await enqueueTurn(queue, "session-a");
     await enqueueTurn(queue, "session-b");
     start(queue, runtime, { claims: channel().listener(), concurrency: 1 });
-    await idle();
+    // Complete within the broadcast coalescing floor: only the local bypass can refill this soon.
+    await vi.advanceTimersByTimeAsync(PROMPTLY_MS);
     expect(runtime.turns).toHaveLength(1);
 
     runtime.complete();
@@ -324,6 +360,50 @@ describe("a worker that cannot hear wake-ups", () => {
     await enqueueTurn(queue);
     await vi.advanceTimersByTimeAsync(FAST_MS + PROMPTLY_MS);
     expect(runtime.turns).toHaveLength(1);
+  });
+
+  it("warns when claim LISTEN never answers", async () => {
+    start(new InMemoryTurnQueue(), new HangingRuntime(), {
+      claims: { listen: () => new Promise<never>(() => {}), hearing: () => true },
+    });
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(
+      warnings.mock.calls.some((args) =>
+        args.includes("no answer to claim LISTEN yet; polling at the fast interval"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns once when the echo goes deaf instead of silently restoring the old load", async () => {
+    let hearing = true;
+    start(new InMemoryTurnQueue(), new HangingRuntime(), {
+      claims: channel({ hearing: () => hearing }).listener(),
+    });
+    await idle();
+    warnings.mockClear();
+    hearing = false;
+    await vi.advanceTimersByTimeAsync(FALLBACK_MS + 1_000);
+    expect(
+      warnings.mock.calls.filter((args) =>
+        args.includes("not hearing claim wake-ups; polling the queue at the fast interval"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps polling fast if checking listener health throws", async () => {
+    const queue = new InMemoryTurnQueue();
+    const claim = vi.spyOn(queue, "claim");
+    start(queue, new HangingRuntime(), {
+      claims: channel({
+        hearing: () => {
+          throw new Error("health unavailable");
+        },
+      }).listener(),
+    });
+    await idle();
+    const before = claim.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(claim.mock.calls.length - before).toBeGreaterThanOrEqual(9);
   });
 
   it("polls fast while the listener says it has gone deaf, and slows down once it hears again", async () => {

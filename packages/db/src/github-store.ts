@@ -58,6 +58,7 @@ export type PostgresGitHubStoreOptions = {
    * Told once an import that opens its project, or an approval of review feedback, has committed
    * the turn request it writes. Required and nullable for the reason it is on `PostgresTurnQueue`.
    */
+  // Use a pooled database: a nested transaction only commits a savepoint.
   claims: ClaimAnnouncer | null;
 };
 

@@ -121,7 +121,7 @@ const composed = composeNap({
   claims: null,
   sandbox,
   desktop: desktop.transport,
-  computerAccess: { access: new PostgresProjectComputerAccess(db), secret },
+  computerAccess: { access: new PostgresProjectComputerAccess(db, { claims: null }), secret },
   objects: new InMemoryObjectStore(),
   provider: computerPreviewProvider(350),
   encryptionKey: encryptionKeyFrom(Buffer.alloc(32, 7).toString("base64")),

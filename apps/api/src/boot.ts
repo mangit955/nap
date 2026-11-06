@@ -371,7 +371,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     desktop,
     recordings: desktop,
     computerAccess: {
-      access: new PostgresProjectComputerAccess(db),
+      access: new PostgresProjectComputerAccess(db, { claims: claims }),
       secret: env.BETTER_AUTH_SECRET,
     },
     objects,

@@ -269,6 +269,8 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    * listened while asleep would then sleep straight through it.
    */
   let nudged = false;
+  let localNudge = false;
+  let lastRoundAt = Number.NEGATIVE_INFINITY;
   let wake: (() => void) | null = null;
 
   function nudge(): void {
@@ -277,7 +279,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
   }
 
   /** Set once the claim `LISTEN` has answered; read with the channel's own health on every rest. */
-  let listeningForClaims = false;
+  let claimListenAnswered = false;
 
   /**
    * One request, start to settled.
@@ -437,6 +439,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         inFlight.delete(task);
         // A slot just came free, and the request queued behind this turn's session may just have
         // become claimable. Neither needs anybody else to say so.
+        localNudge = true;
         nudge();
       });
       inFlight.add(task);
@@ -445,27 +448,53 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
   /**
    * The wait between two rounds: the fallback interval while wake-ups are being heard, the fast one
-   * otherwise, and over at once if anything nudges it.
+   * otherwise. Broadcasts shorten the wait within the fast cadence; own completions end it at once.
    */
+  let lastHearing: boolean | undefined;
+  function hearingClaims(): boolean {
+    let hearing = false;
+    try {
+      hearing = claimListenAnswered && (options.claims?.hearing() ?? false);
+    } catch (error) {
+      // The health check is advisory, just like LISTEN itself.
+      if (lastHearing !== false) logger.warn({ err: error }, "claim listener health check failed");
+    }
+    if (options.claims && hearing !== lastHearing) {
+      if (hearing) logger.info("hearing claim wake-ups; polling at the fallback interval");
+      else logger.warn("not hearing claim wake-ups; polling the queue at the fast interval");
+    }
+    lastHearing = hearing;
+    return hearing;
+  }
+
   async function rest(): Promise<void> {
-    if (nudged || stopped) return;
-    const hearing = listeningForClaims && (options.claims?.hearing() ?? false);
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(done, hearing ? fallbackPollIntervalMs : pollIntervalMs);
-      function done(): void {
-        clearTimeout(timer);
-        wake = null;
-        resolve();
-      }
-      wake = done;
-    });
+    const fallbackAt = Date.now() + (hearingClaims() ? fallbackPollIntervalMs : pollIntervalMs);
+    while (!stopped && !localNudge) {
+      // Broadcasts may arrive faster than claims finish. Bound empty rounds at the old fast
+      // cadence, retaining the flag until that deadline. Own completions bypass this wait.
+      const dueAt = nudged ? Math.min(fallbackAt, lastRoundAt + pollIntervalMs) : fallbackAt;
+      const delay = dueAt - Date.now();
+      if (delay <= 0) return;
+      const timedOut = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => done(true), delay);
+        function done(expired: boolean): void {
+          clearTimeout(timer);
+          wake = null;
+          resolve(expired);
+        }
+        wake = () => done(false);
+      });
+      if (timedOut) return;
+    }
   }
 
   async function loop(): Promise<void> {
     while (!stopped) {
       // Before the claim rather than after it: anything from here on is something this claim may
-      // have missed, so it has to send the loop straight round again.
+      // have missed, so it has to schedule another round.
       nudged = false;
+      localNudge = false;
+      lastRoundAt = Date.now();
       try {
         await fill();
       } catch (error) {
@@ -493,7 +522,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    * cancel, and a worker that cannot hear a wake-up is slower to stop a turn, which is no reason to
    * refuse to run one. A silence that ends is heard from then on, since the handler is already given.
    */
-  const listening: Promise<StopListening | null> =
+  const cancelListen: Promise<StopListening | null> =
     options.cancels
       ?.listen((requestId) => wakeups.get(requestId)?.())
       .catch((error: unknown) => {
@@ -506,11 +535,11 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    * simply polls at the fast interval, so nothing enqueued meanwhile waits on it. Once it does, one
    * more claim covers whatever was announced before anybody here was listening.
    */
-  const listeningToClaims: Promise<StopListening | null> =
+  const claimListen: Promise<StopListening | null> =
     options.claims
       ?.listen(nudge)
       .then((stop) => {
-        listeningForClaims = true;
+        claimListenAnswered = true;
         nudge();
         return stop;
       })
@@ -521,6 +550,17 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         );
         return null;
       }) ?? Promise.resolve(null);
+
+  const claimPatience = options.claims
+    ? setTimeout(() => {
+        if (!claimListenAnswered)
+          logger.warn(
+            { listenTimeoutMs },
+            "no answer to claim LISTEN yet; polling at the fast interval",
+          );
+      }, listenTimeoutMs)
+    : undefined;
+  void claimListen.then(() => clearTimeout(claimPatience));
 
   let startClaiming = () => {};
   const mayClaim = new Promise<void>((resolve) => {
@@ -536,7 +576,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       resolve();
     };
   });
-  void listening.then(startClaiming);
+  void cancelListen.then(startClaiming);
 
   idle = mayClaim.then(loop);
 
@@ -546,13 +586,14 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    * is stopped whenever it does answer, since this only gives up on waiting for that.
    */
   async function stopListening(): Promise<void> {
+    clearTimeout(claimPatience);
     const stopping = Promise.all([
-      listening
+      cancelListen
         .then((stop) => stop?.())
         .catch((error: unknown) => {
           logger.warn({ err: error }, "could not stop listening for cancel wake-ups");
         }),
-      listeningToClaims
+      claimListen
         .then((stop) => stop?.())
         .catch((error: unknown) => {
           logger.warn({ err: error }, "could not stop listening for claim wake-ups");

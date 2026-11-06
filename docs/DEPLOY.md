@@ -33,16 +33,16 @@ processes on it. What is different here, and why:
   about 10 seconds for closing the listener and the database connections. Between the two graces
   the worker stops listening for cancel wake-ups, which normally answers at once but is given up
   after 5 seconds, so a channel that hangs there spends half of that margin.
-- **Migrations run as the API's pre-deploy command**, once per release and before the new API
-  takes traffic, not at boot. A release that adds tables still needs the API deployed before the
-  worker and the reaper, which would otherwise start against a schema that is not there yet.
+- **Migrations run as the worker's pre-deploy command**, once per release and before the new API
+  takes traffic, not at boot. The API repeats the idempotent migration as a safeguard for manual
+  deploys. The release script deploys the worker first, so its schema is ready before it boots.
 - **One database URL serves both connections.** Render Postgres has no pooler in front of it, so
   `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` are the same internal connection string, and the
   database accepts no connections from outside Render.
 - **The worker is the 2 GB plan.** It runs Chromium for the preview screenshots; the Kubernetes
   manifests request 1 GiB for the same process, and 512 MB is where it runs out.
 - **GitHub Actions releases production after CI passes on `main`.** Render's own auto-deploys
-  stay off. The `production` job deploys the API, reaper and worker in that order, then Vercel,
+  stay off. The `production` job deploys the worker, API and reaper in that order, then Vercel,
   using the same commit SHA throughout. See [Release production](#release-production).
 - **The free database expires after thirty days.** Upgrade `nap-db` to `basic-256mb` before then,
   or its data goes with it. Render Postgres rather than Neon's free tier because three processes
@@ -243,7 +243,10 @@ know when you do:
   `NAP_WORKER_FALLBACK_POLL_SECONDS` (5 s). That is about 0.2 claim queries a second per idle
   worker, down from 10. While the listener is down, which the event bus's echo detects, the
   worker polls every 100 ms as it used to, so turns still start promptly and the database pays
-  the old idle load. See `docs/adr/0027`.
+  the old idle load. Broadcasts coalesce at a 100 ms minimum round gap; a worker's own
+  completion refills immediately. During the existing worker-first rollout, old API/reaper
+  writers do not announce yet, so new workers can start turns up to one fallback interval late.
+  Keep the release script's deployment order for event compatibility. See `docs/adr/0027`.
 
 ### What each process scales on
 

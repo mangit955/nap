@@ -34,7 +34,8 @@ let nextInstallationId = 910_000;
 beforeAll(async () => {
   writer = postgres(inject("postgresUrl"), { max: 4 });
   // Another connection, so what it reads is what any other process would: committed rows only.
-  observer = postgres(inject("postgresUrl"), { max: 2 });
+  observer = postgres(inject("postgresUrl"), { max: 1 });
+  await observer`select 1`;
   db = drizzle(writer);
   const [user] = await db
     .insert(users)

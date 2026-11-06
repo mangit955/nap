@@ -21,12 +21,17 @@ const repoRoot = join(import.meta.dirname, "..");
 type Source = { path: string; contents: string };
 
 /** Writes that put a request in the queue: drizzle's insert, or a raw statement. */
-const INSERTS_A_REQUEST = /\.insert\(\s*turnRequests\s*\)|insert\s+into\s+turn_requests/i;
+const INSERTS_A_REQUEST =
+  /\.insert\(\s*turnRequests\s*\)|insert\s+into\s+(?:["\w]+\.)?"?turn_requests"?/gi;
 const ANNOUNCES = /\.announce\(\s*\)/;
 
 function silentWriters(sources: Source[]): string[] {
   return sources
-    .filter((source) => INSERTS_A_REQUEST.test(source.contents) && !ANNOUNCES.test(source.contents))
+    .filter(
+      (source) =>
+        Array.from(source.contents.matchAll(INSERTS_A_REQUEST)).length > 0 &&
+        !ANNOUNCES.test(source.contents),
+    )
     .map((source) => source.path);
 }
 
@@ -55,11 +60,25 @@ describe("every writer of a turn request announces a claim wake-up", () => {
     expect(silentWriters(shippedSources())).toEqual([]);
   });
 
+  it("requires explicit coverage when another insert is added, including in an existing writer", () => {
+    const inserts = Object.fromEntries(
+      shippedSources().flatMap((source) => {
+        const count = Array.from(source.contents.matchAll(INSERTS_A_REQUEST)).length;
+        return count ? [[source.path, count]] : [];
+      }),
+    );
+    expect(inserts).toEqual({
+      "packages/db/src/postgres-turn-queue.ts": 1,
+      "packages/db/src/session-start-store.ts": 1,
+      "packages/db/src/github-store.ts": 2,
+    });
+  });
+
   it("actually finds the writers it is guarding", () => {
     // Guards against the check going quiet because the walk or the pattern broke: these are the
     // three writers that exist today, and each must still be recognised as one.
     const writers = shippedSources()
-      .filter((source) => INSERTS_A_REQUEST.test(source.contents))
+      .filter((source) => Array.from(source.contents.matchAll(INSERTS_A_REQUEST)).length > 0)
       .map((source) => source.path);
     expect(writers).toEqual(
       expect.arrayContaining([

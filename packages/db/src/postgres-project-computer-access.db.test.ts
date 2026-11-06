@@ -3,7 +3,7 @@ import type { ComputerReservationRequest } from "@nap/shared/ports/project-compu
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { afterAll, beforeAll, beforeEach, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, inject, it, vi } from "vitest";
 import { PostgresProjectComputerAccess } from "./postgres-project-computer-access.ts";
 import { PostgresTurnQueue } from "./postgres-turn-queue.ts";
 import { projectComputerOperations, projects, sessions, turnRequests, users } from "./schema.ts";
@@ -14,14 +14,16 @@ let inputClient: postgres.Sql;
 let db: PostgresJsDatabase;
 let access: PostgresProjectComputerAccess;
 let queue: PostgresTurnQueue;
+const announce = vi.fn();
 beforeAll(() => {
   client = postgres(inject("postgresUrl"), { max: 8, connection: { lock_timeout: 2000 } });
   inputClient = postgres(inject("postgresUrl"), { max: 2, connection: { lock_timeout: 2000 } });
   db = drizzle(client);
-  access = new PostgresProjectComputerAccess(drizzle(inputClient));
+  access = new PostgresProjectComputerAccess(drizzle(inputClient), { claims: { announce } });
   queue = new PostgresTurnQueue(db, { claims: null });
 });
 beforeEach(async () => {
+  announce.mockClear();
   await db.delete(projectComputerOperations);
   await db.delete(turnRequests);
 });
@@ -141,6 +143,7 @@ it("excludes every session of a fenced project while other projects continue cla
   expect(await queue.claim("blocked")).toBeNull();
   expect(await queue.anyLeased([f.sessionId, f.siblingId])).toBe(false);
   expect(await access.clear(proof(request))).toBe(true);
+  expect(announce).toHaveBeenCalledTimes(1);
   expect(await queue.claim("after-proof")).not.toBeNull();
 });
 it("denies existing sibling leases, including expired leases awaiting the janitor", async () => {
@@ -208,7 +211,10 @@ it("competing owner reservations admit exactly one scope", async () => {
   const request = await owner(f);
   const results = await Promise.all([
     access.reserve(request),
-    new PostgresProjectComputerAccess(db).reserve({ ...request, scopeId: randomUUID() }),
+    new PostgresProjectComputerAccess(db, { claims: null }).reserve({
+      ...request,
+      scopeId: randomUUID(),
+    }),
   ]);
   expect(results.filter((r) => r.ok)).toHaveLength(1);
 });
@@ -308,6 +314,7 @@ it("abandons exactly the stranded scope, forgets its machine, and lets the proje
     ok: true,
     value: { released: true },
   });
+  expect(announce).toHaveBeenCalledTimes(1);
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: null, status: "idle" });
   expect(after!.computerRevision).not.toBe(before!.computerRevision);
@@ -327,6 +334,7 @@ it("abandons the scope but keeps a machine the project recorded since, and says 
     ok: true,
     value: { released: false },
   });
+  expect(announce).toHaveBeenCalledTimes(1);
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: "replacement" });
   expect(after!.computerRevision).not.toBe(before!.computerRevision);

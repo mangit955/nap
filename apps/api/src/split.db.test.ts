@@ -374,10 +374,21 @@ describe("a turn admitted on an API pod and claimed on a worker pod", () => {
     const api = pod("api", userId, {
       queue: new PostgresTurnQueue(db, { claims: claimChannelOf() }),
     });
+    const claims = claimChannelOf();
+    let listenAnswered = false;
     pod("worker", userId, {
       config: { ...CONFIG, NAP_WORKER_FALLBACK_POLL_SECONDS: 30 },
-      claims: claimChannelOf(),
+      claims: {
+        announce: () => claims.announce(),
+        hearing: () => claims.hearing(),
+        listen: async (handler) => {
+          const stop = await claims.listen(handler);
+          listenAnswered = true;
+          return stop;
+        },
+      },
     });
+    await expect.poll(() => listenAnswered).toBe(true);
     // Long enough for the worker's first, empty, claim and its LISTEN, so it is idle and asleep.
     await new Promise((resolve) => setTimeout(resolve, 500));
 

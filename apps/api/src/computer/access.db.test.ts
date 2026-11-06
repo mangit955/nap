@@ -78,7 +78,7 @@ async function fixture(transport?: DesktopInputTransport) {
     ])
     .returning();
   const desktop = new FakeSandboxDesktop({ bytes: new Uint8Array(), width: 1024, height: 768 });
-  const guard = new PostgresProjectComputerAccess(drizzle(inputClient));
+  const guard = new PostgresProjectComputerAccess(drizzle(inputClient), { claims: null });
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     authenticate: async () => ({ userId: user!.id, isAnonymous: false }),
@@ -420,9 +420,9 @@ it("refuses abandonment to a stranger and from another site", async () => {
     computerAccess: {
       sessions: new PostgresSessionStore(db),
       desktop: f.desktop,
-      access: new PostgresProjectComputerAccess(drizzle(inputClient)),
+      access: new PostgresProjectComputerAccess(drizzle(inputClient), { claims: null }),
       computer: new ProjectComputer({
-        access: new PostgresProjectComputerAccess(drizzle(inputClient)),
+        access: new PostgresProjectComputerAccess(drizzle(inputClient), { claims: null }),
         transport: f.desktop.transport,
       }),
       secret: "integration-secret",

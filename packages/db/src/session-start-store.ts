@@ -25,6 +25,7 @@ export type PostgresSessionStartStoreOptions = {
    * new project's author is waiting on. Required and nullable for the reason it is on
    * `PostgresTurnQueue`.
    */
+  // Use a pooled database: a nested transaction only commits a savepoint.
   claims: ClaimAnnouncer | null;
 };
 
