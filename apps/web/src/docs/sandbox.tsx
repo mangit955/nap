@@ -90,10 +90,12 @@ export function Sandbox() {
         offered back to send again. Some running work never takes a message — a compaction, an app
         test, a publish, or a turn in the other plan mode — and a message sent to it is the next
         turn. Whether a message joins the turn or becomes the next one is decided under a lock on
-        the running request&rsquo;s row, which the turn&rsquo;s end takes too. Each later change to
-        a message is one conditional update, so none is read twice. A message can still go
-        unanswered if the turn&rsquo;s end fails to record, or if the record of reading it is lost
-        on the way back; once the session is idle, the chat offers it back.
+        the running request&rsquo;s row, which the turn&rsquo;s end takes too. A retried message is
+        admitted only after the attempt before it has committed, under a lock on its id, so one
+        message lands once, as a steer or as a turn. Each later change to a message is one
+        conditional update, so none is read twice. A message can still go unanswered if the
+        turn&rsquo;s end fails to record, or if the record of reading it is lost on the way back;
+        once the session is idle, the chat offers it back.
       </P>
 
       <P>

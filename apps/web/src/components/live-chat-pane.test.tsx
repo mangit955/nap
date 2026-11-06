@@ -1184,4 +1184,71 @@ describe("LiveChatPane steering a running turn", () => {
       "Waiting for the agent's next step",
     );
   });
+  it("shows a message that fell back to a turn as the next message, not as a steer", async () => {
+    // The server could not join it to the running turn, so it queued it as a turn of its own: on
+    // screen it is the message waiting to be the next turn, and nothing more can be sent until
+    // that turn starts.
+    const steers: string[] = [];
+    const server = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/steers") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { id: string; message: string };
+        steers.push(body.message);
+        return Response.json({ accepted: true, requestId: body.id, as: "turn" }, { status: 202 });
+      }
+      return fetchJson(url, init);
+    };
+    render(<LiveChatPane sessionId={SESSION_ID} log={running()} fetchJson={server} />);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(box).toBeEnabled());
+
+    fireEvent.change(box, { target: { value: "Use Postgres instead" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send to the running turn" }));
+
+    await waitFor(() => expect(steers).toEqual(["Use Postgres instead"]));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "Sent while the agent worked" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Use Postgres instead")).toBeInTheDocument();
+    expect(box).toBeDisabled();
+    expect(turns).toEqual([]);
+  });
+
+  it("offers a steer back once the session is seen idle with it unread", async () => {
+    // The log alone still shows the turn running, with the steer waiting on it. What says the
+    // turn is over is the server's activity read, and only that can turn the steer into one that
+    // was never sent.
+    const events = [
+      ...running().events,
+      ev("steer.received", { steerId: crypto.randomUUID(), text: "Use Postgres instead" }, 3),
+    ];
+    const server = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.includes("/activity"))
+        return Response.json({ sessionId: SESSION_ID, throughSeq: 3, active: false });
+      return fetchJson(url, init);
+    };
+    render(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={{ ...running(), events, lastSeq: 3, jobs: jobView(events) }}
+        fetchJson={server}
+      />,
+    );
+    expect(
+      await screen.findByRole("group", { name: "Sent while the agent worked" }),
+    ).toHaveTextContent("Waiting for the agent's next step");
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("group", { name: "Sent while the agent worked" }),
+        ).toHaveTextContent("Not sent: nothing read it before the turn ended."),
+      { timeout: 3000 },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send again" }));
+    await waitFor(() =>
+      expect(turns.map((turn) => turn.message)).toEqual(["Use Postgres instead"]),
+    );
+  });
 });

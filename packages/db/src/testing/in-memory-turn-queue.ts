@@ -264,7 +264,10 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
   }
 
   async steer(request: SteerRequest): Promise<SteerAdmission> {
-    const earlier = await this.find(request);
+    // Looked up without yielding: an `await` here would let a second attempt at the same id start
+    // before this one wrote anything, and both would land, which is the race Postgres closes with
+    // a lock on the id.
+    const earlier = this.#found(request);
     if (earlier !== null) return earlier;
 
     // The same conditions the Postgres statement holds the row for. Single-threaded, so checking
@@ -302,6 +305,10 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
   async find(
     request: Pick<SteerRequest, "id" | "sessionId" | "userId">,
   ): Promise<SteerAdmission | null> {
+    return this.#found(request);
+  }
+
+  #found(request: Pick<SteerRequest, "id" | "sessionId" | "userId">): SteerAdmission | null {
     const steer = this.#steers.find((one) => one.id === request.id);
     const turn = this.#rows.find((row) => row.id === request.id);
     const found = steer ?? turn;

@@ -1116,6 +1116,43 @@ describe("steering against the end of a request", () => {
     ).toHaveLength(MAX_WAITING_STEERS);
   });
 
+  it("lands a retried message once when a claim falls between its two attempts", async () => {
+    // Two attempts at one id that target different things hold no row in common: the first finds
+    // nothing running and queues a turn, a worker then claims a request, and the second finds that
+    // request to join. Neither can see the other's uncommitted row. A blocker holding an
+    // uncommitted turn under the same id parks the first attempt on the primary key, after it has
+    // decided and before it commits, which is the whole of that window.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    const retried = message(seed);
+
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`
+        insert into turn_requests (id, session_id, user_id, kind, message, model)
+        values (${retried.id}, ${seed.sessionId}, ${seed.userId}, 'turn', 'blocker', 'm')`;
+
+      const first = queue.steer(retried);
+      await waiters(1);
+      expect((await queue.claim("worker-a"))?.id).toBe(requestId);
+      const second = queue.steer(retried);
+      // The second waits for the first to finish; without that it answers at once, and the poll
+      // is left to give up on its own.
+      await Promise.race([waiters(2).catch(() => undefined), second]);
+      await blocker`rollback`;
+
+      expect(await Promise.all([first, second])).toEqual([{ as: "turn" }, { as: "turn" }]);
+      expect(await queue.steersOf(requestId)).toEqual([]);
+      expect(await queue.getStatus({ id: retried.id, ...seed })).toEqual({
+        id: retried.id,
+        state: "queued",
+      });
+    } finally {
+      blocker.release();
+    }
+  });
+
   it("lands every message of a burst exactly once while the request closes under it", async () => {
     const seed = await seedSession();
     const { id: requestId } = await enqueueTurn(seed);

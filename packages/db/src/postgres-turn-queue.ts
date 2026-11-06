@@ -103,6 +103,9 @@ const ONE_LEASED_PER_SESSION = "turn_requests_one_leased_per_session";
  */
 const SUBMISSION_KEYS = new Set(["turn_steers_pkey", "turn_requests_pkey"]);
 
+/** The namespace of the per-id lock admission takes; a searchable string, as the other locks use. */
+const STEER_ADMISSION_LOCK = "nap:steer-admission";
+
 /** What a lease occupies. Terminal states hold nothing and are excluded from every predicate. */
 const IN_FLIGHT = ["queued", "leased"] as const;
 
@@ -456,6 +459,13 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
    * it closed, and queues a turn instead. `no key update` rather than `share` because it also
    * serializes two admissions with each other, which is what keeps the backlog count honest; a
    * renewal waits behind one for the length of an insert.
+   *
+   * **Two attempts at one id are serialized before either looks at anything**, by a lock on the id.
+   * The row lock alone serializes only attempts that target the same request, and two can target
+   * different things: one finds nothing running and queues a turn, a worker claims a request, and a
+   * retry finds that request to join. Neither sees the other's uncommitted row, so the one message
+   * would land as a steer and as a turn. Under the id's lock the second starts only once the first
+   * has committed, and its `findIn` below answers with what the first did.
    */
   async steer(request: SteerRequest): Promise<SteerAdmission> {
     const earlier = await this.find(request);
@@ -463,6 +473,13 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
 
     try {
       return await this.#db.transaction(async (tx) => {
+        // The two-key form, whose key space Postgres keeps apart from the one-key form every other
+        // advisory lock here uses (`hashtext` of a name, held by the sweeper for its whole life):
+        // an id hashing onto one of those would otherwise wait on it. Two ids sharing a hash merely
+        // take turns. Transaction-scoped, so a commit or a failure gives it back.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtext(${STEER_ADMISSION_LOCK}), hashtext(${request.id}))`,
+        );
         const planning = request.plan?.intent === "propose";
         const [target] = await tx
           .select({ id: turnRequests.id })
@@ -483,12 +500,13 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
           )
           .for("no key update");
 
-        // Again, now that the row is held. The `find` above ran before any lock, so a retry of
-        // this message that committed while this one waited is invisible to it — and if the
-        // other attempt joined and filled the backlog, or joined just before the request closed,
-        // this one would otherwise queue the same words again as a turn under the same id, in a
-        // table where nothing collides with the steer. Each statement reads what has committed by
-        // the time it starts, so this sees whatever the attempt ahead of it on the row did.
+        // Again, now that the id and the row are held. The `find` above ran before any lock, so a
+        // retry of this message that committed while this one waited is invisible to it — and if
+        // the other attempt joined and filled the backlog, joined just before the request closed,
+        // or queued a turn before a claim gave this one something to join, this one would
+        // otherwise land the same words a second time under the same id, in a table where nothing
+        // collides with the first. Each statement reads what has committed by the time it starts,
+        // so this sees whatever the attempt ahead of it did.
         const already = await findIn(tx, request);
         if (already !== null) return already;
 

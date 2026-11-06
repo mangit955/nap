@@ -22,7 +22,7 @@ import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema } from "@nap/shared/events";
-import type { LLMProvider, LLMRequest } from "@nap/shared/ports/llm-provider";
+import type { LLMMessage, LLMProvider, LLMRequest } from "@nap/shared/ports/llm-provider";
 import type { RequestSteering } from "@nap/shared/ports/steer-queue";
 import { TurnAbortError } from "@nap/shared/turn-abort";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -80,6 +80,16 @@ function subject(
     memory: new NoopMemoryProvider(),
   });
   return { runtime, scripted };
+}
+
+/** Each message as its role and its words, which is what the model was told and in what order. */
+function said(messages: readonly LLMMessage[]): [string, string][] {
+  return messages.map((message) => [
+    message.role,
+    typeof message.content === "string"
+      ? message.content
+      : message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n"),
+  ]);
 }
 
 /** A request on the queue, leased the way a worker holds one, and its steering bound to the lease. */
@@ -290,6 +300,56 @@ describe("a steer sent while a turn runs", () => {
       log.filter((event) => event.type === "steer.dropped").map((event) => event.payload),
     ).toEqual([expect.objectContaining({ text: "never mind", reason: "stopped" })]);
     expect(queue.inFlight).toBe(1);
+  });
+
+  it("keeps a turn going when it arrives as the model finishes, and replays it where it was read", async () => {
+    // The model replies with nothing left to do; the steer was sent while it wrote that. The
+    // turn answers it rather than ending, and the next turn's context — rebuilt from the log —
+    // has to hold it where this turn's model saw it: after that reply, before the answer to it.
+    const first = subject(
+      [[{ text: "Done." }, { text: "Switched to Postgres." }]],
+      async (call) => {
+        if (call === 1) await send("Use Postgres instead");
+      },
+    );
+    const { id, steering } = await leased();
+
+    const outcome = await first.runtime.runTurn({
+      turnId: id,
+      sessionId: SESSION_ID,
+      message: "build a notes app",
+      steering,
+    });
+
+    expect(outcome.ok).toBe(true);
+    const steer = renderSteer("Use Postgres instead");
+    const seen = said(first.scripted.requests[1]?.messages ?? []);
+    expect(seen.slice(-2)).toEqual([
+      ["assistant", "Done."],
+      ["user", steer],
+    ]);
+    const log = await events.readFrom(SESSION_ID, 0);
+    expect(log.filter((event) => event.turnId === id).map((event) => event.type)).not.toContain(
+      "steer.dropped",
+    );
+
+    await queue.settle(id, OWNER, "done");
+    const next = subject([[{ text: "Added." }]]);
+    const later = await leased("add tags");
+    await next.runtime.runTurn({
+      turnId: later.id,
+      sessionId: SESSION_ID,
+      message: "add tags",
+      steering: later.steering,
+    });
+
+    const replayed = said(next.scripted.requests[0]?.messages ?? []);
+    const at = replayed.findIndex(([, text]) => text === steer);
+    expect(replayed.slice(at - 1, at + 2)).toEqual([
+      ["assistant", "Done."],
+      ["user", steer],
+      ["assistant", "Switched to Postgres."],
+    ]);
   });
 
   it("closes a finished request to steers, so a later message is the next turn", async () => {

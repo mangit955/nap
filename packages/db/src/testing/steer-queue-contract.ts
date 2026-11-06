@@ -2,9 +2,10 @@
  * What any `SteerQueue` must do, written once and run against both the fake and Postgres.
  *
  * One suite rather than two copies because the worker, the route and the janitor are tested
- * against the fake, and trust it to place a steer where the table would. The one property only
- * Postgres can show — admission racing the end of a request — is tested beside the table, in
- * `postgres-turn-queue.db.test.ts`, because a single-threaded fake honours it by construction.
+ * against the fake, and trust it to place a steer where the table would. The properties only
+ * Postgres can show — admission racing the end of a request, or a claim landing between two
+ * attempts at one id — are tested beside the table, in `postgres-turn-queue.db.test.ts`, because a
+ * single-threaded fake that never yields mid-admission honours them by construction.
  */
 
 import type { PlanIntent } from "@nap/shared/agent-plan";
@@ -124,6 +125,68 @@ export function steerQueueContract(name: string, harness: () => SteerQueueHarnes
       await expect(queue.steer(queued)).resolves.toEqual({ as: "turn" });
       await expect(queue.find(queued)).resolves.toEqual({ as: "turn" });
       expect(await queue.claim("worker-a")).toMatchObject({ id: queued.id });
+      expect(await queue.claim("worker-b")).toBeNull();
+    });
+
+    it("lands an id once when two attempts at it arrive together", async () => {
+      // Neither attempt can have seen the other before it started, so whatever stops the second
+      // writing again has to be inside admission itself.
+      const { queue, session } = harness();
+      const busy = await session();
+      const requestId = await leased(queue, busy);
+      const joining = steer(busy);
+
+      await expect(Promise.all([queue.steer(joining), queue.steer(joining)])).resolves.toEqual([
+        { as: "steer", requestId },
+        { as: "steer", requestId },
+      ]);
+      await expect(queue.steersOf(requestId)).resolves.toEqual([
+        { id: joining.id, text: joining.message, state: "pending" },
+      ]);
+
+      const idle = await session();
+      const queueing = steer(idle, "add a footer");
+      await expect(Promise.all([queue.steer(queueing), queue.steer(queueing)])).resolves.toEqual([
+        { as: "turn" },
+        { as: "turn" },
+      ]);
+      expect(await queue.claim("worker-b")).toMatchObject({ id: queueing.id });
+      await queue.settle(queueing.id, "worker-b", "done");
+      expect(await queue.claim("worker-b")).toBeNull();
+    });
+
+    it("defers a steer whose id is already a queued turn, and queues nothing twice", async () => {
+      // Admission keeps one id from landing as both, but `close` resolves every waiting steer in
+      // one statement, and one stray row must neither fail it nor queue the words a second time.
+      const { queue, session } = harness();
+      const seed = await session();
+      const requestId = await leased(queue, seed);
+      const message = steer(seed);
+      await queue.steer(message);
+      await queue.enqueue({
+        id: message.id,
+        sessionId: seed.sessionId,
+        userId: seed.userId,
+        kind: "turn",
+        message: "already queued",
+        model: MODEL,
+        billsToUser: true,
+      });
+
+      await expect(queue.close(requestId, "worker-a", "defer")).resolves.toEqual({
+        deferred: [{ id: message.id, text: message.message }],
+        dropped: [],
+      });
+      await expect(queue.steersOf(requestId)).resolves.toEqual([
+        { id: message.id, text: message.message, state: "deferred" },
+      ]);
+
+      await queue.settle(requestId, "worker-a", "done");
+      expect(await queue.claim("worker-b")).toMatchObject({
+        id: message.id,
+        message: "already queued",
+      });
+      await queue.settle(message.id, "worker-b", "done");
       expect(await queue.claim("worker-b")).toBeNull();
     });
 
