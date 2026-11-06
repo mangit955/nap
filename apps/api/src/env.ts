@@ -296,6 +296,21 @@ const BaseSchema = z.object({
   NAP_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(25),
 
   /**
+   * How often an idle worker asks the queue for work while it can hear claim wake-ups.
+   *
+   * Everything that makes a request claimable announces it, so an idle worker claims in
+   * milliseconds without asking; this poll is only what a lost announcement waits for, and it is
+   * the cadence an idle worker's claim loop comes round at. Five seconds is fifty times fewer claim
+   * transactions than the hundred-millisecond poll that stands in when the worker cannot hear, and
+   * still short beside a turn. See `docs/adr/0027`.
+   *
+   * At most thirty, because the loop coming round is also the worker's liveness signal: the probe
+   * in `infra/k8s/base/deployment-worker.yaml` restarts a pod silent for 120 seconds, and an idle
+   * worker is silent for this long between ticks.
+   */
+  NAP_WORKER_FALLBACK_POLL_SECONDS: z.coerce.number().int().positive().max(30).default(5),
+
+  /**
    * How long a draining worker waits for the turns it is already running before aborting them.
    *
    * The platform's grace period is the real deadline — 600s inside a 900s grace, per

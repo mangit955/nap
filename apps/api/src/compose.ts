@@ -42,6 +42,7 @@ import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import type { Logger } from "@nap/shared/logging";
 import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import type { CapacityReconciler } from "@nap/shared/ports/capacity-reconciler";
+import type { ClaimChannel } from "@nap/shared/ports/claim-channel";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { GitHubStore } from "@nap/shared/ports/github-store";
@@ -101,6 +102,7 @@ export type NapConfig = Pick<
   | "NAP_MAX_SANDBOXES_TOTAL"
   | "NAP_SANDBOX_TTL_MINUTES"
   | "NAP_WORKER_CONCURRENCY"
+  | "NAP_WORKER_FALLBACK_POLL_SECONDS"
   | "NAP_DRAIN_TIMEOUT_SECONDS"
   | "NAP_CAPTURE_CONCURRENCY"
   | "NAP_REAP_IDLE_MINUTES"
@@ -218,6 +220,19 @@ export type NapDeps = {
    * work, up to fifteen seconds late, with a paid model running throughout.
    */
   cancels: CancelChannel | null;
+  /**
+   * What wakes an idle worker when a request may have become claimable. Null where nothing crosses
+   * processes, and then the worker polls the queue every tenth of a second, as it always did.
+   *
+   * Only the listening half is used here: the announcing half is handed to whatever writes turn
+   * requests — the queue and the two stores that insert them inside their own transactions — when
+   * boot constructs them, because each announces after its own commit.
+   *
+   * Required rather than optional because forgetting it would be silent in the worst way: every
+   * turn would still start, after a tenth of a second, and every idle worker would go on asking the
+   * database ten times a second for ever.
+   */
+  claims: ClaimChannel | null;
   sandbox: SandboxManager;
   objects: ObjectStore;
   /** Model policy is the provider's; which provider it is, is the caller's. */
@@ -788,6 +803,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
           ? {}
           : { publish: (request, signal) => github.publishQueued(request, signal) }),
         concurrency: config.NAP_WORKER_CONCURRENCY,
+        fallbackPollIntervalMs: config.NAP_WORKER_FALLBACK_POLL_SECONDS * 1000,
+        ...(deps.claims === null ? {} : { claims: deps.claims }),
         // How long a shutdown waits for turns in flight before aborting them. Config rather than
         // the port's default, because what fits depends on the platform's grace period.
         drainTimeoutMs: config.NAP_DRAIN_TIMEOUT_SECONDS * 1000,

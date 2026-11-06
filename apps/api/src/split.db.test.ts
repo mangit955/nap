@@ -2,6 +2,7 @@ import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { createDatabase } from "@nap/db/client";
 import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
 import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
+import { PostgresClaimChannel } from "@nap/db/postgres-claim-channel";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
@@ -25,6 +26,7 @@ import type { LLMProvider, LLMRequest, LLMTurnResult } from "@nap/shared/ports/l
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
+import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { WSEvents } from "hono/ws";
 import postgres from "postgres";
@@ -106,6 +108,7 @@ const CONFIG: NapDeps["config"] = {
   NAP_REAP_INTERVAL_SECONDS: 3600,
   NAP_JANITOR_INTERVAL_SECONDS: 3600,
   NAP_WORKER_CONCURRENCY: 2,
+  NAP_WORKER_FALLBACK_POLL_SECONDS: 5,
   NAP_DRAIN_TIMEOUT_SECONDS: 5,
   NAP_CAPTURE_CONCURRENCY: 1,
 };
@@ -161,7 +164,7 @@ function pod(
       }),
     },
     // The one thing the two pods share, and the only thing they may.
-    queue: new PostgresTurnQueue(db),
+    queue: new PostgresTurnQueue(db, { claims: null }),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),
@@ -169,6 +172,7 @@ function pod(
     // on, so giving each its own is how this test refuses to be passed by fanout.
     bus: new InMemoryEventBus(),
     cancels: null,
+    claims: null,
     sandbox: turnableSandbox(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([[{ text: "Added the toggle." }]]),
@@ -218,7 +222,7 @@ describe("an API pod and a worker pod over one database", () => {
     const { projectId, sessionId } = await createProjectSession(db, { userId });
 
     const api = pod("api", userId);
-    const elsewhere = new PostgresTurnQueue(db);
+    const elsewhere = new PostgresTurnQueue(db, { claims: null });
     await elsewhere.enqueue({
       id: crypto.randomUUID(),
       sessionId,
@@ -352,6 +356,58 @@ function channelOf(options: { dropping?: boolean } = {}) {
   );
 }
 
+/** One pod's end of the claim channel, as `bootNap` builds it: its own pool and listener. */
+function claimChannelOf(): PostgresClaimChannel {
+  const notifier = postgres(inject("postgresUrl"), { max: 2 });
+  const listener = postgres(inject("postgresUrl"), { max: 1 });
+  lockConnections.push(notifier, listener);
+  return new PostgresClaimChannel(new PostgresNotifyTransport({ notifier, listener }));
+}
+
+describe("a turn admitted on an API pod and claimed on a worker pod", () => {
+  it("is claimed at once, not at the worker's next poll", async () => {
+    // The two compositions wired the way `bootNap` wires them: the API's queue announces after
+    // its commit, and the worker listens. The worker's fallback poll is the longest a deployment
+    // may set, so a claim inside a second can only have been the wake-up.
+    const userId = await seedUser();
+    const { sessionId } = await createProjectSession(db, { userId });
+    const api = pod("api", userId, {
+      queue: new PostgresTurnQueue(db, { claims: claimChannelOf() }),
+    });
+    pod("worker", userId, {
+      config: { ...CONFIG, NAP_WORKER_FALLBACK_POLL_SECONDS: 30 },
+      claims: claimChannelOf(),
+    });
+    // Long enough for the worker's first, empty, claim and its LISTEN, so it is idle and asleep.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const acceptedAt = Date.now();
+    const accepted = await api.app.request(`/sessions/${sessionId}/turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "add a dark mode toggle" }),
+    });
+    expect(accepted.status).toBe(202);
+
+    // Timed on this side, because the database's clock is a container's and may not be this one's.
+    // Waited for past the fallback, so a regression reads as the number it is rather than a timeout.
+    let claimedAt: number | null = null;
+    await expect
+      .poll(
+        async () => {
+          const [row] = await db.execute<{ state: string }>(
+            sql`select state from turn_requests where session_id = ${sessionId}`,
+          );
+          if (row !== undefined && row.state !== "queued") claimedAt ??= Date.now();
+          return claimedAt;
+        },
+        { timeout: 35_000, interval: 10 },
+      )
+      .not.toBeNull();
+    expect((claimedAt ?? Number.POSITIVE_INFINITY) - acceptedAt).toBeLessThan(1_000);
+  }, 60_000);
+});
+
 describe("a cancel crossing from an API pod to a worker pod", () => {
   it("stops the model well inside one renewal interval", async () => {
     const userId = await seedUser();
@@ -417,7 +473,7 @@ describe("a worker and a real channel over one database", () => {
     /** Told of every renewal, which is the only thing a wake-up can do to an unflagged row. */
     onRenew?: (requestId: string) => void;
   }) {
-    const queue = new PostgresTurnQueue(db);
+    const queue = new PostgresTurnQueue(db, { claims: null });
     const runtime = new ControllableRuntime();
     const worker = startTurnWorker({
       queue: {
@@ -447,7 +503,7 @@ describe("a worker and a real channel over one database", () => {
 
   async function admitted(sessionId: string, userId: string): Promise<string> {
     const id = crypto.randomUUID();
-    await new PostgresTurnQueue(db).enqueue({
+    await new PostgresTurnQueue(db, { claims: null }).enqueue({
       id,
       sessionId,
       userId,
@@ -473,7 +529,7 @@ describe("a worker and a real channel over one database", () => {
     await admitted(sessionId, userId);
     const signal = await runningIn(runtime);
 
-    const outcome = await new PostgresTurnQueue(db).requestCancel(sessionId);
+    const outcome = await new PostgresTurnQueue(db, { claims: null }).requestCancel(sessionId);
     if (!outcome.cancelled || outcome.was !== "leased") throw new Error("expected a leased row");
     channelOf({ dropping: true }).announce(outcome.requestId);
 
@@ -494,7 +550,7 @@ describe("a worker and a real channel over one database", () => {
     expect(signal.aborted).toBe(false);
 
     // The other half, without which the wait above could be a channel that was never working.
-    await new PostgresTurnQueue(db).requestCancel(sessionId);
+    await new PostgresTurnQueue(db, { claims: null }).requestCancel(sessionId);
     api.announce(id);
     await expect.poll(() => signal.aborted, { timeout: 2_000, interval: 5 }).toBe(true);
   }, 30_000);
@@ -508,7 +564,7 @@ describe("a worker and a real channel over one database", () => {
       renewIntervalMs: 600_000,
       onRenew: (requestId) => renewed.push(requestId),
     });
-    const queue = new PostgresTurnQueue(db);
+    const queue = new PostgresTurnQueue(db, { claims: null });
     const first = await admitted(sessionId, userId);
     await runningIn(runtime);
     runtime.complete();

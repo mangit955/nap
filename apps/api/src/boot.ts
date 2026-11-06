@@ -39,6 +39,7 @@ import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
 import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
 import { PostgresCapacityReconciler } from "@nap/db/postgres-capacity-reconciler";
+import { PostgresClaimChannel } from "@nap/db/postgres-claim-channel";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
@@ -187,6 +188,17 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
 
   if (notifyBus !== null) await notifyBus.start();
 
+  /**
+   * What tells an idle worker that a request may be claimable, so it need not ask every tenth of a
+   * second. Announced by every writer of a turn request below, after its commit, and heard only by
+   * a worker. On the bus's transport, so on the socket it already holds; and it is that bus's echo
+   * heartbeat, over the same socket, that says whether it is still hearing. See `docs/adr/0027`.
+   */
+  const claims =
+    notifyTransport === null || notifyBus === null
+      ? null
+      : new PostgresClaimChannel(notifyTransport, { hearing: () => notifyBus.listening });
+
   const sandbox = new E2BSandboxManager({
     template: NAP_TEMPLATE,
     // E2B's own default is five minutes from creation, whatever is happening inside. Every
@@ -294,7 +306,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
   const githubConfig = githubConfigFromEnv(env);
   const composed = composeNap({
     github: {
-      store: new PostgresGitHubStore(db),
+      store: new PostgresGitHubStore(db, { claims }),
       app: githubConfig === null ? null : new GitHubApp(githubConfig),
     },
     config: env,
@@ -337,7 +349,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // unique index rather than by a `Map` each replica keeps its own copy of. Every API pod writes
     // to it at admission and every worker claims from it — it is the only thing the two halves of
     // the deployment share.
-    queue: new PostgresTurnQueue(db),
+    queue: new PostgresTurnQueue(db, { claims }),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     // Accounts can be listed, added and named today. Signing one in needs a runtime that hosts the
@@ -354,6 +366,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // The transport the bus uses, so a worker hearing cancels holds no extra connection: every
     // channel on it shares one socket. Only a worker ever listens; an API pod only announces.
     cancels: notifyTransport === null ? null : new PostgresCancelChannel(notifyTransport),
+    claims,
     sandbox,
     desktop,
     recordings: desktop,
@@ -370,7 +383,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // typo before it is stored.
     encryptionKey: encryptionKeyFrom(env.NAP_KEY_ENCRYPTION_SECRET),
     verifyKey: createKeyVerifier(),
-    sessionStarts: new PostgresSessionStartStore(db),
+    sessionStarts: new PostgresSessionStartStore(db, { claims }),
     sessionNavigation: new PostgresSessionNavigationStore(db),
     createProject: (options) => createProjectSession(db, options),
     upgradeWebSocket,

@@ -36,7 +36,7 @@ beforeAll(() => {
   // A broken SKIP LOCKED must fail and unwind the barriers rather than hang the suite.
   sql = postgres(inject("postgresUrl"), { max: 24, connection: { lock_timeout: 2_000 } });
   db = drizzle(sql);
-  queue = new PostgresTurnQueue(db);
+  queue = new PostgresTurnQueue(db, { claims: null });
 });
 
 afterAll(async () => {
@@ -547,7 +547,7 @@ describe("anyLeased", () => {
     // the request, and it still reads as busy.
     const seed = await seedSession();
     await enqueueTurn(seed);
-    await new PostgresTurnQueue(db).claim("some-other-pod");
+    await new PostgresTurnQueue(db, { claims: null }).claim("some-other-pod");
 
     expect(await queue.anyLeased([seed.sessionId])).toBe(true);
   });
@@ -697,7 +697,7 @@ describe("orphanExpired", () => {
     await expireLease(id);
     const expected = [{ id, sessionId: seed.sessionId, kind: "turn", message: "/compact" }];
     expect(await queue.orphanExpired()).toEqual(expected);
-    const restarted = new PostgresTurnQueue(db);
+    const restarted = new PostgresTurnQueue(db, { claims: null });
     expect(await restarted.unannouncedOrphans()).toEqual(expected);
     expect(await restarted.claim("next-worker")).toBeNull();
     await restarted.markOrphanAnnounced(id);
@@ -805,7 +805,7 @@ describe("orphanExpired", () => {
     }
 
     await db.transaction(async (tx) => {
-      const first = await new PostgresTurnQueue(tx).orphanExpired(2);
+      const first = await new PostgresTurnQueue(tx, { claims: null }).orphanExpired(2);
       expect(new Set(first.map(({ id }) => id))).toEqual(new Set(ids.slice(0, 2)));
       // The first janitor still holds its transaction open. A second connection must take
       // the next batch immediately, rather than wait for or return those same requests.
@@ -870,7 +870,7 @@ describe("orphanExpired", () => {
       const [setting] = await forced`show enable_hashagg`;
       expect(setting?.enable_hashagg).toBe("off");
 
-      const sweeper = new PostgresTurnQueue(drizzle(forced));
+      const sweeper = new PostgresTurnQueue(drizzle(forced), { claims: null });
       expect(await sweeper.orphanExpired(2)).toHaveLength(2);
       expect(await sweeper.orphanExpired(2)).toHaveLength(1);
     } finally {
@@ -969,7 +969,7 @@ it("persists and claims an app test's job identity through a fresh adapter", asy
     model: "anthropic/claude-sonnet-5",
     billsToUser: true,
   });
-  const restarted = new PostgresTurnQueue(db);
+  const restarted = new PostgresTurnQueue(db, { claims: null });
   expect(await restarted.claim("test-worker")).toMatchObject({
     id,
     kind: "test",

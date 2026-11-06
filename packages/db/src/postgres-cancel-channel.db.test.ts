@@ -81,8 +81,8 @@ describe("PostgresCancelChannel over two connections", () => {
     // row, so a wake-up that beat the commit would be read, believed and forgotten.
     const api = replica();
     const worker = replica();
-    const apiQueue = new PostgresTurnQueue(drizzle(api.notifier));
-    const workerQueue = new PostgresTurnQueue(drizzle(worker.notifier));
+    const apiQueue = new PostgresTurnQueue(drizzle(api.notifier), { claims: null });
+    const workerQueue = new PostgresTurnQueue(drizzle(worker.notifier), { claims: null });
     const { sessionId, userId } = await seedSession(api.notifier);
     const id = randomUUID();
     await apiQueue.enqueue({

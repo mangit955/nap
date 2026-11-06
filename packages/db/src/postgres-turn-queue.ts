@@ -34,6 +34,7 @@ import { MediaAttachmentsSchema } from "@nap/shared/media";
  */
 
 import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
+import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
 import type {
   CancelOutcome,
   EnqueueTurnRequest,
@@ -85,12 +86,28 @@ const ONE_LEASED_PER_SESSION = "turn_requests_one_leased_per_session";
 /** What a lease occupies. Terminal states hold nothing and are excluded from every predicate. */
 const IN_FLIGHT = ["queued", "leased"] as const;
 
+export type PostgresTurnQueueOptions = {
+  /**
+   * Told, after the commit, about every write here that can make a request claimable: an enqueue,
+   * a settle that gives a session back, and the janitor reclaiming a lease. Idle workers wait for it
+   * rather than polling the queue several times a second (`docs/adr/0027`).
+   *
+   * Required and nullable, like `NapDeps.cancels`, so a new construction site has to decide: null
+   * leaves every request to the workers' fallback poll — seconds late, and nothing else is wrong,
+   * which is exactly why it must not be something a caller forgets. Always null for a queue built
+   * on a transaction, where "after this write" would be before the commit.
+   */
+  claims: ClaimAnnouncer | null;
+};
+
 export class PostgresTurnQueue implements TurnQueue {
   readonly #db: PostgresJsDatabase;
+  readonly #claims: ClaimAnnouncer | null;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
-  constructor(db: PostgresJsDatabase) {
+  constructor(db: PostgresJsDatabase, options: PostgresTurnQueueOptions) {
     this.#db = db;
+    this.#claims = options.claims;
   }
 
   async enqueue(request: EnqueueTurnRequest): Promise<void> {
@@ -107,6 +124,7 @@ export class PostgresTurnQueue implements TurnQueue {
       model: request.model,
       billsToUser: request.billsToUser,
     });
+    this.#claims?.announce();
   }
 
   async getStatus(request: {
@@ -322,7 +340,11 @@ export class PostgresTurnQueue implements TurnQueue {
       )
       .returning({ id: turnRequests.id });
 
-    return rows.length > 0;
+    if (rows.length === 0) return false;
+    // The session is free again, so whatever was queued behind this turn can now be claimed — by
+    // any worker, which is why the worker settling it is not the only one that needs to know.
+    this.#claims?.announce();
+    return true;
   }
 
   async anyLeased(sessionIds: readonly string[]): Promise<boolean> {
@@ -377,7 +399,7 @@ export class PostgresTurnQueue implements TurnQueue {
   }
 
   async orphanExpired(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
-    return await this.#db
+    const orphaned = await this.#db
       .update(turnRequests)
       .set({ state: "orphaned" })
       // `for update skip locked` is what makes two janitors ticking at once safe: whichever holds
@@ -410,6 +432,10 @@ export class PostgresTurnQueue implements TurnQueue {
         kind: turnRequests.kind,
         message: turnRequests.message,
       });
+    // Each of those sessions is free again. Only when there were some: every tick of a healthy
+    // deployment finds none, and a wake-up per tick would be a poll by another name.
+    if (orphaned.length > 0) this.#claims?.announce();
+    return orphaned;
   }
 
   async unannouncedOrphans(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {

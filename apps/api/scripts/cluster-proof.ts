@@ -19,6 +19,7 @@
 
 import { createDatabase, createListenerConnection } from "@nap/db/client";
 import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
+import { PostgresClaimChannel } from "@nap/db/postgres-claim-channel";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
 import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
@@ -110,6 +111,7 @@ const CONFIG: NapConfig = {
   // exactly when a turn's worker disappears, and the janitor is what tells the socket about it.
   NAP_JANITOR_INTERVAL_SECONDS: 15,
   NAP_WORKER_CONCURRENCY: tunable("NAP_WORKER_CONCURRENCY", 5),
+  NAP_WORKER_FALLBACK_POLL_SECONDS: tunable("NAP_WORKER_FALLBACK_POLL_SECONDS", 5),
   NAP_DRAIN_TIMEOUT_SECONDS: tunable("NAP_DRAIN_TIMEOUT_SECONDS", 30),
   NAP_CAPTURE_CONCURRENCY: 1,
 };
@@ -132,6 +134,9 @@ const transport = new PostgresNotifyTransport({
   listener: createListenerConnection(process.env.NAP_LISTEN_DATABASE_URL ?? databaseUrl),
 });
 const bus = new PostgresNotifyEventBus({ reader: events, transport });
+// As `bootNap` builds it: every writer announces on it, a worker listens on it, and the bus's echo
+// over the same socket is what says it is still hearing.
+const claims = new PostgresClaimChannel(transport, { hearing: () => bus.listening });
 await bus.start();
 
 /**
@@ -206,12 +211,13 @@ const { app, worker, reaper, janitor } = composeNap({
     rate: new PostgresTurnRateLimiter(db, { limit: 1_000, windowMs: 3_600_000, tier: "paid" }),
     freeRate: new PostgresTurnRateLimiter(db, { limit: 1_000, windowMs: 3_600_000, tier: "free" }),
   },
-  queue: new PostgresTurnQueue(db),
+  queue: new PostgresTurnQueue(db, { claims }),
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   events,
   bus,
   cancels: new PostgresCancelChannel(transport),
+  claims,
   sandbox: calibrated ? slowSandboxManager(sandbox) : sandbox,
   objects: new InMemoryObjectStore(),
   provider: calibrated ? slowLLMProvider(model, { random }) : model,

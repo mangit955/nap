@@ -335,3 +335,81 @@ it("reports queued and leased activity until settlement, including cancellation 
   await queue.requestCancel(sessionId);
   expect(await queue.hasPending(sessionId)).toBe(false);
 });
+
+describe("claim wake-ups", () => {
+  // The same promise the Postgres queue makes, so a worker test on the fake sees the same wake-ups
+  // a deployment would: every write that can make a request claimable says so once it is done.
+  function announcing() {
+    const announced: string[] = [];
+    const announcer = new InMemoryTurnQueue({
+      now: () => now,
+      leaseTtlMs: 60_000,
+      claims: { announce: () => announced.push("wake") },
+    });
+    const enqueueOn = (sessionId: string) =>
+      enqueueRequest(announcer, {
+        sessionId,
+        userId: "user-1",
+        kind: "turn",
+        message: "do a thing",
+        model: "openai/gpt-5-mini",
+        billsToUser: false,
+      });
+    return { queue: announcer, announced, enqueueOn };
+  }
+
+  it("announces an enqueue once the row is there to claim", async () => {
+    const pending: Promise<boolean>[] = [];
+    const watched = new InMemoryTurnQueue({
+      // A worker woken by this asks at once, so the row has to be there when it does.
+      claims: { announce: () => pending.push(watched.hasPending("session-a")) },
+    });
+    await enqueueRequest(watched, {
+      sessionId: "session-a",
+      userId: "user-1",
+      kind: "turn",
+      message: "do a thing",
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    });
+
+    expect(await Promise.all(pending)).toEqual([true]);
+  });
+
+  it("announces a settle, which frees the session for the request queued behind it", async () => {
+    const { queue: announcer, announced, enqueueOn } = announcing();
+    const { id } = await enqueueOn("session-a");
+    await enqueueOn("session-a");
+    await announcer.claim("worker-1");
+    announced.length = 0;
+
+    expect(await announcer.settle(id, "worker-1", "done")).toBe(true);
+
+    expect(announced).toEqual(["wake"]);
+  });
+
+  it("announces nothing for a settle that was refused, because nothing was freed", async () => {
+    const { queue: announcer, announced, enqueueOn } = announcing();
+    const { id } = await enqueueOn("session-a");
+    await announcer.claim("worker-1");
+    announced.length = 0;
+
+    expect(await announcer.settle(id, "somebody-else", "done")).toBe(false);
+
+    expect(announced).toEqual([]);
+  });
+
+  it("announces the janitor reclaiming a lease, and nothing when it reclaimed none", async () => {
+    const { queue: announcer, announced, enqueueOn } = announcing();
+    await enqueueOn("session-a");
+    await announcer.claim("worker-1");
+    announced.length = 0;
+
+    expect(await announcer.orphanExpired()).toEqual([]);
+    expect(announced).toEqual([]);
+
+    now += 10 * 60_000;
+    expect(await announcer.orphanExpired()).toHaveLength(1);
+    expect(announced).toEqual(["wake"]);
+  });
+});

@@ -20,7 +20,7 @@ let owner: string;
 beforeAll(async () => {
   connection = postgres(inject("postgresUrl"), { max: 3 });
   db = drizzle(connection);
-  store = new PostgresSessionStartStore(db);
+  store = new PostgresSessionStartStore(db, { claims: null });
   const [user] = await db
     .insert(users)
     .values({ email: `${randomUUID()}@example.com`, name: "Session starter" })

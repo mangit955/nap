@@ -185,6 +185,11 @@ telling the worker running that request to renew now instead of at its next inte
 request, never a session, and cancels nothing itself: the renewal's answer does that, and a lost
 wake-up costs a wait of up to one renewal. See `docs/adr/0023`.
 
+**Claim wake-up** — a notification that a turn request may have become claimable: one was
+enqueued, a lease was settled, or the janitor reclaimed one. Every idle worker hears it and asks the
+queue at once rather than at its next poll. It carries nothing and claims nothing itself; a lost one
+costs a wait of up to one fallback poll. See `docs/adr/0027`.
+
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
 

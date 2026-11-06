@@ -45,6 +45,7 @@ const config: NapDeps["config"] = {
   NAP_REAP_INTERVAL_SECONDS: 60,
   NAP_JANITOR_INTERVAL_SECONDS: 60,
   NAP_WORKER_CONCURRENCY: 1,
+  NAP_WORKER_FALLBACK_POLL_SECONDS: 5,
   NAP_DRAIN_TIMEOUT_SECONDS: 1,
   NAP_CAPTURE_CONCURRENCY: 1,
 };
@@ -211,6 +212,7 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
     },
     bus: new InMemoryEventBus(),
     cancels: null,
+    claims: null,
     objects: new InMemoryObjectStore(),
     encryptionKey: encryptionKeyFrom(Buffer.alloc(32, 7).toString("base64")),
     verifyKey: async () => ({ ok: true }),

@@ -34,6 +34,13 @@
  * balances or waits for a particular session: a request whose session is busy is simply not
  * claimable, so a slow turn delays its own session and nobody else's.
  *
+ * **An idle worker waits to be told, and polls slowly in case it is not.** Whatever writes a
+ * claimable request — admission, a settle that frees a session, the janitor — announces it after
+ * committing, and this asks the queue the moment it hears one, or the moment a turn of its own
+ * finishes. Between those it asks once per fallback interval, which is what a lost wake-up costs.
+ * A worker that cannot hear wake-ups polls at the fast interval instead, as it did before any of
+ * this existed. See `docs/adr/0027`.
+ *
  * **Stopping is a drain with a deadline, and the leases stay renewed for the whole of it.** A
  * worker being taken away waits for its turns rather than killing them, but only for as long as
  * the platform's grace period allows — and it keeps renewing throughout, or it would spend the
@@ -43,6 +50,7 @@
 import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
 import { getLogger } from "@nap/shared/logging";
 import type { CancelChannel, StopListening } from "@nap/shared/ports/cancel-channel";
+import type { ClaimChannel } from "@nap/shared/ports/claim-channel";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { Runtime } from "@nap/shared/ports/runtime";
 import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
@@ -83,13 +91,26 @@ export type TurnWorkerOptions = {
   /** How many requests this worker runs at once. */
   concurrency: number;
   /**
-   * How long to wait before asking the queue again, when the last ask found nothing.
+   * How long to wait before asking the queue again, when the last ask found nothing and this worker
+   * cannot hear claim wake-ups — none were given, the `LISTEN` failed or never answered, or the
+   * listener says it has gone deaf.
    *
-   * The floor on how long a turn waits between being accepted and starting, so it is short — the
-   * query is an indexed read of a table the size of the backlog. A claim that *does* find work
-   * loops straight round rather than waiting.
+   * Short, because then it is the floor on how long a turn waits between being accepted and
+   * starting. A claim that *does* find work loops straight round rather than waiting.
    */
   pollIntervalMs?: number;
+  /**
+   * How long to wait between asks while wake-ups are being heard.
+   *
+   * Only a lost wake-up waits this long, so it is the bound on how late such a request starts, and
+   * it is also the idle cadence of `onClaimTick`. See `DEFAULT_FALLBACK_POLL_INTERVAL_MS`.
+   */
+  fallbackPollIntervalMs?: number;
+  /**
+   * What tells an idle worker that a request may have become claimable. Absent means polling at
+   * `pollIntervalMs`, which is correct and costs a claim query every interval.
+   */
+  claims?: Pick<ClaimChannel, "listen" | "hearing">;
   /** How often a held lease is renewed. Defaults to the shared interval. */
   renewIntervalMs?: number;
   /**
@@ -135,9 +156,10 @@ export type TurnWorkerOptions = {
    * that skipped a failed claim would restart them during a database blip, which is when losing
    * the turns in flight helps least. This says "the loop is going round", nothing more.
    *
-   * Deliberately synchronous and deliberately unawaited: it is called on the hot path of a loop
-   * that polls several times a second, and a slow one should show up as a slow loop rather than
-   * quietly holding up the next claim.
+   * An idle worker that hears wake-ups comes round once per fallback interval, and one that does
+   * not, once per poll interval — both far inside the two minutes the worker's liveness probe
+   * allows. Deliberately synchronous and deliberately unawaited: a slow one should show up as a
+   * slow loop rather than quietly holding up the next claim.
    */
   onClaimTick?: () => void;
   /** A publication retry uses the session lease and cancellation without spending model tokens. */
@@ -159,8 +181,23 @@ export type TurnWorker = {
   stop(): Promise<void>;
 };
 
-/** Short, because it is the delay between a turn being accepted and its first event. */
+/**
+ * Short, because without wake-ups it is the delay between a turn being accepted and its first
+ * event. It is also ten claim transactions a second per idle worker, for ever, which is why it is
+ * only the cadence of a worker that cannot hear.
+ */
 const DEFAULT_POLL_INTERVAL_MS = 100;
+
+/**
+ * Five seconds: fifty times fewer claim transactions than the fast interval, and still a small
+ * fraction of what a turn takes once it starts, so a request whose wake-up was lost starts late
+ * rather than noticeably stuck. It also matches the heartbeat writer's own five-second throttle, so
+ * an idle worker's liveness file is touched about as often as it was before.
+ *
+ * The number a deployment runs on is `NAP_WORKER_FALLBACK_POLL_SECONDS`, which the composition
+ * passes in.
+ */
+const DEFAULT_FALLBACK_POLL_INTERVAL_MS = 5_000;
 
 /**
  * `docs/scaling-design.md` §15: inside the 900s grace period, with room for the tail.
@@ -194,6 +231,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     concurrency,
     owner = crypto.randomUUID(),
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+    fallbackPollIntervalMs = DEFAULT_FALLBACK_POLL_INTERVAL_MS,
     renewIntervalMs = LEASE_RENEWAL_INTERVAL_MS,
     drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS,
     abortGraceMs = ABORT_GRACE_MS,
@@ -221,6 +259,25 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
   const wakeups = new Map<string, () => void>();
   let stopped = false;
   let idle = Promise.resolve();
+
+  /**
+   * Whether something has happened since the last claim started that might make a request
+   * claimable: a wake-up, or a turn of this worker's own finishing.
+   *
+   * A flag as well as a wake, because the thing it records can happen while a claim is in flight —
+   * the claim read an empty queue, the request committed a moment later — and a loop that only
+   * listened while asleep would then sleep straight through it.
+   */
+  let nudged = false;
+  let wake: (() => void) | null = null;
+
+  function nudge(): void {
+    nudged = true;
+    wake?.();
+  }
+
+  /** Set once the claim `LISTEN` has answered; read with the channel's own health on every rest. */
+  let listeningForClaims = false;
 
   /**
    * One request, start to settled.
@@ -378,13 +435,37 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
       const task = run(request).finally(() => {
         inFlight.delete(task);
+        // A slot just came free, and the request queued behind this turn's session may just have
+        // become claimable. Neither needs anybody else to say so.
+        nudge();
       });
       inFlight.add(task);
     }
   }
 
+  /**
+   * The wait between two rounds: the fallback interval while wake-ups are being heard, the fast one
+   * otherwise, and over at once if anything nudges it.
+   */
+  async function rest(): Promise<void> {
+    if (nudged || stopped) return;
+    const hearing = listeningForClaims && (options.claims?.hearing() ?? false);
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(done, hearing ? fallbackPollIntervalMs : pollIntervalMs);
+      function done(): void {
+        clearTimeout(timer);
+        wake = null;
+        resolve();
+      }
+      wake = done;
+    });
+  }
+
   async function loop(): Promise<void> {
     while (!stopped) {
+      // Before the claim rather than after it: anything from here on is something this claim may
+      // have missed, so it has to send the loop straight round again.
+      nudged = false;
       try {
         await fill();
       } catch (error) {
@@ -401,7 +482,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         logger.error({ err: error }, "the claim tick handler threw");
       }
       if (stopped) break;
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      await rest();
     }
   }
 
@@ -417,6 +498,27 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
       ?.listen((requestId) => wakeups.get(requestId)?.())
       .catch((error: unknown) => {
         logger.warn({ err: error }, "not hearing cancel wake-ups; a cancel waits for a renewal");
+        return null;
+      }) ?? Promise.resolve(null);
+
+  /**
+   * Not waited for before the first claim, unlike the cancel `LISTEN`: until it answers this worker
+   * simply polls at the fast interval, so nothing enqueued meanwhile waits on it. Once it does, one
+   * more claim covers whatever was announced before anybody here was listening.
+   */
+  const listeningToClaims: Promise<StopListening | null> =
+    options.claims
+      ?.listen(nudge)
+      .then((stop) => {
+        listeningForClaims = true;
+        nudge();
+        return stop;
+      })
+      .catch((error: unknown) => {
+        logger.warn(
+          { err: error },
+          "not hearing claim wake-ups; polling the queue at the fast interval",
+        );
         return null;
       }) ?? Promise.resolve(null);
 
@@ -444,11 +546,18 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
    * is stopped whenever it does answer, since this only gives up on waiting for that.
    */
   async function stopListening(): Promise<void> {
-    const stopping = listening
-      .then((stop) => stop?.())
-      .catch((error: unknown) => {
-        logger.warn({ err: error }, "could not stop listening for cancel wake-ups");
-      });
+    const stopping = Promise.all([
+      listening
+        .then((stop) => stop?.())
+        .catch((error: unknown) => {
+          logger.warn({ err: error }, "could not stop listening for cancel wake-ups");
+        }),
+      listeningToClaims
+        .then((stop) => stop?.())
+        .catch((error: unknown) => {
+          logger.warn({ err: error }, "could not stop listening for claim wake-ups");
+        }),
+    ]);
 
     let patience: ReturnType<typeof setTimeout> | undefined;
     const outOfPatience = new Promise<"expired">((resolve) => {
@@ -457,7 +566,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
 
     const outcome = await Promise.race([stopping, outOfPatience]);
     clearTimeout(patience);
-    if (outcome === "expired") logger.warn("gave up waiting to stop listening for cancel wake-ups");
+    if (outcome === "expired") logger.warn("gave up waiting to stop listening for wake-ups");
   }
 
   /**
@@ -516,6 +625,8 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     async stop() {
       stopped = true;
       startClaiming();
+      // Out of whatever rest the loop is in, rather than waiting up to a fallback interval for it.
+      nudge();
       await idle;
       await drain();
       // After the drain, because somebody can still press stop on a turn this is waiting for.

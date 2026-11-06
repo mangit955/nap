@@ -19,7 +19,7 @@ beforeAll(() => {
   inputClient = postgres(inject("postgresUrl"), { max: 2, connection: { lock_timeout: 2000 } });
   db = drizzle(client);
   access = new PostgresProjectComputerAccess(drizzle(inputClient));
-  queue = new PostgresTurnQueue(db);
+  queue = new PostgresTurnQueue(db, { claims: null });
 });
 beforeEach(async () => {
   await db.delete(projectComputerOperations);

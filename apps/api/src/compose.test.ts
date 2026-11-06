@@ -58,6 +58,7 @@ const CONFIG: NapDeps["config"] = {
   NAP_REAP_INTERVAL_SECONDS: 60,
   NAP_JANITOR_INTERVAL_SECONDS: 60,
   NAP_WORKER_CONCURRENCY: 4,
+  NAP_WORKER_FALLBACK_POLL_SECONDS: 5,
   // Short, because a test that leaves a turn hanging should fail rather than wait ten minutes for
   // the teardown's drain.
   NAP_DRAIN_TIMEOUT_SECONDS: 1,
@@ -156,6 +157,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     events: new InMemoryEventStore(),
     bus: new InMemoryEventBus(),
     cancels: null,
+    claims: null,
     sandbox: new InMemorySandboxManager(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([]),
@@ -373,6 +375,22 @@ describe("composeNap", () => {
     // channel on a socket, so an API pod or a reaper paying it would be paying for nothing.
     const listen = vi.fn(async () => async () => {});
     const composed = compose({ role, cancels: { announce: () => {}, listen } });
+
+    await vi.waitFor(() => expect(listen).toHaveBeenCalledTimes(expected));
+    await composed.worker.stop();
+    expect(listen).toHaveBeenCalledTimes(expected);
+  });
+
+  it.each([
+    ["worker", 1],
+    ["all", 1],
+    ["api", 0],
+    ["reaper", 0],
+  ] as const)("as %s, listens for claim wake-ups %i time(s)", async (role, expected) => {
+    // A worker given no channel still claims everything, a tenth of a second late, while asking
+    // the database ten times a second for ever, so no test of a turn would notice it missing.
+    const listen = vi.fn(async () => async () => {});
+    const composed = compose({ role, claims: { announce: () => {}, listen, hearing: () => true } });
 
     await vi.waitFor(() => expect(listen).toHaveBeenCalledTimes(expected));
     await composed.worker.stop();

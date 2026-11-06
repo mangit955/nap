@@ -13,6 +13,7 @@ import {
   type RepositoryJob,
   RepositoryJobSchema,
 } from "@nap/shared/github-protocol";
+import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
 import type {
   ClaimedGitHubDelivery,
   GitHubConnectionState,
@@ -52,8 +53,23 @@ import {
 
 const MAX_DELIVERY_ATTEMPTS = 5;
 
+export type PostgresGitHubStoreOptions = {
+  /**
+   * Told once an import that opens its project, or an approval of review feedback, has committed
+   * the turn request it writes. Required and nullable for the reason it is on `PostgresTurnQueue`.
+   */
+  claims: ClaimAnnouncer | null;
+};
+
 export class PostgresGitHubStore implements GitHubStore {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  readonly #claims: ClaimAnnouncer | null;
+
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    options: PostgresGitHubStoreOptions,
+  ) {
+    this.#claims = options.claims;
+  }
 
   async createState(state: GitHubConnectionState): Promise<void> {
     await this.db.insert(githubConnectionStates).values(state);
@@ -145,6 +161,13 @@ export class PostgresGitHubStore implements GitHubStore {
   }
 
   async importRepository(input: ImportRepository): Promise<ProjectRepository | null> {
+    const imported = await this.#import(input);
+    // After the commit. Only an import that opens the project wrote a request.
+    if (imported !== null && input.open !== undefined) this.#claims?.announce();
+    return imported;
+  }
+
+  async #import(input: ImportRepository): Promise<ProjectRepository | null> {
     return this.db.transaction(async (tx) => {
       // Serialize import against revocation, so a disconnected installation cannot admit work.
       const [installation] = await tx
@@ -425,6 +448,19 @@ export class PostgresGitHubStore implements GitHubStore {
     queueRequest: EnqueueTurnRequest,
   ): Promise<string | null> {
     if (queueRequest.userId !== userId || queueRequest.kind !== "turn") return null;
+    const requestId = await this.#approve(projectId, userId, feedbackId, queueRequest);
+    // After the commit, and for an approval that found its request already written as well: a
+    // wake-up naming nothing new costs one claim query.
+    if (requestId !== null) this.#claims?.announce();
+    return requestId;
+  }
+
+  async #approve(
+    projectId: string,
+    userId: string,
+    feedbackId: string,
+    queueRequest: EnqueueTurnRequest,
+  ): Promise<string | null> {
     return this.db.transaction(async (tx) => {
       const [row] = await tx
         .select({ feedback: repositoryFeedback, sessionId: repositoryJobs.sessionId })

@@ -65,8 +65,9 @@ spec:
           # deadlock, a promise that never settles — leaves a pod that is up, holds no leases, and
           # runs nothing, which is invisible to every other kind of probe.
           #
-          # The loop ticks several times a second when idle, so 120 seconds is enormous slack and
-          # this only fires on something genuinely stuck.
+          # An idle loop ticks once per NAP_WORKER_FALLBACK_POLL_SECONDS (5s, at most 30) while it
+          # hears claim wake-ups and ten times a second while it does not, so 120 seconds is ample
+          # slack and this only fires on something genuinely stuck.
           livenessProbe:
             exec:
               command:

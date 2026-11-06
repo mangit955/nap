@@ -238,6 +238,12 @@ know when you do:
   share the socket the fanout already holds. A worker whose listener is down still stops a turn,
   at its next lease renewal rather than at once. A worker has no `/readyz`, so the only symptom
   there is a slow stop button.
+- **So does claiming.** An idle worker waits for a claim wake-up on the same socket, announced
+  by whatever wrote the request, and otherwise asks the queue only every
+  `NAP_WORKER_FALLBACK_POLL_SECONDS` (5 s). That is about 0.2 claim queries a second per idle
+  worker, down from 10. While the listener is down, which the event bus's echo detects, the
+  worker polls every 100 ms as it used to, so turns still start promptly and the database pays
+  the old idle load. See `docs/adr/0027`.
 
 ### What each process scales on
 
@@ -501,6 +507,10 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   a new project's request past that cap is dropped. A shutdown drops the queue.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
   is already running before aborting them. Keep it inside the platform's grace period.
+- `NAP_WORKER_FALLBACK_POLL_SECONDS=5` — how often an idle worker that can hear claim wake-ups
+  asks the queue anyway, which is the most a lost wake-up delays a turn. At most 30, because the
+  claim loop coming round is also the worker's liveness heartbeat. A worker that cannot hear
+  polls every 100 ms whatever this says.
 - `NAP_REAP_INTERVAL_SECONDS=60` — how often the reaper looks. The idle sweep and the janitor
   tick separately, on purpose: an idle project can wait a minute to be put away and a chat pane
   waiting on a turn that will never finish cannot.

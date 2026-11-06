@@ -37,7 +37,7 @@ beforeAll(() => {
     connection: { application_name: inputApplication, lock_timeout: 2000 },
   });
   db = drizzle(client);
-  queue = new PostgresTurnQueue(db);
+  queue = new PostgresTurnQueue(db, { claims: null });
 });
 beforeEach(async () => {
   await db.delete(projectComputerOperations);
@@ -315,7 +315,7 @@ it.each(TURN_REQUEST_KINDS)(
     });
     // A different pool/store represents the next process. A returned HTTP failure and
     // a released transaction are not permission for any project session to execute.
-    const nextProcess = new PostgresTurnQueue(drizzle(client));
+    const nextProcess = new PostgresTurnQueue(drizzle(client), { claims: null });
     expect(await nextProcess.claim("successor")).toBeNull();
     expect(
       await nextProcess.getStatus({
@@ -493,5 +493,7 @@ it("keeps admission fenced after the dispatching database session is terminated"
     model: "anthropic/claude-sonnet-5",
     billsToUser: false,
   });
-  expect(await new PostgresTurnQueue(drizzle(client)).claim("after-api-db-loss")).toBeNull();
+  expect(
+    await new PostgresTurnQueue(drizzle(client), { claims: null }).claim("after-api-db-loss"),
+  ).toBeNull();
 });
