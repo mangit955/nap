@@ -65,11 +65,11 @@ export function Verification() {
             term: "Errored",
             body: (
               <>
-                Nothing was learned about the project — the sandbox refused the command, or the
-                preview listens inside and is unreachable from outside. A repair turn on that would
-                ask a model to fix a machine it cannot see, so{" "}
-                <Term>an errored run is never written as a verification</Term> and the job ends
-                abandoned instead.
+                Nothing was learned about the project — the sandbox refused the command, a check ran
+                past its five minutes or was cancelled, or the preview listens inside and is
+                unreachable from outside. A repair turn on that would ask a model to fix a machine
+                it cannot see, so <Term>an errored run is never written as a verification</Term> and
+                the job ends abandoned instead.
               </>
             ),
           },
@@ -109,12 +109,13 @@ export function Verification() {
       </P>
 
       <P>
-        So tool traffic from any turn older than the most recent one is emptied{" "}
-        <Term>unconditionally</Term>, before the budget is consulted. The call keeps its shape —
-        which tool, against which path — so the turn still reads as something that happened; what
-        goes is any argument big enough to be a file&rsquo;s contents, and everything the call
-        printed. This cheap pruning preserves prose on both sides. Fitting was never the only test;
-        being worth repeatedly sending matters too.
+        So tool traffic from every finished turn is emptied <Term>unconditionally</Term>, before the
+        budget is consulted. The call keeps its shape — which tool, against which path — so the turn
+        still reads as something that happened; what goes is any argument big enough to be a
+        file&rsquo;s contents, and everything the call printed. This cheap pruning preserves prose
+        on both sides, and any question the agent put to the person, whose answer may be no more
+        than the option picked. Fitting was never the only test; being worth repeatedly sending
+        matters too.
       </P>
 
       <P>
@@ -135,6 +136,15 @@ export function Verification() {
         Summaries and quoted tool output remain conversation data, outside trusted application
         instructions. If compaction fails, the previous working context stays usable. If essential
         instructions still exceed the budget, the turn stops instead of silently shortening them.
+      </P>
+      <P>
+        The conversation a summary replaces stays within the agent&rsquo;s reach. Each compaction
+        writes its messages, tool calls and tool results to a plain-text file in the project&rsquo;s
+        sandbox, outside the project folder, so it is never committed or served. Every entry is
+        numbered by its place in the session&rsquo;s event log. The summary cites those numbers, and
+        the agent is told where the file is so it can search for a detail the summary left out
+        instead of redoing the work. The file is rebuilt from the log whenever a sandbox does not
+        have it, such as after a project is reopened.
       </P>
 
       <P>

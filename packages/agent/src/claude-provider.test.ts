@@ -697,6 +697,24 @@ describe("ClaudeProvider", () => {
       expect(JSON.stringify(first)).not.toContain("cache_control");
     });
 
+    it("puts a breakpoint where the context engine marked settled history", async () => {
+      const body = await bodyOf({
+        messages: [
+          { role: "user", content: "one", cacheBreakpoint: true },
+          { role: "assistant", content: "two", cacheBreakpoint: true },
+          { role: "user", content: "three" },
+        ],
+      });
+
+      expect(body.messages.map((m) => JSON.stringify(m).includes("cache_control"))).toEqual([
+        true,
+        true,
+        true,
+      ]);
+      // System, two settled points, the moving end: the API's ceiling, and no more.
+      expect(breakpoints(body)).toHaveLength(4);
+    });
+
     it("serializes image inputs as provider image blocks", async () => {
       const body = await bodyOf({
         messages: [

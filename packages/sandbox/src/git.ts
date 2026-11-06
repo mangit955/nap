@@ -129,6 +129,35 @@ export async function currentSha(
   return { ok: true, value: result.value.trim() };
 }
 
+/** What `workspaceState` hands back. Opaque: the only thing to do with one is compare it. */
+export type WorkspaceState = string;
+
+/**
+ * Which commit is checked out and how the working tree differs from it, as one comparable value.
+ *
+ * For something that does not hold the session's lease to ask whether the workspace has changed
+ * since it last looked — a sha alone misses a following turn that has edited files and not yet
+ * committed them. A tree that was already dirty is fine: it is compared, never required to be
+ * clean, because a project's own checks can leave untracked files behind.
+ *
+ * **`--no-optional-locks` is what makes this safe to run beside a turn, and it is not a nicety.**
+ * A plain `git status` refreshes the index and takes `index.lock` to do it, and a turn's `git add`
+ * meeting that lock fails — which fails the commit, which fails the turn. Measured against a real
+ * repository: 4 `git add`s in 300 failed beside a plain status, none beside this one.
+ */
+export async function workspaceState(
+  manager: SandboxManager,
+  sandboxId: string,
+  options?: GitOptions,
+): Promise<Result<WorkspaceState, SandboxError>> {
+  return await git(
+    manager,
+    sandboxId,
+    "git rev-parse HEAD && git --no-optional-locks status --porcelain",
+    options,
+  );
+}
+
 /**
  * The whole repository as a git bundle — a single file holding every ref and all history.
  *

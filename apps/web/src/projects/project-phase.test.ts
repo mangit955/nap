@@ -60,6 +60,14 @@ describe("before anything is known", () => {
     ).toBe("starting");
   });
 
+  it("stops claiming to start when the first turn was stopped before it had a sandbox", () => {
+    // The log has nothing further to say, so anything waiting on it would wait for ever.
+    const preview: PreviewState = { status: "cancelled" };
+
+    expect(phaseOf(inputs({ record: "new", preview })).kind).toBe("idle");
+    expect(phaseOf(inputs({ previewRequired: false, record: "new", preview })).kind).toBe("idle");
+  });
+
   it("is opening while the record is still being fetched", () => {
     // Nothing is known yet, and deriving a state from an empty log is how the pane came to
     // announce "Nothing running yet" about a project that was running.

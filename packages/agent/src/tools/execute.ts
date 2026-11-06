@@ -21,10 +21,11 @@
 
 import { type ToolName, ToolNameSchema } from "@nap/shared/events";
 import type { LLMToolCall } from "@nap/shared/ports/llm-provider";
+import { TOOL_KINDS } from "@nap/shared/tool-kinds";
 import type { z } from "zod";
 import { runComputer } from "./computer.ts";
 import { emit, type ToolContext, type ToolHandler, type ToolOutcome } from "./context.ts";
-import { askUser, todoWrite } from "./conversation.ts";
+import { askUser, proposePlan, todoWrite } from "./conversation.ts";
 import { TOOL_SCHEMAS, type ToolArgs } from "./definitions.ts";
 import { readSubagent, runSubagent } from "./delegate.ts";
 import { editFile, listFiles, readFile, writeFile } from "./files.ts";
@@ -67,6 +68,7 @@ const HANDLERS: { [K in ToolName]: ToolHandler<ToolArgs<K>> } = {
   ask_user: askUser,
   run_subagent: runSubagent,
   read_subagent: (args, _call, ctx) => readSubagent(args, ctx),
+  propose_plan: proposePlan,
 };
 
 /** The registry's schemas, seen through the same mapping the handlers are. */
@@ -88,12 +90,22 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
   // A real tool this turn was not offered is a different thing: the attempt is worth having in
   // the log — an app test that tried to write a file is evidence about that test — so it is
   // recorded as a call and refused as its result, and nothing runs.
+  //
+  // A question gets a refusal of its own, because it is declared where it cannot be used: a
+  // repair turn declares the person's tools so the cached prefix survives it (ADR-0024). "Not
+  // available" alone invites the model to try another way of asking; what it needs to hear is
+  // that nobody will answer, so it should decide. Worded to be true wherever it is reached — a
+  // repair turn, or a helper, which runs inside a person's turn but cannot talk to them.
   const refusal =
     ctx.offered === undefined || ctx.offered.has(name.data)
       ? undefined
       : ctx.testMode
         ? "App tests can read source and use the computer. Source changes and commands require a separate repair turn."
-        : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
+        : ctx.planning
+          ? `${name.data} is not available in plan mode, which changes nothing until the person approves a plan. Read what you need, then call propose_plan. Available tools: ${[...ctx.offered].join(", ")}.`
+          : TOOL_KINDS[name.data] === "ask"
+            ? "Nobody can answer a question from here. Decide on the most reasonable reading of what you were asked, and continue."
+            : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
 
   emit(ctx, {
     type: "tool.call",

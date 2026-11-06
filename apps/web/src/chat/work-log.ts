@@ -298,6 +298,8 @@ export function workEntryDisplayLabel(entry: WorkEntry): string {
       return argument(entry, "task") ?? "Delegated a task";
     case "read_subagent":
       return "Collected a helper's report";
+    case "propose_plan":
+      return "Proposed a plan";
   }
 }
 

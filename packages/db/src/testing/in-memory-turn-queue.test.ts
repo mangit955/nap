@@ -137,7 +137,11 @@ describe("requestCancel", () => {
   it("fails a queued request and only flags a leased one", async () => {
     const leased = await enqueue("session-a");
     await queue.claim("worker-1");
-    expect(await queue.requestCancel("session-a")).toEqual({ cancelled: true, was: "leased" });
+    expect(await queue.requestCancel("session-a")).toEqual({
+      cancelled: true,
+      was: "leased",
+      requestId: leased.id,
+    });
     expect(queue.stateOf(leased.id)).toBe("leased");
 
     const queued = await enqueue("session-b");
@@ -146,13 +150,17 @@ describe("requestCancel", () => {
   });
 
   it("still reports a cancel for a leased request that was already cancelled", async () => {
-    await enqueue("session-a");
+    const { id } = await enqueue("session-a");
     await queue.claim("worker-1");
     await queue.requestCancel("session-a");
 
-    // The turn is still running until its next renewal, so a second click must not be told
-    // otherwise.
-    expect(await queue.requestCancel("session-a")).toEqual({ cancelled: true, was: "leased" });
+    // The turn is still running until the worker has stopped it, so a second click must not be
+    // told otherwise.
+    expect(await queue.requestCancel("session-a")).toEqual({
+      cancelled: true,
+      was: "leased",
+      requestId: id,
+    });
   });
 
   it("reports nothing to cancel on an idle session", async () => {

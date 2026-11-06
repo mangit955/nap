@@ -1,6 +1,8 @@
+import { PlanIntentSchema } from "@nap/shared/agent-plan";
 import { appTestTarget } from "@nap/shared/app-testing";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
+import { pendingPlan } from "@nap/shared/plan-mode";
 /**
  * Starting and stopping a turn.
  *
@@ -19,8 +21,9 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  *   - **Admission returns the durable request ID.** Execution arrives as session events. A
  *     pending caller can also read that row's status, since a queued cancellation emits none.
  *   - **Cancellation is a row, not a `Map`.** `requestCancel` reaches a turn running on any pod,
- *     which the old registry could not. The registry is still consulted, as a fast path for the
- *     case where the turn happens to be running here — see `registry.ts`.
+ *     which the old registry could not. A wake-up then tells that pod to read the row now rather
+ *     than at its next renewal, and the registry is still consulted for the case where the turn
+ *     happens to be running here — see `registry.ts`.
  *
  * A session that does not exist is refused here as well as inside the runtime. The runtime's
  * answer is a failed turn with no event — correctly, since an event needs a session to belong
@@ -28,6 +31,7 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  */
 
 import { getLogger } from "@nap/shared/logging";
+import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
@@ -47,10 +51,15 @@ export type TurnRouteDeps = {
   /** Where an admitted turn goes. A worker takes it from here; this route never runs one. */
   queue: TurnQueue;
   /**
-   * Which turns are running *in this process*, so a cancel that lands on the pod holding the turn
-   * is felt at once rather than at the worker's next renewal. Never the durable answer.
+   * Which turns are running *in this process*, which only a composition running every role at once
+   * has any of: scripts and tests. Never the durable answer. See `./registry.ts`.
    */
   registry: TurnRegistry;
+  /**
+   * Tells whichever worker holds a flagged request to read the flag now. Absent where nothing
+   * crosses processes, which is those same scripts and tests: there, `registry` reaches it.
+   */
+  cancels?: Pick<CancelChannel, "announce">;
   /**
    * The projects these sessions belong to, so a project still carrying the default name can be
    * named after the first thing it was asked for.
@@ -124,6 +133,11 @@ const TurnBodySchema = z.object({
    * models are the ones they would choose.
    */
   model: z.string().min(1).optional(),
+  /**
+   * Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. The asker's
+   * choice for this turn alone, so it travels with the prompt onto the queued request.
+   */
+  plan: PlanIntentSchema.optional(),
 });
 
 export function registerTurnRoutes(
@@ -204,8 +218,22 @@ export function registerTurnRoutes(
     if (body.data.message === "/compact") {
       if (body.data.attachments?.length)
         return c.json({ error: "Send /compact without attachments." }, 400);
+      if (body.data.plan !== undefined)
+        return c.json({ error: "Send /compact as an ordinary message, not in plan mode." }, 400);
       if (await deps.queue.anyLeased([found.value.sessionId]))
         return c.json({ error: "Wait for the current turn to finish before compacting." }, 409);
+    }
+
+    // An approval has to name the plan that is waiting, and nothing may be queued ahead of it:
+    // whatever runs first is the next message, and the next message settles the plan. Refused
+    // here, before any allowance is spent, and checked again under the lease, where the log stops
+    // moving (`pendingPlan`, ADR-0025).
+    if (body.data.plan?.intent === "approve") {
+      const { sessionId } = found.value;
+      if (await deps.queue.hasPending(sessionId))
+        return c.json({ error: "Wait for the current turn to finish before approving." }, 409);
+      if (pendingPlan(await events.readFrom(sessionId, 0), body.data.plan.planTurnId) === undefined)
+        return c.json({ error: "That plan is no longer waiting for approval." }, 409);
     }
 
     // Whose account this turn is billed to, which is also what decides which models they may
@@ -257,6 +285,7 @@ export function registerTurnRoutes(
       kind: "turn",
       message: body.data.message,
       ...(body.data.attachments === undefined ? {} : { attachments: body.data.attachments }),
+      ...(body.data.plan === undefined ? {} : { plan: body.data.plan }),
       // Concrete by now. The resolver always returns a model rather than leaving a default to be
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.
@@ -294,9 +323,9 @@ export function registerTurnRoutes(
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
     const { sessionId } = found.value;
 
-    // The durable half, and the only one that reaches a turn running on another pod: a queued
-    // request is failed outright so it is never claimed, and a leased one is flagged for the
-    // worker holding it, which aborts on its next renewal.
+    // The durable half, and the authority: a queued request is failed outright so it is never
+    // claimed, and a leased one is flagged for the worker holding it. Everything below only makes
+    // the worker notice sooner, and its next renewal finds this flag if all of that is lost.
     const outcome = await deps.queue.requestCancel(sessionId);
 
     // Nothing in flight is a race, not a failure: the user clicked as the turn was ending. The
@@ -305,9 +334,13 @@ export function registerTurnRoutes(
       return c.json({ error: "no turn is running for this session" }, 409);
     }
 
-    // The fast path, for when the turn happens to be running in this process. Does nothing at all
-    // when it is not, which is correct — the flag above has already reached it.
-    deps.registry.cancel(sessionId);
+    // Only for a leased request, and only by its id, and only now that the flag has committed: a
+    // worker told any earlier would read an unflagged row and carry on. A queued request has
+    // nobody to tell.
+    if (outcome.was === "leased") {
+      deps.cancels?.announce(outcome.requestId);
+      deps.registry.cancel(outcome.requestId);
+    }
 
     return c.json({ cancelled: true }, 202);
   });

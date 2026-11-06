@@ -1,4 +1,4 @@
-# ADR-0021 — An event append is one statement on a per-session counter
+# ADR-0026 — An event append is one statement on a per-session counter
 
 **Status:** Accepted, 2026-11-06. Measured on the db suite's Postgres container: four statements per append before, one after. Not yet measured against a deployed database.
 
@@ -24,7 +24,7 @@ insert into events (…, seq, …) values (…, coalesce((select head_seq from n
 - **The retried append (`retryAfterSeq`) stays a transaction.** It first locks the same counter row `for no key update`, which waits out an interrupted attempt still in flight. It then looks for the event above the watermark, and inserts through the same statement only if it is absent. Retries are rare, so their extra round trips do not matter.
 - `unique(session_id, seq)` remains the backstop. It can only fire when two writers that both bypassed the counter race each other.
 
-Migration `0017_session_head_seq` adds the column with a constant default, which is metadata-only, and backfills each session from `max(seq)`. The floor means the backfill is tidiness rather than what keeps a session writable.
+Migration `0018_session_head_seq` adds the column with a constant default, which is metadata-only, and backfills each session from `max(seq)`. The floor means the backfill is tidiness rather than what keeps a session writable.
 
 ## Consequences
 

@@ -1,3 +1,4 @@
+import { VERIFICATION_ROUND_LIMIT_MS } from "@nap/shared/command-windows";
 import type { QueueLeaseIdentity } from "@nap/shared/ports/project-computer-access";
 import type { ProjectComputer } from "./project-computer.ts";
 /**
@@ -39,11 +40,13 @@ import type { ProjectComputer } from "./project-computer.ts";
 
 import { commitAll, currentSha } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
+import type { ProposedPlan } from "@nap/shared/agent-plan";
 import { appTestTarget } from "@nap/shared/app-testing";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
+import { approvedPlanOfJob, pendingPlan } from "@nap/shared/plan-mode";
 import type { AgentService } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
@@ -51,7 +54,6 @@ import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/ev
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
-import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
 import type {
   ContinueOptions,
@@ -77,6 +79,7 @@ import {
 import { type AppTestRecordingClock, withAppTestRecording } from "./app-test-recording.ts";
 import { AppTestRun } from "./app-test-run.ts";
 import { contextCompactor } from "./compaction.ts";
+import { compactionHistoryFile } from "./compaction-history.ts";
 import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
@@ -84,7 +87,7 @@ import { SessionHistory } from "./session-history.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
 import { testPrompt } from "./test-prompt.ts";
-import { captureThumbnail } from "./turn-thumbnail.ts";
+import type { ThumbnailLane } from "./thumbnail-lane.ts";
 import { type CheckFailure, failureOf, toVerifiedChecks, verifyTurn } from "./verify-turn.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
@@ -141,6 +144,8 @@ type JobRun = {
   sandboxId: string;
   jobId: string;
   objective: string;
+  /** The approved plan this job carries out, for every turn of it (ADR-0025). */
+  plan?: ProposedPlan | undefined;
   /** Failures already responded to, oldest first — the one thing a repair cannot rederive. */
   attempts: FailedAttempt[];
   /** Repair turns already spent. Non-zero for a job a restart is continuing. */
@@ -170,6 +175,14 @@ type JobEntry = {
    */
   fresh: boolean;
 };
+
+/**
+ * Why an approval built nothing: the plan it names had already been approved, revised or set
+ * aside by the time its turn ran. Said plainly, because the person approved something and is owed
+ * a reason nothing happened.
+ */
+const STALE_APPROVAL =
+  "That plan was no longer waiting for approval, so nothing was built. Approve the latest plan, or say what to build.";
 
 /** Git's own convention for a subject line, and what every log viewer is laid out for. */
 const COMMIT_SUBJECT_LIMIT = 72;
@@ -205,6 +218,10 @@ function resumeFailureNotice(error: SandboxError): string {
   );
 }
 
+/** Somebody asked for this, so it is neither a warning nor an invitation to try again. */
+const RESUME_CANCELLED_NOTICE =
+  "Stopped starting this project back up. Nothing has been lost — its files are still saved.";
+
 export type SingleAgentRuntimeOptions = {
   sessions: SessionStore;
   sandbox: SandboxManager;
@@ -227,14 +244,12 @@ export type SingleAgentRuntimeOptions = {
   objects?: ObjectStore;
   snapshots?: SnapshotStore;
   /**
-   * A browser, for the picture of the project the dashboard puts on its card.
+   * Where to ask for the picture of the project the dashboard puts on its card.
    *
    * Optional and independent of the pair above: a deployment with no browser to drive still
    * runs turns and still keeps the work — it just shows a colour where a screenshot would be.
-   * It needs `objects` to have anywhere to put the bytes, so both must be present or nothing
-   * is captured.
    */
-  capture?: PageCapture;
+  thumbnails?: ThumbnailLane;
   /**
    * The ceiling on how many sandboxes exist at once, claimed at the moment one is created.
    *
@@ -408,9 +423,18 @@ export class SingleAgentRuntime implements Runtime {
         // A notice, not a `turn.failed`. No turn ran, so a failed one would put a retry button
         // under a conversation that never happened — and the preview pane reads a sandbox
         // failure as the state of the *last turn*, which nothing here is.
-        emit("system.notice", { level: "warning", text: resumeFailureNotice(acquired.error) });
+        const cancelled = options.signal?.aborted === true;
+        emit(
+          "system.notice",
+          cancelled
+            ? { level: "info", text: RESUME_CANCELLED_NOTICE }
+            : { level: "warning", text: resumeFailureNotice(acquired.error) },
+        );
         await sink.drain();
-        getLogger().warn({ reason: acquired.error.code }, "could not resume the project");
+        getLogger().warn(
+          { reason: acquired.error.code, cancelled },
+          "could not resume the project",
+        );
         return { ok: false, reason: "sandbox_unavailable", message: acquired.error.message };
       }
 
@@ -435,8 +459,8 @@ export class SingleAgentRuntime implements Runtime {
       // condition as the announcement above: a sandbox that was already serving has not
       // changed since whatever last photographed it.
       //
-      // Last, and after the outcome is already decided: resuming is what the caller asked for,
-      // and a browser launch must not be able to delay or fail it.
+      // Only asked for here, because the lease is held until the continuation below is done and
+      // a browser launch must not be able to delay that, or the resume, or the next message.
       if (acquired.value.created && previewPort !== null)
         await this.#photograph(session.projectId, acquired.value.id, previewPort);
 
@@ -482,7 +506,8 @@ export class SingleAgentRuntime implements Runtime {
     repository?: RepositorySource,
   ): Promise<void> {
     const { session, sink } = scope;
-    const state = foldJobs(await scope.history.read());
+    const history = await scope.history.read();
+    const state = foldJobs(history);
 
     // Asked before HEAD is read, because reading it is a round trip into the sandbox and most
     // opens have nothing open to continue. `continuationFor` answers `none` for these anyway —
@@ -530,6 +555,7 @@ export class SingleAgentRuntime implements Runtime {
       sandboxId,
       jobId: continuation.jobId,
       objective: continuation.objective,
+      plan: approvedPlanOfJob(history, continuation.jobId),
       attempts: [...continuation.attempts],
       // Where the budget stopped, not where it starts. Resetting it is how a project that
       // restarts under a check it cannot pass repairs forever.
@@ -837,11 +863,29 @@ export class SingleAgentRuntime implements Runtime {
       emit("user.message", {
         text: request.message,
         ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+        ...(request.plan === undefined ? {} : { plan: request.plan }),
       });
       await sink.drain();
 
+      // An approval names a plan, and the plan must still be the one waiting. Admission checked
+      // this already; it is checked again here because only under the lease does the log stop
+      // moving — two tabs approving the same plan both pass admission, and only one may build it.
+      // Read from the history taken before this prompt was logged, which is what it answers.
+      const approved =
+        request.plan?.intent === "approve"
+          ? pendingPlan(history, request.plan.planTurnId)
+          : undefined;
+      if (request.plan?.intent === "approve" && approved === undefined) {
+        emit("turn.failed", { reason: "internal", message: STALE_APPROVAL });
+        await sink.drain();
+        return { ok: false, turnId, reason: "internal", message: STALE_APPROVAL };
+      }
+
       const sandboxId = await this.#acquire(session, request.signal);
       if (!sandboxId.ok) {
+        // A cancelled acquire reports itself as `unavailable`, the one code it has. Whoever is told
+        // that was asked to stop rather than let down, so it ends the way any other abort does.
+        request.signal?.throwIfAborted();
         emit("turn.failed", { reason: "sandbox_unavailable", message: sandboxId.error.message });
         await sink.drain();
         return {
@@ -852,12 +896,41 @@ export class SingleAgentRuntime implements Runtime {
         };
       }
 
+      // A plan mode turn opens no job, as a compaction does not: it is not meant to change
+      // anything, so there is no commit to arbitrate, nothing to snapshot or photograph, and
+      // nothing an open could find unfinished and continue (ADR-0025). The approval opens the job.
+      if (request.plan?.intent === "propose") {
+        for (const notice of sandboxId.value.notices) emit("system.notice", notice);
+        const repository = sandboxId.value.repository;
+        const previewPort = repository === undefined ? this.#previewPort : repository.previewPort;
+        if (sandboxId.value.created)
+          this.#startPreviewAnnouncement(scope, sandboxId.value.id, previewPort, request.signal);
+        return await this.#attempt({
+          settings: {
+            ...request,
+            ...(repository === undefined ? {} : { workspace: "repository" }),
+          },
+          scope,
+          sandboxId: sandboxId.value.id,
+          previewPort,
+          prompt: request.message,
+          attachments: request.attachments,
+          promptSource: "user",
+          commitSubject: request.message,
+          history,
+          mode: "plan",
+        });
+      }
+
       // A job opens on a prompt, and this turn belongs to it. Opened after the sandbox is in
       // hand because a job that could never run is a job nothing will ever close — and the
       // objective repeats the message on purpose, so the log answers "what was asked" without
       // a reader having to work out which message belongs to which job.
       const jobId = crypto.randomUUID();
-      const objective = objectiveOf(request.message);
+      // A job carrying out a plan is for what the plan is for: "Approved" says nothing about it.
+      const objective = objectiveOf(approved === undefined ? request.message : approved.title);
+      const plan =
+        approved === undefined ? undefined : { title: approved.title, plan: approved.plan };
       emit("job.started", { jobId, objective });
 
       // Before the preview, which is about to show whatever state the notice is explaining.
@@ -883,6 +956,7 @@ export class SingleAgentRuntime implements Runtime {
         sandboxId: sandboxId.value.id,
         jobId,
         objective,
+        plan,
         attempts: [],
         repairs: 0,
         turn: scope,
@@ -900,9 +974,9 @@ export class SingleAgentRuntime implements Runtime {
         prompt: request.message,
         attachments: request.attachments,
         promptSource: "user",
-        commitSubject: request.message,
+        commitSubject: approved === undefined ? request.message : approved.title,
         history,
-        job: { objective, attempts: [] },
+        job: { objective, attempts: [], ...(plan === undefined ? {} : { plan }) },
       });
 
       return await this.#driveJob(run, { outcome, failed: null, announce: true, fresh: true });
@@ -1013,6 +1087,7 @@ export class SingleAgentRuntime implements Runtime {
           commitSha: outcome.commitSha,
           announce,
           previewPort: run.previewPort,
+          signal: settings.signal,
         });
         // Every round after the first is one this loop began itself.
         announce = true;
@@ -1021,11 +1096,19 @@ export class SingleAgentRuntime implements Runtime {
         // storage before the process died, and re-bundling it would pay for the same bytes
         // twice — and photograph an application nothing has changed since the last shot.
         if (fresh) {
+          // Under the lease, unlike the picture below, and that is load-bearing: see the note on
+          // `#preserve`.
           await this.#preserve(session.projectId, sandboxId, outcome.commitSha);
-          // After the snapshot, deliberately: the work reaching storage is what must not be
-          // delayed by a browser launch, and a picture is the one thing here nobody would miss.
-          // Only when the turn changed something — an unchanged app photographs identically.
-          if (outcome.commitSha !== null && run.previewPort !== null)
+          // Only when the turn changed something — an unchanged app photographs identically — and
+          // when no repair is about to edit it, since the app on screen is one its own checks just
+          // called broken. Not for a turn that was stopped: a worker that has lost its lease does
+          // nothing further on this session's behalf (`docs/scaling-design.md` §21, 10).
+          if (
+            outcome.commitSha !== null &&
+            run.previewPort !== null &&
+            settings.signal?.aborted !== true &&
+            (failed === null || run.repairs >= MAX_REPAIR_ATTEMPTS)
+          )
             await this.#photograph(session.projectId, sandboxId, run.previewPort);
         }
 
@@ -1088,7 +1171,11 @@ export class SingleAgentRuntime implements Runtime {
           failed: repaired,
           previewPort: run.previewPort,
           attempt,
-          job: { objective, attempts: [...attempts] },
+          job: {
+            objective,
+            attempts: [...attempts],
+            ...(run.plan === undefined ? {} : { plan: run.plan }),
+          },
         }),
       );
       failed = null;
@@ -1130,6 +1217,8 @@ export class SingleAgentRuntime implements Runtime {
     manualCompaction?: { id: string; onSettled: () => void };
     appTest?: { run: AppTestRun; clock?: AppTestRecordingClock };
     previewPort: number | null;
+    /** A plan mode turn: read-only, ending on a proposal, and never committed (ADR-0025). */
+    mode?: "plan";
   }): Promise<TurnOutcome> {
     const { settings, scope, sandboxId, prompt, promptSource, commitSubject, history, job } =
       options;
@@ -1138,6 +1227,14 @@ export class SingleAgentRuntime implements Runtime {
 
     // Preparation belongs to this turn too, even if it fails before the agent starts.
     sink.beginTurn();
+    const compactionHistory = compactionHistoryFile({
+      sandbox: this.#options.sandbox,
+      sandboxId,
+      sessionId: settings.sessionId,
+    });
+    // A replaced or restored sandbox comes back without the file a summary cites, so every
+    // compacted session confirms it before the agent is told it is there.
+    const historyFile = await compactionHistory.sync(history);
     const context = await this.#options.context.build({
       sessionId: settings.sessionId,
       sandboxId,
@@ -1145,7 +1242,9 @@ export class SingleAgentRuntime implements Runtime {
       model: settings.model,
       attachments: options.attachments,
       history,
+      historyFile,
       ...(job === undefined ? {} : { job }),
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
       ...(options.manualCompaction === undefined ? {} : { continuation: true }),
       sandbox: this.#options.sandbox,
       memory: this.#options.memory,
@@ -1202,6 +1301,7 @@ export class SingleAgentRuntime implements Runtime {
             ? {}
             : { startedId: options.manualCompaction.id }),
           budgetTokens: context.budgetTokens ?? 80_000,
+          history: compactionHistory,
           read: async () => {
             await sink.drain();
             return scope.history.read();
@@ -1222,7 +1322,7 @@ export class SingleAgentRuntime implements Runtime {
             }
           },
           drain: () => sink.drain(),
-          rebuild: (history) =>
+          rebuild: (history, historyFile) =>
             this.#options.context.build({
               sessionId: settings.sessionId,
               sandboxId,
@@ -1232,13 +1332,21 @@ export class SingleAgentRuntime implements Runtime {
               // the current request after compaction, without protecting it in later turns.
               continuation: appTest === undefined,
               history,
+              historyFile,
               ...(job === undefined ? {} : { job }),
+              ...(options.mode === undefined ? {} : { mode: options.mode }),
               sandbox: this.#options.sandbox,
               memory: this.#options.memory,
             }),
         }),
         promptSource,
-        ...(options.manualCompaction !== undefined || options.appTest !== undefined
+        ...(options.mode === undefined ? {} : { mode: options.mode }),
+        // Nothing to commit after a plan mode turn: it may not change anything, and the agent
+        // skips the commit of a turn that ended on a proposal besides. Both, because a turn that
+        // stopped without proposing must not commit either.
+        ...(options.manualCompaction !== undefined ||
+        options.appTest !== undefined ||
+        options.mode === "plan"
           ? {}
           : {
               finalize: async () => {
@@ -1374,6 +1482,7 @@ export class SingleAgentRuntime implements Runtime {
      */
     announce: boolean;
     previewPort: number | null;
+    signal: AbortSignal | undefined;
   }): Promise<CheckFailure | null> {
     const { scope, jobId, sandboxId, commitSha, announce } = options;
     const { sink, emit } = scope;
@@ -1394,7 +1503,7 @@ export class SingleAgentRuntime implements Runtime {
     if (announce) emit("verification.started", { jobId });
     await sink.settle();
 
-    const verified = await this.#runChecks(sandboxId, options.previewPort);
+    const verified = await this.#runChecks(sandboxId, options.previewPort, options.signal);
 
     if (verified === null || verified.verdict === "errored") {
       emit("job.completed", { jobId, outcome: "abandoned" });
@@ -1440,13 +1549,21 @@ export class SingleAgentRuntime implements Runtime {
   async #runChecks(
     sandboxId: string,
     previewPort: number | null,
+    signal: AbortSignal | undefined,
   ): Promise<VerificationResult | null> {
     try {
+      // Not checked, for the reason the keepalive at acquisition is not: the sandbox is about to be
+      // asked to do something, and that answers whether it is still there.
+      await this.#options.sandbox.extendTimeout(
+        sandboxId,
+        Math.max(this.#sandboxTtlMs, VERIFICATION_ROUND_LIMIT_MS),
+      );
       return await verifyTurn({
         sandbox: this.#options.sandbox,
         sandboxId,
         previewPort,
         previewTimeoutMs: this.#previewTimeoutMs,
+        signal,
       });
     } catch (error) {
       getLogger().warn({ err: error }, "the checks could not be run");
@@ -1476,6 +1593,11 @@ export class SingleAgentRuntime implements Runtime {
    * problem would be the worse trade. It is not told to the user either — there is no action
    * for them to take, and a warning nobody can act on is what teaches people to ignore the
    * warnings that matter.
+   *
+   * **It finishes before the lease goes back, which is the one thing here a person pays for and
+   * the reason it is not beside the photograph.** The next turn may start on any worker, and the
+   * only thing that orders two snapshots of one project, or a snapshot against the restore a
+   * lost sandbox triggers, is that they never overlap. See `docs/scaling-design.md` §17 (B-7).
    */
   async #preserve(projectId: string, sandboxId: string, commitSha: string | null): Promise<void> {
     if (this.#restore === null || commitSha === null) return;
@@ -1500,43 +1622,23 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /**
-   * Photographs the project while it is still up, for the dashboard's card.
+   * Asks for a picture of the project while it is still up, for the dashboard's card.
    *
    * **A picture can only be taken while a sandbox lives**, and the card is looked at days
    * later, when nothing is running to point a browser at. So every moment the project is
    * known to be serving is a chance worth taking: the end of a turn that changed something,
-   * and a project coming back up. Putting one away takes its own shot from `close-project.ts`,
-   * on the way past.
+   * and a project coming back up.
    *
    * Whoever calls decides *whether* there is anything new to see — a turn that committed
    * nothing, or a sandbox that was already serving, has not changed since the last shot. What
-   * this owns is that a failure is only ever a log line: a missing screenshot costs a card its
-   * picture, and nothing here is worth failing a turn or a resume over.
+   * happens after that is the lane's, and none of it is under the lease.
    */
   async #photograph(
     projectId: string,
     sandboxId: string,
     previewPort = this.#previewPort,
   ): Promise<void> {
-    const capture = this.#options.capture;
-    const objects = this.#options.objects;
-    if (capture === undefined || objects === undefined) return;
-
-    const shot = await captureThumbnail({
-      sandbox: this.#options.sandbox,
-      capture,
-      objects,
-      projectId,
-      sandboxId,
-      port: previewPort,
-    }).catch((error: unknown) => ({ ok: false as const, error: { message: String(error) } }));
-
-    if (shot.ok) {
-      getLogger().info({ key: shot.value.key }, "project thumbnail captured");
-      return;
-    }
-
-    getLogger().warn({ reason: shot.error.message }, "could not capture a project thumbnail");
+    await this.#options.thumbnails?.request({ projectId, sandboxId, port: previewPort });
   }
 
   /**

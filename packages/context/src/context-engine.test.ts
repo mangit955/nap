@@ -1,8 +1,7 @@
 import type { NapEvent } from "@nap/shared/events";
-import type { ContextRequest, FailedAttempt } from "@nap/shared/ports/context-engine";
+import type { BuiltContext, ContextRequest, FailedAttempt } from "@nap/shared/ports/context-engine";
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory, MemoryProvider } from "@nap/shared/ports/memory-provider";
-import type { FileNode } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BUDGET_TOKENS,
@@ -13,10 +12,11 @@ import {
   STALE_TOOL_INPUT,
   STALE_TOOL_OUTPUT,
 } from "./context-engine.ts";
+import { FILE_LIST_UNAVAILABLE } from "./file-tree.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
-import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
-import { type FileTree, stubSandbox } from "./testing/stub-sandbox.ts";
+import { PLAN_MODE_PROMPT, REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
+import { stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
 const SESSION = "6f1c1d3e-2b7a-4c5e-8f9a-0d1e2f3a4b5c";
@@ -40,6 +40,72 @@ it("offers an imported repository helpers and its root rules, and a Nap project 
   const project = await new NapContextEngine().build(request());
   expect(project.subagentPrompts).toBeUndefined();
   expect(project.rootRules).toBeUndefined();
+});
+
+describe("plan mode", () => {
+  const approved = { title: "Dark theme", plan: "1. Add colour tokens\n2. Add a toggle" };
+
+  it("tells a plan mode turn it is planning, after the cached head, and an ordinary turn nothing", async () => {
+    const planning = await engine().build(request({ mode: "plan" }));
+    const building = await engine().build(request());
+    expect(planning.systemPrompt.startsWith(SYSTEM_PROMPT)).toBe(true);
+    expect(planning.systemPrompt).toContain(PLAN_MODE_PROMPT);
+    expect(planning.systemPrompt.endsWith(PLAN_MODE_PROMPT)).toBe(true);
+    expect(building.systemPrompt).not.toContain(PLAN_MODE_PROMPT);
+    // The trusted half compaction keeps is the workspace's own instructions, not the mode's.
+    expect(planning.trustedInstructions).toBe(SYSTEM_PROMPT);
+  });
+
+  it("plans for an imported repository too", async () => {
+    const built = await engine().build(request({ mode: "plan", workspace: "repository" }));
+    expect(built.systemPrompt.startsWith(REPOSITORY_SYSTEM_PROMPT)).toBe(true);
+    expect(built.systemPrompt).toContain(PLAN_MODE_PROMPT);
+  });
+
+  it("hands the turn that carries out a plan the plan itself, word for word", async () => {
+    const built = await engine().build(
+      request({
+        userMessage: "Approved. Build this plan.",
+        job: { objective: "Dark theme", attempts: [], plan: approved },
+      }),
+    );
+    expect(built.systemPrompt).not.toContain("<approved_plan>");
+    expect(texts(built.messages).join("\n")).toContain("<approved_plan>");
+    expect(texts(built.messages).join("\n")).toContain(approved.plan);
+    expect(built.systemPrompt).not.toContain(PLAN_MODE_PROMPT);
+  });
+
+  it("keeps changing approved plans out of the cached system prompt", async () => {
+    const first = await engine().build(
+      request({
+        job: { objective: approved.title, attempts: [], plan: approved },
+      }),
+    );
+    const revised = { title: "Revised theme", plan: "Use the existing theme provider" };
+    const second = await engine().build(
+      request({
+        job: { objective: revised.title, attempts: [], plan: revised },
+      }),
+    );
+    expect(first.systemPrompt).toBe(second.systemPrompt);
+    expect(first.trustedInstructions).toBe(second.trustedInstructions);
+    expect(texts(first.messages).join("\n")).toContain(approved.plan);
+    expect(texts(second.messages).join("\n")).toContain(revised.plan);
+    expect(texts(second.messages).join("\n")).not.toContain(approved.plan);
+  });
+
+  it("keeps the approved plan on a repair turn, when the budget has cut everything it can", async () => {
+    const attempts: FailedAttempt[] = [
+      { check: "typecheck", detail: "exit 2", output: "x".repeat(40_000) },
+    ];
+    const built = await engine({ budgetTokens: MIN_BUDGET_TOKENS + 400 }).build(
+      request({
+        userMessage: "typecheck failed",
+        job: { objective: "Dark theme", attempts, plan: approved },
+      }),
+    );
+    expect(texts(built.messages).join("\n")).toContain(approved.plan);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -77,12 +143,23 @@ const toolCall = (turn: number, id: string, input: Record<string, unknown> = {})
 const toolResult = (turn: number, id: string, output: string, ok = true) =>
   event("tool.result", turn, { toolCallId: id, toolName: "read_file", ok, output });
 
+/** The end of a turn. Only a turn whose end is in the log is finished, and can go stale. */
+const completed = (turn: number) =>
+  event("turn.completed", turn, {
+    usage: { inputTokens: 1, outputTokens: 1 },
+    durationMs: 1,
+    commitSha: null,
+  });
+
 /** A turn made of prose alone, so it can only be reclaimed by dropping the whole turn. */
 function wordyTurn(turn: number, size: number): NapEvent[] {
   return [userMessage(turn, `change number ${turn}`), agentMessage(turn, "w".repeat(size))];
 }
 
-/** A turn that writes a whole file — the shape that dominates a real session's transcript. */
+/**
+ * A finished turn that writes a whole file — the shape that dominates a real session's
+ * transcript.
+ */
 function writingTurn(turn: number, contentSize: number): NapEvent[] {
   const id = `wc_${turn}`;
   return [
@@ -99,17 +176,13 @@ function writingTurn(turn: number, contentSize: number): NapEvent[] {
       output: "y".repeat(contentSize),
     }),
     agentMessage(turn, `done with ${turn}`),
+    completed(turn),
   ];
 }
 
 /** A project big enough that its listing is the largest thing in the prompt. */
-function hugeTree(fileCount: number): FileTree {
-  return {
-    [ROOT]: Array.from({ length: fileCount }, (_, i) => ({
-      path: `${ROOT}/component-with-a-long-name-${i}.tsx`,
-      type: "file" as const,
-    })),
-  };
+function hugeTree(fileCount: number): string[] {
+  return Array.from({ length: fileCount }, (_, i) => `${ROOT}/component-with-a-long-name-${i}.tsx`);
 }
 
 /** A turn that reads a file and reports back. `outputSize` drives the truncation tests. */
@@ -121,11 +194,7 @@ function toolTurn(turn: number, outputSize: number): NapEvent[] {
     toolCall(turn, id, { path: "src/App.tsx" }),
     toolResult(turn, id, "x".repeat(outputSize)),
     agentMessage(turn, `done with ${turn}`),
-    event("turn.completed", turn, {
-      usage: { inputTokens: 1, outputTokens: 1 },
-      durationMs: 1,
-      commitSha: null,
-    }),
+    completed(turn),
   ];
 }
 
@@ -166,17 +235,32 @@ function totalTokens(systemPrompt: string, messages: LLMMessage[]): number {
   return estimateTokens(systemPrompt) + messageTokens;
 }
 
-function projectTree(): FileTree {
-  return {
-    [ROOT]: [
-      { path: `${ROOT}/src`, type: "directory" } satisfies FileNode,
-      { path: `${ROOT}/package.json`, type: "file" },
-    ],
-    [`${ROOT}/src`]: [
-      { path: `${ROOT}/src/App.tsx`, type: "file" },
-      { path: `${ROOT}/src/main.tsx`, type: "file" },
-    ],
-  };
+function projectTree(): string[] {
+  return [`${ROOT}/package.json`, `${ROOT}/src/App.tsx`, `${ROOT}/src/main.tsx`];
+}
+
+/**
+ * Everything the model is told, wherever it sits. Most assertions here are about *whether* the
+ * model hears something; where in the request it rides is pinned once, in "the system prompt".
+ */
+function told(context: BuiltContext): string {
+  return [context.systemPrompt, ...texts(context.messages)].join("\n");
+}
+
+/** What was said, in order, without the turn's context riding on the end of the last message. */
+function conversation(context: BuiltContext): string[] {
+  const all = texts(context.messages);
+  return turnContextOf(context) === "" ? all : all.slice(0, -1);
+}
+
+/** The text the turn's own message carries after the request itself: the turn's context. */
+function turnContextOf(context: BuiltContext): string {
+  const last = context.messages.at(-1);
+  if (last === undefined || typeof last.content === "string") return "";
+  return last.content
+    .slice(1)
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("\n");
 }
 
 function request(overrides: Partial<ContextRequest> = {}): ContextRequest {
@@ -211,13 +295,39 @@ describe("NapContextEngine", () => {
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
-    it("comes first, so the cacheable part of the prompt is stable", async () => {
-      // Prompt caching matches on a byte-identical prefix. Anything that varies per turn —
-      // the file tree, retrieved memories — has to sit after the part that never changes,
-      // or the cache is invalidated on every request.
-      const context = await engine().build(request());
+    it("is the whole system prompt, so the cacheable prefix is the same on every turn", async () => {
+      // Prompt caching matches on a byte-identical prefix, rendered tools, then system, then
+      // messages. Anything that varies per turn — the file listing, a job brief, memories —
+      // anywhere in the system prompt invalidates the conversation behind it on every turn.
+      const plain = await engine().build(request());
+      const busy = await engine().build(
+        request({
+          sandbox: stubSandbox([...projectTree(), `${ROOT}/src/Added.tsx`]),
+          job: {
+            objective: "something else entirely",
+            attempts: [{ check: "test", detail: "exited 1", output: "FAIL" }],
+          },
+          memory: {
+            retrieve: async () => [{ id: "m1", content: "prefers tabs", score: 1 }],
+            write: async () => {},
+          },
+        }),
+      );
 
-      expect(context.systemPrompt.startsWith(SYSTEM_PROMPT)).toBe(true);
+      expect(plain.systemPrompt).toBe(SYSTEM_PROMPT);
+      expect(busy.systemPrompt).toBe(SYSTEM_PROMPT);
+    });
+
+    it("leaves what changes per turn to the turn's own message, after the request", async () => {
+      const context = await engine().build(
+        request({ job: { objective: "an older objective", attempts: [] } }),
+      );
+
+      const last = context.messages.at(-1);
+      expect(last?.role).toBe("user");
+      expect(texts(last === undefined ? [] : [last])[0]).toBe("add a dark mode toggle");
+      expect(turnContextOf(context)).toContain("<project_files>");
+      expect(turnContextOf(context)).toContain("<job>");
     });
 
     it("is present at the smallest permitted budget", async () => {
@@ -248,7 +358,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "make it blue",
         "made it blue",
         "now bigger",
@@ -270,7 +380,7 @@ describe("NapContextEngine", () => {
         request({ history: [userMessage(1, "earlier"), agentMessage(1, "ok")] }),
       );
 
-      expect(texts(context.messages).at(-1)).toBe("add a dark mode toggle");
+      expect(conversation(context).at(-1)).toBe("add a dark mode toggle");
     });
 
     it("keeps the most recent exchanges and every original request once", async () => {
@@ -281,7 +391,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine({ maxTurns: 2 }).build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "ask 1",
         "ask 2",
         "ask 3",
@@ -294,7 +404,9 @@ describe("NapContextEngine", () => {
     });
 
     it("carries tool calls and their results", async () => {
-      const context = await engine().build(request({ history: toolTurn(1, 20) }));
+      const context = await engine({ verbatimTurns: KEEP_EVERY_TURN }).build(
+        request({ history: toolTurn(1, 20) }),
+      );
 
       expect(toolUses(context.messages)).toHaveLength(1);
       expect(toolResults(context.messages)[0]?.content).toBe("x".repeat(20));
@@ -332,7 +444,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "make it blue",
         "made it blue",
         "add a dark mode toggle",
@@ -351,7 +463,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "make it blue",
         "I changed the header colour.",
         "add a dark mode toggle",
@@ -388,7 +500,7 @@ describe("NapContextEngine", () => {
 
       const context = await engine().build(request({ history }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "Reading the file.",
         "It renders a heading.",
         "add a dark mode toggle",
@@ -397,19 +509,28 @@ describe("NapContextEngine", () => {
   });
 
   describe("the project's files", () => {
-    it("are described in the system prompt", async () => {
+    it("are described to the model", async () => {
       const context = await engine().build(request());
 
-      expect(context.systemPrompt).toContain("src/App.tsx");
+      expect(told(context)).toContain("src/App.tsx");
     });
 
-    it("are omitted rather than faked when the sandbox cannot be read", async () => {
+    it("are said to be unavailable, not faked or failed, when the sandbox cannot list them", async () => {
       const context = await engine().build(
-        request({ sandbox: stubSandbox({}, { failing: [ROOT] }) }),
+        request({ sandbox: stubSandbox([], { failing: true }) }),
       );
 
-      expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
-      expect(context.systemPrompt).not.toContain("<project_files>");
+      expect(context.systemPrompt).toBe(SYSTEM_PROMPT);
+      expect(turnContextOf(context)).toContain(FILE_LIST_UNAVAILABLE);
+    });
+
+    it("are listed with one sandbox call per build", async () => {
+      let calls = 0;
+      await engine().build(
+        request({ sandbox: stubSandbox(projectTree(), { onListTree: () => (calls += 1) }) }),
+      );
+
+      expect(calls).toBe(1);
     });
   });
 
@@ -426,7 +547,7 @@ describe("NapContextEngine", () => {
         }),
       );
 
-      expect(context.systemPrompt).toContain("the user prefers tabs");
+      expect(told(context)).toContain("the user prefers tabs");
     });
 
     it("leave no trace at all under the no-op", async () => {
@@ -435,14 +556,14 @@ describe("NapContextEngine", () => {
       // in v1, in exchange for nothing.
       const context = await engine().build(request({ memory: new NoopMemoryProvider() }));
 
-      expect(context.systemPrompt).not.toContain("memories");
+      expect(told(context)).not.toContain("memories");
     });
 
     it("produce byte-identical output to a provider that has nothing to say", async () => {
       const withNoop = await engine().build(request({ memory: new NoopMemoryProvider() }));
       const withEmpty = await engine().build(request({ memory: remembering([]) }));
 
-      expect(withNoop.systemPrompt).toBe(withEmpty.systemPrompt);
+      expect(told(withNoop)).toBe(told(withEmpty));
       expect(withNoop.estimatedTokens).toBe(withEmpty.estimatedTokens);
     });
 
@@ -455,7 +576,7 @@ describe("NapContextEngine", () => {
         request({ memory: remembering([{ id: "m1", content: "prefers tabs", score: 1 }]) }),
       );
 
-      expect(withMemory.systemPrompt).not.toBe(withNoop.systemPrompt);
+      expect(told(withMemory)).not.toBe(told(withNoop));
     });
   });
 
@@ -501,15 +622,17 @@ describe("NapContextEngine", () => {
 
       expect(context.estimatedTokens).toBeGreaterThan(MIN_BUDGET_TOKENS);
       expect(context.needsCompaction).toBe(true);
-      expect(texts(context.messages).at(-1)).toBe("z".repeat(200_000));
+      expect(texts(context.messages)).toContain("z".repeat(200_000));
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
     });
 
     it("leaves everything intact when the budget is ample", async () => {
-      const context = await engine().build(request({ history: toolTurn(1, 400) }));
+      const context = await engine({ verbatimTurns: KEEP_EVERY_TURN }).build(
+        request({ history: toolTurn(1, 400) }),
+      );
 
       expect(toolResults(context.messages)[0]?.content).toBe("x".repeat(400));
-      expect(context.systemPrompt).toContain("src/App.tsx");
+      expect(told(context)).toContain("src/App.tsx");
     });
   });
 
@@ -574,7 +697,7 @@ describe("NapContextEngine", () => {
         request({ sandbox: stubSandbox(hugeTree(400)), history: heavy() }),
       );
 
-      expect(context.systemPrompt).not.toContain("<project_files>");
+      expect(told(context)).not.toContain("<project_files>");
       expect(context.systemPrompt).toContain(SYSTEM_PROMPT);
       expect(texts(context.messages).at(-1)).toBe("add a dark mode toggle");
     });
@@ -591,8 +714,8 @@ describe("NapContextEngine", () => {
         request({ sandbox: stubSandbox(hugeTree(400)), memory }),
       );
 
-      expect(context.systemPrompt).not.toContain("<project_files>");
-      expect(context.systemPrompt).toContain("the user prefers tabs");
+      expect(told(context)).not.toContain("<project_files>");
+      expect(told(context)).toContain("the user prefers tabs");
     });
   });
 
@@ -603,19 +726,94 @@ describe("NapContextEngine", () => {
     const roomy = () => engine({ budgetTokens: DEFAULT_BUDGET_TOKENS });
     const threeWrites = () => [1, 2, 3].flatMap((n) => writingTurn(n, 4_000));
 
-    it("drops what an older turn wrote, while the budget is nowhere near binding", async () => {
+    it("drops what every finished turn wrote, while the budget is nowhere near binding", async () => {
+      // The most recent one included. Emptying a turn one turn late would rewrite history the
+      // previous request had already cached, and every turn's first call would pay for all of
+      // it again (ADR-0024).
       const context = await roomy().build(request({ history: threeWrites() }));
 
       expect(context.estimatedTokens).toBeLessThan(DEFAULT_BUDGET_TOKENS);
       const written = toolUses(context.messages).map((b) => b.input.content);
-      expect(written.slice(0, -1)).toEqual([STALE_TOOL_INPUT, STALE_TOOL_INPUT]);
+      expect(written).toEqual([STALE_TOOL_INPUT, STALE_TOOL_INPUT, STALE_TOOL_INPUT]);
     });
 
-    it("keeps the most recent past turn word for word", async () => {
-      const context = await roomy().build(request({ history: threeWrites() }));
+    it.each([true, false])(
+      "keeps a turn still running word for word, with continuation %s",
+      async (continuation) => {
+        // A rebuild in the middle of a turn sees that turn's events and no end for them. What it
+        // has just written is what it is about to need — and an app test's rebuild re-adds its
+        // prompt, so it is not a continuation, and its turn is running all the same.
+        const running = writingTurn(3, 4_000).slice(0, -1);
+        const history = [...writingTurn(1, 4_000), ...writingTurn(2, 4_000), ...running];
 
-      expect(toolUses(context.messages).at(-1)?.input.content).toBe("c".repeat(4_000));
-      expect(toolResults(context.messages).at(-1)?.content).toBe("y".repeat(4_000));
+        const context = await roomy().build(request({ history, continuation }));
+
+        expect(toolUses(context.messages).at(-1)?.input.content).toBe("c".repeat(4_000));
+        expect(toolResults(context.messages).at(-1)?.content).toBe("y".repeat(4_000));
+        expect(toolUses(context.messages).at(-2)?.input.content).toBe(STALE_TOOL_INPUT);
+      },
+    );
+
+    it("counts a turn that failed or was cancelled as finished", async () => {
+      const cancelled = [
+        ...writingTurn(1, 4_000).slice(0, -1),
+        event("turn.failed", 1, { reason: "cancelled", message: "stopped" }),
+      ];
+
+      const context = await roomy().build(request({ history: cancelled }));
+
+      expect(toolUses(context.messages)[0]?.input.content).toBe(STALE_TOOL_INPUT);
+      expect(toolResults(context.messages)[0]?.content).toBe(STALE_TOOL_OUTPUT);
+    });
+
+    it("keeps a question to the person whole on the turn that answers it", async () => {
+      // The answer arrives as the next turn's message, and is often only the label of the option
+      // picked. The question and what each option meant are in no file the model could re-read.
+      const question = `Which layout should the dashboard use? ${"It shows revenue and churn. ".repeat(4)}`;
+      const options = [
+        { label: "Grid", description: `Cards in a responsive grid. ${"Dense. ".repeat(10)}` },
+        { label: "List", description: `One metric per row, full width. ${"Calm. ".repeat(10)}` },
+      ];
+      const asking = [
+        userMessage(1, "build me a dashboard"),
+        event("tool.call", 1, {
+          toolCallId: "ask_1",
+          toolName: "ask_user",
+          input: { question, options, multiSelect: false },
+        }),
+        event("tool.result", 1, {
+          toolCallId: "ask_1",
+          toolName: "ask_user",
+          ok: true,
+          output: "Question shown to the user.",
+        }),
+        completed(1),
+      ];
+
+      const context = await roomy().build(request({ history: asking, userMessage: "Grid" }));
+
+      expect(toolUses(context.messages)[0]?.input).toEqual({
+        question,
+        options,
+        multiSelect: false,
+      });
+    });
+
+    it("never rewrites history a previous turn's request already sent", async () => {
+      // The cache's condition, at the level this class owns: the conversation the previous
+      // turn's first request carried is a prefix of this turn's, block for block.
+      const twoWrites = [1, 2].flatMap((n) => writingTurn(n, 4_000));
+      const before = await roomy().build(request({ history: twoWrites }));
+      const after = await roomy().build(request({ history: threeWrites() }));
+
+      const settled = before.messages
+        .slice(0, -1)
+        .map(({ cacheBreakpoint: _, ...message }) => message);
+      expect(
+        after.messages
+          .slice(0, settled.length)
+          .map(({ cacheBreakpoint: _, ...message }) => message),
+      ).toEqual(settled);
     });
 
     it("keeps the small arguments that say what an old call was about", async () => {
@@ -635,7 +833,7 @@ describe("NapContextEngine", () => {
       // recoverable from the workspace, so nothing here may touch it.
       const context = await roomy().build(request({ history: threeWrites() }));
 
-      expect(texts(context.messages)).toEqual([
+      expect(conversation(context)).toEqual([
         "change number 1",
         "done with 1",
         "change number 2",
@@ -652,12 +850,8 @@ describe("NapContextEngine", () => {
       // against truncation, so the two markers are not interchangeable.
       const context = await roomy().build(request({ history: threeWrites() }));
       const marks = [
-        ...toolResults(context.messages)
-          .slice(0, -1)
-          .map((b) => b.content),
-        ...toolUses(context.messages)
-          .slice(0, -1)
-          .map((b) => b.input.content),
+        ...toolResults(context.messages).map((b) => b.content),
+        ...toolUses(context.messages).map((b) => b.input.content),
       ];
 
       expect(marks).not.toContain(ELIDED_TOOL_OUTPUT);
@@ -676,6 +870,7 @@ describe("NapContextEngine", () => {
           input: { paths: Array.from({ length: 200 }, (_, i) => `src/component-${i}.tsx`) },
         }),
         event("tool.result", 1, { toolCallId: id, toolName: "write_file", ok: true, output: "" }),
+        completed(1),
         ...writingTurn(2, 100),
       ];
 
@@ -723,6 +918,138 @@ describe("NapContextEngine", () => {
     });
   });
 
+  describe("the exchange a compaction kept", () => {
+    const TAIL = "tail_write";
+    const written = "c".repeat(4_000);
+    const printed = "y".repeat(4_000);
+
+    /** Turn 1, compacted in its middle, keeping its last write word for word to carry on from. */
+    function compactedMidTurn(): NapEvent[] {
+      const events = [
+        userMessage(1, "build it"),
+        event("tool.call", 1, {
+          toolCallId: TAIL,
+          toolName: "write_file",
+          input: { path: "src/App.tsx", content: written },
+        }),
+        event("tool.result", 1, {
+          toolCallId: TAIL,
+          toolName: "write_file",
+          ok: true,
+          output: printed,
+        }),
+      ];
+      const coveredThrough = events.at(-1)?.seq ?? 0;
+      return [
+        ...events,
+        event("compaction.completed", 1, {
+          id: turnId(1),
+          result: {
+            kind: "api",
+            checkpoint: {
+              coveredThrough,
+              summary: "Wrote the app shell.",
+              tail: [
+                {
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "tool_use",
+                      id: TAIL,
+                      name: "write_file",
+                      input: { path: "src/App.tsx", content: written },
+                    },
+                  ],
+                },
+                {
+                  role: "user",
+                  content: [
+                    { type: "tool_result", toolCallId: TAIL, content: printed, isError: false },
+                  ],
+                },
+              ],
+            },
+          },
+          usage: null,
+          beforeTokens: null,
+          afterTokens: null,
+        }),
+      ];
+    }
+
+    const tailOf = (context: BuiltContext) => ({
+      input: toolUses(context.messages).find((block) => block.id === TAIL)?.input.content,
+      output: toolResults(context.messages).find((block) => block.toolCallId === TAIL)?.content,
+    });
+
+    it.each([true, false])(
+      "stays word for word while its turn is still running, with continuation %s",
+      async (continuation) => {
+        const context = await engine().build(
+          request({ history: compactedMidTurn(), continuation }),
+        );
+
+        expect(tailOf(context)).toEqual({ input: written, output: printed });
+      },
+    );
+
+    it("goes stale with its turn once that turn has finished", async () => {
+      // Kept for every later turn instead, it is one whole tool exchange re-sent on every step
+      // until the next compaction.
+      const history = [
+        ...compactedMidTurn(),
+        agentMessage(1, "done"),
+        completed(1),
+        ...writingTurn(2, 100),
+      ];
+
+      const context = await engine().build(request({ history }));
+
+      expect(tailOf(context)).toEqual({ input: STALE_TOOL_INPUT, output: STALE_TOOL_OUTPUT });
+    });
+
+    it("is treated as finished when the call it kept is not in the log", async () => {
+      const history = compactedMidTurn().filter((stored) => stored.type === "compaction.completed");
+
+      const context = await engine().build(request({ history }));
+
+      expect(tailOf(context)).toEqual({ input: STALE_TOOL_INPUT, output: STALE_TOOL_OUTPUT });
+    });
+
+    it("belongs to the newest call with its id, should an earlier finished turn have reused it", async () => {
+      // Real providers mint unique ids; a scripted one may not. The kept exchange is the latest.
+      const earlier = [
+        userMessage(0, "an earlier turn"),
+        toolCall(0, TAIL, { path: "src/App.tsx" }),
+        toolResult(0, TAIL, "old"),
+        completed(0),
+      ];
+
+      const context = await engine().build(
+        request({ history: [...earlier, ...compactedMidTurn()], continuation: true }),
+      );
+
+      expect(tailOf(context)).toEqual({ input: written, output: printed });
+    });
+
+    it("leaves its breakpoint on settled history, not on this turn's context", async () => {
+      // A rebuild ends on the kept exchange. Extending that message with the turn's context would
+      // put the breakpoint on bytes the next turn does not repeat, so nothing written there could
+      // ever be read.
+      const context = await engine().build(
+        request({ history: compactedMidTurn(), continuation: true }),
+      );
+      const marked = context.messages.filter((message) => message.cacheBreakpoint === true);
+      const last = context.messages.at(-1);
+
+      expect(marked.length).toBeGreaterThan(0);
+      for (const message of marked)
+        expect(JSON.stringify(message)).not.toContain("<project_files>");
+      expect(last?.cacheBreakpoint).toBeUndefined();
+      expect(texts(last === undefined ? [] : [last]).join("\n")).toContain("<project_files>");
+    });
+  });
+
   describe("the job", () => {
     const failure = (overrides: Partial<FailedAttempt> = {}): FailedAttempt => ({
       check: "test",
@@ -740,7 +1067,7 @@ describe("NapContextEngine", () => {
     it("is absent from the prompt for a caller that tracks none", async () => {
       const context = await engine().build(request());
 
-      expect(context.systemPrompt).not.toContain("<job>");
+      expect(told(context)).not.toContain("<job>");
     });
 
     it("leaves the prompt untouched when the turn's message is the objective itself", async () => {
@@ -751,14 +1078,14 @@ describe("NapContextEngine", () => {
         request({ job: { objective: "add a dark mode toggle", attempts: [] } }),
       );
 
-      expect(withJob.systemPrompt).toBe(withoutJob.systemPrompt);
+      expect(told(withJob)).toBe(told(withoutJob));
     });
 
     it("states the objective on a turn whose message is not it", async () => {
       const context = await engine().build(request(repairing([])));
 
-      expect(context.systemPrompt).toContain("<job>");
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
+      expect(told(context)).toContain("<job>");
+      expect(told(context)).toContain("add a dark mode toggle");
     });
 
     it("carries the failures already seen", async () => {
@@ -766,8 +1093,8 @@ describe("NapContextEngine", () => {
         request(repairing([failure({ check: "typecheck", output: "error TS2322" })])),
       );
 
-      expect(context.systemPrompt).toContain("typecheck");
-      expect(context.systemPrompt).toContain("error TS2322");
+      expect(told(context)).toContain("typecheck");
+      expect(told(context)).toContain("error TS2322");
     });
 
     it("survives the budget that drops the conversation it came from", async () => {
@@ -780,8 +1107,8 @@ describe("NapContextEngine", () => {
         request({ ...repairing([failure()]), history }),
       );
 
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
-      expect(context.systemPrompt).toContain("FAIL src/App.test.tsx");
+      expect(told(context)).toContain("add a dark mode toggle");
+      expect(told(context)).toContain("FAIL src/App.test.tsx");
       expect(texts(context.messages).join("\n")).toContain("change number 1");
       expect(
         context.messages.filter((message) => message.role === "assistant").length,
@@ -804,9 +1131,9 @@ describe("NapContextEngine", () => {
         }),
       );
 
-      expect(context.systemPrompt).not.toContain("<project_files>");
-      expect(context.systemPrompt).not.toContain("the user prefers tabs");
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
+      expect(told(context)).not.toContain("<project_files>");
+      expect(told(context)).not.toContain("the user prefers tabs");
+      expect(told(context)).toContain("add a dark mode toggle");
     });
 
     it("gives up the oldest failures before the one being repaired now", async () => {
@@ -822,8 +1149,8 @@ describe("NapContextEngine", () => {
         request(repairing(attempts)),
       );
 
-      expect(context.systemPrompt).toContain("the newest failure");
-      expect(context.systemPrompt).not.toContain("the oldest failure");
+      expect(told(context)).toContain("the newest failure");
+      expect(told(context)).not.toContain("the oldest failure");
     });
 
     it.each([MIN_BUDGET_TOKENS, MIN_BUDGET_TOKENS + 1_000, 10_000, DEFAULT_BUDGET_TOKENS])(
@@ -855,8 +1182,8 @@ describe("NapContextEngine", () => {
         MIN_BUDGET_TOKENS,
       );
       // Still says what was asked and which check said no, having given up only the quote.
-      expect(context.systemPrompt).toContain("add a dark mode toggle");
-      expect(context.systemPrompt).toContain("test");
+      expect(told(context)).toContain("add a dark mode toggle");
+      expect(told(context)).toContain("test");
     });
   });
 
@@ -1050,3 +1377,50 @@ it.each([MIN_BUDGET_TOKENS, 4000, DEFAULT_BUDGET_TOKENS])(
     }
   },
 );
+
+describe("the compaction history pointer", () => {
+  const HISTORY = "/home/user/.nap/history/session.txt";
+  const compacted = (): NapEvent[] => {
+    const before = [userMessage(1, "Keep it purple."), agentMessage(1, "Done.")];
+    const checkpoint = event("compaction.completed", 1, {
+      id: turnId(1),
+      result: {
+        kind: "api",
+        checkpoint: { coveredThrough: 2, summary: "Overview: themed (#2).", tail: [] },
+      },
+      usage: null,
+      beforeTokens: null,
+      afterTokens: null,
+    });
+    return [...before, checkpoint];
+  };
+  const summaryMessage = (messages: LLMMessage[]) =>
+    messages.find((message) => JSON.stringify(message).includes("Quoted session summary"));
+
+  it("tells the agent where the replaced conversation is and how to search it", async () => {
+    const built = await engine().build(request({ history: compacted(), historyFile: HISTORY }));
+    const message = summaryMessage(built.messages);
+    expect(message?.role).toBe("user");
+    const [quoted, pointer] = texts(message ? [message] : []);
+    // The pointer is the application speaking, not part of the quoted, untrusted summary.
+    expect(quoted).not.toContain(HISTORY);
+    expect(pointer).toContain(HISTORY);
+    expect(pointer).toContain("search_files");
+    expect(pointer).toContain("read_file");
+    expect(pointer).toContain('"^#42 "');
+  });
+
+  it("says the file is unavailable rather than pointing at one that was not written", async () => {
+    const built = await engine().build(request({ history: compacted() }));
+    expect(JSON.stringify(built.messages)).not.toContain(HISTORY);
+    expect(JSON.stringify(built.messages)).toContain("not available in this sandbox");
+  });
+
+  it("says nothing about a history file when nothing has been compacted", async () => {
+    const built = await engine().build(
+      request({ history: [userMessage(1, "hi"), agentMessage(1, "hello")], historyFile: HISTORY }),
+    );
+    expect(JSON.stringify(built.messages)).not.toContain(HISTORY);
+    expect(JSON.stringify(built.messages)).not.toContain("history file");
+  });
+});

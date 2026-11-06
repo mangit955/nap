@@ -45,6 +45,28 @@ export type ExecResult = {
 /** Receives output as it arrives, so a caller can stream it before `exec` resolves. */
 export type ExecOutputHandler = (chunk: { stream: "stdout" | "stderr"; data: string }) => void;
 
+export type ExecOptions = {
+  /** Stops the caller waiting. Alone, it says nothing about the command, which may carry on. */
+  signal?: AbortSignal | undefined;
+  /**
+   * How long the command may run before the provider stops it and the call fails with `timeout`.
+   * Absent is the provider's own default, which on E2B is one minute.
+   */
+  timeoutMs?: number | undefined;
+  /**
+   * When this call gives up on the command, by `signal` or by `timeoutMs`, also stop the command
+   * and everything it started. Neither of those does that alone.
+   *
+   * Opt-in, because stopping is not always the right thing: the desktop driver has to live long
+   * enough to release what it holds, and its caller asks it to through a cancel of its own.
+   * Repository setup does not use it either, because its script owns a process group of its own.
+   *
+   * Best effort even so: the stop is one more request to the sandbox, so a sandbox that cannot be
+   * reached keeps whatever it was running.
+   */
+  stopOnGiveUp?: boolean | undefined;
+};
+
 export interface SandboxManager {
   create(projectId: string): Promise<Result<Sandbox, SandboxError>>;
   resume(sandboxId: string): Promise<Result<Sandbox, SandboxError>>;
@@ -65,16 +87,27 @@ export interface SandboxManager {
   listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>>;
 
   /**
-   * A transport signal bounds waiting; it never certifies remote process completion.
+   * Every file under `root`, as absolute paths in no particular order, in **one** call.
    *
-   * `timeoutMs` is how long the command may run before the provider stops it and the call fails
-   * with `timeout`. Absent is the provider's own default, which on E2B is one minute.
+   * One call is the contract, not an optimisation: a walk of `listFiles` is a round trip per
+   * folder, made one after another, and the context engine asks this on every model turn before
+   * anything reaches the model. Lists what is on disk, so a file deleted but not yet committed is
+   * absent; leaves out what git ignores when `root` is a repository; and never returns a path with
+   * a segment named in `exclude` — nor spends time descending into one. Not a promise of every
+   * file: an implementation may cap a very large tree, and a symlink may or may not be listed.
    */
+  listTree(
+    sandboxId: string,
+    root: string,
+    options: { exclude: readonly string[]; timeoutMs: number },
+  ): Promise<Result<string[], SandboxError>>;
+
+  /** A transport signal bounds waiting; it never certifies remote process completion. */
   exec(
     sandboxId: string,
     command: string,
     onOutput?: ExecOutputHandler,
-    options?: { signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
+    options?: ExecOptions,
   ): Promise<Result<ExecResult, SandboxError>>;
 
   getPreviewUrl(sandboxId: string, port: number): Promise<Result<string, SandboxError>>;

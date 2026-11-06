@@ -43,6 +43,11 @@ export type VerifyTurnOptions = {
   previewPort: number | null;
   /** How long to give the public preview URL before probing the port from inside. */
   previewTimeoutMs?: number;
+  /**
+   * Cancelling the turn stops the check that is running and any still to come. The preview wait is
+   * not interrupted: it is skipped if the signal has already fired, and once begun it runs out.
+   */
+  signal?: AbortSignal | undefined;
 };
 
 export async function verifyTurn(options: VerifyTurnOptions): Promise<VerificationResult> {
@@ -54,6 +59,7 @@ export async function verifyTurn(options: VerifyTurnOptions): Promise<Verificati
   }
 
   return await runChecks(sandbox, sandboxId, discoverChecks(manifest.value), {
+    signal: options.signal,
     ...(previewPort === null
       ? {}
       : {

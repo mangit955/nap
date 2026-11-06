@@ -1,5 +1,7 @@
 import {
+  PlanIntentSchema,
   PlanSchema,
+  ProposedPlanSchema,
   QuestionOptionSchema,
   SubagentOutcomeSchema,
   SubagentProfileSchema,
@@ -58,6 +60,7 @@ export const TOOL_NAMES = [
   "ask_user",
   "run_subagent",
   "read_subagent",
+  "propose_plan",
 ] as const;
 
 export const ToolNameSchema = z.enum(TOOL_NAMES);
@@ -190,6 +193,11 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     // must travel with the prompt, including when a resume request continues an older job.
     // Absent in legacy logs; absence does not establish ownership of a verification turn.
     repair: z.strictObject({ requestId: z.uuid(), jobId: z.uuid() }).optional(),
+    /**
+     * Whether this prompt asked for a plan, or approved one (ADR-0025). Absent in every log
+     * written before plan mode existed, and on any ordinary prompt since — which is the fact.
+     */
+    plan: PlanIntentSchema.optional(),
   }),
   /** Summarized reasoning, not raw thinking — the model is run with `display: "summarized"`. */
   event("agent.thinking", text),
@@ -217,6 +225,13 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     options: z.array(QuestionOptionSchema).min(2).max(4),
     multiSelect: z.boolean(),
   }),
+  /**
+   * A plan mode turn's proposal, for the person to approve before anything changes (ADR-0025).
+   *
+   * The turn ends on it. What became of it — approved, revised, set aside — is not recorded here
+   * or anywhere else: it is whatever the next message said, folded by `plan-mode.ts`.
+   */
+  event("plan.proposed", { toolCallId: z.string().min(1), ...ProposedPlanSchema.shape }),
   /**
    * A delegated piece of work began inside this turn. Its own tool traffic is deliberately
    * not in the log: it would replay into the parent's conversation as tool calls the parent
@@ -286,6 +301,11 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     durationMs: z.int().nonnegative(),
     /** `null` when the turn changed no files, so there was nothing to commit. */
     commitSha: z.string().min(1).nullable(),
+    /**
+     * Present when the turn ended waiting on the person rather than finished: a plan mode turn
+     * that proposed a plan. Optional, because every turn written before it ended without one.
+     */
+    awaiting: z.literal("plan_approval").optional(),
   }),
   event("turn.failed", { reason: TurnFailureReasonSchema, message: z.string() }),
   /**

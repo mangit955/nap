@@ -522,6 +522,33 @@ describe("ending a turn", () => {
     ]);
   });
 
+  it("refuses a question on a repair turn at once, though the tool is declared", async () => {
+    // A repair declares the person's tool set so the cached prefix survives it; nobody is
+    // watching, so the call must come straight back refused rather than ask and wait.
+    const QUESTION = {
+      question: "Grid or list?",
+      options: [
+        { label: "Grid", description: null },
+        { label: "List", description: null },
+      ],
+      multiSelect: false,
+    };
+    const { agent, provider } = run([
+      [{ toolCalls: [call("ask_user", QUESTION, "ask")] }, { text: "Fixed it." }],
+    ]);
+
+    await agent.runTurn(request({ promptSource: "verification" }));
+
+    expect(provider.requests[0]?.tools.map((tool) => tool.name)).toContain("ask_user");
+    expect(types()).not.toContain("agent.question");
+    expect(provider.requests).toHaveLength(2);
+    // Told that nobody will answer, not merely that the tool is missing — which invites another
+    // way of asking rather than a decision.
+    const answered = provider.requests[1]?.messages.at(-1);
+    expect(JSON.stringify(answered)).toContain("Nobody can answer a question from here");
+    expect(JSON.stringify(answered)).toContain("continue");
+  });
+
   it("lets a stop hook delay the end at most twice", async () => {
     const stubborn: TurnHook = { beforeStop: async () => "Not yet." };
     const { agent, provider } = run([[{ text: "1" }, { text: "2" }, { text: "3" }]], {
@@ -1021,3 +1048,74 @@ function textOfResult(message: LLMMessage | undefined): string {
     )
     .join("\n");
 }
+
+describe("a plan mode turn", () => {
+  const proposal = (id = "plan") =>
+    call("propose_plan", { title: "Dark theme", plan: "1. Add tokens\n2. Swap colours" }, id);
+
+  it("offers only the tools that look, ask or propose", async () => {
+    const { agent, provider } = run([[{ toolCalls: [proposal()] }]]);
+    await agent.runTurn(request({ mode: "plan" }));
+    const offered = provider.requests[0]?.tools.map((tool) => tool.name) ?? [];
+    expect(offered).toContain("propose_plan");
+    for (const name of ["write_file", "edit_file", "apply_patch", "todo_write", "shell_kill"])
+      expect(offered).not.toContain(name);
+  });
+
+  it("ends on the proposal awaiting approval, and never runs the commit it was handed", async () => {
+    let finalized = false;
+    const { agent, provider } = run([[{ toolCalls: [proposal()] }]]);
+
+    await agent.runTurn(
+      request({
+        mode: "plan",
+        finalize: async () => {
+          finalized = true;
+          return { commitSha: "deadbeef" };
+        },
+      }),
+    );
+
+    expect(provider.requests).toHaveLength(1);
+    expect(types().filter((type) => type !== "tool.call" && type !== "tool.result")).toEqual([
+      "turn.started",
+      "plan.proposed",
+      "turn.completed",
+    ]);
+    expect(payloads("turn.completed")[0]).toMatchObject({
+      commitSha: null,
+      awaiting: "plan_approval",
+    });
+    expect(finalized).toBe(false);
+    for (const event of events)
+      expect(NapEventSchema.safeParse({ ...event, seq: 0 }).success).toBe(true);
+  });
+
+  it("refuses an edit the model asks for anyway, and the file is untouched", async () => {
+    const { agent } = run([
+      [
+        { toolCalls: [call("write_file", { path: APP, contents: "changed\n" }, "w")] },
+        { toolCalls: [proposal()] },
+      ],
+    ]);
+    await agent.runTurn(request({ mode: "plan" }));
+    expect(payloads("tool.result")[0]).toMatchObject({ toolName: "write_file", ok: false });
+    const app = await manager.readFile(sandboxId, APP);
+    expect(app.ok && app.value).toBe("app\n");
+  });
+
+  it("is reminded once to propose when it tries to stop without a plan, then may stop", async () => {
+    const { agent, provider } = run([[{ text: "Looks fine." }, { text: "Nothing to change." }]]);
+    await agent.runTurn(request({ mode: "plan" }));
+    expect(provider.requests).toHaveLength(2);
+    expect(textOf(provider.requests[1]?.messages.at(-1))).toMatch(/propose_plan/);
+    expect(payloads("turn.completed")[0]).not.toHaveProperty("awaiting");
+  });
+
+  it("leaves an ordinary turn's commit and outcome as they were", async () => {
+    const { agent } = run([[{ text: "Done." }]]);
+    await agent.runTurn(request({ finalize: async () => ({ commitSha: "abc123" }) }));
+    expect(payloads("turn.completed")[0]).toMatchObject({ commitSha: "abc123" });
+    expect(payloads("turn.completed")[0]).not.toHaveProperty("awaiting");
+  });
+});

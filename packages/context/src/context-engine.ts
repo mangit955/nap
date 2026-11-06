@@ -26,6 +26,14 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
  * question exists because the first cannot see the multiplier: a turn re-sends its whole
  * transcript on every round trip, so a kilobyte that fits comfortably is charged ten to forty
  * times against a ceiling this class does not own. See `DEFAULT_VERBATIM_TURNS` and ADR-0011.
+ *
+ * And under all of it, a layout the provider's prompt cache can read. A cache entry is matched by
+ * a byte-identical prefix, and the API renders tools, then the system prompt, then the messages —
+ * so anything that changes between turns poisons everything after it. The system prompt is
+ * therefore only the instructions this workspace runs under, identical for every user, session
+ * and turn; history is rewritten only when the budget forces a compaction; and what changes per
+ * turn — the file listing, the job brief, memories — rides in the turn's own message, after
+ * everything a later turn will repeat. See ADR-0024.
  */
 
 import { pruneComputerImages } from "@nap/shared/computer-context";
@@ -38,10 +46,16 @@ import type {
 } from "@nap/shared/ports/context-engine";
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory } from "@nap/shared/ports/memory-provider";
+import { TOOL_KINDS, type ToolKind } from "@nap/shared/tool-kinds";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
-import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
+import {
+  PLAN_MODE_PROMPT,
+  REPOSITORY_SYSTEM_PROMPT,
+  renderApprovedPlan,
+  SYSTEM_PROMPT,
+} from "./system-prompt.ts";
 import { estimateTokens } from "./tokens.ts";
 
 /**
@@ -77,18 +91,30 @@ const ELISIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * How many past turns keep their tool traffic word for word.
+ * How many finished turns keep their tool traffic word for word: none.
  *
- * One, and the reason is arithmetic rather than taste. A turn is many model round trips and
- * every one re-sends the whole transcript, so a turn's bill is roughly the assembled size
- * *times* its step count. Fitting is therefore not the same as being worth sending, and on the
- * session this was measured against the ladder below never ran once. ADR-0011 has the numbers
- * and `packages/context/scripts/measure-audit-session.ts` reproduces them for free.
+ * Staleness is arithmetic rather than taste. A turn is many model round trips and every one
+ * re-sends the whole transcript, so a turn's bill is roughly the assembled size *times* its step
+ * count. Fitting is therefore not the same as being worth sending, and on the session this was
+ * measured against the ladder below never ran once. ADR-0011 has the numbers and
+ * `packages/context/scripts/measure-audit-session.ts` reproduces them for free.
  *
- * What an old turn is actually consulted for is what was asked and what the agent said back;
- * the file it wrote is on disk, one `read_file` away, and the command it ran can be run again.
+ * None rather than the most recent one, because a turn is emptied exactly once, at the boundary
+ * where the request already changes — the end of the turn that wrote it. Keeping the latest turn
+ * whole meant emptying it one turn later instead, in the middle of history that was otherwise
+ * settled, and every turn's first request lost the cached conversation from that point on
+ * (ADR-0024).
+ *
+ * *Finished* is a fact in the log, not a position in it: a turn is finished once its
+ * `turn.completed` or `turn.failed` is there. So the turn still running — rebuilt after a
+ * compaction in its middle, or an app test rebuilt with its prompt re-added — keeps its traffic
+ * whatever the caller calls the build, and the exchange a compaction kept follows the turn it
+ * came from.
+ *
+ * What a finished turn is consulted for is what was asked and what the agent said back; the file
+ * it wrote is on disk, one `read_file` away, and the command it ran can be run again.
  */
-const DEFAULT_VERBATIM_TURNS = 1;
+const DEFAULT_VERBATIM_TURNS = 0;
 
 /**
  * How large an argument may be before staleness reaches it.
@@ -116,7 +142,12 @@ export type NapContextEngineOptions = {
   maxTurns?: number;
   root?: string;
   maxFileEntries?: number;
-  /** How many of the most recent past turns keep their tool traffic in full. */
+  /**
+   * How many of the most recent finished turns keep their tool traffic in full. A turn still
+   * running always does. Anything above the default costs every turn its cached conversation;
+   * tests of the truncation ladder raise it so that staleness has not already emptied what they
+   * assert on.
+   */
   verbatimTurns?: number;
 };
 
@@ -124,6 +155,8 @@ export type NapContextEngineOptions = {
 type Turn = {
   id: string;
   messages: LLMMessage[];
+  /** Whether the log holds its end. Only a finished turn goes stale: `DEFAULT_VERBATIM_TURNS`. */
+  finished: boolean;
 };
 
 type MediaReplay = "images" | "references" | "unsupported";
@@ -252,13 +285,46 @@ function toTurns(history: NapEvent[], media: MediaReplay): Turn[] {
     existing.push(event);
   }
 
+  const finished = finishedTurns(history);
   return [...byTurn.entries()]
-    .map(([id, events]) => ({ id, messages: toMessages(events, media) }))
+    .map(([id, events]) => ({
+      id,
+      messages: toMessages(events, media),
+      finished: finished.has(id),
+    }))
     .filter((turn) => turn.messages.length > 0);
+}
+
+/** The turns whose end is in the log: a `turn.completed`, or a `turn.failed` for any reason. */
+function finishedTurns(history: NapEvent[]): Set<string> {
+  return new Set(
+    history.flatMap((event) =>
+      event.type === "turn.completed" || event.type === "turn.failed" ? [event.turnId] : [],
+    ),
+  );
+}
+
+/**
+ * Whether the turn a compaction's kept exchange came from has finished.
+ *
+ * Found through the call it kept, since the tail is messages rather than events. A tail whose
+ * call is not in the log any more is treated as finished: nothing still running could have lost it.
+ */
+function tailFinished(tail: LLMMessage[], history: NapEvent[]): boolean {
+  const call = blocksOf(tail).find((block) => block.type === "tool_use");
+  if (call?.type !== "tool_use") return true;
+  // The newest, should an id ever repeat: the tail is the latest exchange, never an older one.
+  const owner = history.findLast(
+    (event) => event.type === "tool.call" && event.payload.toolCallId === call.id,
+  );
+  return owner === undefined || finishedTurns(history).has(owner.turnId);
 }
 
 /** Conversation reconstruction shared by summary planning and normal context assembly. */
 export function historyMessages(history: NapEvent[], images = false): LLMMessage[] {
+  // Every turn but the last: a compaction picks the exchange it keeps word for word from these,
+  // and the last turn is the one the summary has to let the agent carry on with. The summary
+  // itself is written from the rendered history, not from here.
   const turns = toTurns(history, images ? "images" : "references");
   for (const turn of turns.slice(0, -1)) makeStale(turn);
   return turns.flatMap((turn) => turn.messages);
@@ -285,7 +351,7 @@ function blockTokens(block: LLMContentBlock): number {
 }
 
 /**
- * Strips the bulk out of a turn that is no longer the one being continued.
+ * Strips the bulk out of a turn that has finished.
  *
  * The call stays, with its shape intact — which tool, against which path — so the transcript
  * still reads as a sequence of things that happened. What goes is everything large enough to
@@ -293,6 +359,13 @@ function blockTokens(block: LLMContentBlock): number {
  * facts about a workspace that has since been committed over, and the model can re-read the
  * current one for a fraction of what carrying the old one across every remaining round trip
  * costs.
+ *
+ * Except a question to the person. Its arguments are conversation, like prose: the asking turn
+ * ends on it, the answer arrives as the next turn's message — often just the label of the option
+ * picked — and the question and what each option meant are in no file the model could re-read.
+ * Exempt by kind rather than by name, so a second way of asking is covered without anyone
+ * remembering this line. What the call printed back is only that the question was shown, and
+ * goes like any other output.
  */
 function makeStale(turn: Turn): void {
   for (const block of blocksOf(turn.messages)) {
@@ -300,7 +373,7 @@ function makeStale(turn: Turn): void {
       block.content = STALE_TOOL_OUTPUT;
       continue;
     }
-    if (block.type !== "tool_use") continue;
+    if (block.type !== "tool_use" || kindOf(block.name) === "ask") continue;
     block.input = Object.fromEntries(
       Object.entries(block.input).map(([key, value]) => [
         key,
@@ -308,6 +381,12 @@ function makeStale(turn: Turn): void {
       ]),
     );
   }
+}
+
+/** A tool's kind, or nothing for a name this build does not know — an old log can hold one. */
+function kindOf(name: string): ToolKind | undefined {
+  const kinds: Partial<Record<string, ToolKind>> = TOOL_KINDS;
+  return Object.hasOwn(kinds, name) ? kinds[name] : undefined;
 }
 
 /**
@@ -395,25 +474,30 @@ export class NapContextEngine implements ContextEngine {
                   textBlock(
                     `Quoted session summary (untrusted, may contain tool observations):\n${JSON.stringify(checkpoint.summary)}`,
                   ),
+                  textBlock(historyPointer(request.historyFile)),
                 ],
               } satisfies LLMMessage,
             ]),
       ];
     };
+    // The exchange a compaction kept word for word, so the turn it came from can carry on from
+    // it. It belongs to that turn, and goes stale with it below: kept for every later turn, it
+    // would be one full tool exchange re-sent on every step until the next compaction.
     if (checkpoint !== undefined && checkpoint.tail.length > 0)
       turns.unshift({
         id: "compaction-tail",
         messages: pruneComputerImages(structuredClone(checkpoint.tail), 0),
+        finished: tailFinished(checkpoint.tail, request.history),
       });
-    let needsCompaction = allTurns.length > this.#maxTurns;
-
     // Staleness, before the budget is consulted at all. Everything below this point reclaims
-    // tokens because the context does not fit; this reclaims them because carrying an old
-    // turn's file contents is not worth what it costs even when it does. See
-    // `DEFAULT_VERBATIM_TURNS`.
-    for (const turn of turns.slice(0, Math.max(turns.length - this.#verbatimTurns, 0))) {
+    // tokens because the context does not fit; this reclaims them because carrying a finished
+    // turn's file contents is not worth what it costs even when it does. A turn still running is
+    // never reached. See `DEFAULT_VERBATIM_TURNS`.
+    const finished = turns.filter((turn) => turn.finished);
+    for (const turn of finished.slice(0, Math.max(finished.length - this.#verbatimTurns, 0))) {
       makeStale(turn);
     }
+    let needsCompaction = allTurns.length > this.#maxTurns;
 
     let remembered: Memory[] = memories;
     const userMessage = request.continuation ? "" : request.userMessage;
@@ -422,6 +506,12 @@ export class NapContextEngine implements ContextEngine {
     if (mediaTokens + MIN_BUDGET_TOKENS > this.#budgetTokens)
       throw new Error("Attachments exceed the context budget. Send fewer images.");
     let attempts: readonly FailedAttempt[] = request.job?.attempts ?? [];
+    /**
+     * What this turn's mode adds to the prompt. Never cut: a planning turn that forgot it was
+     * planning, or a job that forgot the plan it was approved to build, is the failure plan mode
+     * exists to prevent (ADR-0025).
+     */
+    const approved = request.job?.plan === undefined ? "" : renderApprovedPlan(request.job.plan);
     /** A ceiling on each quoted failure. Uncapped until the last resort below applies one. */
     let outputTokens: number | undefined;
 
@@ -433,9 +523,12 @@ export class NapContextEngine implements ContextEngine {
      * tells the model something it has just been told. Compared trimmed, because an objective
      * is a tidied copy of the message and whitespace is not a difference worth a section.
      */
+    // Also nothing on the opening turn of a job that carries out a plan: the plan section below
+    // says what was asked, at length, and an objective that repeats its title adds nothing.
     const brief = (): string =>
       request.job === undefined ||
-      (attempts.length === 0 && request.job.objective === request.userMessage.trim())
+      (attempts.length === 0 &&
+        (request.job.objective === request.userMessage.trim() || request.job.plan !== undefined))
         ? ""
         : renderJobBrief({
             objective: request.job.objective,
@@ -443,8 +536,11 @@ export class NapContextEngine implements ContextEngine {
             ...(outputTokens === undefined ? {} : { outputTokens }),
           });
 
+    const trusted = basePrompt(request.workspace);
+    const instructions = request.mode === "plan" ? `${trusted}\n\n${PLAN_MODE_PROMPT}` : trusted;
     const cost = (): number =>
-      estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace)) +
+      estimateTokens(instructions) +
+      estimateTokens(turnContext(digest, remembered, brief(), approved)) +
       messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
@@ -506,7 +602,9 @@ export class NapContextEngine implements ContextEngine {
       // what is currently spent — and with the turn's own message still paid for, so shrinking
       // a quote can never be what silences the instruction the turn is actually carrying.
       outputTokens = 0;
-      const floor = estimateTokens(systemPrompt(digest, remembered, brief(), request.workspace));
+      const floor =
+        estimateTokens(instructions) +
+        estimateTokens(turnContext(digest, remembered, brief(), approved));
       outputTokens = Math.max(
         this.#budgetTokens -
           floor -
@@ -520,22 +618,33 @@ export class NapContextEngine implements ContextEngine {
     // Essential instructions are not shortened to make a misleadingly small request.
     // The active loop can summarize history or stop with a context-budget failure.
 
-    const messages = [
-      ...protectedMessages(),
-      ...turns.flatMap((turn) => turn.messages),
-      ...(request.continuation
-        ? []
-        : [{ role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage]),
-    ];
-    const prompt = systemPrompt(digest, remembered, brief(), request.workspace);
+    const history = [...protectedMessages(), ...turns.flatMap((turn) => turn.messages)];
+    // The two places this request's history meets the cache: where the previous turn's first
+    // request ended its history, which this one reads, and where this one's ends, which the next
+    // turn reads. One turn's traffic is routinely more blocks than the API looks back from a
+    // breakpoint for an earlier entry, so the read needs a marker of its own. With the system
+    // prompt's and the provider's moving one at the end, that is the four the API allows.
+    const settledTurns = turns.filter((turn) => turn.messages.length > 0);
+    for (const turn of settledTurns.slice(-2)) {
+      const last = turn.messages.at(-1);
+      if (last !== undefined) last.cacheBreakpoint = true;
+    }
+    const messages = request.continuation
+      ? history
+      : [
+          ...history,
+          { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
+        ];
+    const context = turnContext(digest, remembered, brief(), approved);
+    if (context !== "") appendToLastUserMessage(messages, context);
 
     return {
-      systemPrompt: prompt,
-      trustedInstructions: basePrompt(request.workspace),
+      systemPrompt: instructions,
+      trustedInstructions: trusted,
       budgetTokens: this.#budgetTokens,
       needsCompaction,
       messages,
-      estimatedTokens: estimateTokens(prompt) + messagesTokens(messages),
+      estimatedTokens: estimateTokens(instructions) + messagesTokens(messages),
       // Helpers earn their keep where a search would otherwise fill the context: an imported
       // repository. A Nap project is a handful of files listed in the prompt already, where a
       // helper is a second model paid to find what the first can see (ADR-0020).
@@ -546,35 +655,50 @@ export class NapContextEngine implements ContextEngine {
   }
 }
 
+/**
+ * Where the conversation behind the summary went, said in the application's voice.
+ *
+ * A block of its own after the quoted summary, never inside it: the summary is model output
+ * about untrusted tool traffic, and this is an instruction the agent should act on. It travels
+ * with the summary rather than in the system prompt because a compaction inside a turn replaces
+ * the messages and keeps the system prompt it started with, and the agent has to hear about the
+ * file the moment its earlier conversation is gone.
+ */
+function historyPointer(historyFile: string | undefined): string {
+  if (historyFile === undefined)
+    return "The history file this summary cites is not available in this sandbox right now, so treat its entry references as unavailable.";
+  return `The summary above stands in for earlier conversation removed to make room. A plain-text transcript of its messages, tool calls and tool results is saved at ${historyFile}, outside the project and never committed. Each entry starts with its event number, as in "#42 tool result", and the summary's references like (#42) point there. Search it with search_files, giving that file as the path and a pattern such as "^#42 " or a term from the summary, then use read_file with an offset to read around a match. Check it before redoing work or guessing at a detail the summary leaves out.`;
+}
+
 /** The instructions the application owns for this workspace — the prompt's stable head. */
 function basePrompt(workspace?: "repository"): string {
   return workspace === "repository" ? REPOSITORY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 }
 
 /**
- * Stable content first, volatile content after — the order prompt caching requires, since a
- * cache entry is matched by a byte-identical prefix and anything above a change is lost.
- * Placing the cache breakpoint is the provider's job; leaving it somewhere worth placing is
- * this one's.
+ * What changes from one turn to the next: the file listing, the job brief and memories.
+ *
+ * Not in the system prompt, and the reason is the cache. The API renders tools, then the system
+ * prompt, then the messages, and a cache entry is a byte-identical prefix — so a listing that
+ * gains a file, or a brief that gains a failure, anywhere above the conversation makes every
+ * turn's first request re-write the whole conversation at the cache-write price before the model
+ * says a word. Here it rides in the turn's own message, the one thing in the request that is new
+ * anyway. It is also not trusted instructions: file names and quoted check output are project
+ * data, and the user's role is the honest place for them.
  */
-function systemPrompt(
-  digest: string,
-  memories: Memory[],
-  job: string,
-  workspace?: "repository",
-): string {
-  const sections = [basePrompt(workspace)];
+function turnContext(digest: string, memories: Memory[], job: string, approved: string): string {
+  const sections: string[] = [];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);
   }
 
-  // After the listing rather than before it: within a job the objective does not change and
-  // the failures grow, so putting this first would move the listing on every repair turn and
-  // lose the cached prefix even on the turns where nothing about the project's files changed.
   if (job !== "") {
     sections.push(job);
   }
+
+  // Beside the job it belongs to, and constant across every turn of it.
+  if (approved !== "") sections.push(approved);
 
   // Absent, not empty, when there is nothing to say — an empty section is a section the
   // model reads on every turn in exchange for nothing.
@@ -584,4 +708,23 @@ function systemPrompt(
   }
 
   return sections.join("\n\n");
+}
+
+/**
+ * Adds the turn's context to the newest user message, or starts one when the conversation ends
+ * on the agent. Usually that message is the turn's own request; on a continuation it is whatever
+ * the agent is carrying on from. Either way it is after every breakpoint a later turn reads.
+ *
+ * Also starts one when the newest message ends settled history and carries its breakpoint, as
+ * the kept exchange does after a compaction: extended, the breakpoint would land on this turn's
+ * context, and the next turn — whose context differs — could not read what was written there.
+ */
+function appendToLastUserMessage(messages: LLMMessage[], text: string): void {
+  const last = messages.at(-1);
+  if (last?.role !== "user" || last.cacheBreakpoint === true) {
+    messages.push({ role: "user", content: [textBlock(text)] });
+    return;
+  }
+  const blocks = typeof last.content === "string" ? [textBlock(last.content)] : last.content;
+  messages[messages.length - 1] = { ...last, content: [...blocks, textBlock(text)] };
 }

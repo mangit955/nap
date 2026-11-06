@@ -1,6 +1,6 @@
 /**
- * The tools that talk to the person rather than to the sandbox: a visible checklist, and a
- * question that ends the turn.
+ * The tools that talk to the person rather than to the sandbox: a visible checklist, a question
+ * that ends the turn, and a plan proposed for approval, which ends it too.
  *
  * Both validate against the same schemas the events carry (`@nap/shared/agent-plan`), so what
  * the model was allowed to send is exactly what the pane is allowed to render.
@@ -53,5 +53,35 @@ export async function askUser(
     endsTurn: true,
     output:
       "The question is in front of the person and your turn ends here. Their answer arrives as their next message.",
+  };
+}
+
+/**
+ * A plan mode turn's answer: the plan, in front of the person, and the turn over (ADR-0025).
+ *
+ * Refused outside plan mode even though the toolset already leaves it out there, because the
+ * consequence of a stray call is not small: a turn that ended "awaiting approval" skips its
+ * commit, and an ordinary turn that did work must never skip it.
+ */
+export async function proposePlan(
+  args: ToolArgs<"propose_plan">,
+  call: LLMToolCall,
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  if (ctx.planning !== true)
+    return {
+      ok: false,
+      output: "propose_plan is only for plan mode. This turn builds; carry on with the work.",
+    };
+  emit(ctx, {
+    type: "plan.proposed",
+    payload: { toolCallId: call.id, title: args.title, plan: args.plan },
+  });
+  return {
+    ok: true,
+    endsTurn: true,
+    awaits: "plan_approval",
+    output:
+      "The plan is in front of the person and your turn ends here. If they approve it, the next turn carries it out; if they ask for changes, you will plan again.",
   };
 }

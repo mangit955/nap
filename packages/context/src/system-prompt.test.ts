@@ -1,30 +1,24 @@
 import type { ContextRequest } from "@nap/shared/ports/context-engine";
-import type { FileNode } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import { NapContextEngine } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
 import { SYSTEM_PROMPT } from "./system-prompt.ts";
-import { type FileTree, stubSandbox } from "./testing/stub-sandbox.ts";
+import { stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
 const ROOT = "/home/user/app";
 
 /** The template's real layout, so the snapshot shows what a fresh project actually sends. */
-function templateTree(): FileTree {
-  return {
-    [ROOT]: [
-      { path: `${ROOT}/src`, type: "directory" } satisfies FileNode,
-      { path: `${ROOT}/index.html`, type: "file" },
-      { path: `${ROOT}/package.json`, type: "file" },
-      { path: `${ROOT}/tsconfig.json`, type: "file" },
-      { path: `${ROOT}/vite.config.ts`, type: "file" },
-    ],
-    [`${ROOT}/src`]: [
-      { path: `${ROOT}/src/App.tsx`, type: "file" },
-      { path: `${ROOT}/src/index.css`, type: "file" },
-      { path: `${ROOT}/src/main.tsx`, type: "file" },
-    ],
-  };
+function templateTree(): string[] {
+  return [
+    `${ROOT}/index.html`,
+    `${ROOT}/package.json`,
+    `${ROOT}/tsconfig.json`,
+    `${ROOT}/vite.config.ts`,
+    `${ROOT}/src/App.tsx`,
+    `${ROOT}/src/index.css`,
+    `${ROOT}/src/main.tsx`,
+  ];
 }
 
 /**
@@ -53,7 +47,15 @@ async function assembled(overrides: Partial<ContextRequest> = {}): Promise<strin
     memory: new NoopMemoryProvider(),
     ...overrides,
   });
-  return context.systemPrompt;
+  // The system prompt and the turn's own message: everything the model is told on a first
+  // request, in the two places it is told it. The split is the cache's, and it is part of what
+  // a reviewer approves.
+  const last = context.messages.at(-1);
+  const turn =
+    last === undefined || typeof last.content === "string"
+      ? (last?.content ?? "")
+      : last.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n\n");
+  return `${context.systemPrompt}\n\n=== the turn's own message ===\n\n${turn}`;
 }
 
 describe("the system prompt", () => {

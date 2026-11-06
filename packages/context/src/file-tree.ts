@@ -6,15 +6,16 @@
  * conversation as noise. Handing over the shape of the project up front replaces all of that
  * with a few hundred tokens.
  *
- * Two properties matter more than completeness. The walk is **bounded before the budget sees
- * it** — a generated project can nest without limit, and discovering that by assembling a
- * megabyte of paths and then throwing most of it away would make every turn slow. And a
- * directory that cannot be listed **degrades rather than fails**: an unreadable folder is a
- * gap in a hint, not a reason to end a turn the user asked for, and the agent can always
- * list it itself.
+ * Three properties matter more than completeness. The listing is **one sandbox call** — it runs
+ * before anything reaches the model on every turn, every repair and every rebuild after
+ * compaction, and it used to be a round trip per folder, one after another. What reaches the
+ * prompt is **bounded** by entries and depth, breadth first. And a listing that fails or times
+ * out **degrades rather than fails**: a missing hint is not a reason to end a turn the user
+ * asked for, and the agent can always list the project itself.
  */
 
-import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import { getLogger } from "@nap/shared/logging";
+import type { FileNode, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 
 /**
  * Never worth showing the model: vendored dependencies and build products it must not edit,
@@ -27,6 +28,16 @@ const DEFAULT_ROOT = "/home/user/app";
 const DEFAULT_MAX_ENTRIES = 200;
 const DEFAULT_MAX_DEPTH = 6;
 
+/**
+ * How long the listing may take. Set here rather than left to the provider, whose default on E2B
+ * is a minute — a minute of nothing before the first token, on every turn, for a hint.
+ */
+const LIST_TIMEOUT_MS = 5_000;
+
+/** What the model is told when the listing could not be had, so it does not read an empty project. */
+export const FILE_LIST_UNAVAILABLE =
+  "The file listing is unavailable this turn; list the project yourself if you need it.";
+
 export type FileTreeDigestOptions = {
   root?: string;
   maxEntries?: number;
@@ -38,9 +49,38 @@ function basename(path: string): string {
   return cut === -1 ? path : path.slice(cut + 1);
 }
 
+/** The listing laid back out as folders, so the walk below can read it one folder at a time. */
+function toFolders(root: string, paths: readonly string[]): Map<string, FileNode[]> {
+  const folders = new Map<string, Map<string, FileNode>>();
+  const add = (folder: string, node: FileNode): void => {
+    const children = folders.get(folder) ?? new Map<string, FileNode>();
+    children.set(node.path, node);
+    folders.set(folder, children);
+  };
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  for (const path of paths) {
+    if (!path.startsWith(prefix)) continue;
+    const segments = path.slice(prefix.length).split("/");
+    let folder = prefix.slice(0, -1);
+    for (const [index, segment] of segments.entries()) {
+      const child = `${folder}/${segment}`;
+      add(folder, { path: child, type: index === segments.length - 1 ? "file" : "directory" });
+      folder = child;
+    }
+  }
+  return new Map([...folders].map(([folder, children]) => [folder, [...children.values()]]));
+}
+
 /**
  * Breadth-first, so a shallow entry is never displaced by a deep one when the limit bites:
  * `src/App.tsx` matters more than the tenth level of a nested component tree.
+ *
+ * The walk and its limits are the ones that used to make a sandbox call per folder, now reading
+ * folders out of a single listing. What that listing holds is not quite what the old walk saw:
+ * a repository's gitignored files are left out by design, the fallback for a workspace without
+ * git lists regular files only — no symlinks — and a listing cut at its byte ceiling is whatever
+ * the command printed first rather than the shallowest files: from git, every tracked file before
+ * any untracked one, each in git's own order; from the fallback, the order the directories hold.
  */
 export async function buildFileTreeDigest(
   sandbox: SandboxManager,
@@ -51,8 +91,21 @@ export async function buildFileTreeDigest(
   const maxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
 
+  const listed = await sandbox.listTree(sandboxId, root, {
+    exclude: [...EXCLUDED],
+    timeoutMs: LIST_TIMEOUT_MS,
+  });
+  // A failure here is a gap, not an error — see the note above. Logged, because a listing that
+  // fails on every turn would otherwise show up nowhere but in what the model was told. The code
+  // only: the message names the project's path.
+  if (!listed.ok) {
+    getLogger().warn({ code: listed.error.code }, "the file listing was unavailable");
+    return FILE_LIST_UNAVAILABLE;
+  }
+  const folders = toFolders(root, listed.value);
+
   const paths: string[] = [];
-  let queue: string[] = [root];
+  let queue: string[] = [root.endsWith("/") ? root.slice(0, -1) : root];
 
   for (let depth = 0; depth <= maxDepth && queue.length > 0; depth += 1) {
     const next: string[] = [];
@@ -60,13 +113,11 @@ export async function buildFileTreeDigest(
     for (const directory of queue) {
       if (paths.length >= maxEntries) break;
 
-      const listed = await sandbox.listFiles(sandboxId, directory);
-      // A failure here is a gap, not an error — see the note above.
-      if (!listed.ok) continue;
-
-      // Sorted so the same project always renders the same bytes; the digest sits inside a
-      // prefix the provider caches, and an unstable order would defeat that every turn.
-      const children = [...listed.value].sort((a, b) => a.path.localeCompare(b.path));
+      // Sorted so the same project always renders the same bytes, which is what lets a request
+      // that carries it repeat the one before it.
+      const children = [...(folders.get(directory) ?? [])].sort((a, b) =>
+        a.path.localeCompare(b.path),
+      );
 
       for (const child of children) {
         if (paths.length >= maxEntries) break;

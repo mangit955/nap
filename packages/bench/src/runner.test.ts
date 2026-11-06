@@ -275,6 +275,19 @@ describe("runBenchTask", () => {
     expect(report.errorKind).toBeNull();
   });
 
+  it("does not score a build that takes over a minute as a failed one", async () => {
+    // The provider stopping the command would record the agent's working build as broken, and a
+    // slow build is not what this check asks about.
+    const sandbox = new InMemorySandboxManager().script("bun run build", {
+      exitCode: 0,
+      runsForMs: 90_000,
+    });
+
+    const report = await reportOf(task(), await deps(scriptedRuntime(completed), sandbox));
+
+    expect(report.checks[0]?.outcome).toBe("passed");
+  });
+
   it("does not execute a single check once the turn has failed", async () => {
     // Running checks against a sandbox the turn never got to would score whatever the
     // template already contained, which is not the agent's work.

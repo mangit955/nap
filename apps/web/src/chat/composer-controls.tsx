@@ -84,7 +84,7 @@ export function DictationButton({
       }
       disabled={disabled || !dictation.supported}
       onClick={dictation.toggle}
-      className={`${CONTROL_SHAPE} ${dictation.listening ? "bg-accent-tint text-accent-ink" : "text-muted"}`}
+      className={`composer-dictation ${CONTROL_SHAPE} ${dictation.listening ? "bg-accent-tint text-accent-ink" : "text-muted"}`}
     >
       <svg
         viewBox="0 0 24 24"
@@ -98,6 +98,50 @@ export function DictationButton({
         <rect x="9" y="3" width="6" height="12" rx="3" />
         <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
       </svg>
+    </button>
+  );
+}
+
+/**
+ * Plan mode, as a switch beside the model (ADR-0025): while it is pressed, a message asks for a
+ * plan to approve instead of being built straight away. A labelled toggle rather than a menu row,
+ * because whether the next message will change the project is not something to hide a click away.
+ */
+export function PlanModeButton({
+  pressed,
+  disabled,
+  onToggle,
+}: {
+  pressed: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      // Named outright because the resting composer hides the visible label and keeps the icon.
+      aria-label="Plan mode"
+      aria-pressed={pressed}
+      title={pressed ? "Plan first: nothing is built until you approve" : "Plan before building"}
+      disabled={disabled}
+      onClick={onToggle}
+      className={`composer-plan-mode flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] transition-colors duration-150 hover:bg-hover disabled:opacity-50 focus-visible:outline-accent ${
+        pressed ? "bg-accent-tint text-accent-ink" : "text-muted"
+      }`}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="size-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="M9 6h11M9 12h11M9 18h11" />
+        <path d="M4 6h.01M4 12h.01M4 18h.01" />
+      </svg>
+      <span className="composer-plan-mode-label">Plan mode</span>
     </button>
   );
 }

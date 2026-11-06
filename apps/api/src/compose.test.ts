@@ -1,4 +1,6 @@
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
+import { GatedPageCapture } from "@nap/capture/testing/gated-page-capture";
+import { enqueueRequest } from "@nap/db/testing/enqueue-request";
 import { InMemoryCapacityReconciler } from "@nap/db/testing/in-memory-capacity-reconciler";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
@@ -153,6 +155,7 @@ function compose(overrides: Partial<NapDeps> = {}) {
     userKeys: new InMemoryUserKeyStore(),
     events: new InMemoryEventStore(),
     bus: new InMemoryEventBus(),
+    cancels: null,
     sandbox: new InMemorySandboxManager(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([]),
@@ -358,6 +361,47 @@ describe("composeNap", () => {
     // Still waiting for a worker somewhere else, which is exactly what an API pod should leave
     // behind: the request written down, and nothing in this process having touched it.
     expect(queue.inFlight).toBe(1);
+  });
+
+  it.each([
+    ["worker", 1],
+    ["all", 1],
+    ["api", 0],
+    ["reaper", 0],
+  ] as const)("as %s, listens for cancel wake-ups %i time(s)", async (role, expected) => {
+    // Only what runs turns has any use for hearing about them. Listening is the cost of one more
+    // channel on a socket, so an API pod or a reaper paying it would be paying for nothing.
+    const listen = vi.fn(async () => async () => {});
+    const composed = compose({ role, cancels: { announce: () => {}, listen } });
+
+    await vi.waitFor(() => expect(listen).toHaveBeenCalledTimes(expected));
+    await composed.worker.stop();
+    expect(listen).toHaveBeenCalledTimes(expected);
+  });
+
+  it("announces a cancel from a pod that does not run the turn", async () => {
+    const queue = new InMemoryTurnQueue();
+    const announce = vi.fn();
+    const { app } = compose({
+      role: "api",
+      queue,
+      sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+      cancels: { announce, listen: async () => async () => {} },
+    });
+    const { id } = await enqueueRequest(queue, {
+      sessionId: SESSION,
+      userId: FAKE_OWNER,
+      kind: "turn",
+      message: "hello",
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    });
+    await queue.claim("a-worker-on-another-pod");
+
+    const res = await app.request(`/sessions/${SESSION}/turns/cancel`, { method: "POST" });
+
+    expect(res.status).toBe(202);
+    expect(announce).toHaveBeenCalledExactlyOnceWith(id);
   });
 
   it.each(["api", "worker"] as const)("sweeps nothing when it is composed as %s", async (role) => {
@@ -597,6 +641,81 @@ describe("composeNap", () => {
     await expect.poll(() => queue.inFlight, { timeout: 10_000 }).toBe(0);
     const logged = (await events.readFrom(SESSION, 0)).map((event) => event.type);
     expect(logged).toContain("turn.completed");
+  });
+
+  describe("the thumbnail lane", () => {
+    /** Several projects that each finish a committing turn, with their pictures left waiting. */
+    async function finished(projects: number, config: Partial<NapDeps["config"]>) {
+      const capture = new GatedPageCapture();
+      const ids = Array.from({ length: projects }, () => ({
+        sessionId: crypto.randomUUID(),
+        projectId: crypto.randomUUID(),
+      }));
+      const composed = compose({
+        // An API role, so these turns are driven here rather than by a claim loop racing them.
+        role: "api",
+        capture,
+        sessions: new InMemorySessionStore(ids),
+        sandbox: turnableSandbox().script(/git diff --cached --quiet/, { exitCode: 1 }),
+        provider: new ScriptedLLMProvider(
+          ids.map(() => [{ text: "Done." }, { stopReason: "end_turn" }]),
+        ),
+        config: { ...CONFIG, ...config },
+      });
+      for (const { sessionId } of ids) {
+        const outcome = await composed.runtime.runTurn({
+          sessionId,
+          turnId: crypto.randomUUID(),
+          message: "add a dark mode toggle",
+        });
+        expect(outcome).toMatchObject({ ok: true, commitSha: expect.any(String) });
+      }
+      return { capture, composed };
+    }
+
+    it.each([1, 3])("opens only as many browsers as NAP_CAPTURE_CONCURRENCY=%i", async (limit) => {
+      const { capture, composed } = await finished(5, { NAP_CAPTURE_CONCURRENCY: limit });
+
+      await expect.poll(() => capture.waiting).toBe(limit);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(capture.waiting).toBe(limit);
+
+      // Stopped before the release, or the lane would start the queued shots and leave them open.
+      const stopping = composed.worker.stop();
+      capture.releaseAll();
+      await stopping;
+    });
+
+    it("keeps no more waiting than the worker can finish at once", async () => {
+      const { capture, composed } = await finished(5, {
+        NAP_CAPTURE_CONCURRENCY: 1,
+        NAP_WORKER_CONCURRENCY: 2,
+      });
+
+      // One in flight, two in line, and the other two refused.
+      for (let photographed = 1; photographed <= 3; photographed += 1) {
+        await expect.poll(() => capture.requests.length).toBe(photographed);
+        capture.release();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(capture.requests).toHaveLength(3);
+      expect(capture.waiting).toBe(0);
+      await composed.worker.stop();
+    });
+
+    it("is stopped by stopping the worker, which is what a shutdown calls", async () => {
+      const { capture, composed } = await finished(3, { NAP_CAPTURE_CONCURRENCY: 1 });
+      await expect.poll(() => capture.waiting).toBe(1);
+
+      const stopping = composed.worker.stop();
+      capture.releaseAll();
+      await stopping;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // The one in flight was let finish, and the two in line were never launched.
+      expect(capture.requests).toHaveLength(1);
+    });
   });
 
   it("sweeps a project nobody is using", async () => {

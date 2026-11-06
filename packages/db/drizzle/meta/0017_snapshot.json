@@ -1,5 +1,5 @@
 {
-  "id": "c62b8d48-72f9-4950-9a6d-98879b39c3dc",
+  "id": "f4828238-301d-43a7-8a9e-c24660318147",
   "prevId": "055ecf30-0e71-4ca0-a896-3629c3d027c0",
   "version": "7",
   "dialect": "postgresql",
@@ -1505,13 +1505,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "head_seq": {
-          "name": "head_seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1720,6 +1713,12 @@
         },
         "attachments": {
           "name": "attachments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "plan": {
+          "name": "plan",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

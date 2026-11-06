@@ -78,6 +78,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       ...(request.attachments === undefined
         ? {}
         : { attachments: structuredClone(request.attachments) }),
+      ...(request.plan === undefined ? {} : { plan: structuredClone(request.plan) }),
       model: request.model,
       billsToUser: request.billsToUser,
       state: "queued",
@@ -143,6 +144,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       ...(candidate.attachments === undefined
         ? {}
         : { attachments: structuredClone(candidate.attachments) }),
+      ...(candidate.plan === undefined ? {} : { plan: structuredClone(candidate.plan) }),
       model: candidate.model,
       billsToUser: candidate.billsToUser,
     };
@@ -189,16 +191,18 @@ export class InMemoryTurnQueue implements TurnQueue {
     );
     if (rows.length === 0) return { cancelled: false };
 
-    let was: "queued" | "leased" = "queued";
+    let leasedId: string | null = null;
     for (const row of rows) {
       row.cancelRequested = true;
-      if (row.state === "leased") was = "leased";
+      if (row.state === "leased") leasedId = row.id;
       else {
         row.state = "failed";
         row.finishedAt = this.#now();
       }
     }
-    return { cancelled: true, was };
+    return leasedId === null
+      ? { cancelled: true, was: "queued" }
+      : { cancelled: true, was: "leased", requestId: leasedId };
   }
 
   async orphanExpired(limit = ORPHAN_SWEEP_LIMIT): Promise<OrphanedTurnRequest[]> {
@@ -263,6 +267,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       kind: row.kind,
       message: row.message,
       ...(row.attachments === undefined ? {} : { attachments: structuredClone(row.attachments) }),
+      ...(row.plan === undefined ? {} : { plan: structuredClone(row.plan) }),
       model: row.model,
       billsToUser: row.billsToUser,
     }));

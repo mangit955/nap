@@ -38,7 +38,8 @@ A job is *working*, *verifying* or *repairing* while it is open, and once closed
 ended: **verified** (checks passed, so the commit is a checkpoint), **unverified** (the turn changed
 no files, so there was nothing to check — not a failure and not a success), **exhausted** (three
 repairs spent with checks still red) or **abandoned** (the turn it was riding on was cancelled or
-refused). `foldJobs` in `@nap/shared` is the one function that decides all of it.
+refused, or its checks came to an errored verdict). `foldJobs` in `@nap/shared` is the one function
+that decides all of it.
 
 **Verification** — what the system finds, as against what the model claims. A turn that changed the
 workspace is committed and then checked: the project's own checks, cheapest first, stopping at the
@@ -58,14 +59,15 @@ one layer lower still, in `@nap/shared`, because `verification.completed` carrie
 **Verdict** — what a whole *run* of the checks came to, as against the outcome of any one of them:
 **passed**, **failed**, or **errored**. The third is the one worth the word. Failed is the project's
 and opens a repair turn; errored means nothing was learned about the project — the sandbox refused
-the command, or the preview listens inside and is unreachable from outside — and a repair turn on
-that would ask a model to fix a machine it cannot see, so its checks come back *absent*. **An
+the command, a check ran past its limit or was cancelled, or the preview listens inside and is
+unreachable from outside — and a repair turn on that would ask a model to fix something it cannot,
+so its checks come back *absent*. **An
 errored run is never written as a verification.** `verification.completed` carries checks and no
 verdict on purpose, and an all-absent payload folds to `verified`; the job ends **abandoned**
 instead. `runChecks` in `@nap/verify` is where a verdict comes from, and it is branched on before
 anything is persisted rather than persisted itself.
 
-**Job brief** — the `<job>` section of the assembled prompt: the job's **objective**, and the
+**Job brief** — the `<job>` section of the **turn context**: the job's **objective**, and the
 verification failures already seen on it, oldest first. The second half is procedural memory done
 deterministically — a transcript shows the model confidently finishing, never that the finish was
 rejected, so without this each repair is free to make the last one again. Near-unevictable, and
@@ -74,18 +76,33 @@ exactly when the turn that stated the objective has fallen out of the window. Ha
 `ContextEngine` like `history` is, because the component that owns the token budget performs no
 I/O. `renderJobBrief` in `@nap/context` writes it.
 
-**Stale** — of a past turn in the assembled conversation: old enough that its tool traffic is
-emptied whether or not the budget needs the room. What survives is prose on both sides and each
-call's small arguments — which tool, against which path — so the turn still reads as something that
-happened; what goes is any argument large enough to be a file's contents, and everything the call
-printed. Distinct from **truncation**, which is the ladder `ContextEngine` climbs when a context
+**Stale** — of a past turn in the assembled conversation: finished — its `turn.completed` or
+`turn.failed` is in the log — so its tool traffic is emptied whether or not the budget needs the
+room, from the first build after it ended, so that history a cached request already sent is never
+rewritten later (ADR-0024). A turn still running never is, and nor is the exchange a compaction kept
+from it. What survives is prose on both sides, each call's small arguments — which tool, against
+which path — and the whole of a question put to the person, so the turn still reads as something
+that happened; what goes is any other argument large enough to be a file's contents, and everything
+the call printed. Distinct from **truncation**, which is the ladder `ContextEngine` climbs when a context
 does not *fit*: staleness runs first and runs always, because a turn re-sends its whole transcript
 on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
+
+**Turn context** — what the model is told that changes from one turn to the next: the file
+listing, the **job brief** and memories. It rides at the end of the turn's own message, never in the
+system prompt, so the system prompt and the settled history stay a prefix a provider can cache
+(ADR-0024). `turnContext` in `@nap/context` writes it.
+_Avoid_: system prompt, for any of it.
 
 **Compaction** — replacing older working conversation with a summary while retaining the original
 transcript. A **compaction checkpoint** is the saved summary and the conversation boundary it
 covers; it says nothing about whether the project's code is verified.
 _Avoid_: checkpoint without the compaction qualifier, deleting history.
+
+**Compaction history** — the conversation compaction summaries replaced, written as a plain-text
+file in the project's sandbox for the agent to search. Entries are named by event number, which
+the summary cites. A derived view of the session's events, like the **Transcript**: rebuilt from
+them whenever a sandbox lacks it, and never read back as a record. See ADR-0021.
+_Avoid_: history file without the compaction qualifier, transcript (that is the reader's view).
 
 **Checkpoint** — a *verified* commit, and the answer to "is this project in a valid state right
 now", which is `HEAD == last checkpoint` rather than a judgement anybody renders. Distinct from a
@@ -163,6 +180,11 @@ durable log is the delivery** — a lost notification costs latency and never co
 the catch-up read is what actually hands anything to a socket. The notification carries
 `{sessionId, seq}` and never a payload; see `docs/adr/0010`.
 
+**Cancel wake-up** — a notification that a turn request's `cancel_requested` has been committed,
+telling the worker running that request to renew now instead of at its next interval. It names a
+request, never a session, and cancels nothing itself: the renewal's answer does that, and a lost
+wake-up costs a wait of up to one renewal. See `docs/adr/0023`.
+
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
 
@@ -193,6 +215,24 @@ place in every reader.
 **Plan** — the agent's visible checklist for the work in hand, replaced whole each time it changes
 (`plan.updated`). Per turn, and unrelated to a **Job**, which is the durable objective; a plan is
 how one turn says what it is doing about it.
+
+**Plan mode** — a turn the person asked to plan rather than build. It may look (read, search,
+questions, explore helpers) and nothing else, enforced when each call runs, and
+it ends on a **proposed plan**. It opens no **Job** and commits nothing. Chosen per prompt by whoever
+sends it, and carried on the prompt and its **turn request**, never a setting. The answer to a
+**question** a plan mode turn asked is a plan mode prompt too. See
+[ADR-0025](docs/adr/0025-plan-mode-proposes-and-the-next-message-decides.md).
+
+**Proposed plan** — what a plan mode turn ends on (`plan.proposed`): a title and a Markdown body
+for the person to approve. Not the **Plan** above, which is a checklist of work in flight; this is
+written before anything changes. What became of it (*awaiting*, *approved*, *revised*, *superseded*,
+or *interrupted* when its turn failed) is stored nowhere: it is whatever the next message did,
+folded by `@nap/shared/plan-mode` for the chat pane and the runtime alike.
+
+**Approval** — a prompt that names the plan mode turn whose plan it approves. It opens the job that
+carries the plan out, named for the plan, and the plan rides in the turn context of every turn of
+that job. An approval of a plan that is no longer awaiting builds nothing, and settles nothing
+either. If the approving turn fails, the plan is awaiting again unless a newer request has replaced it.
 
 **Question** — a multiple-choice question the agent ends its turn on (`agent.question`). Its answer
 is not a field anywhere: it is the person's next message, whether they clicked an option or typed.
@@ -249,6 +289,11 @@ question about a different thing: this one is whether the project is *running*, 
 the work has got.
 
 **Snapshot** — the archived filesystem of a put-away project; what a restore rebuilds from.
+
+**Thumbnail lane** — where a project's dashboard picture is taken, after the turn that asked for it
+has given its lease back. Best-effort and bounded by dropping: a picture that is late, skipped or
+kept from the turn before is a stale card and nothing more. It never keeps a sandbox alive or makes
+a session *busy*. See ADR-0022.
 
 **Preview** — the user's app, running in a sandbox and reachable at a URL announced by
 `preview.ready`. The `seq` of that announcement, not its URL, is what identifies *which* preview:

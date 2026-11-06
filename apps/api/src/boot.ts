@@ -37,6 +37,7 @@ import {
 import { PostgresGitHubStore } from "@nap/db/github-store";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
 import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
+import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
 import { PostgresCapacityReconciler } from "@nap/db/postgres-capacity-reconciler";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresNotifyEventBus } from "@nap/db/postgres-notify-event-bus";
@@ -169,16 +170,18 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
    * answering requests, and the failure should be a boot that dies loudly rather than a server
    * that streams nothing.
    */
-  const notifyBus =
+  const notifyTransport =
     env.NAP_EVENT_BUS === "postgres"
-      ? new PostgresNotifyEventBus({
-          reader: events,
-          transport: new PostgresNotifyTransport({
-            notifier: client,
-            listener: createListenerConnection(env.NAP_LISTEN_DATABASE_URL ?? env.DATABASE_URL),
-          }),
+      ? new PostgresNotifyTransport({
+          notifier: client,
+          listener: createListenerConnection(env.NAP_LISTEN_DATABASE_URL ?? env.DATABASE_URL),
         })
       : null;
+
+  const notifyBus =
+    notifyTransport === null
+      ? null
+      : new PostgresNotifyEventBus({ reader: events, transport: notifyTransport });
 
   const bus = notifyBus ?? new InProcessEventBus();
 
@@ -348,6 +351,9 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // be announcing to a bus with no listeners while every open tab waited on an empty one.
     events,
     bus,
+    // The transport the bus uses, so a worker hearing cancels holds no extra connection: every
+    // channel on it shares one socket. Only a worker ever listens; an API pod only announces.
+    cancels: notifyTransport === null ? null : new PostgresCancelChannel(notifyTransport),
     sandbox,
     desktop,
     recordings: desktop,

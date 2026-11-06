@@ -29,7 +29,7 @@ services:
     plan: starter
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    # Migrations are a deploy step, run once per release rather than once per replica at boot.
+    # The worker migrates first; this repeat is an idempotent safeguard for manual API deploys.
     preDeployCommand: bun packages/db/scripts/migrate.ts
     # Closing a socket is quick, and clients reconnect with `?afterSeq=` against the event log.
     maxShutdownDelaySeconds: 60
@@ -54,7 +54,8 @@ services:
           name: nap-db
           property: connectionString
       # Only the worker reads this. Render allows at most 300 seconds between SIGTERM and SIGKILL,
-      # so the drain has to finish inside that rather than the 600-second default.
+      # so the drain has to finish inside that rather than the 600-second default — and so do the
+      # two 10-second graces after it: aborted turns, then pictures in flight. 270 + 10 + 10 = 290.
       - key: NAP_DRAIN_TIMEOUT_SECONDS
         value: "270"
       - key: BETTER_AUTH_SECRET
@@ -102,6 +103,8 @@ services:
     plan: standard
     dockerfilePath: ./Dockerfile
     dockerCommand: bun apps/api/src/worker.ts
+    # Workers roll before the API, so queue migrations must exist before the new worker boots.
+    preDeployCommand: bun packages/db/scripts/migrate.ts
     maxShutdownDelaySeconds: 300
     numInstances: 1
     envVars: *env

@@ -27,8 +27,44 @@ describe("modelFamily", () => {
 });
 
 describe("toolNamesFor", () => {
-  it("offers a person's own turn everything, when everything is wired", () => {
-    expect(names(USER)).toEqual([...TOOL_NAMES].toSorted());
+  it("offers a person's own turn everything but the plan proposal, when everything is wired", () => {
+    expect(names(USER)).toEqual(TOOL_NAMES.filter((name) => name !== "propose_plan").toSorted());
+  });
+
+  it("offers a plan mode turn looking, asking and proposing, and nothing that edits", () => {
+    expect(names({ ...USER, mode: "plan" })).toEqual([
+      "ask_user",
+      "glob",
+      "list_files",
+      "propose_plan",
+      "read_file",
+      "read_subagent",
+      "run_subagent",
+      "search_files",
+      "shell_output",
+    ]);
+  });
+
+  it("keeps a plan mode turn read-only on every model family and without the computer", () => {
+    const offered = toolNamesFor({ ...USER, family: "claude", mode: "plan" });
+    for (const name of [
+      "run_command",
+      "write_file",
+      "edit_file",
+      "apply_patch",
+      "shell_input",
+      "shell_kill",
+      "todo_write",
+      "computer",
+    ] as const)
+      expect(offered.has(name)).toBe(false);
+  });
+
+  it("offers the plan proposal only in plan mode, never to a helper", () => {
+    expect(toolNamesFor({ ...USER, promptSource: "verification" }).has("propose_plan")).toBe(false);
+    expect(toolNamesFor({ ...USER, mode: "plan", subagent: "explore" }).has("propose_plan")).toBe(
+      false,
+    );
   });
 
   it("keeps the patch format for the models trained on it", () => {
@@ -45,6 +81,13 @@ describe("toolNamesFor", () => {
   it("never asks a question nobody is there to answer", () => {
     expect(toolNamesFor({ ...USER, promptSource: "verification" }).has("ask_user")).toBe(false);
     expect(toolNamesFor({ ...USER, promptSource: "verification" }).has("write_file")).toBe(true);
+  });
+
+  it("declares on a repair turn exactly what a person's turn declares, so the cache survives it", () => {
+    // Offered and declared differ by `ask_user` alone: the executor refuses it on a repair.
+    const repair = { ...USER, promptSource: "verification" as const };
+    expect(JSON.stringify(toolsetFor(repair))).toBe(JSON.stringify(toolsetFor(USER)));
+    expect(toolNamesFor(repair).has("ask_user")).toBe(false);
   });
 
   it("lets an app test look but not touch", () => {

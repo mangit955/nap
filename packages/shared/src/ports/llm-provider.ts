@@ -46,6 +46,16 @@ export type LLMMessage = {
   role: "user" | "assistant";
   /** A bare string for plain prose; blocks when tool calls or their results are involved. */
   content: string | LLMContentBlock[];
+  /**
+   * The conversation up to and including this message is a prefix a later request will repeat
+   * byte for byte, so a provider that caches by explicit marker should put one here.
+   *
+   * Set by the context engine, which is the only thing that knows which history is settled;
+   * a provider with automatic prefix caching ignores it. On the message rather than beside the
+   * list because the list is appended to and replaced wholesale by compaction, and an index
+   * kept elsewhere would point at the wrong message after either.
+   */
+  cacheBreakpoint?: true;
 };
 
 export type LLMToolCall = {

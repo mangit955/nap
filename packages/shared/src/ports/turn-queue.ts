@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PlanIntent } from "../agent-plan.ts";
 import type { MediaAttachment } from "../media.ts";
 /**
  * The durable queue of turn requests, and the per-session leases that make one of them exclusive.
@@ -83,6 +84,11 @@ export type EnqueueTurnRequest = {
   /** The prompt for a turn, the approved job ID for a test, or null for a resume. */
   message: string | null;
   attachments?: MediaAttachment[] | undefined;
+  /**
+   * Whether the prompt asks for a plan or approves one (ADR-0025). Carried with the request because
+   * it is the asker's choice for this one turn, exactly like the prompt beside it.
+   */
+  plan?: PlanIntent | undefined;
   /** Resolved at admission, because which models somebody may name is the route's fact. */
   model: string;
   /**
@@ -129,8 +135,12 @@ export type OrphanedTurnRequest = Pick<EnqueueTurnRequest, "id" | "sessionId" | 
 export type CancelOutcome =
   /** A request was queued and has been failed outright — it will never be claimed. */
   | { cancelled: true; was: "queued" }
-  /** A worker holds it. It learns on its next renewal and aborts. */
-  | { cancelled: true; was: "leased" }
+  /**
+   * A worker holds it, and the flag is durable by the time this is returned. `requestId` names the
+   * one request flagged — the partial unique index allows no second — so that a cancel wake-up can
+   * point at it rather than at a session whose next turn it would be mistaken for.
+   */
+  | { cancelled: true; was: "leased"; requestId: string }
   | { cancelled: false };
 
 export interface TurnQueue {
@@ -212,7 +222,8 @@ export interface TurnQueue {
    * A `queued` request is failed here and now, so it can never be claimed — the alternative, a row
    * left queued and permanently skipped, is a request with no terminal state and a chat pane with
    * nothing to show. A `leased` one is only flagged: the worker owns its own abort, and stopping it
-   * from outside is what the renewal answer is for.
+   * from outside is what the renewal answer is for. Nothing here is announced — see `CancelChannel`
+   * for how the worker comes to ask sooner.
    */
   requestCancel(sessionId: string): Promise<CancelOutcome>;
 

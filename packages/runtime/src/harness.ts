@@ -39,6 +39,8 @@ export const HARNESS_USAGE = [
   `  --max-steps=<n>         Model calls allowed in the turn (default ${HARNESS_DEFAULTS.maxSteps})`,
   `  --budget-tokens=<n>     Context budget (default ${HARNESS_DEFAULTS.budgetTokens})`,
   "  --keep                  Leave the sandbox running instead of destroying it",
+  "  --plan                  Run the prompt in plan mode: read-only, ending on a proposed plan",
+  "  --approve               With --plan, approve that plan and run the turn that builds it",
   "",
   "Without --real it runs on a scripted model and an in-memory sandbox, and is free.",
 ].join("\n");
@@ -66,6 +68,11 @@ export type HarnessOptions = {
   maxSteps: number;
   budgetTokens: number;
   keep: boolean;
+  /**
+   * `propose` runs the prompt as a plan mode turn; `approve` also approves the plan it proposes
+   * and runs the turn that carries it out, in the same session (ADR-0025).
+   */
+  plan: "off" | "propose" | "approve";
 };
 
 /**
@@ -85,6 +92,8 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
     "max-steps",
     "budget-tokens",
     "keep",
+    "plan",
+    "approve",
   ]);
   const flags = new Map<string, string>();
   const words: string[] = [];
@@ -112,6 +121,9 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
     return { ok: false, error: `platform must be one of ${PLATFORMS.join(", ")}` };
   }
 
+  if (flags.has("approve") && !flags.has("plan"))
+    return { ok: false, error: "--approve needs --plan: there is no plan to approve without one" };
+
   const maxSteps = positiveInt(flags.get("max-steps"), HARNESS_DEFAULTS.maxSteps, "max-steps");
   if (!maxSteps.ok) return maxSteps;
 
@@ -133,6 +145,7 @@ export function parseHarnessArgs(argv: readonly string[]): Result<HarnessOptions
       maxSteps: maxSteps.value,
       budgetTokens: budgetTokens.value,
       keep: flags.has("keep"),
+      plan: flags.has("approve") ? "approve" : flags.has("plan") ? "propose" : "off",
     },
   };
 }
@@ -203,6 +216,8 @@ function detail(event: NapEvent): string {
         .join(" ");
     case "agent.question":
       return `${oneLine(event.payload.question)} — ${event.payload.options.map((option) => option.label).join(" / ")}`;
+    case "plan.proposed":
+      return `${oneLine(event.payload.title)} — ${event.payload.plan.split("\n").length} lines, awaiting approval`;
     case "subagent.started":
       return `${event.payload.subagentId} ${event.payload.profile}: ${oneLine(event.payload.task)}`;
     case "subagent.completed":
@@ -216,8 +231,8 @@ function detail(event: NapEvent): string {
     case "preview.stopped":
       return "";
     case "turn.completed": {
-      const { usage, durationMs, commitSha } = event.payload;
-      return `${usage.inputTokens} in / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}`;
+      const { usage, durationMs, commitSha, awaiting } = event.payload;
+      return `${usage.inputTokens} in / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}${awaiting === undefined ? "" : `, awaiting ${awaiting.replace("_", " ")}`}`;
     }
     case "turn.failed":
       return `${event.payload.reason}: ${oneLine(event.payload.message)}`;

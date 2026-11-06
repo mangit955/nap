@@ -1,7 +1,9 @@
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { createDatabase } from "@nap/db/client";
 import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
+import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
+import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
@@ -13,9 +15,14 @@ import { PostgresUserKeyStore } from "@nap/db/postgres-user-key-store";
 import { users } from "@nap/db/schema";
 import { createProjectSession } from "@nap/db/session-bootstrap";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
+import { ControllableRuntime } from "@nap/runtime/testing/controllable-runtime";
+import { startTurnWorker, type TurnWorker } from "@nap/runtime/turn-worker";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
+import type { LLMProvider, LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
+import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -161,6 +168,7 @@ function pod(
     // Per pod, deliberately: an in-process bus is exactly what a split deployment must not rely
     // on, so giving each its own is how this test refuses to be passed by fanout.
     bus: new InMemoryEventBus(),
+    cancels: null,
     sandbox: turnableSandbox(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([[{ text: "Added the toggle." }]]),
@@ -288,3 +296,256 @@ describe("an API pod and a worker pod over one database", () => {
     expect(await log.readFrom(sessionId, 0)).toEqual([]);
   });
 });
+
+/**
+ * A model that keeps streaming until its signal fires, which is what a cancel is for.
+ *
+ * It records when the signal arrived, so a test measures the thing somebody pays for: how long a
+ * model went on running after they pressed stop. Only for the prompt it was told to hold: the
+ * container is shared, so a worker here may also claim what an earlier test left queued, and those
+ * answer at once rather than occupying the turn being measured.
+ */
+class StreamingUntilAborted implements LLMProvider {
+  calls = 0;
+  abortedAt: number | null = null;
+  readonly #prompt: string;
+
+  constructor(prompt: string) {
+    this.#prompt = prompt;
+  }
+
+  startTurn() {
+    return {
+      usage: () => ({ inputTokens: 0, outputTokens: 0 }),
+      complete: (request: LLMRequest) =>
+        new Promise<LLMTurnResult>((resolve, reject) => {
+          if (!JSON.stringify(request.messages).includes(this.#prompt)) {
+            const usage = { inputTokens: 0, outputTokens: 0 };
+            resolve({ type: "message", text: "Nothing to do.", toolCalls: [], usage });
+            return;
+          }
+          this.calls += 1;
+          request.signal?.addEventListener("abort", () => {
+            this.abortedAt = Date.now();
+            reject(request.signal?.reason);
+          });
+        }),
+    };
+  }
+}
+
+/**
+ * One pod's end of the channel: its own pool and its own listener, as `bootNap` builds them.
+ *
+ * `dropping` is a pod whose `pg_notify` goes nowhere while everything else about it is fine, which
+ * is what a lost wake-up looks like from both sides.
+ */
+function channelOf(options: { dropping?: boolean } = {}) {
+  const notifier = postgres(inject("postgresUrl"), { max: 2 });
+  const listener = postgres(inject("postgresUrl"), { max: 1 });
+  lockConnections.push(notifier, listener);
+  const transport = new PostgresNotifyTransport({ notifier, listener });
+  return new PostgresCancelChannel(
+    options.dropping === true
+      ? { notify: async () => {}, listen: (channel, handler) => transport.listen(channel, handler) }
+      : transport,
+  );
+}
+
+describe("a cancel crossing from an API pod to a worker pod", () => {
+  it("stops the model well inside one renewal interval", async () => {
+    const userId = await seedUser();
+    const { sessionId } = await createProjectSession(db, { userId });
+    const prompt = `add a dark mode toggle, ${crypto.randomUUID()}`;
+    const provider = new StreamingUntilAborted(prompt);
+
+    const api = pod("api", userId, { cancels: channelOf() });
+    pod("worker", userId, { provider, cancels: channelOf() });
+
+    const accepted = await api.app.request(`/sessions/${sessionId}/turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: prompt }),
+    });
+    expect(accepted.status).toBe(202);
+    await expect.poll(() => provider.calls, { timeout: 20_000 }).toBe(1);
+
+    const pressedAt = Date.now();
+    const cancelled = await api.app.request(`/sessions/${sessionId}/turns/cancel`, {
+      method: "POST",
+    });
+    expect(cancelled.status).toBe(202);
+
+    // Waited for past the renewal, so a regression reads as the number it is rather than a timeout.
+    await expect
+      .poll(() => provider.abortedAt, { timeout: LEASE_RENEWAL_INTERVAL_MS + 5_000, interval: 5 })
+      .not.toBeNull();
+    expect((provider.abortedAt ?? 0) - pressedAt).toBeLessThan(LEASE_RENEWAL_INTERVAL_MS / 10);
+
+    // And it ended as a cancelled turn, in the log an API pod reads, rather than merely stopping.
+    const log = new PostgresEventStore(db);
+    await expect
+      .poll(
+        async () =>
+          (await log.readFrom(sessionId, 0)).find((event) => event.type === "turn.failed")?.payload,
+        { timeout: 10_000 },
+      )
+      .toMatchObject({ reason: "cancelled" });
+  }, 60_000);
+});
+
+/**
+ * The worker against the real queue and a real channel, with the runtime's turn held open.
+ *
+ * Below the composition, because what varies here is the renewal interval, and that is not a thing
+ * a deployment gets to turn: fifteen seconds of waiting per test would prove nothing further.
+ */
+describe("a worker and a real channel over one database", () => {
+  const workers: { worker: TurnWorker; runtime: ControllableRuntime }[] = [];
+
+  afterEach(async () => {
+    for (const { worker, runtime } of workers.splice(0)) {
+      runtime.complete();
+      await worker.stop();
+    }
+  });
+
+  /** Claims only the request it is told to, because the container is shared with other tests. */
+  function workerOf(options: {
+    sessionId: string;
+    renewIntervalMs: number;
+    /** Told of every renewal, which is the only thing a wake-up can do to an unflagged row. */
+    onRenew?: (requestId: string) => void;
+  }) {
+    const queue = new PostgresTurnQueue(db);
+    const runtime = new ControllableRuntime();
+    const worker = startTurnWorker({
+      queue: {
+        ...queueMethods(queue),
+        claim: async (owner) => {
+          const next = await queue.claim(owner);
+          if (next !== null && next.sessionId !== options.sessionId) {
+            await queue.settle(next.id, owner, "failed");
+            return null;
+          }
+          return next;
+        },
+        renew: (requestId, owner) => {
+          options.onRenew?.(requestId);
+          return queue.renew(requestId, owner);
+        },
+      },
+      runtime,
+      concurrency: 1,
+      pollIntervalMs: 20,
+      renewIntervalMs: options.renewIntervalMs,
+      cancels: channelOf(),
+    });
+    workers.push({ worker, runtime });
+    return runtime;
+  }
+
+  async function admitted(sessionId: string, userId: string): Promise<string> {
+    const id = crypto.randomUUID();
+    await new PostgresTurnQueue(db).enqueue({
+      id,
+      sessionId,
+      userId,
+      kind: "turn",
+      message: "add a dark mode toggle",
+      model: CONFIG.NAP_MODEL,
+      billsToUser: false,
+    });
+    return id;
+  }
+
+  async function runningIn(runtime: ControllableRuntime, count = 1): Promise<AbortSignal> {
+    await expect.poll(() => runtime.requests.length, { timeout: 10_000 }).toBe(count);
+    const signal = runtime.signal;
+    if (signal === undefined) throw new Error("the runtime was given no signal");
+    return signal;
+  }
+
+  it("still cancels at the next renewal when the notification is lost", async () => {
+    const userId = await seedUser();
+    const { sessionId } = await createProjectSession(db, { userId });
+    const runtime = workerOf({ sessionId, renewIntervalMs: 400 });
+    await admitted(sessionId, userId);
+    const signal = await runningIn(runtime);
+
+    const outcome = await new PostgresTurnQueue(db).requestCancel(sessionId);
+    if (!outcome.cancelled || outcome.was !== "leased") throw new Error("expected a leased row");
+    channelOf({ dropping: true }).announce(outcome.requestId);
+
+    await expect.poll(() => signal.aborted, { timeout: 5_000 }).toBe(true);
+    expect(signal.reason).toMatchObject({ code: "cancelled" });
+  }, 30_000);
+
+  it("stops nothing when told about a request whose row was never flagged", async () => {
+    const userId = await seedUser();
+    const { sessionId } = await createProjectSession(db, { userId });
+    const runtime = workerOf({ sessionId, renewIntervalMs: 600_000 });
+    const id = await admitted(sessionId, userId);
+    const signal = await runningIn(runtime);
+
+    const api = channelOf();
+    api.announce(id);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(signal.aborted).toBe(false);
+
+    // The other half, without which the wait above could be a channel that was never working.
+    await new PostgresTurnQueue(db).requestCancel(sessionId);
+    api.announce(id);
+    await expect.poll(() => signal.aborted, { timeout: 2_000, interval: 5 }).toBe(true);
+  }, 30_000);
+
+  it("leaves a session's next turn alone when one arrives late for its last", async () => {
+    const userId = await seedUser();
+    const { sessionId } = await createProjectSession(db, { userId });
+    const renewed: string[] = [];
+    const runtime = workerOf({
+      sessionId,
+      renewIntervalMs: 600_000,
+      onRenew: (requestId) => renewed.push(requestId),
+    });
+    const queue = new PostgresTurnQueue(db);
+    const first = await admitted(sessionId, userId);
+    await runningIn(runtime);
+    runtime.complete();
+    await expect.poll(() => queue.hasPending(sessionId), { timeout: 5_000 }).toBe(false);
+
+    const second = await admitted(sessionId, userId);
+    const signal = await runningIn(runtime, 2);
+
+    const api = channelOf();
+    api.announce(first);
+    api.announce(crypto.randomUUID());
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(signal.aborted).toBe(false);
+    // Neither row is flagged, so a wake-up that acted on the running turn would abort nothing and
+    // the line above could not tell. That it asked the row at all is what it got wrong.
+    expect(renewed).toEqual([]);
+
+    await queue.requestCancel(sessionId);
+    api.announce(second);
+    await expect.poll(() => signal.aborted, { timeout: 2_000, interval: 5 }).toBe(true);
+    expect(renewed).toEqual([second]);
+  }, 30_000);
+});
+
+/** Delegated one by one, because these are class methods over private fields. */
+function queueMethods(queue: PostgresTurnQueue): TurnQueue {
+  return {
+    enqueue: (request) => queue.enqueue(request),
+    getStatus: (request) => queue.getStatus(request),
+    hasPending: (sessionId) => queue.hasPending(sessionId),
+    claim: (owner) => queue.claim(owner),
+    renew: (requestId, owner) => queue.renew(requestId, owner),
+    settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
+    requestCancel: (sessionId) => queue.requestCancel(sessionId),
+    anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+    orphanExpired: (limit) => queue.orphanExpired(limit),
+    unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
+    markOrphanAnnounced: (requestId) => queue.markOrphanAnnounced(requestId),
+  };
+}

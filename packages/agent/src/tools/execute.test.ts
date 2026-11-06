@@ -503,3 +503,87 @@ describe("a tool this turn was not offered", () => {
     expect(recorder.types).toEqual([]);
   });
 });
+
+describe("a plan mode turn", () => {
+  const planning = (): ToolContext => ({
+    ...context(),
+    planning: true,
+    offered: new Set(["read_file", "run_command", "run_subagent", "propose_plan"]),
+  });
+
+  it("refuses an edit it was not offered, logs the attempt, and says why in plan mode's words", async () => {
+    const result = await executeTool(
+      call("write_file", { path: APP, contents: "x\n" }),
+      planning(),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/plan mode/i);
+    expect(recorder.types).toEqual(["tool.call", "tool.result"]);
+    expect((await manager.readFile(sandboxId, APP)).ok).toBe(false);
+  });
+
+  it.each([
+    "git log --oneline -5",
+    "git diff",
+    "git status",
+    "./git log",
+    "GIT_EXTERNAL_DIFF='touch pwned; true' git diff HEAD~1",
+    "git grep --open-files-in-pager='touch pwned #' .",
+    "sort --compress-program=sh words.txt",
+    "rg --hostname-bin=./x foo",
+    "ls && touch src/new.ts",
+  ])("refuses every command in plan mode before it reaches the sandbox: %s", async (command) => {
+    manager.script(/.*/, { stdout: "would run" });
+    const result = await executeTool(call("run_command", { command }), planning());
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/plan mode/i);
+    expect(manager.commands(sandboxId)).toEqual([]);
+  });
+
+  it("refuses to start a background command, which nothing in plan mode could stop", async () => {
+    const result = await executeTool(
+      call("run_command", { command: "ls", background: true }),
+      planning(),
+    );
+    expect(result).toMatchObject({ ok: false });
+    expect(manager.commands(sandboxId)).toEqual([]);
+  });
+
+  it("refuses a helper that may write, whatever the toolset offered", async () => {
+    let ran = false;
+    const result = await executeTool(call("run_subagent", { profile: "general", task: "edit" }), {
+      ...planning(),
+      subagents: {
+        run: async () => {
+          ran = true;
+          return { ok: true, output: "done" };
+        },
+        start: () => "sub",
+        collect: async () => ({ ok: true, output: "done" }),
+      },
+    });
+    expect(result).toMatchObject({ ok: false });
+    expect(result.output).toMatch(/explore/);
+    expect(ran).toBe(false);
+  });
+
+  it("proposes a plan as a typed event and ends the turn awaiting approval", async () => {
+    const result = await executeTool(
+      call("propose_plan", { title: "Dark theme", plan: "1. Add tokens\n2. Swap colours" }),
+      planning(),
+    );
+    expect(result).toMatchObject({ ok: true, endsTurn: true, awaits: "plan_approval" });
+    expect(recorder.types).toEqual(["tool.call", "plan.proposed", "tool.result"]);
+    expect(recorder.payloadsOf("plan.proposed")).toEqual([
+      { toolCallId: "toolu_1", title: "Dark theme", plan: "1. Add tokens\n2. Swap colours" },
+    ]);
+    for (const event of recorder.events)
+      expect(NapEventSchema.safeParse({ ...event, seq: 0 }).success).toBe(true);
+  });
+
+  it("refuses a proposal outside plan mode, even when somebody forgot to narrow the toolset", async () => {
+    const result = await executeTool(call("propose_plan", { title: "x", plan: "y" }), context());
+    expect(result).toMatchObject({ ok: false });
+    expect(recorder.payloadsOf("plan.proposed")).toEqual([]);
+  });
+});

@@ -105,6 +105,65 @@ function scriptedProvider(): LLMProvider {
   ]);
 }
 
+/**
+ * A model asked for a plan: it looks around, proposes, and — once approved — builds what it
+ * proposed. Two turns, so `--plan --approve` shows the whole round trip on fakes: the proposal
+ * ending its turn with no job and no commit, then a job named for the plan that commits.
+ */
+function scriptedPlanProvider(): LLMProvider {
+  const path = `${TEMPLATE_WORKDIR}/src/DarkModeToggle.tsx`;
+  return new ScriptedLLMProvider([
+    [
+      {
+        thinking: ["Planning only. ", "I'll look at the app before proposing anything."],
+        toolCalls: [
+          { id: "list_1", name: "list_files", input: { path: `${TEMPLATE_WORKDIR}/src` } },
+        ],
+      },
+      {
+        // The scripted model tries to write anyway, so the dry run shows plan mode refusing it.
+        toolCalls: [{ id: "write_1", name: "write_file", input: { path, contents: "x\n" } }],
+      },
+      {
+        streamedText: ["Here is the plan."],
+        text: "Here is the plan.",
+        toolCalls: [
+          {
+            id: "plan_1",
+            name: "propose_plan",
+            input: {
+              title: "Add a dark mode toggle",
+              plan: "1. Add `src/DarkModeToggle.tsx`, a button that flips a `dark` class on the root.\n2. Render it in `src/App.tsx`'s header.\n3. Keep the choice in localStorage.",
+            },
+          },
+        ],
+        usage: { inputTokens: 1_100, outputTokens: 140 },
+      },
+    ],
+    [
+      {
+        toolCalls: [
+          {
+            id: "call_1",
+            name: "write_file",
+            input: {
+              path,
+              contents:
+                "export function DarkModeToggle() {\n  return <button>Toggle theme</button>;\n}\n",
+            },
+          },
+        ],
+        usage: { inputTokens: 1_500, outputTokens: 90 },
+      },
+      {
+        streamedText: ["Built the ", "approved plan."],
+        text: "Built the approved plan.",
+        usage: { inputTokens: 1_600, outputTokens: 20 },
+      },
+    ],
+  ]);
+}
+
 /** What the project template declares, which is what the dry run's checks are discovered from. */
 const TEMPLATE_MANIFEST = { scripts: { build: "vite build", dev: "vite --host" } };
 
@@ -174,7 +233,7 @@ if (options.real) {
 } else {
   console.log("Dry run on a scripted model and an in-memory sandbox. Pass --real to spend.\n");
   sandbox = fakeSandbox();
-  provider = scriptedProvider();
+  provider = options.plan === "off" ? scriptedProvider() : scriptedPlanProvider();
 }
 
 const sessionId = crypto.randomUUID();
@@ -214,12 +273,25 @@ const runtime = new SingleAgentRuntime({
 const startedAt = Date.now();
 // Allocated here for the reason admission allocates one: nothing queued this turn, so the harness
 // is what names it.
-const outcome = await runtime.runTurn({
+const firstTurnId = crypto.randomUUID();
+let outcome = await runtime.runTurn({
   sessionId,
-  turnId: crypto.randomUUID(),
+  turnId: firstTurnId,
   message: options.prompt,
   model: options.model,
+  ...(options.plan === "off" ? {} : { plan: { intent: "propose" as const } }),
 });
+if (options.plan === "approve" && outcome.ok) {
+  // What the plan card's Approve button sends: the approval names the turn that proposed.
+  console.log("\n— approving the plan —\n");
+  outcome = await runtime.runTurn({
+    sessionId,
+    turnId: crypto.randomUUID(),
+    message: "Approved. Build this plan.",
+    model: options.model,
+    plan: { intent: "approve", planTurnId: firstTurnId },
+  });
+}
 const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 
 console.log(

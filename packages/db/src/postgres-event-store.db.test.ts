@@ -596,6 +596,10 @@ const PAYLOADS = [
     },
   },
   {
+    type: "plan.proposed",
+    payload: { toolCallId: "toolu_plan", title: "Dark theme", plan: "1. Tokens\n2. Toggle" },
+  },
+  {
     type: "subagent.started",
     payload: { toolCallId: "toolu_sub", subagentId: "sub_1", profile: "explore", task: "Find it" },
   },

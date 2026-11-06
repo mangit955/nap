@@ -2292,9 +2292,19 @@ details[open] > .nap-float {
   height: 24px;
   font-size: 11px;
 }
-.workspace-composer[data-resting="true"] .composer-model-controls > button {
+.workspace-composer[data-resting="true"] .composer-model-controls > .composer-dictation {
   width: 24px;
   margin-left: auto;
+}
+/* Plan mode shrinks to its icon in the strip, so it fits beside dictation; the pressed tint still
+   says it is on, and the button keeps its name through `aria-label`. */
+.workspace-composer[data-resting="true"] .composer-model-controls > .composer-plan-mode {
+  width: 24px;
+  padding: 0;
+  justify-content: center;
+}
+.workspace-composer[data-resting="true"] .composer-plan-mode-label {
+  display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
   .workspace-composer {
