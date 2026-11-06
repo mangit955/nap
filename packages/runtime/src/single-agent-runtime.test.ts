@@ -27,7 +27,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import { scriptGit } from "@nap/sandbox/testing/script-git";
+import { COMMIT_COMMAND, scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type {
   AppendOptions,
@@ -53,7 +53,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function commitCommands(manager: InMemorySandboxManager, sandboxId: string): string[] {
-  return manager.commands(sandboxId).filter((command) => /git .*commit -m/.test(command));
+  return manager.commands(sandboxId).filter((command) => COMMIT_COMMAND.test(command));
 }
 
 /** A sandbox manager that cannot hand out sandboxes, for the acquisition-failure path. */
@@ -626,10 +626,10 @@ describe("SingleAgentRuntime", () => {
   });
 
   it("fails the turn when the commit itself fails, and never reports completion", async () => {
-    sandbox = new InMemorySandboxManager()
-      .script(/git add -A/, { exitCode: 0 })
-      .script(/git diff --cached --quiet/, { exitCode: 1 })
-      .script(/git .*commit -m/, { exitCode: 128, stderr: "fatal: unable to write" });
+    sandbox = new InMemorySandboxManager().script(COMMIT_COMMAND, {
+      exitCode: 128,
+      stderr: "fatal: unable to write",
+    });
 
     const outcome = await runtime(new ScriptedAgent(HAPPY_SCRIPT, true), { sandbox }).runTurn({
       turnId: crypto.randomUUID(),

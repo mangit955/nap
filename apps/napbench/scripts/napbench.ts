@@ -57,6 +57,7 @@ import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMMIT_COMMAND, committed } from "@nap/sandbox/testing/script-git";
 import { loadEnvFile } from "@nap/shared/env-file";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
@@ -163,7 +164,7 @@ function fakeSandbox(): InMemorySandboxManager {
     defaultExec: () => ({ exitCode: 0, stdout: "" }),
     serves: [TEMPLATE_DEV_PORT],
   })
-    .script(/git diff --cached --quiet/, { exitCode: 1 })
+    .script(COMMIT_COMMAND, committed("0".repeat(40)))
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });
 }
 

@@ -1,12 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExecResult, SandboxError } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { bundle, restoreBundle, workspaceState } from "./git.ts";
+import { bundle, commitAll, restoreBundle, workspaceState } from "./git.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
 import { localGitEnvironment } from "./testing/local-git-environment.ts";
 
@@ -16,7 +16,11 @@ let source: string;
 let target: string;
 
 class LocalSandbox extends InMemorySandboxManager {
+  /** Every command sent, since each one is a round trip to a real sandbox. */
+  readonly issued: string[] = [];
+
   override async exec(_id: string, command: string): Promise<Result<ExecResult, SandboxError>> {
+    this.issued.push(command);
     try {
       const result = await exec(
         "bash",
@@ -143,5 +147,60 @@ describe("workspaceState", () => {
     await stateOf(source);
 
     expect((await stat(join(source, ".git", "index"))).mtimeMs).toBe(before.mtimeMs);
+  });
+});
+
+describe("commitAll", () => {
+  // Quotes of both kinds, a newline, and shell syntax that would run if the quoting slipped.
+  const MESSAGE = `Add the "login" form, and don't break it\n\nSecond paragraph: $(touch pwned) \`id\``;
+
+  it("commits every change in one command, and reports the commit it made", async () => {
+    await writeFile(join(source, "file"), "edited");
+    await writeFile(join(source, "new.ts"), "export {};");
+    const manager = new LocalSandbox();
+    const before = await git(source, "rev-parse", "HEAD");
+
+    const result = await commitAll(manager, "sandbox", MESSAGE, { cwd: source });
+
+    const head = await git(source, "rev-parse", "HEAD");
+    expect(head).not.toBe(before);
+    expect(result).toEqual({ ok: true, value: { committed: true, sha: head } });
+    expect(await git(source, "log", "-1", "--format=%B")).toBe(MESSAGE);
+    expect(await git(source, "status", "--porcelain")).toBe("");
+    expect(manager.issued).toHaveLength(1);
+  });
+
+  it("commits a deletion, which only staging everything picks up", async () => {
+    await unlink(join(source, "file"));
+
+    const result = await commitAll(new LocalSandbox(), "sandbox", MESSAGE, { cwd: source });
+
+    expect(result).toMatchObject({ ok: true, value: { committed: true } });
+    expect(await git(source, "ls-files")).toBe("");
+  });
+
+  it("reports a clean tree as nothing committed, in one command", async () => {
+    const manager = new LocalSandbox();
+    const before = await git(source, "rev-parse", "HEAD");
+
+    const result = await commitAll(manager, "sandbox", MESSAGE, { cwd: source });
+
+    expect(result).toEqual({ ok: true, value: { committed: false, sha: null } });
+    expect(await git(source, "rev-parse", "HEAD")).toBe(before);
+    expect(manager.issued).toHaveLength(1);
+  });
+
+  it("reports a commit git refuses as a failure, never as nothing to commit", async () => {
+    // Signing with a program that always fails: staging succeeds and the commit itself does not,
+    // which is the step whose failure must not read as a clean tree.
+    await git(source, "config", "commit.gpgSign", "true");
+    await git(source, "config", "gpg.program", "false");
+    await writeFile(join(source, "file"), "edited");
+    const before = await git(source, "rev-parse", "HEAD");
+
+    const result = await commitAll(new LocalSandbox(), "sandbox", MESSAGE, { cwd: source });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+    expect(await git(source, "rev-parse", "HEAD")).toBe(before);
   });
 });

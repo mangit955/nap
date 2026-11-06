@@ -83,10 +83,43 @@ function cancelled(): Result<never, SandboxError> {
 }
 
 /**
+ * What the commit script prints, in place of a sha, when the tree had nothing to commit.
+ *
+ * Exported for the fakes that stand in for the script: they answer it with this or a sha.
+ */
+export const NOTHING_TO_COMMIT = "nap: nothing to commit";
+
+/** A full object id, SHA-1 or SHA-256. Anything else on the last line is not a commit. */
+const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * The whole of `commitAll`, as one command, so a turn's commit is one round trip and not four.
+ *
+ * `diff --quiet --cached` exits 0 when the index matches HEAD, and that is the one case that
+ * commits nothing; any other exit commits, so a diff that itself failed lets the commit say why.
+ * Staging and committing are joined with `&&` so either failing fails the script, and the sha is
+ * read only after the commit, on the last line, where nothing git printed before it can shadow it.
+ *
+ * Spelled `--all`, `--quiet --cached`, `--verify` and `--message=` on purpose. Fakes answer commands
+ * by pattern, and tests across the repo still hold patterns for the four commands this replaced —
+ * `/git rev-parse HEAD/` most of all, which also answers `currentSha`. Different spellings mean
+ * none of those can answer this script by accident and pass a test that exercised nothing.
+ */
+export function commitScript(message: string): string {
+  return (
+    "git add --all && " +
+    `if git diff --quiet --cached; then echo ${shellQuote(NOTHING_TO_COMMIT)}; ` +
+    `else git ${IDENTITY} commit --message=${shellQuote(message)} && git rev-parse --verify HEAD; fi`
+  );
+}
+
+/**
  * Stages everything and commits it, or does nothing if there is nothing to commit.
  *
  * A clean tree is an ordinary outcome, not a failure: plenty of turns only read files, and
- * failing those would turn "the agent answered a question" into "the turn errored".
+ * failing those would turn "the agent answered a question" into "the turn errored". A commit
+ * that fails is a failure, never "nothing to commit": the script exits non-zero, and only the
+ * marker it prints on purpose reads as a clean tree.
  */
 export async function commitAll(
   manager: SandboxManager,
@@ -94,28 +127,19 @@ export async function commitAll(
   message: string,
   options?: GitOptions,
 ): Promise<Result<CommitResult, SandboxError>> {
-  const staged = await git(manager, sandboxId, "git add -A", options);
-  if (!staged.ok) return staged;
-
-  // `--quiet` makes the exit code the whole answer: 0 means the index matches HEAD, so
-  // there is nothing to commit. Readable as data only because the sandbox layer reports
-  // non-zero exits rather than throwing them.
-  const changes = await run(manager, sandboxId, "git diff --cached --quiet", options);
-  if (!changes.ok) return changes;
-  if (changes.value.exitCode === 0) return { ok: true, value: { committed: false, sha: null } };
-
-  const committed = await git(
-    manager,
-    sandboxId,
-    `git ${IDENTITY} commit -m ${shellQuote(message)}`,
-    options,
-  );
+  const committed = await git(manager, sandboxId, commitScript(message), options);
   if (!committed.ok) return committed;
 
-  const sha = await currentSha(manager, sandboxId, options);
-  if (!sha.ok) return sha;
-
-  return { ok: true, value: { committed: true, sha: sha.value } };
+  const last = committed.value.trimEnd().split("\n").at(-1)?.trim() ?? "";
+  if (last === NOTHING_TO_COMMIT) return { ok: true, value: { committed: false, sha: null } };
+  if (OBJECT_ID.test(last)) return { ok: true, value: { committed: true, sha: last } };
+  return {
+    ok: false,
+    error: {
+      code: "exec_failed",
+      message: `the commit finished without saying what it committed: ${JSON.stringify(last)}`,
+    },
+  };
 }
 
 /** The commit currently checked out. A repository with no commits is an error, not "". */

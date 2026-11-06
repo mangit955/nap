@@ -19,7 +19,7 @@ import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import { scriptGit } from "@nap/sandbox/testing/script-git";
+import { COMMIT_COMMAND, scriptGit } from "@nap/sandbox/testing/script-git";
 import type { PlanIntent } from "@nap/shared/agent-plan";
 import { NapEventSchema } from "@nap/shared/events";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -85,7 +85,7 @@ async function turn(
 async function commits(): Promise<string[]> {
   const sandboxId = (await sessions.get(SESSION_ID))?.sandboxId;
   if (sandboxId == null) return [];
-  return sandbox.commands(sandboxId).filter((command) => /git .*commit -m/.test(command));
+  return sandbox.commands(sandboxId).filter((command) => COMMIT_COMMAND.test(command));
 }
 
 describe("a plan mode turn", () => {

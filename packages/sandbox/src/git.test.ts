@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { shellQuote } from "@nap/shared/shell";
 import { describe, expect, it } from "vitest";
-import { bundle, commitAll, currentSha, restoreBundle } from "./git.ts";
+import { bundle, commitAll, commitScript, currentSha, restoreBundle } from "./git.ts";
 import { decodeRepositoryBundle } from "./git-bundle.ts";
 import { TEMPLATE_WORKDIR } from "./template.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
+import { COMMIT_COMMAND, committed, NOTHING_COMMITTED } from "./testing/script-git.ts";
 
 const SHA = "9f2c1ab3d4e5f60718293a4b5c6d7e8f90a1b2c3";
 
@@ -27,79 +28,65 @@ function gitCommands(manager: InMemorySandboxManager, sandboxId: string): string
 }
 
 describe("commitAll", () => {
-  it("stages, checks for changes, then commits — in that order", async () => {
+  it("stages, checks for changes, commits and reads the sha — in that order, in one command", async () => {
+    // One command, because each one is a round trip to the sandbox and a turn waits for all of them.
     const manager = new InMemorySandboxManager();
-    manager.script(/^cd .* && git add -A$/, { exitCode: 0 });
-    // Non-zero from `diff --cached --quiet` is git's way of saying "there are changes".
-    manager.script(/git diff --cached --quiet$/, { exitCode: 1 });
-    manager.script(/git .*commit -m/, { exitCode: 0 });
-    manager.script(/git rev-parse HEAD$/, { stdout: `${SHA}\n` });
+    manager.script(COMMIT_COMMAND, committed(SHA));
     const { sandboxId } = await gitSandbox(manager);
 
     const result = await commitAll(manager, sandboxId, "Add login form");
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toEqual({ committed: true, sha: SHA });
-
+    expect(result).toEqual({ ok: true, value: { committed: true, sha: SHA } });
     const commands = gitCommands(manager, sandboxId);
-    expect(commands[0]).toBe("git add -A");
-    expect(commands[1]).toContain("git diff --cached --quiet");
-    expect(commands[2]).toContain("commit -m");
+    expect(commands).toHaveLength(1);
+    const [script = ""] = commands;
+    const steps = ["git add --all", "git diff --quiet --cached", "commit --message=", "rev-parse"];
+    const positions = steps.map((step) => script.indexOf(step));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
-  it("runs commands in the project directory", async () => {
-    const manager = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 1 }) });
+  it("runs in the project directory", async () => {
+    const manager = new InMemorySandboxManager().script(COMMIT_COMMAND, NOTHING_COMMITTED);
     const { sandboxId } = await gitSandbox(manager);
 
     await commitAll(manager, sandboxId, "msg");
 
-    expect(manager.commands(sandboxId)[0]).toBe(`cd ${TEMPLATE_WORKDIR} && git add -A`);
+    expect(manager.commands(sandboxId)[0]).toBe(`cd ${TEMPLATE_WORKDIR} && ${commitScript("msg")}`);
   });
 
   it("is a no-op, not an error, when there is nothing to commit", async () => {
     // An agent turn that only reads files must not fail the turn.
-    const manager = new InMemorySandboxManager();
-    manager.script(/git add -A$/, { exitCode: 0 });
-    manager.script(/git diff --cached --quiet$/, { exitCode: 0 });
+    const manager = new InMemorySandboxManager().script(COMMIT_COMMAND, NOTHING_COMMITTED);
     const { sandboxId } = await gitSandbox(manager);
 
     const result = await commitAll(manager, sandboxId, "nothing changed");
 
     expect(result).toEqual({ ok: true, value: { committed: false, sha: null } });
-    // Not merely "reported nothing": no commit was attempted at all.
-    expect(gitCommands(manager, sandboxId).some((c) => c.includes("commit"))).toBe(false);
   });
 
   it("passes a hostile message to git as one literal argument", async () => {
-    const manager = new InMemorySandboxManager();
-    manager.script(/git add -A$/, { exitCode: 0 });
-    manager.script(/git diff --cached --quiet$/, { exitCode: 1 });
-    manager.script(/commit -m/, { exitCode: 0 });
-    manager.script(/git rev-parse HEAD$/, { stdout: SHA });
-    const { sandboxId } = await gitSandbox(manager);
+    const hostile = "'; touch /tmp/pwned; echo '\nand a $(second) `line`";
+    const script = commitScript(hostile);
 
-    const hostile = "'; touch /tmp/pwned; echo '";
-    await commitAll(manager, sandboxId, hostile);
-
-    const commit = gitCommands(manager, sandboxId).find((c) => c.includes("commit -m"));
-    expect(commit).toBeDefined();
-    if (commit === undefined) return;
-
-    // Asserting the payload text is absent would be wrong — it *is* present, safely
-    // inside quotes. The property that matters is that the message reached the command
-    // line quoted, and a real shell recovers it as a single argument. `sh -c` with
-    // `printf` stands in for git and prints back whatever the argument actually was.
-    expect(commit).toContain(shellQuote(hostile));
-    const argument = execFileSync("sh", ["-c", commit.replace(/^git .*commit -m /, "printf %s ")], {
-      encoding: "utf8",
-    });
+    // Asserting the payload text is absent would be wrong — it *is* present, safely inside
+    // quotes. The property that matters is that a real shell recovers it as a single argument:
+    // `sh -c` with `printf` stands in for git and prints back whatever the argument was.
+    expect(script).toContain(`--message=${shellQuote(hostile)}`);
+    const quoted = script.slice(script.indexOf("--message=") + "--message=".length);
+    const argument = execFileSync(
+      "sh",
+      ["-c", `printf %s ${quoted.slice(0, quoted.indexOf(" && git rev-parse"))}`],
+      { encoding: "utf8" },
+    );
     expect(argument).toBe(hostile);
   });
 
   it("reports a failing git as exec_failed rather than claiming success", async () => {
-    const manager = new InMemorySandboxManager();
-    manager.script(/git add -A$/, { exitCode: 128, stderr: "fatal: not a git repository" });
+    const manager = new InMemorySandboxManager().script(COMMIT_COMMAND, {
+      exitCode: 128,
+      stderr: "fatal: not a git repository",
+    });
     const { sandboxId } = await gitSandbox(manager);
 
     const result = await commitAll(manager, sandboxId, "msg");
@@ -108,6 +95,17 @@ describe("commitAll", () => {
     if (result.ok) return;
     expect(result.error.code).toBe("exec_failed");
     expect(result.error.message).toContain("not a git repository");
+  });
+
+  it("refuses output it cannot read as either outcome, rather than guessing", async () => {
+    // A script that exited 0 but printed neither the marker nor a sha has not said what it did,
+    // and reading that as "nothing to commit" would report a lost commit as a quiet turn.
+    const manager = new InMemorySandboxManager().script(COMMIT_COMMAND, { stdout: "" });
+    const { sandboxId } = await gitSandbox(manager);
+
+    const result = await commitAll(manager, sandboxId, "msg");
+
+    expect(result).toMatchObject({ ok: false, error: { code: "exec_failed" } });
   });
 
   it("propagates a sandbox failure untouched", async () => {
