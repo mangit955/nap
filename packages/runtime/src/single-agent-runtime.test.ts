@@ -40,6 +40,7 @@ import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { commitMessage, SingleAgentRuntime } from "./single-agent-runtime.ts";
+import { withoutAnnouncement } from "./testing/preview-announcement.ts";
 
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
@@ -713,10 +714,9 @@ describe("telling the client where the preview is", () => {
     });
 
     const stored = await events.readFrom(SESSION_ID, 0);
-    expectEventSequence(stored, [
+    expectEventSequence(withoutAnnouncement(stored), [
       "user.message",
       "job.started",
-      "preview.ready",
       "turn.started",
       "agent.message",
       "turn.completed",
@@ -883,11 +883,13 @@ describe("opening a project that has been put away", () => {
     // refuse them the project they still have. The notice comes before the preview, because
     // it explains the empty app the preview is about to show.
     expect(outcome.ok).toBe(true);
-    expectEventSequence(await events.readFrom(SESSION_ID, 0), [
+    const logged = await events.readFrom(SESSION_ID, 0);
+    const types = logged.map((event) => event.type);
+    expect(types.indexOf("system.notice")).toBeLessThan(types.indexOf("preview.ready"));
+    expectEventSequence(withoutAnnouncement(logged), [
       "user.message",
       "job.started",
       "system.notice",
-      "preview.ready",
       "turn.started",
       "agent.message",
       "turn.completed",

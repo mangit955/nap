@@ -21,9 +21,20 @@
  * throws away a whole turn along with its repair budget. `append-retry.ts` holds which failures
  * are worth another attempt and how long to wait; what belongs here is that the retry happens
  * inside the chain link, so the event behind the one being retried cannot overtake it.
+ *
+ * **Some events are known only later, and the turn does not wait for them.** A new sandbox's
+ * `preview.ready` waits on a dev server that can take twenty seconds, and the agent has no use
+ * for it. `eventually` takes the promise of such an event and writes it the moment it is known,
+ * wherever the stream has got to. Two places it may never land, and the sink enforces both rather
+ * than leaving them to call sites: **after an ending** — a `turn.completed`, `turn.failed` or
+ * `job.completed` emitted while one is outstanding is held, with everything emitted after it,
+ * until it is known — and **after its owner has stopped writing**, which is what `settle` is for:
+ * the runtime settles before it returns, because a write after that is a write without a lease.
+ * `drain` waits for one only when an ending is held behind it, since drain is called all through
+ * a turn and waiting there would be the very wait this removes.
  */
 
-import type { NapEventOf } from "@nap/shared/events";
+import type { NapEvent, NapEventOf } from "@nap/shared/events";
 import { getLogger } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
@@ -40,11 +51,22 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** The events after which nothing promised to that turn or job may appear. */
+const ENDINGS: ReadonlySet<NapEvent["type"]> = new Set([
+  "turn.completed",
+  "turn.failed",
+  "job.completed",
+]);
+
 export class EventSink {
   #chain: Promise<void> = Promise.resolve();
   #failure: unknown = null;
   #terminal: NapEventOf<"turn.completed"> | NapEventOf<"turn.failed"> | null = null;
   readonly #sleep: (ms: number) => Promise<void>;
+  /** Events promised and not yet known, each resolving once it is on the chain or known absent. */
+  readonly #outstanding = new Set<Promise<void>>();
+  /** An ending, and everything emitted after it, waiting on `#outstanding`. Null when none is. */
+  #held: PendingEvent[] | null = null;
 
   /**
    * The newest `seq` this sink has seen durably appended, per session.
@@ -82,6 +104,46 @@ export class EventSink {
   }
 
   readonly emit = (event: PendingEvent): void => {
+    if (this.#held !== null) {
+      this.#held.push(event);
+      return;
+    }
+    if (this.#outstanding.size > 0 && ENDINGS.has(event.type)) {
+      this.#held = [event];
+      return;
+    }
+    this.#enqueue(event);
+  };
+
+  /**
+   * An event that will be known later, written as soon as it is — or nothing, if it resolves to
+   * `null` or rejects. See the module comment for the two places it can never land.
+   */
+  eventually(event: Promise<PendingEvent | null>): void {
+    const known: Promise<void> = event
+      .then(
+        // Straight onto the chain, past anything held: the held ending is waiting for exactly
+        // this, so it has to go first.
+        (resolved) => {
+          if (resolved !== null) this.#enqueue(resolved);
+        },
+        (error: unknown) => {
+          getLogger().warn({ err: error }, "a promised event could not be produced");
+        },
+      )
+      .finally(() => {
+        this.#outstanding.delete(known);
+        if (this.#outstanding.size > 0 || this.#held === null) return;
+        const held = this.#held;
+        this.#held = null;
+        // Through `emit` again rather than straight onto the chain, so an ending among them
+        // meets whatever has been promised since.
+        for (const waiting of held) this.emit(waiting);
+      });
+    this.#outstanding.add(known);
+  }
+
+  #enqueue(event: PendingEvent): void {
     this.#chain = this.#chain.then(async () => {
       if (this.#failure !== null) return;
       try {
@@ -97,12 +159,29 @@ export class EventSink {
         this.#failure = error;
       }
     });
-  };
+  }
 
-  /** Resolves once every event emitted so far is persisted and published. */
+  /**
+   * Resolves once every event emitted so far is persisted and published.
+   *
+   * Including an ending held for a promised event, which is therefore waited for here — but only
+   * then. A promised event with nothing held behind it is not "emitted so far", and waiting for
+   * it at every drain would hold the turn up on it after all.
+   */
   async drain(): Promise<void> {
+    while (this.#held !== null) await Promise.all(this.#outstanding);
     await this.#chain;
     if (this.#failure !== null) throw this.#failure;
+  }
+
+  /**
+   * Resolves once everything promised is known and everything emitted is durable — the point
+   * after which this sink will write nothing more unless asked to. Whoever owns the sink calls
+   * it before giving up the right to write.
+   */
+  async settle(): Promise<void> {
+    while (this.#outstanding.size > 0) await Promise.all(this.#outstanding);
+    await this.drain();
   }
 
   /**

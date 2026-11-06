@@ -175,9 +175,10 @@ type JobEntry = {
 const COMMIT_SUBJECT_LIMIT = 72;
 
 /**
- * How long to wait for a newly created sandbox's dev server before getting on with the turn.
- * The project template serves in about two seconds from cold, so this leaves room for a slow
- * one without holding a turn hostage to it.
+ * How long a newly created sandbox's dev server has to answer before it goes unannounced. The
+ * turn does not wait on it (see `#startPreviewAnnouncement`), but the turn's ending does, so this
+ * bounds how long a turn that finishes first can be held. The template serves in about two
+ * seconds from cold.
  */
 const PREVIEW_TIMEOUT_MS = 20_000;
 
@@ -422,7 +423,8 @@ export class SingleAgentRuntime implements Runtime {
         acquired.value.repository === undefined
           ? this.#previewPort
           : acquired.value.repository.previewPort;
-      if (acquired.value.created) await this.#announcePreview(acquired.value.id, emit, previewPort);
+      if (acquired.value.created)
+        this.#startPreviewAnnouncement(scope, acquired.value.id, previewPort, options.signal);
 
       await sink.drain();
       getLogger().info({ created: acquired.value.created }, "project resumed");
@@ -449,6 +451,9 @@ export class SingleAgentRuntime implements Runtime {
       const message = error instanceof Error ? error.message : String(error);
       getLogger().error({ err: error }, "could not resume the project");
       return { ok: false, reason: "internal", message };
+    } finally {
+      // Nothing this call promised may be written after it returns: the lease goes with it.
+      await sink.settle().catch(() => {});
     }
   }
 
@@ -676,8 +681,11 @@ export class SingleAgentRuntime implements Runtime {
           beforeCapture: async () => {
             await sink.drain();
             for (const notice of acquired.value.notices) emit("system.notice", notice);
-            if (acquired.value.created) await this.#announcePreview(sandboxId, emit, previewPort);
-            await sink.drain();
+            // Waited for here, unlike on every other path: the recording is of the running app,
+            // and it starts the moment this returns.
+            if (acquired.value.created)
+              this.#startPreviewAnnouncement(scope, sandboxId, previewPort, request.signal);
+            await sink.settle();
           },
         },
         async (clock) => {
@@ -721,6 +729,8 @@ export class SingleAgentRuntime implements Runtime {
         });
       await sink.drain();
       return { ok: false, turnId, reason, message };
+    } finally {
+      await sink.settle().catch(() => {});
     }
   }
 
@@ -782,7 +792,7 @@ export class SingleAgentRuntime implements Runtime {
             : acquired.value.repository.previewPort;
         for (const notice of acquired.value.notices) emit("system.notice", notice);
         if (acquired.value.created)
-          await this.#announcePreview(acquired.value.id, emit, previewPort);
+          this.#startPreviewAnnouncement(scope, acquired.value.id, previewPort, request.signal);
         request.signal?.throwIfAborted();
         const outcome = await this.#attempt({
           settings: request,
@@ -856,10 +866,14 @@ export class SingleAgentRuntime implements Runtime {
       // Only for a sandbox this turn created. A resumed one is already serving and announced
       // itself on the turn that made it — the client replays that. Re-announcing would reload
       // the app underneath someone in the middle of using it, on every turn.
+      //
+      // Started, not awaited: the agent has no use for the preview, and a dev server reinstalling
+      // dependencies after a restore would otherwise stand between the person and the first
+      // model call for up to the whole timeout.
       const repository = sandboxId.value.repository;
       const previewPort = repository === undefined ? this.#previewPort : repository.previewPort;
       if (sandboxId.value.created)
-        await this.#announcePreview(sandboxId.value.id, emit, previewPort);
+        this.#startPreviewAnnouncement(scope, sandboxId.value.id, previewPort, request.signal);
 
       run = {
         requestId: request.turnId,
@@ -931,6 +945,9 @@ export class SingleAgentRuntime implements Runtime {
         reason: cancelled ? "cancelled" : "internal",
         message,
       };
+    } finally {
+      // Nothing this call promised may be written after it returns: the lease goes with it.
+      await sink.settle().catch(() => {});
     }
   }
 
@@ -1372,9 +1389,10 @@ export class SingleAgentRuntime implements Runtime {
 
     // Drained before the checks run, not after: this event exists so that "the checks are
     // running right now" is a fact in the log rather than a gap between two others, and a
-    // client cannot render a gap.
+    // client cannot render a gap. Settled rather than merely drained, because the checks probe
+    // the preview themselves and its announcement should not trail the verdict on it.
     if (announce) emit("verification.started", { jobId });
-    await sink.drain();
+    await sink.settle();
 
     const verified = await this.#runChecks(sandboxId, options.previewPort);
 
@@ -1522,24 +1540,50 @@ export class SingleAgentRuntime implements Runtime {
   }
 
   /**
-   * Tells the client where the project is served, once something actually answers there.
+   * Tells the client where the project is served, once something actually answers there —
+   * without making the turn wait for it.
    *
    * `waitForPreview` rather than `getPreviewUrl`: the second only composes an address, and a
    * preview shown before the dev server and its public proxy are both up is an error page.
    *
+   * **Started, never awaited, and the sink is what makes that safe.** The event is handed to
+   * `EventSink.eventually`, which writes it the moment the dev server answers, under the turn that
+   * created the sandbox, wherever that turn's stream has got to. The sink holds any turn or job
+   * ending emitted meanwhile until it is known, so the rule a reader can rely on is: **a
+   * `preview.ready` precedes the ending of the turn that announced it**. The two points this is
+   * settled at are before verification, which probes the preview itself, and every entry point's
+   * exit, because a write after the runtime returns is a write without a lease.
+   *
    * A timeout is not a turn failure. A slow dev server is no reason to refuse to edit the
-   * project — the pane keeps showing that it is starting, and the agent gets on with the work.
+   * project — the pane keeps showing that it is starting, and the agent gets on with the work. A
+   * cancelled turn stops waiting at once: the port takes no signal, so the wait is raced against
+   * it, and the dev-server probe left running behind it writes nothing.
    */
-  async #announcePreview(
+  #startPreviewAnnouncement(
+    scope: TurnScope,
     sandboxId: string,
-    emit: (type: "preview.ready", payload: Payload<"preview.ready">) => void,
-    port: number | null = this.#previewPort,
-  ): Promise<void> {
+    port: number | null,
+    signal: AbortSignal | undefined,
+  ): void {
     if (port === null) return;
-    const ready = await this.#options.sandbox.waitForPreview(sandboxId, port, {
-      timeoutMs: this.#previewTimeoutMs,
-    });
-    if (ready.ok) emit("preview.ready", { url: ready.value, port });
+    const { session, turnId, sink } = scope;
+    const answered = unlessAborted(
+      this.#options.sandbox.waitForPreview(sandboxId, port, { timeoutMs: this.#previewTimeoutMs }),
+      signal,
+    );
+    sink.eventually(
+      answered.then((ready): PendingEvent | null =>
+        ready?.ok === true
+          ? {
+              type: "preview.ready",
+              payload: { url: ready.value, port },
+              sessionId: session.sessionId,
+              turnId,
+              createdAt: this.#now(),
+            }
+          : null,
+      ),
+    );
   }
 
   /** See `acquire-sandbox.ts`, which owns the four paths and their ordering. */
@@ -1625,6 +1669,26 @@ export class SingleAgentRuntime implements Runtime {
     }
     return { commitSha: committed.value.sha };
   }
+}
+
+/** `work`, or `null` the moment `signal` aborts — for a wait the port gives no way to cancel. */
+function unlessAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T | null> {
+  if (signal === undefined) return work;
+  if (signal.aborted) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const abandon = () => resolve(null);
+    signal.addEventListener("abort", abandon, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", abandon);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abandon);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**

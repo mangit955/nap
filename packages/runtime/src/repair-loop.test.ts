@@ -28,6 +28,7 @@ import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
+import { withoutAnnouncement } from "./testing/preview-announcement.ts";
 
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
@@ -158,10 +159,9 @@ describe("a check that says no", () => {
 
     await run();
 
-    expect(await loggedTypes()).toEqual([
+    expect(withoutAnnouncement(await loggedTypes())).toEqual([
       "user.message",
       "job.started",
-      "preview.ready",
       "turn.started",
       "turn.completed",
       "verification.started",
