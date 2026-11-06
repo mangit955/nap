@@ -197,6 +197,20 @@ const COMMIT_SUBJECT_LIMIT = 72;
 const PREVIEW_TIMEOUT_MS = 20_000;
 
 /**
+ * How long a sandbox found already running, whose preview the log never announced, has to answer.
+ *
+ * Short, because it is asked again on every call. Such a sandbox is one whose dev server missed its
+ * creating call's wait — usually because it never answers at `/` at all (a 404 there, an API-only
+ * server, a crash), and an imported repository makes that common. A full wait would then hold the
+ * ending of every short turn, `/compact` and plan proposal for it, and the lease with it, so a
+ * queued message would wait too. A server that has been up for a while answers the first probe in
+ * well under a second; this is about one of the provider adapter's own probe windows. What it
+ * gives up is a server still coming up — a create cancelled moments ago, still reinstalling — and
+ * the next call asks again.
+ */
+const PREVIEW_RECHECK_MS = 5_000;
+
+/**
  * How long a sandbox is kept alive after a turn touches it.
  *
  * Longer than the reaper's idle threshold on purpose: the reaper takes a snapshot before it
@@ -288,7 +302,10 @@ export type SingleAgentRuntimeOptions = {
   newTurnId?: () => string;
   /** The port the project's dev server listens on. Defaults to the template's. */
   previewPort?: number;
+  /** How long a sandbox this call created has to start serving before it goes unannounced. */
   previewTimeoutMs?: number;
+  /** How long one found running, but never announced, gets instead. See `PREVIEW_RECHECK_MS`. */
+  previewRecheckMs?: number;
   /**
    * How long a resumed sandbox is kept alive for, in milliseconds.
    *
@@ -304,6 +321,7 @@ export class SingleAgentRuntime implements Runtime {
   readonly #newTurnId: () => string;
   readonly #previewPort: number;
   readonly #previewTimeoutMs: number;
+  readonly #previewRecheckMs: number;
   readonly #sandboxTtlMs: number;
   readonly #restore: RestoreDeps | null;
   /** One turn at a time per session; see `session-queue.ts`. */
@@ -316,6 +334,7 @@ export class SingleAgentRuntime implements Runtime {
     this.#newTurnId = options.newTurnId ?? (() => crypto.randomUUID());
     this.#previewPort = options.previewPort ?? TEMPLATE_DEV_PORT;
     this.#previewTimeoutMs = options.previewTimeoutMs ?? PREVIEW_TIMEOUT_MS;
+    this.#previewRecheckMs = options.previewRecheckMs ?? PREVIEW_RECHECK_MS;
     this.#sandboxTtlMs = options.sandboxTtlMs ?? DEFAULT_SANDBOX_TTL_MS;
   }
 
@@ -728,6 +747,7 @@ export class SingleAgentRuntime implements Runtime {
               history,
               port: previewPort,
               signal: request.signal,
+              recording: true,
             });
             await sink.settle();
           },
@@ -1697,6 +1717,13 @@ export class SingleAgentRuntime implements Runtime {
    * are before verification, which probes the preview itself, and every entry point's exit,
    * because a write after the runtime returns is a write without a lease.
    *
+   * **How long it waits is decided here too.** A sandbox this call created gets the full
+   * `previewTimeoutMs`: it is expected to come up, a restore may be reinstalling dependencies, and
+   * only its creating call is paying. One found running gets `previewRecheckMs`, since it is asked
+   * about on every call and whatever ending is emitted meanwhile is held for the answer — except
+   * before an app test's recording, which waits the full time either way: nothing short is held
+   * up, and filming a server still coming up would record the wrong thing.
+   *
    * A timeout is not a turn failure. A slow dev server is no reason to refuse to edit the
    * project — the pane keeps showing that it is starting, and the agent gets on with the work. A
    * cancelled turn stops waiting at once: the port takes no signal, so the wait is raced against
@@ -1711,6 +1738,8 @@ export class SingleAgentRuntime implements Runtime {
       history: readonly StoredEvent[];
       port: number | null;
       signal: AbortSignal | undefined;
+      /** Before an app test films the app, which takes the full wait. */
+      recording?: true;
     },
   ): void {
     const { acquired, history, port, signal } = options;
@@ -1720,7 +1749,10 @@ export class SingleAgentRuntime implements Runtime {
     const { session, turnId, sink } = scope;
     const answered = unlessAborted(
       this.#options.sandbox.waitForPreview(acquired.id, port, {
-        timeoutMs: this.#previewTimeoutMs,
+        timeoutMs:
+          acquired.created || options.recording === true
+            ? this.#previewTimeoutMs
+            : this.#previewRecheckMs,
       }),
       signal,
     );

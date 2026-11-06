@@ -150,8 +150,9 @@ export class PostgresEventStore implements EventStore, EventTailReader {
     const { retryAfterSeq } = options;
     const row = await this.#db.transaction(async (tx) => {
       // The lock every append takes, held to the end of this transaction. An interrupted
-      // attempt still in flight holds it until it commits or aborts, so once this returns the
-      // log is settled and the question below has an answer.
+      // attempt that holds the row, or is queued for it ahead of this, has committed or aborted
+      // once this returns. One that has not reached the row yet can still commit after it; the
+      // module comment says what that costs.
       await tx
         .select({ id: sessions.id })
         .from(sessions)

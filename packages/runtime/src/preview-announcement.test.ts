@@ -59,6 +59,7 @@ function runtime(
     sessions?: InMemorySessionStore;
     thumbnails?: ThumbnailLane;
     agent?: AgentService;
+    previewRecheckMs?: number;
   } = {},
 ): SingleAgentRuntime {
   const events: EventStore = {
@@ -80,6 +81,9 @@ function runtime(
     // Far longer than any test here may take, so a turn that sat out the wait would time out.
     previewTimeoutMs: 60_000,
     ...(overrides.thumbnails === undefined ? {} : { thumbnails: overrides.thumbnails }),
+    ...(overrides.previewRecheckMs === undefined
+      ? {}
+      : { previewRecheckMs: overrides.previewRecheckMs }),
   });
 }
 
@@ -323,6 +327,37 @@ describe("a turn on a sandbox it just created", () => {
     release({ ok: false, error: { code: "timeout", message: "nothing is serving" } });
 
     expect((await outcome).ok).toBe(true);
+    expect(await types()).not.toContain("preview.ready");
+  });
+});
+
+describe("a sandbox found running whose dev server was never announced", () => {
+  it("is only rechecked briefly, so a short turn's ending is not held for the full wait", async () => {
+    // A dev server that never answers 2xx at its root — a 404 there, an API-only server, a crash.
+    // Every call after the creating one finds it unannounced and asks again; each ask runs to its
+    // own deadline, and the turn's ending is held until it does.
+    const waits: (number | undefined)[] = [];
+    sandbox.waitForPreview = async (_sandboxId, _port, opts) => {
+      waits.push(opts?.timeoutMs);
+      // The creating turn's wait is not what is under test, so it gives up at once.
+      if (waits.length > 1) await new Promise((resolve) => setTimeout(resolve, opts?.timeoutMs));
+      return { ok: false, error: { code: "timeout", message: "nothing answers at /" } };
+    };
+    const nap = runtime({ previewRecheckMs: 50 });
+
+    expect(
+      (await nap.runTurn({ turnId: TURN, sessionId: SESSION, message: "build me a todo list" })).ok,
+    ).toBe(true);
+
+    // A question, answered at once: its ending may be held for the recheck, and no longer.
+    const ended = await Promise.race([
+      nap.runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION, message: "what is this?" }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_000)),
+    ]);
+    expect(ended, "the turn's ending was held past the recheck").toMatchObject({ ok: true });
+
+    // The sandbox the call created had the full wait; the one it found running, the recheck.
+    expect(waits).toEqual([60_000, 50]);
     expect(await types()).not.toContain("preview.ready");
   });
 });
