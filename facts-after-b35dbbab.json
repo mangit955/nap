@@ -1,0 +1,216 @@
+[
+  {
+    "name": "after-b35dbbab-running-turn.png",
+    "scene": "running",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Steer the agent — it reads this at its next step…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Read at this step",
+      "You: Also add a tag filter in the sidebar Waiting for the agent's next step"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-composer-typed.png",
+    "scene": "running",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Steer the agent — it reads this at its next step…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop",
+      "Send to the running turn"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Read at this step",
+      "You: Also add a tag filter in the sidebar Waiting for the agent's next step"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-composer-typed-crop.png",
+    "scene": "running",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Steer the agent — it reads this at its next step…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop",
+      "Send to the running turn"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Read at this step",
+      "You: Also add a tag filter in the sidebar Waiting for the agent's next step"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-pending-optimistic.png",
+    "scene": "pending",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": true,
+    "placeholder": "Working…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Read at this step",
+      "You: Also add a tag filter in the sidebar Waiting for the agent's next step",
+      "You: Make the empty state friendlier Sending to the running turn…"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-stopped-send-again.png",
+    "scene": "stopped",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Ask a follow-up…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Send"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Not sent: you stopped the turn before the agent read it. Send again"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-queued.png",
+    "scene": "queued",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Ask a follow-up…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Send"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Queued as your next message"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-undelivered.png",
+    "scene": "undelivered",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Ask a follow-up…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Send"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Not sent: nothing read it before the turn ended. Send again"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-transcript-states.png",
+    "scene": "overview",
+    "viewport": "1280x1560@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Steer the agent — it reads this at its next step…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Read at this step",
+      "You: Search titles only, not bodies Not sent: you stopped the turn before the agent read it. Send again",
+      "You: And round their corners Not sent: nothing read it before the turn ended. Send again",
+      "You: Default to the system setting Queued as your next message",
+      "You: Show a count next to each tag Waiting for the agent's next step"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-composer-typed-narrow.png",
+    "scene": "running",
+    "viewport": "420x860@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": false,
+    "placeholder": "Steer the agent — it reads this at its next step…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop",
+      "Send to the running turn"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Read at this step",
+      "You: Also add a tag filter in the sidebar Waiting for the agent's next step"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "after-b35dbbab-running-turn-os-light.png",
+    "scene": "running",
+    "viewport": "1280x800@2x",
+    "colorScheme": "light",
+    "textareaDisabled": false,
+    "placeholder": "Steer the agent — it reads this at its next step…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [
+      "You: Use Postgres instead of localStorage Read at this step",
+      "You: Also add a tag filter in the sidebar Waiting for the agent's next step"
+    ],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  }
+]

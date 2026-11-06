@@ -1,0 +1,78 @@
+[
+  {
+    "name": "before-e1b53de3-running-turn.png",
+    "scene": "running",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": true,
+    "placeholder": "Working…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "before-e1b53de3-composer-running.png",
+    "note": "textarea disabled; could not type"
+  },
+  {
+    "name": "before-e1b53de3-composer-running.png",
+    "scene": "running",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": true,
+    "placeholder": "Working…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "before-e1b53de3-composer-running-crop.png",
+    "scene": "running",
+    "viewport": "1280x800@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": true,
+    "placeholder": "Working…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  },
+  {
+    "name": "before-e1b53de3-composer-running-narrow.png",
+    "scene": "running",
+    "viewport": "420x860@2x",
+    "colorScheme": "dark",
+    "textareaDisabled": true,
+    "placeholder": "Working…",
+    "buttons": [
+      "Start dictation",
+      "Plan mode",
+      "Add to prompt",
+      "Stop"
+    ],
+    "steerGroups": [],
+    "issuesBadge": 0,
+    "errorDialog": 0,
+    "errors": []
+  }
+]
