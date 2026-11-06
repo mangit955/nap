@@ -123,7 +123,7 @@ export type E2BSandboxManagerOptions = {
    *
    * Left unset, the SDK's own default applies — five minutes, measured from creation and
    * unaffected by anything happening inside. Whoever knows a project is in use is expected
-   * to push the deadline back with `extendTimeout`; this is only the starting budget.
+   * to push the deadline back with `resume` and `keepAliveMs`; this is only the starting budget.
    */
   timeoutMs?: number;
 };
@@ -167,9 +167,9 @@ function toFileNode(entry: E2BEntry): FileNode {
 /**
  * How many sandbox handles one manager keeps before dropping the one used longest ago.
  *
- * A handle is only a saving: dropping one costs the next call a `connect`. Far above how many
- * turns a worker runs at once, so a turn's own handle is never the one dropped, and still small
- * enough that a worker up for days does not hold one for every sandbox it ever touched.
+ * Dropping a handle costs the next call a `connect`, which can lengthen the sandbox deadline.
+ * This bounds the cache even when a worker touches many sandboxes over its lifetime; it does not
+ * pin handles for active turns.
  */
 export const HANDLE_CACHE_LIMIT = 256;
 
@@ -296,8 +296,7 @@ export class E2BSandboxManager implements SandboxManager, SandboxInventory {
 
   async create(projectId: string): Promise<Result<NapSandbox, SandboxError>> {
     try {
-      // Stored on the sandbox rather than only in this process, so a resume in a later
-      // process can still say which project the sandbox belongs to.
+      // Stored on the sandbox so inventory can identify its project in any process.
       const handle = await this.#client.create({
         metadata: { [PROJECT_ID_KEY]: projectId },
         ...(this.#timeoutMs === undefined ? {} : { timeoutMs: this.#timeoutMs }),

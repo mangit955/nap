@@ -1607,8 +1607,8 @@ export class SingleAgentRuntime implements Runtime {
     signal: AbortSignal | undefined,
   ): Promise<VerificationResult | null> {
     try {
-      // Not checked, for the reason the keepalive at acquisition is not: the sandbox is about to be
-      // asked to do something, and that answers whether it is still there.
+      // Best effort: the verification operation that follows establishes whether the sandbox
+      // is still usable.
       await this.#options.sandbox.extendTimeout(
         sandboxId,
         Math.max(this.#sandboxTtlMs, VERIFICATION_ROUND_LIMIT_MS),

@@ -1,5 +1,5 @@
 /**
- * Git operations on a project, driven entirely through `SandboxManager.exec`.
+ * Git operations on a project, using sandbox commands and byte file I/O.
  *
  * Every project is a git repository from the moment it is created — the template bakes in
  * `git init` and one commit — and two things need to act on it: a turn commits its own
