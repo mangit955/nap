@@ -245,6 +245,10 @@ code.
 There is **no `attempts` column and no requeue path.** A request is claimed at most once. That is
 §6's at-most-once execution guarantee, expressed in the schema.
 
+How often a worker runs the claim, and what makes it run one sooner, is not in this design:
+[ADR-0027](adr/0027-an-idle-worker-waits-to-be-told.md) replaced a 100 ms poll with a wake-up
+announced by every writer of a claimable request, and a five-second poll behind it.
+
 ### Lease renewal and fencing
 
 Lease expiry does not, by itself, stop a worker. A worker can lose its lease while still alive — a

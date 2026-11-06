@@ -33,16 +33,16 @@ processes on it. What is different here, and why:
   about 10 seconds for closing the listener and the database connections. Between the two graces
   the worker stops listening for cancel wake-ups, which normally answers at once but is given up
   after 5 seconds, so a channel that hangs there spends half of that margin.
-- **Migrations run as the API's pre-deploy command**, once per release and before the new API
-  takes traffic, not at boot. A release that adds tables still needs the API deployed before the
-  worker and the reaper, which would otherwise start against a schema that is not there yet.
+- **Migrations run as the worker's pre-deploy command**, once per release and before the new API
+  takes traffic, not at boot. The API repeats the idempotent migration as a safeguard for manual
+  deploys. The release script deploys the worker first, so its schema is ready before it boots.
 - **One database URL serves both connections.** Render Postgres has no pooler in front of it, so
   `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` are the same internal connection string, and the
   database accepts no connections from outside Render.
 - **The worker is the 2 GB plan.** It runs Chromium for the preview screenshots; the Kubernetes
   manifests request 1 GiB for the same process, and 512 MB is where it runs out.
 - **GitHub Actions releases production after CI passes on `main`.** Render's own auto-deploys
-  stay off. The `production` job deploys the API, reaper and worker in that order, then Vercel,
+  stay off. The `production` job deploys the worker, API and reaper in that order, then Vercel,
   using the same commit SHA throughout. See [Release production](#release-production).
 - **The free database expires after thirty days.** Upgrade `nap-db` to `basic-256mb` before then,
   or its data goes with it. Render Postgres rather than Neon's free tier because three processes
@@ -238,6 +238,15 @@ know when you do:
   share the socket the fanout already holds. A worker whose listener is down still stops a turn,
   at its next lease renewal rather than at once. A worker has no `/readyz`, so the only symptom
   there is a slow stop button.
+- **So does claiming.** An idle worker waits for a claim wake-up on the same socket, announced
+  by whatever wrote the request, and otherwise asks the queue only every
+  `NAP_WORKER_FALLBACK_POLL_SECONDS` (5 s). That is about 0.2 claim queries a second per idle
+  worker, down from 10. While the listener is down, which the event bus's echo detects, the
+  worker polls every 100 ms as it used to, so turns still start promptly and the database pays
+  the old idle load. Broadcasts coalesce at a 100 ms minimum round gap; a worker's own
+  completion refills immediately. During the existing worker-first rollout, old API/reaper
+  writers do not announce yet, so new workers can start turns up to one fallback interval late.
+  Keep the release script's deployment order for event compatibility. See `docs/adr/0027`.
 
 ### What each process scales on
 
@@ -501,6 +510,10 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   a new project's request past that cap is dropped. A shutdown drops the queue.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
   is already running before aborting them. Keep it inside the platform's grace period.
+- `NAP_WORKER_FALLBACK_POLL_SECONDS=5` — how often an idle worker that can hear claim wake-ups
+  asks the queue anyway, which is the most a lost wake-up delays a turn. At most 30, because the
+  claim loop coming round is also the worker's liveness heartbeat. A worker that cannot hear
+  polls every 100 ms whatever this says.
 - `NAP_REAP_INTERVAL_SECONDS=60` — how often the reaper looks. The idle sweep and the janitor
   tick separately, on purpose: an idle project can wait a minute to be put away and a chat pane
   waiting on a turn that will never finish cannot.

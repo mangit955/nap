@@ -317,6 +317,22 @@ describe("parseEnv failure", () => {
   });
 });
 
+describe("NAP_WORKER_FALLBACK_POLL_SECONDS", () => {
+  it("defaults to five seconds", () => {
+    expect(parseEnv(REQUIRED).NAP_WORKER_FALLBACK_POLL_SECONDS).toBe(5);
+  });
+
+  it("refuses a poll the worker's liveness probe would read as a wedged loop", () => {
+    // An idle worker's claim loop comes round once per poll, and that is its liveness heartbeat.
+    expect(() => parseEnv({ ...REQUIRED, NAP_WORKER_FALLBACK_POLL_SECONDS: "60" })).toThrow(
+      /NAP_WORKER_FALLBACK_POLL_SECONDS/,
+    );
+    expect(parseEnv({ ...REQUIRED, NAP_WORKER_FALLBACK_POLL_SECONDS: "30" })).toMatchObject({
+      NAP_WORKER_FALLBACK_POLL_SECONDS: 30,
+    });
+  });
+});
+
 describe("putting projects away", () => {
   it("defaults to reaping well before a sandbox expires on its own", () => {
     const env = parseEnv(REQUIRED);

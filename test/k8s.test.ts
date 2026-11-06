@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { MAX_WORKER_FALLBACK_POLL_SECONDS } from "../apps/api/src/env.ts";
 import { WS_CONNECTIONS_METRIC } from "../apps/api/src/metrics.ts";
 import { HEARTBEAT_WRITE_INTERVAL_MS } from "../apps/api/src/worker-heartbeat.ts";
 import { DEFAULT_HEARTBEAT } from "../apps/api/src/ws/event-stream.ts";
@@ -450,7 +451,9 @@ describe("the worker's liveness probe", () => {
     expect(threshold).toBeDefined();
     // Four times the write interval at least: a throttle anywhere near the threshold would restart
     // a perfectly healthy worker on a slow tick, mid-turn.
-    expect((threshold ?? 0) * 1000).toBeGreaterThanOrEqual(HEARTBEAT_WRITE_INTERVAL_MS * 4);
+    expect((threshold ?? 0) * 1000).toBeGreaterThanOrEqual(
+      Math.max(HEARTBEAT_WRITE_INTERVAL_MS, MAX_WORKER_FALLBACK_POLL_SECONDS * 1000) * 4,
+    );
   });
 
   it("reads the same file the pod is told to write", () => {

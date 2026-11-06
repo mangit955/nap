@@ -15,6 +15,7 @@ import type { InMemoryProjectComputerAccess } from "./in-memory-project-computer
  */
 
 import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
+import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
 import type {
   CancelOutcome,
   EnqueueTurnRequest,
@@ -44,6 +45,11 @@ export type InMemoryTurnQueueOptions = {
   leaseTtlMs?: number;
   /** How long past expiry the janitor waits. Defaults to the shared grace. */
   leaseGraceMs?: number;
+  /**
+   * Told whenever a request may have become claimable, as the Postgres queue's is. Optional here,
+   * where it is required there: a fake nobody listens to has nobody to tell.
+   */
+  claims?: ClaimAnnouncer;
 };
 
 export class InMemoryTurnQueue implements TurnQueue {
@@ -51,6 +57,7 @@ export class InMemoryTurnQueue implements TurnQueue {
   readonly #now: () => number;
   readonly #leaseTtlMs: number;
   readonly #leaseGraceMs: number;
+  readonly #claims: ClaimAnnouncer | undefined;
   #sequence = 0;
   #computer: InMemoryProjectComputerAccess | undefined;
   attachComputerAccess(access: InMemoryProjectComputerAccess): void {
@@ -64,6 +71,7 @@ export class InMemoryTurnQueue implements TurnQueue {
     this.#now = options.now ?? (() => Date.now());
     this.#leaseTtlMs = options.leaseTtlMs ?? LEASE_TTL_MS;
     this.#leaseGraceMs = options.leaseGraceMs ?? LEASE_GRACE_MS;
+    this.#claims = options.claims;
   }
 
   async enqueue(request: EnqueueTurnRequest): Promise<void> {
@@ -90,6 +98,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       // order, and a test that injected a frozen clock would otherwise have none.
       createdAt: this.#sequence,
     });
+    this.#claims?.announce();
   }
 
   async getStatus(request: {
@@ -175,6 +184,7 @@ export class InMemoryTurnQueue implements TurnQueue {
     row.state = state;
     row.leaseExpiresAt = null;
     row.finishedAt = this.#now();
+    this.#claims?.announce();
     return true;
   }
 
@@ -216,6 +226,7 @@ export class InMemoryTurnQueue implements TurnQueue {
       .slice(0, limit);
 
     for (const row of expired) row.state = "orphaned";
+    if (expired.length > 0) this.#claims?.announce();
     // `finishedAt` deliberately stays null: it is the marker saying the terminal events are not
     // in the log yet, which is what `unannouncedOrphans` reads.
     return expired.map(asOrphan);

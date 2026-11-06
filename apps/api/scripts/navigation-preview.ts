@@ -59,7 +59,7 @@ if (!signedUp.ok)
   throw new Error(`Preview signup failed: ${signedUp.status} ${await signedUp.text()}`);
 const [owner] = await db.select().from(users).where(eq(users.email, "reader@navigation.test"));
 if (!owner) throw new Error("Fixture owner missing");
-const github = new PostgresGitHubStore(db);
+const github = new PostgresGitHubStore(db, { claims: null });
 for (const [installationId, accountLogin] of [
   [99, "northstar-labs"],
   [100, "meadow-studio"],
@@ -202,7 +202,7 @@ const composed = composeNap({
   logger: createLogger({ level: "warn" }),
   sessions: new PostgresSessionStore(db),
   projects: new PostgresProjectStore(db),
-  sessionStarts: new PostgresSessionStartStore(db),
+  sessionStarts: new PostgresSessionStartStore(db, { claims: null }),
   sessionNavigation: new PostgresSessionNavigationStore(db),
   github: {
     store: github,
@@ -218,12 +218,13 @@ const composed = composeNap({
     rate: new PostgresTurnRateLimiter(db, { limit: 100, windowMs: 3600000, tier: "paid" }),
     freeRate: new PostgresTurnRateLimiter(db, { limit: 100, windowMs: 3600000, tier: "free" }),
   },
-  queue: new PostgresTurnQueue(db),
+  queue: new PostgresTurnQueue(db, { claims: null }),
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   events: new PostgresEventStore(db),
   bus: new InProcessEventBus(),
   cancels: null,
+  claims: null,
   sandbox: fakeSandbox()
     .script(/symbolic-ref -q HEAD/, { exitCode: 0, stdout: "refs/heads/main\n" })
     .script(/symbolic-ref --short HEAD/, { exitCode: 0, stdout: "main\n" }),

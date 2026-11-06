@@ -33,7 +33,7 @@ let nextInstallationId = 700_000;
 beforeAll(async () => {
   connection = postgres(inject("postgresUrl"), { max: 8 });
   db = drizzle(connection);
-  store = new PostgresGitHubStore(db);
+  store = new PostgresGitHubStore(db, { claims: null });
   const seeded = await db
     .insert(users)
     .values([
