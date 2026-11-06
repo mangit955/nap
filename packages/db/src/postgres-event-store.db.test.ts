@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { InProcessEventBus } from "./in-process-event-bus.ts";
 import { PostgresEventStore } from "./postgres-event-store.ts";
-import { projects, sessions, users } from "./schema.ts";
+import { events, projects, sessions, users } from "./schema.ts";
 import { expectEventSequence } from "./testing/event-assertions.ts";
 
 /**
@@ -157,6 +157,122 @@ describe("concurrent appends", () => {
   });
 });
 
+describe("one session, several connections", () => {
+  it("hands writers on separate connections a gapless, unique, ordered sequence", async () => {
+    // Separate clients rather than one pool, so the appends really are different backends
+    // racing for the same session — which is what several workers and an API pod are.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    const clients = Array.from({ length: 4 }, () => postgres(inject("postgresUrl"), { max: 5 }));
+
+    try {
+      const writers = clients.map((client) => new PostgresEventStore(drizzle(client)));
+      const stored = (
+        await Promise.all(
+          writers.map((writer, w) =>
+            Promise.all(
+              Array.from({ length: 50 }, (_, i) =>
+                writer.append(message(sessionId, turnId, `writer ${w}, event ${i}`)),
+              ),
+            ),
+          ),
+        )
+      ).flat();
+
+      const seqs = stored.map((event) => event.seq).sort((a, b) => a - b);
+      expect(seqs).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
+
+      // Every writer was told the truth: the row at each seq is the event it was handed back.
+      const read = await store.readFrom(sessionId, 0);
+      expect(read.map((event) => event.seq)).toEqual(seqs);
+      const bySeq = new Map(read.map((event) => [event.seq, event]));
+      for (const event of stored) expect(bySeq.get(event.seq)).toStrictEqual(event);
+
+      // And the counter ended where the log did, so the next append continues it.
+      expect((await store.append(message(sessionId, turnId, "after"))).seq).toBe(201);
+    } finally {
+      await Promise.all(clients.map((client) => client.end()));
+    }
+  });
+});
+
+describe("the cost of an append", () => {
+  it("is one statement on the wire", async () => {
+    // The reason the append is shaped the way it is. Each event used to be BEGIN, an advisory
+    // lock, the insert and COMMIT — four round trips, paid one event at a time because the
+    // sink appends in order, so every millisecond of database latency was four milliseconds of
+    // delay on every streamed token and tool call.
+    const sessionId = await seedSession();
+    const sent: string[] = [];
+    const client = postgres(inject("postgresUrl"), {
+      max: 1,
+      debug: (_connection, query) => sent.push(query),
+    });
+
+    try {
+      const counted = new PostgresEventStore(drizzle(client));
+      // A connection's first query is preceded by postgres.js fetching the array types, once.
+      // That is the connection's cost rather than the append's, so it is spent before counting.
+      await counted.append(message(sessionId, randomUUID(), "warm-up"));
+      sent.length = 0;
+
+      await counted.append(message(sessionId, randomUUID(), "one"));
+      await counted.append(message(sessionId, randomUUID(), "two"));
+
+      expect(sent).toHaveLength(2);
+    } finally {
+      await client.end();
+    }
+  });
+});
+
+describe("a writer that did not keep the counter", () => {
+  it("cannot wedge the session: the next append continues after it", async () => {
+    // A row written by anything that bypassed the counter — the previous release during a
+    // rolling deploy, which assigned seq from max(seq) under an advisory lock, or a fixture
+    // inserting rows directly. Without the catch-up, every later append would be handed a seq
+    // that already exists and fail on the unique index for the rest of the session's life.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    await store.append(message(sessionId, turnId, "one"));
+    await db.insert(events).values({
+      sessionId,
+      turnId,
+      seq: 2,
+      type: "agent.message",
+      payload: { text: "written past the counter" },
+    });
+
+    const third = await store.append(message(sessionId, turnId, "three"));
+
+    expect(third.seq).toBe(3);
+    expect((await store.readFrom(sessionId, 0)).map((event) => event.seq)).toEqual([1, 2, 3]);
+  });
+
+  it("catches up a session whose whole log predates the counter", async () => {
+    // Every session that existed before the counter did: its rows were written from max(seq)
+    // and its `head_seq` is the column's default, 0. The migration does not backfill it — the
+    // floor is what keeps such a session writable, from its very first append under the counter.
+    const sessionId = await seedSession();
+    const turnId = randomUUID();
+    for (const seq of [1, 2]) {
+      await db
+        .insert(events)
+        .values({ sessionId, turnId, seq, type: "agent.message", payload: { text: `old ${seq}` } });
+    }
+
+    expect((await store.append(message(sessionId, turnId, "new"))).seq).toBe(3);
+  });
+
+  it("still reports a session that does not exist as the foreign key it violates", async () => {
+    // 23503 is what the sink treats as permanent rather than worth retrying, so an append to a
+    // missing session must keep failing that way and not as some other constraint.
+    await expect(store.append(message(randomUUID(), randomUUID(), "nobody"))).rejects.toMatchObject(
+      { cause: { code: "23503" } },
+    );
+  });
+});
+
 describe("a retried append", () => {
   it("returns the row the lost attempt wrote rather than writing a second one", async () => {
     // The case the retry exists to survive: the transaction committed and the acknowledgement
@@ -240,6 +356,67 @@ describe("a retried append", () => {
 
     expect(await store.append(event, { retryAfterSeq: 0 })).toStrictEqual(first);
     expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
+  });
+
+  it("waits out an attempt still holding the counter row, and returns that attempt's row", async () => {
+    // The lock is what makes the question "is my event already there?" answerable: without it
+    // the scan runs while the interrupted attempt's row is uncommitted and invisible, finds
+    // nothing, and the retry writes the event a second time once that attempt commits.
+    const sessionId = await seedSession();
+    const event = message(sessionId, randomUUID(), "in flight");
+
+    // The interrupted attempt: the append's own statement, in a transaction held open on a
+    // connection of its own until this test lets it commit.
+    const holder = postgres(inject("postgresUrl"), { max: 1 });
+    const applicationName = `retry-${randomUUID()}`;
+    const retrying = postgres(inject("postgresUrl"), {
+      max: 1,
+      connection: { application_name: applicationName },
+    });
+    try {
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding = () => {};
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      const original = holder.begin(async (tx) => {
+        await tx`with next as (
+            update sessions set head_seq = greatest(head_seq, (select coalesce(max(seq), 0) from events where session_id = ${sessionId}::uuid)) + 1
+            where id = ${sessionId}::uuid returning head_seq)
+          insert into events (session_id, turn_id, seq, type, payload, created_at)
+          values (${sessionId}::uuid, ${event.turnId}::uuid, (select head_seq from next), ${event.type}, ${JSON.stringify(event.payload)}::jsonb, ${event.createdAt}::timestamptz)`;
+        holding();
+        await gate;
+      });
+      await held;
+
+      const retried = new PostgresEventStore(drizzle(retrying)).append(event, {
+        retryAfterSeq: 0,
+      });
+      // Not a sleep: the retry is let go only once Postgres reports it blocked on a lock, which
+      // is after its scan when the lock is missing and before it when the lock is there.
+      await expect
+        .poll(
+          async () => {
+            const [row] = await sql<{ waiting: number }[]>`
+              select count(*)::int as waiting from pg_stat_activity
+              where application_name = ${applicationName} and wait_event_type = 'Lock'`;
+            return row?.waiting;
+          },
+          { timeout: 10_000, interval: 20 },
+        )
+        .toBe(1);
+      release();
+      await original;
+
+      expect((await retried).seq).toBe(1);
+      expect(await store.readFrom(sessionId, 0)).toHaveLength(1);
+    } finally {
+      await Promise.all([holder.end(), retrying.end()]);
+    }
   });
 
   it("is the first event of a session, when that is what was lost", async () => {

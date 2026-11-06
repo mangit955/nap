@@ -67,6 +67,11 @@ export type ThumbnailTarget = {
   sandboxId: string;
   /** The port the project's dev server listens on. */
   port: number;
+  /**
+   * How long the shot may wait for the preview, when the asker knows the dev server may not be
+   * up yet. Absent means `captureThumbnail`'s default, which assumes it has been serving a while.
+   */
+  previewTimeoutMs?: number;
 };
 
 type Shot = ThumbnailTarget & {
@@ -192,7 +197,7 @@ export class ThumbnailLane {
   }
 
   async #take(shot: Shot): Promise<void> {
-    const { projectId, sandboxId, port } = shot;
+    const { projectId, sandboxId, port, previewTimeoutMs } = shot;
     const log = getLogger();
 
     // A shot may have waited minutes behind other projects' pictures, so this is often where it
@@ -212,6 +217,7 @@ export class ThumbnailLane {
       projectId,
       sandboxId,
       port,
+      ...(previewTimeoutMs === undefined ? {} : { previewTimeoutMs }),
       // Last, because the picture just taken may show a half-finished edit or a dead sandbox's
       // error page, and this is the moment it would replace a good one.
       beforeStore: async () => {

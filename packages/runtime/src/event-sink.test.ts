@@ -399,3 +399,151 @@ describe("draining", () => {
     await expect(sink.drain()).rejects.toThrow();
   });
 });
+
+/**
+ * An event the sink is told about before anyone knows what it will say — a new sandbox's
+ * `preview.ready`, which waits on a dev server that may take seconds.
+ *
+ * The turn must not wait for it, so it lands wherever it lands among the streaming events. What
+ * it may never do is land after the ending of the turn it belongs to, or after whoever owns the
+ * sink has stopped writing — the lease is gone by then.
+ */
+describe("an event promised before it is known", () => {
+  function gate() {
+    let open: (event: PendingEvent | null) => void = () => {};
+    const promise = new Promise<PendingEvent | null>((resolve) => {
+      open = resolve;
+    });
+    return { promise, open };
+  }
+
+  const PREVIEW = pending("preview.ready", { url: "https://5173-x.sandbox.invalid", port: 5173 });
+
+  async function appended(store: InMemoryEventStore): Promise<string[]> {
+    return (await store.readFrom(SESSION_ID, 0)).map((event) => event.type);
+  }
+
+  /** Long enough for every queued microtask and the in-memory store to have run. */
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  it("lands as soon as it is known, among whatever is streaming", async () => {
+    const { store, sink } = recording();
+    const preview = gate();
+
+    sink.eventually(preview.promise);
+    sink.emit(pending("turn.started"));
+    sink.emit(pending("agent.message", { text: "writing the app" }));
+    await sink.drain();
+    preview.open(PREVIEW);
+    await sink.settle();
+    sink.emit(pending("agent.message", { text: "still writing" }));
+    await sink.drain();
+
+    expect(await appended(store)).toEqual([
+      "turn.started",
+      "agent.message",
+      "preview.ready",
+      "agent.message",
+    ]);
+  });
+
+  it("holds a turn's ending, and everything after it, until it is known", async () => {
+    const { store, sink } = recording();
+    const preview = gate();
+
+    sink.eventually(preview.promise);
+    sink.emit(pending("turn.started"));
+    sink.emit(pending("turn.completed", COMPLETED));
+    sink.emit(pending("job.completed", { jobId: TURN_ID, outcome: "unverified" }));
+    await settled();
+
+    expect(await appended(store)).toEqual(["turn.started"]);
+
+    preview.open(PREVIEW);
+    await sink.drain();
+
+    expect(await appended(store)).toEqual([
+      "turn.started",
+      "preview.ready",
+      "turn.completed",
+      "job.completed",
+    ]);
+    expect(sink.terminal?.type).toBe("turn.completed");
+  });
+
+  it("holds a job's ending even when no turn ended", async () => {
+    // Resuming a project closes a job without running a turn.
+    const { store, sink } = recording();
+    const preview = gate();
+
+    sink.eventually(preview.promise);
+    sink.emit(pending("job.completed", { jobId: TURN_ID, outcome: "unverified" }));
+    preview.open(PREVIEW);
+    await sink.drain();
+
+    expect(await appended(store)).toEqual(["preview.ready", "job.completed"]);
+  });
+
+  it("does not make drain wait while nothing is held", async () => {
+    // Drain is called all through a turn. Waiting there would be the wait this exists to remove.
+    const { store, sink } = recording();
+    const never = gate();
+
+    sink.eventually(never.promise);
+    sink.emit(pending("agent.message", { text: "on it" }));
+    const drained = await Promise.race([
+      sink.drain().then(() => true),
+      settled().then(() => false),
+    ]);
+
+    expect(drained).toBe(true);
+    expect(await appended(store)).toEqual(["agent.message"]);
+  });
+
+  it("makes drain wait once an ending is held behind it", async () => {
+    const { store, sink } = recording();
+    const preview = gate();
+
+    sink.eventually(preview.promise);
+    sink.emit(pending("turn.completed", COMPLETED));
+    let drained = false;
+    const draining = sink.drain().then(() => {
+      drained = true;
+    });
+    await settled();
+    expect(drained).toBe(false);
+
+    // Known to be nothing — a dev server that never answered.
+    preview.open(null);
+    await draining;
+
+    expect(await appended(store)).toEqual(["turn.completed"]);
+  });
+
+  it("makes settle wait for it, and nothing after settle can be written by it", async () => {
+    const { store, sink } = recording();
+    const preview = gate();
+
+    sink.eventually(preview.promise);
+    let done = false;
+    const settling = sink.settle().then(() => {
+      done = true;
+    });
+    await settled();
+    expect(done).toBe(false);
+
+    preview.open(PREVIEW);
+    await settling;
+    expect(await appended(store)).toEqual(["preview.ready"]);
+  });
+
+  it("treats a promise that rejects as nothing to write, and lets the ending through", async () => {
+    const { store, sink } = recording();
+
+    sink.eventually(Promise.reject(new Error("the probe blew up")));
+    sink.emit(pending("turn.completed", COMPLETED));
+    await sink.settle();
+
+    expect(await appended(store)).toEqual(["turn.completed"]);
+  });
+});

@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "head_seq" integer DEFAULT 0 NOT NULL;

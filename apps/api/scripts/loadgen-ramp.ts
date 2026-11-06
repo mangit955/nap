@@ -13,7 +13,8 @@
  *     outside and cannot say which.
  *   - **the database is probed afterwards**, against the rows this run really wrote, which is
  *     what `docs/scaling-design.md` §24 items 2 and 4 ask for: the cost of a catch-up poll at a
- *     hundred sessions, and whether `hashtext` maps two of them onto one advisory lock.
+ *     hundred sessions, and whether `hashtext` maps two of them onto one advisory lock — which
+ *     the append no longer takes (`docs/adr/0026`), so that half now describes the old design.
  *   - **the report is assembled**, joining k6's per-stage figures to those samples and naming the
  *     first point of material degradation — which §23 calls the headline result, and the reason
  *     a run that passes every threshold without finding one is not finished.
@@ -155,6 +156,11 @@ function startSampling(sql: postgres.Sql): { samples: ServerSample[]; stop: () =
 /**
  * §24 item 4: does `hashtext(session_id)` put two of this run's sessions on one advisory lock,
  * and does sharing one cost anything measurable?
+ *
+ * **A question about the append as it used to be.** Since `docs/adr/0026` nothing on the append
+ * path takes this lock: an append serializes on its own session's `sessions` row, which no other
+ * session shares, so there is nothing for two sessions to collide on. Kept so a run stays
+ * comparable with the recorded baseline; a figure from it says nothing about today's append.
  *
  * The collision count alone says nothing — the birthday expectation beside it is what makes it
  * readable — so the second half times the lock itself: the same number of acquisitions from the

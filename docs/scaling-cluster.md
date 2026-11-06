@@ -312,6 +312,13 @@ All three are now in `docs/GOTCHAS.md`.
   trigger works when it does fire is asserted in `test/k8s.test.ts` and not observed here. A run
   that wanted to watch it would lower the target or raise the socket count, and would then be
   measuring a deployment nobody runs.
+- **Nothing a later run's first turns can be compared against on `queue_wait` or `job_duration`.**
+  These runs were made while a new sandbox's turn waited for its preview before the agent started.
+  It no longer does (`docs/GOTCHAS.md`, Sandbox and storage), so the calibrated 2,400ms preview
+  render now overlaps the turn instead of preceding `turn.started`: a first turn's `queue_wait`
+  and `job_duration` fall by up to that much for a reason that is not the cluster.
+  `sandbox_acquisition`, submit to `preview.ready`, still measures what it did; `turn_duration`
+  moves only for a turn shorter than the render, whose ending is held until it is announced.
 - **Nothing about cost.** No vendor was called. The turn count times the fake's declared usage is
   a floor of roughly 6.0M in / 254k out across the 2,310 turns of the ramp.
 

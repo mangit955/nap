@@ -74,6 +74,26 @@ describe("taking a picture", () => {
     });
   });
 
+  it("waits for the preview as long as the asker says, when it says", async () => {
+    // A resume asks before the dev server has answered, so its shot may need the runtime's
+    // whole preview deadline rather than the lane's short one.
+    const f = await fixture();
+    const waits: (number | undefined)[] = [];
+    const wait = f.sandbox.waitForPreview.bind(f.sandbox);
+    f.sandbox.waitForPreview = (sandboxId, port, opts) => {
+      waits.push(opts?.timeoutMs);
+      return wait(sandboxId, port, opts);
+    };
+
+    await f.lane.request({ ...(await f.project()), previewTimeoutMs: 20_000 });
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+    await f.lane.request(await f.project());
+    f.capture.release(new Uint8Array([1]));
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+
+    expect(waits).toEqual([20_000, 15_000]);
+  });
+
   it("answers the request without waiting for the browser", async () => {
     // Under the caller's lease. This resolving while the capture is open is the whole change.
     const f = await fixture();

@@ -2,19 +2,47 @@
  * The durable event log, backed by Postgres.
  *
  * `seq` is the whole difficulty. Replay and dedupe both key off it, so it has to be gapless
- * and monotonic per session even when several turns — or several API processes — append at
- * once. This takes a per-session advisory lock for the duration of the inserting
- * transaction and derives the next value inside the same statement. The alternatives were
- * both worse: `max(seq) + 1` with no lock races under read-committed, so a hundred parallel
- * writers collide and the code spends its time retrying unique violations; and a counter
- * held in the process is wrong the moment a second instance exists, while an advisory lock
- * is cluster-wide. `unique(session_id, seq)` remains the database's backstop — it is simply
- * never expected to fire.
+ * and monotonic per session even when several turns — or several processes — append at once.
  *
- * The lock earns its keep a second time for a retried append. A caller whose first attempt
- * failed without a knowable outcome passes `retryAfterSeq`, and the store then decides *under
- * the same lock* whether that attempt committed, by looking for the event among the rows above
- * that watermark. Doing it outside the lock would race the very writer being asked about.
+ * **An append is one statement.** It increments the session's `head_seq` and inserts the event
+ * at the new value, in a data-modifying CTE that commits on its own. The row lock the increment
+ * takes is the per-session serialization: a second writer blocks on it, and once the first
+ * commits it re-reads the row and gets the next value. That is cluster-wide, as the advisory lock
+ * this replaced was, and it is one round trip where the lock was four — `BEGIN`, the lock, the
+ * insert, `COMMIT`. The sink appends a turn's events strictly in order, so every round trip here
+ * is a delay on every token and tool call the person is watching stream in.
+ *
+ * An advisory lock cannot be taken inside the same single statement, and the reason is worth
+ * knowing before anyone tries: the statement's snapshot is taken before the lock is granted, so
+ * a `max(seq)` read through it after waiting does not see the writer it waited for, and the two
+ * collide. A row lock does not have that problem, because an `UPDATE` that waits re-evaluates the
+ * row it waited on.
+ *
+ * **`max(seq)` still takes part, as a floor.** A row can reach the table without advancing the
+ * counter — the previous release's append during a rolling deploy, or a fixture inserting rows
+ * directly — and a counter left behind the log would hand out a `seq` that already exists, on
+ * every append, for the rest of that session's life. Taking the greater of the two catches up
+ * instead. That is also how every session older than the counter is caught up: the migration
+ * leaves their `head_seq` at 0 rather than backfilling it under the `ALTER`'s lock, and their
+ * first append here starts from `max(seq)`. It is one backward step on the `(session_id, seq)`
+ * index, and it is never the serialization: a writer that skipped the counter can still collide
+ * with another writer, which is what `unique(session_id, seq)` is there to refuse — the
+ * database's backstop, never expected to fire.
+ *
+ * A retried append is the one that stays a transaction, because it has a question to answer
+ * before it writes. A caller whose first attempt failed without a knowable outcome passes
+ * `retryAfterSeq`, and the store then locks the same counter row, which waits out the interrupted
+ * attempt if it already holds that row or is queued for it ahead of the retry, and only then
+ * looks for the event above that watermark. Looking without the lock would race the very writer
+ * being asked about. Retries are rare, so the extra round trips there cost nothing that matters.
+ *
+ * **What the lock cannot wait out is an attempt that has not reached the row yet.** One statement
+ * runs to commit once the server has it, whether or not its client is still there, so an attempt
+ * still queued behind another writer of the same session — or held in a pooler — when the retry
+ * takes the row can commit after the retry has inserted, and the event is then logged twice.
+ * `seq` stays gapless. It takes a transient client-side failure, which is what triggers a retry,
+ * while another writer contends for the same session; the advisory lock it replaced did not have
+ * this gap, because its insert was only sent once the lock was held. See `docs/adr/0026`.
  *
  * Both methods read `created_at` back from the row rather than echoing what the caller
  * passed. The column is `timestamptz` and the contract is an ISO-8601 string, so the value
@@ -36,7 +64,7 @@ import type {
 import { and, asc, eq, gt, max, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { EventTailReader, SessionCursors } from "./event-tail-reader.ts";
-import { events } from "./schema.ts";
+import { events, sessions } from "./schema.ts";
 
 /** The shape `select().from(events)` and `.returning()` both produce. */
 type EventRow = typeof events.$inferSelect;
@@ -63,6 +91,48 @@ function normalized(event: PendingEvent): PendingEvent {
   return { ...event, createdAt: new Date(event.createdAt).toISOString() };
 }
 
+/** The database itself, or a transaction on it — the one append has to run in either. */
+type Writer = PostgresJsDatabase | Parameters<Parameters<PostgresJsDatabase["transaction"]>[0]>[0];
+
+/**
+ * Advances the session's counter and inserts the event at it, in one statement.
+ *
+ * The only place a row is added to `events`, which is what lets the counter be trusted. See the
+ * module comment for why the counter's row lock is the serialization and `max(seq)` the floor.
+ */
+async function insertNext(db: Writer, event: PendingEvent): Promise<EventRow> {
+  const next = db.$with("next").as(
+    db
+      .update(sessions)
+      .set({
+        headSeq: sql`greatest(${sessions.headSeq}, (select coalesce(max(${events.seq}), 0) from ${events} where ${events.sessionId} = ${event.sessionId}::uuid)) + 1`,
+      })
+      .where(eq(sessions.id, event.sessionId))
+      .returning({ headSeq: sessions.headSeq }),
+  );
+
+  const [inserted] = await db
+    .with(next)
+    .insert(events)
+    .values({
+      sessionId: event.sessionId,
+      turnId: event.turnId,
+      // A session that does not exist updates no row, and `next` is empty. Zero rather than
+      // null, so the insert still fails on the foreign key — 23503, which the sink knows is not
+      // worth retrying — instead of on a not-null constraint nobody would recognise.
+      seq: sql`coalesce((select head_seq from next), 0)`,
+      type: event.type,
+      payload: event.payload,
+      createdAt: new Date(event.createdAt),
+    })
+    .returning();
+
+  // Postgres has no way to return zero rows from a single-row insert that succeeded; a missing
+  // row here would mean the driver contract changed under us.
+  if (inserted === undefined) throw new Error("insert into events returned no row");
+  return inserted;
+}
+
 export class PostgresEventStore implements EventStore, EventTailReader {
   readonly #db: PostgresJsDatabase;
 
@@ -75,46 +145,36 @@ export class PostgresEventStore implements EventStore, EventTailReader {
   }
 
   async append(event: PendingEvent, options: AppendOptions = {}): Promise<StoredEvent> {
+    if (options.retryAfterSeq === undefined) return toEvent(await insertNext(this.#db, event));
+
+    const { retryAfterSeq } = options;
     const row = await this.#db.transaction(async (tx) => {
-      // Held until the transaction ends, so the read of max(seq) below and the insert that
-      // depends on it cannot be interleaved with another writer's.
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${event.sessionId}))`);
+      // The lock every append takes, held to the end of this transaction. An interrupted
+      // attempt that holds the row, or is queued for it ahead of this, has committed or aborted
+      // once this returns. One that has not reached the row yet can still commit after it; the
+      // module comment says what that costs.
+      await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, event.sessionId))
+        .for("no key update");
 
       // A retry may be following an attempt that committed and then lost its acknowledgement,
-      // which is indistinguishable from one that never committed. Under the same lock the log
-      // is settled, so the question is answerable: is this event already above the caller's
-      // watermark? Rows at or below it were durable before the attempt began and cannot be it,
-      // which is what stops an identical earlier event from being mistaken for this one.
+      // which is indistinguishable from one that never committed. Is this event already above
+      // the caller's watermark? Rows at or below it were durable before the attempt began and
+      // cannot be it, which is what stops an identical earlier event from being mistaken for
+      // this one.
       //
       // The scan is bounded by how far the log moved since the caller last heard from it —
       // normally nothing, since a session's appends are serialized.
-      if (options.retryAfterSeq !== undefined) {
-        const since = await tx
-          .select()
-          .from(events)
-          .where(and(eq(events.sessionId, event.sessionId), gt(events.seq, options.retryAfterSeq)))
-          .orderBy(asc(events.seq));
+      const since = await tx
+        .select()
+        .from(events)
+        .where(and(eq(events.sessionId, event.sessionId), gt(events.seq, retryAfterSeq)))
+        .orderBy(asc(events.seq));
 
-        const already = since.find((row) => isSameEvent(normalized(event), toEvent(row)));
-        if (already !== undefined) return already;
-      }
-
-      const [inserted] = await tx
-        .insert(events)
-        .values({
-          sessionId: event.sessionId,
-          turnId: event.turnId,
-          seq: sql`(select coalesce(max(${events.seq}), 0) + 1 from ${events} where ${events.sessionId} = ${event.sessionId}::uuid)`,
-          type: event.type,
-          payload: event.payload,
-          createdAt: new Date(event.createdAt),
-        })
-        .returning();
-
-      // Postgres has no way to return zero rows from a single-row insert; a missing row
-      // here would mean the driver contract changed under us.
-      if (inserted === undefined) throw new Error("insert into events returned no row");
-      return inserted;
+      const already = since.find((candidate) => isSameEvent(normalized(event), toEvent(candidate)));
+      return already ?? (await insertNext(tx, event));
     });
 
     return toEvent(row);
@@ -130,6 +190,12 @@ export class PostgresEventStore implements EventStore, EventTailReader {
     return rows.map(toEvent);
   }
 
+  /**
+   * The newest `seq` in the session's log — `max(events.seq)`, not the `sessions.head_seq`
+   * counter. The two agree once a session has been appended to under the counter, but a session
+   * older than it reads 0 there until its first such append, and the log is what a subscriber's
+   * cursor has to line up with.
+   */
   async headSeq(sessionId: string): Promise<number> {
     const [row] = await this.#db
       .select({ head: max(events.seq) })

@@ -127,6 +127,13 @@
       "when": 1793675344432,
       "tag": "0017_turn_request_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793951196855,
+      "tag": "0018_session_head_seq",
+      "breakpoints": true
     }
   ]
 }
