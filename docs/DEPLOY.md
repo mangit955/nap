@@ -652,7 +652,7 @@ See [ADR-0025](adr/0025-plan-mode-proposes-and-the-next-message-decides.md).
 
 ## Steering rollout
 
-Steering adds the `turn_steers` table and `turn_requests.steering_closed` (migration 0018), three event
+Steering adds the `turn_steers` table and `turn_requests.steering_closed` (migration 0019), three event
 types (`steer.received`, `steer.applied`, `steer.dropped`) and one route (`POST
 /sessions/:id/steers`). Unlike plan mode, **the API writes one of the new events**: it records
 `steer.received` the moment it admits a steer, so the new shapes appear in a log as soon as a new
@@ -663,7 +663,7 @@ plus one. An old worker runs a request without reading or closing its steers. Th
 normally, so nothing ever answers for the steers joined to it. The pane offers each back as not
 sent once the session is idle. So no old worker may be claiming once a new API admits steers.
 
-1. Apply migration 0018. The table is new and the column defaults to false, so the old API and old
+1. Apply migration 0019. The table is new and the column defaults to false, so the old API and old
    workers carry on.
 2. Stop and drain every old worker, then deploy the new workers.
 3. Deploy the reaper, then the API. The reaper's janitor reads whole session logs. An old one that
@@ -674,5 +674,5 @@ sent once the session is idle. So no old worker may be claiming once a new API a
    reloading it fixes that.
 
 The Render release script already deploys in this order, apart from step 3's swap, and the worker's
-pre-deploy command applies 0018 before new workers boot. See
-[ADR-0026](adr/0026-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).
+pre-deploy command applies 0019 before new workers boot. See
+[ADR-0027](adr/0027-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).

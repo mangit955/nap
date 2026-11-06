@@ -1,5 +1,5 @@
 /**
- * `POST /sessions/:sessionId/steers`: a message sent while a turn runs (ADR-0026).
+ * `POST /sessions/:sessionId/steers`: a message sent while a turn runs (ADR-0027).
  *
  * The route admits a steer exactly as it admits a prompt — ownership, model access, the sandbox
  * quota and then the rate limit, each charged once — and only then lets the queue decide whether

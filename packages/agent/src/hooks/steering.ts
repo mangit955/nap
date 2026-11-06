@@ -1,5 +1,5 @@
 /**
- * Hands the model what the person sent while the turn ran (ADR-0026).
+ * Hands the model what the person sent while the turn ran (ADR-0027).
  *
  * The hook is the whole of steering inside the agent, and it is small on purpose. Where a steer
  * waits, how it reaches this process, and recording where it was read all belong to the runtime,

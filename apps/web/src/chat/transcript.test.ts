@@ -353,6 +353,45 @@ describe("messages", () => {
     ]);
   });
 
+  describe("when the preview is announced in the middle of one", () => {
+    // A new sandbox's `preview.ready` is written whenever its dev server answers, which can be
+    // between two pieces of one thought or one answer. It is news about the app, not a break in
+    // what the agent was saying, so the passage stays whole and the line follows it.
+    const ready = () => ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 });
+
+    it("keeps a thought whole", () => {
+      const items = fold(
+        ev("agent.thinking", { text: "I should read " }),
+        ready(),
+        ev("agent.thinking", { text: "App.tsx first." }),
+      );
+
+      expect(items.map((i) => i.kind)).toEqual(["thinking", "preview"]);
+      expect(items[0]).toMatchObject({ text: "I should read App.tsx first." });
+    });
+
+    it("keeps an answer whole", () => {
+      const items = fold(
+        ev("agent.message", { text: "I changed " }),
+        ready(),
+        ev("agent.message", { text: "the header colour." }),
+      );
+
+      expect(items.map((i) => i.kind)).toEqual(["message", "preview"]);
+      expect(items[0]).toMatchObject({ from: "agent", text: "I changed the header colour." });
+    });
+
+    it("still separates what came either side of it when they are different things", () => {
+      const items = fold(
+        ev("agent.thinking", { text: "considering the layout" }),
+        ready(),
+        ev("agent.message", { text: "Added App.tsx." }),
+      );
+
+      expect(items.map((i) => i.kind)).toEqual(["thinking", "preview", "message"]);
+    });
+  });
+
   it("never folds what the user said into what the agent said", () => {
     const items = fold(
       ev("user.message", { text: "make it blue" }),

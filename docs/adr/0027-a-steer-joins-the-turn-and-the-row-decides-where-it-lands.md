@@ -1,4 +1,4 @@
-# ADR-0026 — A steer joins the running turn at its next step, and the row decides where it lands
+# ADR-0027 — A steer joins the running turn at its next step, and the row decides where it lands
 
 **Status:** Accepted, 2026-11-06. Built and tested on fakes, the in-memory sandbox and a real Postgres. No real model, no real E2B sandbox and no multi-pod deployment has run it, so whether models act on a steer well, and how quickly one is read across pods under load, are unmeasured. Closes the "steering a running turn" item ADR-0020 deferred.
 
@@ -98,7 +98,7 @@ The composer accepts a message while a turn runs ("Send to the running turn", be
 
 ## Consequences
 
-- Three event types, one table (`turn_steers`, migration 0018), one column (`turn_requests.steering_closed`), one port (`SteerQueue`, implemented by both queues), one hook seam, one route. Every exhaustive consumer handles the events: the turn log (shape only, never the words), the harness printer, the transcript and its treatment tables, and the db round-trip fixtures.
+- Three event types, one table (`turn_steers`, migration 0019), one column (`turn_requests.steering_closed`), one port (`SteerQueue`, implemented by both queues), one hook seam, one route. Every exhaustive consumer handles the events: the turn log (shape only, never the words), the harness printer, the transcript and its treatment tables, and the db round-trip fixtures.
 - **The composition takes `queue: TurnQueue & SteerQueue`**, one dependency rather than two, because the fence needs one store.
 - **Rollout order matters, as in ADR-0025.** Old readers parse events strictly, so an old tab, API or worker rejects `steer.*`. An old worker would also run a request without reading its steers or closing it. That request settles normally, so the janitor never looks at it, and every steer joined to it waits until the pane offers it back as undelivered. Migrate first, then drain and replace the workers, then the API and reaper, then the web. Only the new API admits a steer, and only the new web sends one. `docs/DEPLOY.md` has the steps.
 - **Unmeasured:** whether a real model weighs a steer as intended under `renderSteer`'s framing; how a steer read mid-turn affects cache reads on a real provider (the bytes are appended after the cached prefix, but this has not been observed in billing); and pickup latency across pods, which is bounded below by the model call in flight and has no number yet.

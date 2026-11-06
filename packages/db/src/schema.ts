@@ -273,6 +273,24 @@ export const sessions = pgTable("sessions", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  /**
+   * The highest `seq` this counter has handed out in the session's log — what makes an append one
+   * statement. Not `PostgresEventStore.headSeq()`, which reads `max(events.seq)`: a session older
+   * than this column starts it at 0, unbackfilled, and its first append catches it up.
+   *
+   * `PostgresEventStore.append` increments it and inserts the event in a single statement, and
+   * the row lock that increment takes is the per-session serialization: a second writer waits on
+   * it and then sees the incremented value, so it cannot be handed the same `seq`. An advisory
+   * lock cannot do this in one statement, because the statement's snapshot is taken before the
+   * lock is granted and a `max(seq)` read through it would be stale.
+   *
+   * On the session rather than in a table of its own because nothing else writes this row during
+   * a turn, so the lock is uncontended, and a session that exists has its counter by
+   * construction. The append also takes `max(seq)` into account, so a row inserted without
+   * advancing this — the previous release mid-deploy, a fixture — is caught up with rather than
+   * collided with.
+   */
+  headSeq: integer("head_seq").notNull().default(0),
   createdAt,
 });
 
@@ -453,7 +471,7 @@ export const turnRequests = pgTable(
     cancelRequested: boolean("cancel_requested").notNull().default(false),
     /**
      * Set by the worker when it resolves this request's steers, just before settling it: from then
-     * on a message sent to the session is the next turn, not part of this one (ADR-0026). A column
+     * on a message sent to the session is the next turn, not part of this one (ADR-0027). A column
      * rather than a state, because the request is still leased — still running its last
      * housekeeping — and the partial unique index must go on seeing it as such.
      */
@@ -491,7 +509,7 @@ export const turnRequests = pgTable(
 export const steerState = pgEnum("steer_state", STEER_STATES);
 
 /**
- * Messages sent while a turn runs, each joined to the request it was admitted to (ADR-0026).
+ * Messages sent while a turn runs, each joined to the request it was admitted to (ADR-0027).
  *
  * **The row is the decision, the log is the record.** Whether a steer was read, deferred or dropped
  * is settled here, by one conditional update each, so it happens at most once; the `steer.*` events

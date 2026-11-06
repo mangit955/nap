@@ -64,7 +64,7 @@ export type TurnSubmission = {
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
   /**
-   * A message sent into the running turn (ADR-0026) that the log has not caught up with yet. Kept
+   * A message sent into the running turn (ADR-0027) that the log has not caught up with yet. Kept
    * apart from `pending` because it is not a prompt waiting for a turn: the turn answering it is
    * already running, and its place is with the transcript's own waiting steers, not under it.
    */
@@ -319,7 +319,7 @@ export function useTurnSubmission(options: {
         (item) =>
           item.kind === "compaction" && item.turnId === turn.turnId && item.status === "running",
       );
-    // Into the running turn, if one is running and this is words alone (ADR-0026). Images, a
+    // Into the running turn, if one is running and this is words alone (ADR-0027). Images, a
     // `/compact` and a plan approval are each a turn of their own, so those still queue behind it,
     // as does anything sent while a compaction runs, which takes no steers.
     const steer =

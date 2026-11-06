@@ -47,7 +47,9 @@ This is more than the brief assumed, and it is why the change is smaller than it
 - **`seq` allocation.** `PostgresEventStore.append` (`packages/db/src/postgres-event-store.ts:58`)
   takes `pg_advisory_xact_lock(hashtext(session_id))` and derives `seq` inside the insert
   statement. Its own doc comment already reasons about "several API processes".
-  `unique(session_id, seq)` is the database-level backstop.
+  `unique(session_id, seq)` is the database-level backstop. *Since replaced: an append is now one
+  statement serialized on a per-session counter row rather than an advisory lock — see
+  `docs/adr/0026`.*
 - **Job state is derived, not stored.** There is no jobs table. `foldJobs` reads the event log and
   `continuationFor` (`packages/runtime/src/continue-job.ts`) decides what an interrupted job needs.
   **A half-executed turn is already recoverable from Postgres alone** — the single most valuable
@@ -764,6 +766,9 @@ one kills a whole turn — including its repair budget.
 > so a retry must first re-read `max(seq)` for the session under the same advisory lock and abort if
 > the intended event is already present. `unique(session_id, seq)` is the backstop that turns any
 > remaining race into a hard error rather than a duplicated message in somebody's chat.
+>
+> *Since ADR-0026 the retry locks the session's counter row rather than an advisory lock; the
+> watermark check above it is unchanged.*
 
 ### B-4 — `NAP_MAX_SANDBOXES_TOTAL` is documented as per-process
 
@@ -846,7 +851,7 @@ for all of it.
 **There is no edge back to `queued`.** Lease loss never requeues. That is decision 1, expressed as a
 state machine, and it is the reason execution is at-most-once.
 
-**A request can also be admitted by another request's end.** Since steering (ADR-0026), a message
+**A request can also be admitted by another request's end.** Since steering (ADR-0027), a message
 sent to a running request that the request never read is queued as a turn when that request closes,
 under the message's own id. That is a new row, not a requeue: its message was admitted, and charged,
 by the steer route, and it has never run. A request that was stopped or orphaned queues none.
@@ -1186,6 +1191,8 @@ answered by this section being edited to agree with the code.
    "fixes" it in a panic, but worth measuring at 100 concurrent sessions in step 0. **Measured at
    step 0** (`docs/scaling-baseline.md`): no measurable contention, and none expected — at 1,200
    sessions a collision is predicted once in every ~6,000 runs and costs two sessions ~0.2ms.
+   **Moot since ADR-0026:** the append no longer takes this lock but its own session's counter
+   row, which no two sessions share, so the ramp's probe now measures the design it replaced.
 5. **Whether `/readyz` should fail on a lost LISTEN connection or merely warn.** Failing it removes a
    pod that can still serve HTTP and can still replay from the log — the poll covers fanout. Leaning
    toward: fail, because a pod with a dead LISTEN has 2s-latency streaming and another pod does not.

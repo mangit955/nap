@@ -130,7 +130,8 @@ per session.
 ### 3. `hashtext` collisions (§24 item 4)
 
 `pg_advisory_xact_lock(hashtext(session_id))` maps uuids into int4, so two unrelated sessions can
-serialize on one lock. Measured on the sessions each run really created:
+serialize on one lock. Measured on the sessions each run really created, while the append still
+took that lock — it no longer does (`docs/adr/0026`), and serializes on each session's own row:
 
 | Sessions | Colliding | Expected by chance |
 |---:|---:|---:|

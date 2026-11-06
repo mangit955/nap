@@ -1,5 +1,5 @@
 /**
- * Messages sent while a turn runs, and where each one lands (ADR-0026).
+ * Messages sent while a turn runs, and where each one lands (ADR-0027).
  *
  * A **steer** is a message somebody sends while a turn is running on their session. It joins that
  * turn: the agent reads it at its next step boundary, instead of the message queueing a turn

@@ -446,6 +446,46 @@ describe("grouping the work", () => {
   });
 });
 
+describe("a preview announced in the middle of the work", () => {
+  // The runtime writes a new sandbox's `preview.ready` whenever its dev server answers, which can
+  // be between two calls of one run. The run is still one run; the line is drawn after it.
+  const ready = () => ev("preview.ready", { url: "https://5173-abc.e2b.dev", port: 5173 });
+
+  it("does not split a group of calls in two", () => {
+    reset();
+    const timeline = rows([
+      prompt(),
+      started(),
+      ...read("a.ts"),
+      ready(),
+      ...read("b.ts"),
+      say("Done."),
+      failed("internal"),
+    ]);
+
+    expect(shape(timeline)).toEqual([
+      "user",
+      "turn-start",
+      "toggle",
+      "preview",
+      "agent",
+      "turn-end",
+    ]);
+    expect(only(timeline, "work-toggle").entries).toHaveLength(2);
+  });
+
+  it("does not cut the live row's run short", () => {
+    reset();
+    const { event } = call("run_command", { command: "bun test" });
+    const timeline = rows([prompt(), started(), ...read("a.ts"), ready(), ...read("b.ts"), event], {
+      running: true,
+    });
+
+    expect(shape(timeline)).toEqual(["user", "working", "turn-start", "preview", "live"]);
+    expect(only(timeline, "work-live").entries).toHaveLength(3);
+  });
+});
+
 describe("a turn that is running", () => {
   it("says it is working right under the prompt, and what it is doing at the end", () => {
     reset();

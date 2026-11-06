@@ -93,7 +93,7 @@ export function ChatPane({
    */
   loading?: boolean;
   pending?: string | undefined;
-  /** A message sent into the running turn that the log does not hold yet (ADR-0026). */
+  /** A message sent into the running turn that the log does not hold yet (ADR-0027). */
   pendingSteer?: string | undefined;
   pendingAttachments?: MediaAttachment[] | undefined;
   pendingAfterCompaction?: boolean;
@@ -483,7 +483,7 @@ export function LiveChatPane({
         pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}
         running={running}
-        // A message typed while the agent works joins the turn at its next step (ADR-0026). The
+        // A message typed while the agent works joins the turn at its next step (ADR-0027). The
         // server decides whether it can; whatever cannot join is queued as the next turn.
         steering
         idleThroughSeq={idleThroughSeq}

@@ -294,7 +294,7 @@ function changedFiles(items: readonly TranscriptItem[], turn: Turn): FileChange[
 }
 
 /**
- * Messages the person sent mid-turn that have not landed (ADR-0026) are drawn last, after the live
+ * Messages the person sent mid-turn that have not landed (ADR-0027) are drawn last, after the live
  * row. `buildTranscript` puts them at the end of the items, which is where they read — and the end
  * of the items is also where the live row finds the run the agent is in, so they are set aside
  * before anything else looks, rather than ending that run early.
@@ -358,21 +358,36 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
   const started = open.some((item) => item.kind === "turn-start" || isWorkEntry(item));
 
   // While a turn runs, the work at the very end of the log is drawn by the live row, not as rows
-  // of its own: the run the agent is in the middle of.
+  // of its own: the run the agent is in the middle of. A preview announced in the middle of it
+  // does not end it — see `deferred` below — and one at its very front is simply drawn before it.
   let tailStart = items.length;
   if (working) {
     while (tailStart > openStart) {
       const item = items[tailStart - 1];
-      if (item === undefined || !isWorkEntry(item)) break;
+      if (item === undefined || !(isWorkEntry(item) || item.kind === "preview")) break;
       tailStart -= 1;
     }
+    while (items[tailStart]?.kind === "preview") tailStart += 1;
   }
   const compacting = open.some((item) => item.kind === "compaction" && item.status === "running");
 
   const rows: TimelineRow[] = [];
   let run: WorkEntry[] = [];
+  /**
+   * Preview announcements met in the middle of a run, drawn once it ends. The runtime writes a
+   * new sandbox's `preview.ready` whenever its dev server answers, which can be between two calls
+   * of one run, and the run is still one run: split around the line, "Ran 5 commands" would read
+   * as two groups.
+   */
+  let deferred: PassThroughItem[] = [];
 
   const flush = () => {
+    flushRun();
+    for (const item of deferred) rows.push({ kind: "item", id: `item:${item.key}`, item });
+    deferred = [];
+  };
+
+  const flushRun = () => {
     const entries = run.filter(visible);
     run = [];
     const [first] = entries;
@@ -434,6 +449,7 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
     }
     if (!collapsed.has(index)) {
       if (isWorkEntry(item)) run.push(item);
+      else if (item.kind === "preview" && run.length > 0) deferred.push(item);
       else {
         flush();
         rows.push({ kind: "item", id: `item:${item.key}`, item });
@@ -447,6 +463,10 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
     }
   }
   flush();
+  // The ones inside the live row's run, which the loop above stopped short of.
+  for (const item of items.slice(tailStart)) {
+    if (item.kind === "preview") rows.push({ kind: "item", id: `item:${item.key}`, item });
+  }
 
   if (!working) return rows;
   if (workingAt >= tailStart) {

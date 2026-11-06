@@ -177,7 +177,7 @@ export type NapDeps = {
    * without it would type-check, boot, accept turns and run none of them. **One queue per
    * database, never per process** — the whole point is that the lease is visible to every replica.
    *
-   * It steers too (ADR-0026), and that is one dependency rather than two because it has to be one
+   * It steers too (ADR-0027), and that is one dependency rather than two because it has to be one
    * store: admitting a message to a running turn is fenced against the end of that turn on the
    * turn request's own row, which a second store could not see.
    */

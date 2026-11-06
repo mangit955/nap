@@ -312,6 +312,18 @@ it("waits for a newly created workspace preview before starting the desktop capt
   expect((await running).ok).toBe(true);
   expect(start).toHaveBeenCalled();
 });
+it("gives a running but never-announced preview the full wait before recording it", async () => {
+  // A turn would only recheck such a sandbox briefly. A recording is of the running app and
+  // lasts minutes, so it is worth the whole wait not to start filming a server still coming up.
+  const f = await fixture("passed", false, true);
+  const waits: (number | undefined)[] = [];
+  vi.spyOn(f.sandbox, "waitForPreview").mockImplementation(async (_id, _port, opts) => {
+    waits.push(opts?.timeoutMs);
+    return { ok: true, value: "https://preview.test" };
+  });
+  expect((await f.runtime.runTurn(f.request)).ok).toBe(true);
+  expect(waits).toEqual([20_000]);
+});
 it("finalizes an interrupted recording after cancellation without an aborted cleanup signal", async () => {
   const f = await fixture("passed", false, true);
   const controller = new AbortController();

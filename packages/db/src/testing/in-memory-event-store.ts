@@ -39,7 +39,7 @@ export class InMemoryEventStore implements EventStore, EventTailReader {
     const existing = this.#bySession.get(event.sessionId) ?? [];
 
     // A retry may be following an append that committed and then lost its acknowledgement. The
-    // real store answers this under its advisory lock; here the array is the serialization.
+    // real store answers this under the lock its appends take; here the array is the serialization.
     // Only rows above the caller's watermark are candidates — an identical event below it was
     // durable before the attempt began, so it is somebody else's.
     const watermark = options.retryAfterSeq;

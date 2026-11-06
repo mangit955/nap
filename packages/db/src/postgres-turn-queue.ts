@@ -450,7 +450,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   /**
    * Admission, as one transaction that holds the leased request's row while it decides.
    *
-   * The lock is the fence (ADR-0026). `close` updates the same row, and the two conflict, so either
+   * The lock is the fence (ADR-0027). `close` updates the same row, and the two conflict, so either
    * this commits first and `close` resolves the steer it inserted, or `close` commits first and this
    * re-reads the row — Postgres re-checks a locked row's predicate once the lock is released — finds
    * it closed, and queues a turn instead. `no key update` rather than `share` because it also

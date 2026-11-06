@@ -142,7 +142,7 @@ export type TurnWorkerOptions = {
    */
   onClaimTick?: () => void;
   /**
-   * Where messages sent to a running turn wait (ADR-0026). Each turn request's steering is bound to
+   * Where messages sent to a running turn wait (ADR-0027). Each turn request's steering is bound to
    * the lease this worker holds on it, so it reads and resolves that request's and nobody else's.
    * Absent means a message sent mid-turn waits for the turn to end, which is what it did before.
    */

@@ -240,7 +240,7 @@ records it there (`steer.applied`). Not a **turn request**, though one with the 
 for it when the turn ends without reading it — it is then simply the next turn. A turn that was
 stopped, or whose worker died, runs none of its unread steers; each is offered back
 (`steer.dropped`). Admitted and charged exactly as a prompt is. See
-[ADR-0026](docs/adr/0026-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).
+[ADR-0027](docs/adr/0027-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).
 
 **Step boundary** — the only place a turn takes anything new in: between model calls, once the last
 batch of tool calls is answered in its one message, or when the model has stopped with a step still

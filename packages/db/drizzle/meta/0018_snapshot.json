@@ -1,5 +1,5 @@
 {
-  "id": "1ef2104b-85ab-41dd-b718-17a827656d30",
+  "id": "a8fe22ac-42d8-44c0-a4cf-64df45eaf285",
   "prevId": "f4828238-301d-43a7-8a9e-c24660318147",
   "version": "7",
   "dialect": "postgresql",
@@ -1505,6 +1505,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "head_seq": {
+          "name": "head_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1743,13 +1750,6 @@
           "notNull": true,
           "default": false
         },
-        "steering_closed": {
-          "name": "steering_closed",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "lease_owner": {
           "name": "lease_owner",
           "type": "text",
@@ -1889,173 +1889,6 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.turn_steers": {
-      "name": "turn_steers",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "request_id": {
-          "name": "request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "message": {
-          "name": "message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "plan": {
-          "name": "plan",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bills_to_user": {
-          "name": "bills_to_user",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "state": {
-          "name": "state",
-          "type": "steer_state",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "turn_steers_waiting": {
-          "name": "turn_steers_waiting",
-          "columns": [
-            {
-              "expression": "request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"turn_steers\".\"state\" = 'pending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "turn_steers_request": {
-          "name": "turn_steers_request",
-          "columns": [
-            {
-              "expression": "request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "turn_steers_session_id_sessions_id_fk": {
-          "name": "turn_steers_session_id_sessions_id_fk",
-          "tableFrom": "turn_steers",
-          "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "turn_steers_user_id_users_id_fk": {
-          "name": "turn_steers_user_id_users_id_fk",
-          "tableFrom": "turn_steers",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "turn_steers_request_id_turn_requests_id_fk": {
-          "name": "turn_steers_request_id_turn_requests_id_fk",
-          "tableFrom": "turn_steers",
-          "tableTo": "turn_requests",
-          "columnsFrom": [
-            "request_id"
           ],
           "columnsTo": [
             "id"
@@ -2278,16 +2111,6 @@
         "idle",
         "archived",
         "error"
-      ]
-    },
-    "public.steer_state": {
-      "name": "steer_state",
-      "schema": "public",
-      "values": [
-        "pending",
-        "applied",
-        "deferred",
-        "dropped"
       ]
     },
     "public.turn_request_kind": {

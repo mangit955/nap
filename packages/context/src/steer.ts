@@ -1,5 +1,5 @@
 /**
- * How a message sent mid-turn reads to the model (ADR-0026).
+ * How a message sent mid-turn reads to the model (ADR-0027).
  *
  * One function, used twice: by the loop, through `BuiltContext.renderSteer`, when the agent takes
  * the steer in, and by the context engine when it rebuilds a conversation from the log. The same
