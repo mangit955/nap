@@ -33,6 +33,25 @@ async function enqueue(sessionId: string, message = "do a thing") {
   });
 }
 
+describe("enqueue", () => {
+  it("refuses an id that is already a request, as the primary key does", async () => {
+    const { id } = await enqueue("session-a");
+
+    await expect(
+      queue.enqueue({
+        id,
+        sessionId: "session-a",
+        userId: "user-1",
+        kind: "turn",
+        message: "the same words again",
+        model: "openai/gpt-5-mini",
+        billsToUser: false,
+      }),
+    ).rejects.toThrow(id);
+    expect(queue.enqueued).toHaveLength(1);
+  });
+});
+
 describe("claim", () => {
   it("answers null when nothing is queued", async () => {
     expect(await queue.claim("worker-1")).toBeNull();

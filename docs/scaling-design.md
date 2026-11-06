@@ -862,12 +862,13 @@ by the steer route, and it has never run. A request that was stopped or orphaned
    admit (row lock on the leased request) ──► pending ──take, at a step boundary──► applied
                                                 │
                                                 ├──close, request ended normally──► deferred ─► a queued turn request, same id
-                                                └──close, request stopped──────────► dropped
+                                                └──close, request stopped or given up──► dropped
 ```
 
 Admission and `close` both hold the leased request's row, and `close` sets `steering_closed` on it,
 so a steer either joined before the close and is resolved by it, or arrived after and was queued as a
-turn. An orphaned request's steers stay as they were; the janitor writes `steer.dropped` for each the
+turn. A cancel on the row drops them whatever the worker asked, since it can reach the row before it
+reaches the worker. An orphaned request's steers stay as they were; the janitor writes `steer.dropped` for each the
 log does not show read, and queues none of them.
 
 ### Lease

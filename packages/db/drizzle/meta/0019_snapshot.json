@@ -1,5 +1,5 @@
 {
-  "id": "f0a7a931-0d91-4696-991a-a0b7099a6c10",
+  "id": "7e0361dc-3359-4a1c-9ce3-3151a6da57a2",
   "prevId": "a8fe22ac-42d8-44c0-a4cf-64df45eaf285",
   "version": "7",
   "dialect": "postgresql",
@@ -2019,6 +2019,36 @@
             },
             {
               "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "turn_steers_session": {
+          "name": "turn_steers_session",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "turn_steers_user": {
+          "name": "turn_steers_user",
+          "columns": [
+            {
+              "expression": "user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

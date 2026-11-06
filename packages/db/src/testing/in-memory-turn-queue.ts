@@ -88,6 +88,10 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
   }
 
   async enqueue(request: EnqueueTurnRequest): Promise<void> {
+    // The primary key, as in Postgres: a request's id is a message's identity, and a second row
+    // under it would be the same words run twice.
+    if (this.#rows.some((row) => row.id === request.id))
+      throw new Error(`a turn request already has the id ${request.id}`);
     this.#sequence += 1;
     this.#rows.push({
       // The caller's, as in Postgres: it is the first Turn's id and had to exist before this row.
@@ -308,7 +312,8 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
   }
 
   async take(requestId: string, owner: string): Promise<Steer[]> {
-    if (this.#held(requestId, owner) === undefined) return [];
+    // A request being stopped reads nothing more, as in Postgres.
+    if (this.#held(requestId, owner)?.cancelRequested !== false) return [];
     const waiting = this.#steers.filter(
       (one) => one.requestId === requestId && one.state === "pending",
     );
@@ -324,13 +329,17 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
     const request = this.#held(requestId, owner);
     if (request === undefined || request.steeringClosed) return { deferred: [], dropped: [] };
     request.steeringClosed = true;
+    // A Stop recorded on the row wins over what the worker asked, as in Postgres.
+    const resolution = request.cancelRequested ? "drop" : disposition;
 
     const waiting = this.#steers.filter(
       (one) => one.requestId === requestId && one.state === "pending",
     );
     for (const one of waiting) {
-      one.state = disposition === "defer" ? "deferred" : "dropped";
-      if (disposition === "defer") {
+      one.state = resolution === "defer" ? "deferred" : "dropped";
+      // Already a turn under this id is this message already queued, as Postgres's
+      // `on conflict do nothing` treats it.
+      if (resolution === "defer" && !this.#rows.some((row) => row.id === one.id)) {
         await this.enqueue({
           id: one.id,
           sessionId: one.sessionId,
@@ -348,7 +357,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
       }
     }
     const resolved = waiting.map(asSteer);
-    return disposition === "defer"
+    return resolution === "defer"
       ? { deferred: resolved, dropped: [] }
       : { deferred: [], dropped: resolved };
   }

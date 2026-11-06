@@ -152,8 +152,9 @@ export type TranscriptItem =
    *
    * `read` is drawn where the agent read it, which is the point of drawing it at all: everything
    * above it the agent did without it. `dropped` is drawn where it was given up, offering the words
-   * back. The other three have not landed yet and are drawn after everything else — `waiting` for
-   * a turn still running, `queued` for one that has ended (it becomes the next turn), and
+   * back. The other three have not landed yet and are drawn after everything else — `waiting`
+   * while the request it joined is still running, `queued` once that request has ended (it becomes
+   * a turn of its own, behind whatever runs now), and
    * `undelivered` once the session has been seen idle with it still unanswered. A steer that became
    * the next turn is not drawn as a steer at all: that turn's prompt is the same words.
    */
@@ -283,7 +284,18 @@ export function buildTranscript(
     events.flatMap((event) => (event.type === "user.message" ? [event.turnId] : [])),
   );
   const steersDrawn = new Set<string>();
-  const steersWaiting = new Map<string, { key: number; text: string }>();
+  const steersWaiting = new Map<string, { key: number; text: string; requestId: string }>();
+  /**
+   * The request each repair turn ran under, since a repair has a turn id of its own but reads the
+   * steers of the request it repairs. Every other turn is its own request.
+   */
+  const requestOfRepair = new Map(
+    events.flatMap((event) =>
+      event.type === "user.message" && event.payload.repair !== undefined
+        ? [[event.turnId, event.payload.repair.requestId] as const]
+        : [],
+    ),
+  );
   /**
    * A verification came back red and no turn has opened since, so the next prompt is the one it
    * is about to write.
@@ -449,7 +461,12 @@ export function buildTranscript(
       case "steer.received":
         // Drawn nowhere here: where it goes depends on what became of it, decided below.
         if (!steersWaiting.has(event.payload.steerId))
-          steersWaiting.set(event.payload.steerId, { key, text: event.payload.text });
+          steersWaiting.set(event.payload.steerId, {
+            key,
+            text: event.payload.text,
+            // Written under the request it joined, which is the only turn that can read it.
+            requestId: event.turnId,
+          });
         break;
 
       case "steer.applied":
@@ -758,15 +775,20 @@ export function buildTranscript(
   // Steers that have not landed anywhere, after everything: they are the newest thing said, and
   // drawing one at the point it was received would put it amid work the agent did without it.
   const idleThroughSeq = options.idleThroughSeq ?? 0;
-  const running = inFlightTurn(events, idleThroughSeq) !== undefined;
-  for (const [steerId, { key, text }] of steersWaiting) {
+  // Waiting only while the request it joined is the one running. Any other turn in flight is one
+  // the steer cannot reach: once its request ended unread, it is a queued turn of its own.
+  const running = inFlightTurn(events, idleThroughSeq)?.turnId;
+  const runningRequest =
+    running === undefined ? undefined : (requestOfRepair.get(running) ?? running);
+  for (const [steerId, { key, text, requestId }] of steersWaiting) {
     if (steersDrawn.has(steerId) || prompted.has(steerId)) continue;
     items.push({
       kind: "steer",
       key,
       steerId,
       text,
-      status: key <= idleThroughSeq ? "undelivered" : running ? "waiting" : "queued",
+      status:
+        key <= idleThroughSeq ? "undelivered" : runningRequest === requestId ? "waiting" : "queued",
     });
   }
 

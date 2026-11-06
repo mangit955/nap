@@ -44,9 +44,15 @@ export function contextCompactor(options: {
         const result = await request.native({
           trustedInstructions: request.systemPrompt,
           untrustedContext: textOnlyContext({
-            userRequests: history
-              .filter((event) => event.type === "user.message")
-              .map((event) => event.payload),
+            // A steer is the person's request as much as a prompt is, and it is usually the one
+            // that changed what the work should be.
+            userRequests: history.flatMap((event) =>
+              event.type === "user.message"
+                ? [event.payload]
+                : event.type === "steer.applied"
+                  ? [{ text: event.payload.text, sentWhileTheAgentWorked: true }]
+                  : [],
+            ),
             recentExchange: request.messages.slice(-2),
           }),
           signal: request.signal,

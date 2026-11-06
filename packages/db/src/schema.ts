@@ -544,9 +544,14 @@ export const turnSteers = pgTable(
   },
   (t) => [
     // What a worker reads at every step, and what admission counts: the steers still waiting on one
-    // request. Partial, so it stays the size of what is waiting rather than of every steer ever.
+    // request. Partial, so it holds only pending rows rather than every steer ever — what is waiting
+    // now, plus the few left pending by a request that ended without closing (ADR-0027), which
+    // nothing reads again and nothing cleans up.
     index("turn_steers_waiting").on(t.requestId, t.createdAt).where(sql`${t.state} = 'pending'`),
     index("turn_steers_request").on(t.requestId, t.createdAt),
+    // Both foreign keys cascade, so deleting a session or a person looks their steers up by these.
+    index("turn_steers_session").on(t.sessionId),
+    index("turn_steers_user").on(t.userId),
   ],
 );
 

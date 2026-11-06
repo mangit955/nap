@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MAX_WAITING_STEERS } from "@nap/shared/ports/steer-queue";
 import { eq, inArray, sql as sqlOf } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -1034,6 +1035,85 @@ describe("steering against the end of a request", () => {
     } finally {
       blocker.release();
     }
+  });
+
+  /** A message to a session, under a fresh id unless the test is retrying one. */
+  function message(seed: { sessionId: string; userId: string }, text = "use Postgres instead") {
+    return {
+      id: randomUUID(),
+      ...seed,
+      message: text,
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    };
+  }
+
+  /**
+   * Holds the leased request's row the way an admission in progress does, starts `admissions`
+   * against it, and lets them go only once every one of them is waiting on that row — so they
+   * re-read the request one after another, which is the interleaving a race would have to win.
+   */
+  async function afterHeldRow<T>(requestId: string, admissions: () => Promise<T>[]): Promise<T[]> {
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`select id from turn_requests where id = ${requestId} for no key update`;
+      const started = admissions();
+      await waiters(started.length);
+      await blocker`commit`;
+      return await Promise.all(started);
+    } finally {
+      blocker.release();
+    }
+  }
+
+  it("lands a retried message once when the retries race for the backlog's last place", async () => {
+    // Both attempts look for the id before either has written it, so neither finds the other. The
+    // first to the row joins and fills the backlog; the second must not then see a full backlog
+    // and queue the same words again as a turn of their own.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    for (let index = 1; index < MAX_WAITING_STEERS; index += 1)
+      await queue.steer(message(seed, `steer ${index}`));
+    const retried = message(seed);
+
+    const answers = await afterHeldRow(requestId, () => [
+      queue.steer(retried),
+      queue.steer(retried),
+    ]);
+
+    expect(answers).toEqual([
+      { as: "steer", requestId },
+      { as: "steer", requestId },
+    ]);
+    expect(await queue.getStatus({ id: retried.id, ...seed })).toBeNull();
+    // And the request still closes, resolving every steer it holds.
+    const closed = await queue.close(requestId, "worker-a", "defer");
+    expect(closed.deferred.map((steer) => steer.id)).toContain(retried.id);
+    expect((await queue.steersOf(requestId)).filter((steer) => steer.state === "pending")).toEqual(
+      [],
+    );
+  });
+
+  it("admits no more than the backlog allows when two messages race for its last place", async () => {
+    // What counting under the row's lock is for: a lock two admissions could hold at once would let
+    // both count the same backlog and both join.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    for (let index = 1; index < MAX_WAITING_STEERS; index += 1)
+      await queue.steer(message(seed, `steer ${index}`));
+
+    const answers = await afterHeldRow(requestId, () => [
+      queue.steer(message(seed, "first")),
+      queue.steer(message(seed, "second")),
+    ]);
+
+    expect(answers.map((answer) => answer.as).sort()).toEqual(["steer", "turn"]);
+    expect(
+      (await queue.steersOf(requestId)).filter((steer) => steer.state === "pending"),
+    ).toHaveLength(MAX_WAITING_STEERS);
   });
 
   it("lands every message of a burst exactly once while the request closes under it", async () => {

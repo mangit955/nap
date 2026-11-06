@@ -436,6 +436,52 @@ it("uses a native capability only when supplied, keeps portable history and acco
   });
 });
 
+it("tells a native compaction what the person sent mid-turn, among their requests", async () => {
+  const f = fixture(new ScriptedLLMProvider([[{ text: "prior work" }]]));
+  await f.run(EARLY);
+  const last = (await f.history()).at(-1);
+  await f.events.append({
+    sessionId: SESSION,
+    turnId: last?.turnId ?? "",
+    createdAt: new Date().toISOString(),
+    type: "steer.applied",
+    payload: { steerId: crypto.randomUUID(), text: "Actually keep the footer." },
+  });
+  const nativeRequests: Parameters<import("@nap/shared/ports/llm-provider").NativeCompaction>[0][] =
+    [];
+  const { NativeSessionLifecycle } = await import("@nap/agent/native-compaction");
+  const lifecycle = new NativeSessionLifecycle(async (request) => {
+    nativeRequests.push(request);
+    return {
+      provider: "codex",
+      sessionId: "native-real-id",
+      usage: { inputTokens: 1000, outputTokens: 100 },
+      beforeTokens: 20000,
+      afterTokens: 4000,
+    };
+  });
+  const underlying = new ScriptedLLMProvider([[]]);
+  const native: LLMProvider = {
+    startTurn(options) {
+      return lifecycle.bind(underlying.startTurn(options));
+    },
+  };
+
+  await f
+    .restart(native)
+    .runTurn({ turnId: crypto.randomUUID(), sessionId: SESSION, message: "/compact" });
+
+  // The agent wraps what the runtime assembled; the requests are inside, as the runtime wrote them.
+  const wrapped = JSON.parse(nativeRequests[0]?.untrustedContext ?? "{}") as {
+    conversation?: string;
+  };
+  const context = JSON.parse(wrapped.conversation ?? "{}") as { userRequests?: unknown[] };
+  expect(context.userRequests).toContainEqual(expect.objectContaining({ text: EARLY }));
+  expect(context.userRequests).toContainEqual(
+    expect.objectContaining({ text: "Actually keep the footer." }),
+  );
+});
+
 it("refuses an oversized current request intact before making a normal model call", async () => {
   const provider = new ScriptedLLMProvider([[]]);
   const f = fixture(provider, 4000);

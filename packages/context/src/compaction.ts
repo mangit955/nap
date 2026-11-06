@@ -47,7 +47,13 @@ export function prepareCompaction(history: NapEvent[], chunkTokens: number): Com
       Array.isArray(result.content) &&
       result.content.some((b) => b.type === "tool_result")
     ) {
-      tail.push(call, result);
+      // The results alone. A tail exists to keep a call and its results together, and anything
+      // else in that message is the person's: a steer read beside them, which every rebuild
+      // already carries among the requests it protects, and would otherwise carry twice.
+      tail.push(call, {
+        role: "user",
+        content: result.content.filter((block) => block.type === "tool_result"),
+      });
       break;
     }
   }

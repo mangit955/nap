@@ -65,6 +65,14 @@ export const MAX_TRUNCATION_RECOVERIES = 2;
 /** How many times stop hooks may keep one turn going. Two, so no hook can keep it alive. */
 export const MAX_STOP_REFUSALS = 2;
 
+/**
+ * What the loop keeps spare for a steer before taking one: room for the steer itself and the reply
+ * it is appended after, neither of which is in the estimate when the decision is made. Generous
+ * because the cost of guessing low is a message marked read that no model answered, and the cost
+ * of guessing high is only that message waiting for the next turn.
+ */
+const STEER_ROOM_TOKENS = 2_048;
+
 export type AgentServiceOptions = {
   provider: LLMProvider;
   /** Per-turn ceilings. Defaults come from ./safety/budget.ts. */
@@ -243,7 +251,9 @@ class Turn {
       // A safe point: the last batch is answered, in one message, and nothing is running. What the
       // person sent meanwhile goes after those results, in that message — so it never separates a
       // result from its call, and it lands after everything the cache already holds (ADR-0024).
-      for (const text of await this.#interjections()) appendText(this.#messages, text);
+      // Only on a step that is going to call the model: one about to fail on its budget or its
+      // context takes nothing, and what waits becomes the next turn instead.
+      for (const text of await this.#interjections(1)) appendText(this.#messages, text);
       if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
 
       const contextFailure = await this.#checkContext();
@@ -400,7 +410,8 @@ class Turn {
         // The model is finished with what it was asked; somebody may have asked for more since.
         // Answered with the turn's next step rather than left for a turn behind this one, which
         // would begin by rebuilding the context this one already holds.
-        const steered = await this.#interjections();
+        // Two steps, as an objection needs: one to read it and one for whatever it asks for.
+        const steered = await this.#interjections(2);
         if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
         if (steered.length > 0) {
           this.#messages.push({
@@ -447,15 +458,35 @@ class Turn {
   /**
    * The person's words since the model last heard from them, from every hook that has any.
    *
-   * Asked only with a step left to answer them. Taking a steer marks it read for good, so one taken
-   * by a turn that then could not call the model would be a message nobody ever answered; left
-   * untaken, it becomes the next turn when this one ends.
+   * Asked only with room left to answer them: `steps` model calls, and a next request that fits
+   * the turn's tokens and the context's ceilings with a steer's worth to spare. Taking a steer marks
+   * it read for good, so one taken by a turn that then failed on its budget would be a message
+   * nobody ever answered — and would have turned a turn that was finishing into a failed one. Left
+   * untaken, it becomes the next turn when this one ends, with a budget of its own.
    */
-  async #interjections(): Promise<string[]> {
-    if (this.#budget.remaining().steps < 1 || this.#cancelled()) return [];
+  async #interjections(steps: number): Promise<string[]> {
+    if (this.#cancelled() || !this.#roomToAnswer(steps)) return [];
     const said: string[] = [];
     for (const hook of this.#hooks) said.push(...((await hook.interject?.()) ?? []));
     return said;
+  }
+
+  /**
+   * Whether the next model request would pass the checks at the top of a step with a steer added.
+   * The same checks, so the two cannot disagree about what "room" means; the margin stands in for
+   * the steer, whose size is not known until it has been taken.
+   */
+  #roomToAnswer(steps: number): boolean {
+    if (this.#budget.remaining().steps < steps) return false;
+    const input = this.#estimate() + STEER_ROOM_TOKENS;
+    const ceiling = this.#request.context.budgetTokens;
+    const contextWindow = this.#turn.contextWindowTokens;
+    if (contextWindow !== undefined && input + this.#headroom() >= contextWindow) return false;
+    return (
+      ceiling === undefined ||
+      (input <= ceiling &&
+        input <= (this.#helpers?.availableTokens() ?? this.#budget.remaining().tokens))
+    );
   }
 
   async #firstStopReason(): Promise<string | undefined> {

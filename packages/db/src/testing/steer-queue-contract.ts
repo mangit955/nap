@@ -284,6 +284,42 @@ export function steerQueueContract(name: string, harness: () => SteerQueueHarnes
       ]);
     });
 
+    it("drops what a request being stopped never read, whatever its worker asked for", async () => {
+      // The Stop is in the row before the worker hears of it. A close that deferred here would
+      // queue the person's words as a turn the Stop never saw, which would then run and be paid for.
+      const { queue, session } = harness();
+      const seed = await session();
+      const requestId = await leased(queue, seed);
+      const unread = steer(seed, "unread");
+      await queue.steer(unread);
+      await queue.requestCancel(seed.sessionId);
+
+      await expect(queue.close(requestId, "worker-a", "defer")).resolves.toEqual({
+        deferred: [],
+        dropped: [{ id: unread.id, text: "unread" }],
+      });
+      expect(await queue.getStatus({ id: unread.id, ...seed })).toBeNull();
+      await expect(queue.steersOf(requestId)).resolves.toEqual([
+        { id: unread.id, text: "unread", state: "dropped" },
+      ]);
+    });
+
+    it("hands nothing to a request being stopped", async () => {
+      const { queue, session } = harness();
+      const seed = await session();
+      const requestId = await leased(queue, seed);
+      const unread = steer(seed, "unread");
+      await queue.steer(unread);
+      await queue.requestCancel(seed.sessionId);
+
+      await expect(queue.take(requestId, "worker-a")).resolves.toEqual([]);
+      // Still the person's to have back when the stopped request closes.
+      await expect(queue.close(requestId, "worker-a", "drop")).resolves.toEqual({
+        deferred: [],
+        dropped: [{ id: unread.id, text: "unread" }],
+      });
+    });
+
     it("resolves nothing twice when a request is closed again", async () => {
       const { queue, session } = harness();
       const seed = await session();

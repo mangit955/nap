@@ -673,6 +673,11 @@ sent once the session is idle. So no old worker may be claiming once a new API a
 4. Deploy the web. Only the new web sends a steer. An old tab cannot parse the new events, and
    reloading it fixes that.
 
+Rolling back is not the reverse. Once any `steer.*` event is in a session's log, an API, worker or
+reaper from before this change rejects that whole session, as it would any shape it cannot parse, so
+a prior image is not a safe rollback once a new API has admitted a steer. Stop the steering producers
+and roll forward with compatible readers instead, as with any new event metadata above.
+
 The Render release script already deploys in this order, apart from step 3's swap, and the worker's
 pre-deploy command applies 0019 before new workers boot. See
 [ADR-0027](adr/0027-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).

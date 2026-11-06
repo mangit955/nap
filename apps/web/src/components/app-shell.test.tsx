@@ -368,11 +368,9 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Files" }));
     fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
     expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
-    // Still known to be running: the composer offers to steer the turn rather than start one.
-    expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute(
-      "placeholder",
-      expect.stringMatching(/next step/),
-    );
+    // Still known to be running, with the prompt not yet in the log: nothing more is taken until
+    // it lands, since the composer tracks one submission at a time.
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
   });
 
   it("draws no line or card for what happened while the chat was out of view", async () => {

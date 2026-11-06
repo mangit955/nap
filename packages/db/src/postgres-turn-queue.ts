@@ -483,6 +483,15 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
           )
           .for("no key update");
 
+        // Again, now that the row is held. The `find` above ran before any lock, so a retry of
+        // this message that committed while this one waited is invisible to it — and if the
+        // other attempt joined and filled the backlog, or joined just before the request closed,
+        // this one would otherwise queue the same words again as a turn under the same id, in a
+        // table where nothing collides with the steer. Each statement reads what has committed by
+        // the time it starts, so this sees whatever the attempt ahead of it on the row did.
+        const already = await findIn(tx, request);
+        if (already !== null) return already;
+
         if (target !== undefined) {
           const [waiting] = await tx
             .select({ n: count() })
@@ -527,29 +536,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   async find(
     request: Pick<SteerRequest, "id" | "sessionId" | "userId">,
   ): Promise<SteerAdmission | null> {
-    const [steer] = await this.#db
-      .select({
-        sessionId: turnSteers.sessionId,
-        userId: turnSteers.userId,
-        requestId: turnSteers.requestId,
-      })
-      .from(turnSteers)
-      .where(eq(turnSteers.id, request.id));
-    // Checked first: a deferred steer has a turn request under the same id as well, and what the
-    // first attempt did was join.
-    if (steer !== undefined)
-      return steer.sessionId === request.sessionId && steer.userId === request.userId
-        ? { as: "steer", requestId: steer.requestId }
-        : { as: "conflict" };
-
-    const [turn] = await this.#db
-      .select({ sessionId: turnRequests.sessionId, userId: turnRequests.userId })
-      .from(turnRequests)
-      .where(eq(turnRequests.id, request.id));
-    if (turn === undefined) return null;
-    return turn.sessionId === request.sessionId && turn.userId === request.userId
-      ? { as: "turn" }
-      : { as: "conflict" };
+    return await findIn(this.#db, request);
   }
 
   async take(requestId: string, owner: string): Promise<Steer[]> {
@@ -566,6 +553,9 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
             where ${turnRequests.id} = ${requestId}
               and ${turnRequests.leaseOwner} = ${owner}
               and ${turnRequests.state} = 'leased'
+              -- A request being stopped reads nothing more: what waits is the person's to have
+              -- back, and admission already refuses it for the same reason.
+              and ${turnRequests.cancelRequested} = false
           )`,
         ),
       )
@@ -592,17 +582,21 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
             eq(turnRequests.steeringClosed, false),
           ),
         )
-        .returning({ id: turnRequests.id });
+        .returning({ id: turnRequests.id, cancelRequested: turnRequests.cancelRequested });
       if (held === undefined) return { deferred: [], dropped: [] };
+      // A Stop is in this row before the worker hears of it, which can be a renewal later. Read
+      // here, under the lock, rather than trusted from the caller: deferring would queue the
+      // person's words as turns the Stop never saw, and those would run.
+      const resolution = held.cancelRequested ? "drop" : disposition;
 
       const waiting = oldestFirst(
         await tx
           .update(turnSteers)
-          .set({ state: disposition === "defer" ? "deferred" : "dropped", resolvedAt: sql`now()` })
+          .set({ state: resolution === "defer" ? "deferred" : "dropped", resolvedAt: sql`now()` })
           .where(and(eq(turnSteers.requestId, requestId), eq(turnSteers.state, "pending")))
           .returning(),
       );
-      if (disposition === "drop" || waiting.length === 0)
+      if (resolution === "drop" || waiting.length === 0)
         return {
           deferred: [],
           dropped: waiting.map(({ id, message }) => ({ id, text: message })),
@@ -610,19 +604,26 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
 
       // Each becomes the turn it would have been had nothing been running: same id, same words,
       // same model and payer, queued in the order it was sent.
-      await tx.insert(turnRequests).values(
-        waiting.map((steer) => ({
-          id: steer.id,
-          sessionId: steer.sessionId,
-          userId: steer.userId,
-          kind: "turn" as const,
-          message: steer.message,
-          plan: steer.plan,
-          model: steer.model,
-          billsToUser: steer.billsToUser,
-          createdAt: steer.createdAt,
-        })),
-      );
+      await tx
+        .insert(turnRequests)
+        .values(
+          waiting.map((steer) => ({
+            id: steer.id,
+            sessionId: steer.sessionId,
+            userId: steer.userId,
+            kind: "turn" as const,
+            message: steer.message,
+            plan: steer.plan,
+            model: steer.model,
+            billsToUser: steer.billsToUser,
+            createdAt: steer.createdAt,
+          })),
+        )
+        // Admission never lets one message be both a steer and a turn, but one stray row must not
+        // be able to fail the whole close and leave every steer here waiting for nothing. A turn
+        // request already under this id is this message, already queued as a turn: deferred is
+        // what it is, and inserting it again would run the same words twice.
+        .onConflictDoNothing({ target: turnRequests.id });
       return { deferred: waiting.map(({ id, message }) => ({ id, text: message })), dropped: [] };
     });
   }
@@ -643,6 +644,39 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
       // janitor's own rows are terminal with a null `finished_at`.
       .where(and(eq(turnRequests.id, requestId), eq(turnRequests.state, "orphaned")));
   }
+}
+
+/**
+ * Where an id already landed, read through `db` — the pool, or an admission's own transaction so
+ * the answer reflects what committed while it waited on the request's row.
+ */
+async function findIn(
+  db: Pick<PostgresJsDatabase, "select">,
+  request: Pick<SteerRequest, "id" | "sessionId" | "userId">,
+): Promise<SteerAdmission | null> {
+  const [steer] = await db
+    .select({
+      sessionId: turnSteers.sessionId,
+      userId: turnSteers.userId,
+      requestId: turnSteers.requestId,
+    })
+    .from(turnSteers)
+    .where(eq(turnSteers.id, request.id));
+  // Checked first: a deferred steer has a turn request under the same id as well, and what the
+  // first attempt did was join.
+  if (steer !== undefined)
+    return steer.sessionId === request.sessionId && steer.userId === request.userId
+      ? { as: "steer", requestId: steer.requestId }
+      : { as: "conflict" };
+
+  const [turn] = await db
+    .select({ sessionId: turnRequests.sessionId, userId: turnRequests.userId })
+    .from(turnRequests)
+    .where(eq(turnRequests.id, request.id));
+  if (turn === undefined) return null;
+  return turn.sessionId === request.sessionId && turn.userId === request.userId
+    ? { as: "turn" }
+    : { as: "conflict" };
 }
 
 /** `returning` carries no order, and the order a person sent their messages in is the point. */

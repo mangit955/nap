@@ -82,11 +82,18 @@ export function Sandbox() {
         batch of tool calls has been answered, or when the model stops with a step left. It is
         appended after those results, never between a result and its call, and never into the cached
         part of the conversation. The log records it where it was read, durably, before the model
-        sees it. At most three wait on one turn; a fourth is queued as the next turn. A turn that
-        finishes without reading a message queues it as the next turn, under the same id. A turn
-        that was stopped, or whose worker died, runs none of them, and each is offered back to send
-        again. Which of these happens is decided under a lock on the running request&rsquo;s row,
-        which its end takes too, so no message is read twice or lost between the two.
+        sees it. It is read only with room left to answer it: a step to spare, and a next request
+        that still fits the turn&rsquo;s budget; otherwise it waits for the turn to end. At most
+        three wait on one turn; a fourth is queued as the next turn. A turn that finishes without
+        reading a message queues it as the next turn, under the same id. A turn that was stopped
+        runs none of them, and neither does one whose worker died or shut down first; each is
+        offered back to send again. Some running work never takes a message — a compaction, an app
+        test, a publish, or a turn in the other plan mode — and a message sent to it is the next
+        turn. Whether a message joins the turn or becomes the next one is decided under a lock on
+        the running request&rsquo;s row, which the turn&rsquo;s end takes too. Each later change to
+        a message is one conditional update, so none is read twice. A message can still go
+        unanswered if the turn&rsquo;s end fails to record, or if the record of reading it is lost
+        on the way back; once the session is idle, the chat offers it back.
       </P>
 
       <P>

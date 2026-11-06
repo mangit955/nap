@@ -1082,6 +1082,42 @@ describe("steers", () => {
     expect(items.at(-1)).toMatchObject({ kind: "steer", status: "waiting" });
   });
 
+  it("calls one queued, not waiting, while a turn other than the one it was sent to runs", () => {
+    // Two steers the turn never read became two queued turns. While the first of them runs, the
+    // second is a turn of its own waiting behind it, not a message that turn will read.
+    const SECOND = "6c1f5a8b-7b9d-4d54-8f55-3e9c4b8a1d22";
+    const items = fold(
+      ev("user.message", { text: "Build" }),
+      received("and tags"),
+      ev("steer.received", { steerId: SECOND, text: "and a footer" }),
+      ended(),
+      evIn(STEER, ev("user.message", { text: "and tags" })),
+      evIn(STEER, ev("turn.started", { source: "user" })),
+    );
+
+    expect(steersOf(items)).toEqual([
+      expect.objectContaining({ steerId: SECOND, status: "queued" }),
+    ]);
+  });
+
+  it("calls one waiting while a repair of the request it joined runs, which may read it", () => {
+    const items = fold(
+      ev("user.message", { text: "Build" }),
+      received(),
+      ended(),
+      evIn(
+        REPAIR_TURN,
+        ev("user.message", {
+          text: "The `typecheck` check failed.",
+          repair: { requestId: TURN, jobId: "0e1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b" },
+        }),
+      ),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+    );
+
+    expect(steersOf(items)).toEqual([expect.objectContaining({ status: "waiting" })]);
+  });
+
   it("calls one queued once the turn it was sent to has ended", () => {
     const items = fold(ev("user.message", { text: "Build" }), received(), ended());
     expect(items.at(-1)).toMatchObject({ kind: "steer", status: "queued" });

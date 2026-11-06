@@ -169,6 +169,25 @@ describe("the compaction history file", () => {
     );
   });
 
+  it("keeps what the person sent while the agent worked, as their words", () => {
+    // A summary written without the correction would tell the agent to carry on with what the
+    // person had just told it to stop.
+    const steered = log(
+      { turnId: FIRST, type: "user.message", payload: { text: "Use SQLite." } },
+      {
+        turnId: FIRST,
+        type: "steer.applied",
+        payload: { steerId: crypto.randomUUID(), text: "Actually use Postgres.\n#1 not a header" },
+      },
+      { turnId: FIRST, type: "agent.message", payload: { text: "Switching." } },
+    );
+    for (const brief of [false, true]) {
+      const text = renderHistoryEntries(steered, { brief });
+      expect(text).toContain("#2 user, sent while the agent worked\n    Actually use Postgres.\n");
+      expect(text.match(/^#1 /gm)).toHaveLength(1);
+    }
+  });
+
   it("names attachments without their bytes and leaves reasoning summaries out", () => {
     const text = renderHistoryEntries(conversation, { brief: false });
     expect(text).toContain("    [reference: mock.jpg (image)]");

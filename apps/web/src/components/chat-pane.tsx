@@ -484,8 +484,10 @@ export function LiveChatPane({
         pendingAfterCompaction={pendingAfterCompaction}
         running={running}
         // A message typed while the agent works joins the turn at its next step (ADR-0027). The
-        // server decides whether it can; whatever cannot join is queued as the next turn.
-        steering
+        // server decides whether it can; whatever cannot join is queued as the next turn. Only one
+        // submission is tracked at a time, so not while one is still on its way: a second would
+        // take its place on screen, and a failure of the first would have nowhere to be shown.
+        steering={pending === undefined && pendingSteer === undefined}
         idleThroughSeq={idleThroughSeq}
         testPhase={testPhase}
         activity={{ startedAt, openedAt }}

@@ -1107,6 +1107,41 @@ describe("LiveChatPane steering a running turn", () => {
     return { ...failedTurn(), events, lastSeq: 2, jobs: jobView(events) };
   };
 
+  it("takes no second message while the first is still on its way", async () => {
+    // One submission is tracked at a time. A second sent now would take the first one's place on
+    // screen, and if the first then failed, its words would be lost without a word said.
+    const steers: string[] = [];
+    let answer: (response: Response) => void = () => {};
+    const server = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/steers") && init?.method === "POST") {
+        steers.push((JSON.parse(String(init.body)) as { message: string }).message);
+        return await new Promise<Response>((resolve) => {
+          answer = resolve;
+        });
+      }
+      return fetchJson(url, init);
+    };
+    render(<LiveChatPane sessionId={SESSION_ID} log={running()} fetchJson={server} />);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(box).toBeEnabled());
+
+    fireEvent.change(box, { target: { value: "Use Postgres instead" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send to the running turn" }));
+    await waitFor(() => expect(steers).toEqual(["Use Postgres instead"]));
+
+    await waitFor(() => expect(box).toBeDisabled());
+    expect(
+      screen.queryByRole("button", { name: "Send to the running turn" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(box, { target: { value: "and add tags" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(steers).toEqual(["Use Postgres instead"]);
+
+    await act(async () => {
+      answer(Response.json({ accepted: true, requestId: crypto.randomUUID(), as: "steer" }));
+    });
+  });
+
   it("sends a message into the running turn and shows it waiting, once", async () => {
     const steers: { id: string; message: string }[] = [];
     const server = async (url: string, init?: RequestInit): Promise<Response> => {

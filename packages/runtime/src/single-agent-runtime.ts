@@ -70,6 +70,7 @@ import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { RequestSteering, Steer } from "@nap/shared/ports/steer-queue";
 import type { Result } from "@nap/shared/result";
 import { shellQuote } from "@nap/shared/shell";
+import { TurnAbortError } from "@nap/shared/turn-abort";
 import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
@@ -830,8 +831,13 @@ export class SingleAgentRuntime implements Runtime {
    * After the job loop rather than after the person's turn, so a repair can still read what was
    * sent while the checks ran. Whatever nothing read becomes the next turn — unless the request was
    * stopped, in which case nothing more runs and each unread steer is handed back with an event
-   * saying so. A worker that has lost its lease resolves nothing here, and the janitor answers for
-   * those steers once it reclaims the request.
+   * saying so. The queue decides that as well as this: a Stop already on the request's row drops
+   * them even when the abort has not reached this process yet. A worker that has lost its lease
+   * resolves nothing here, and the janitor answers for those steers once it reclaims the request.
+   *
+   * The reason names who ended it. Only a person's Stop is `stopped`; a drain that ran out of time
+   * or a lease that went away is `interrupted`, as a dead worker is, because the pane tells the
+   * person which of the two happened to their message.
    *
    * The dropped events are under the request's own turn id, as the received ones are, and after
    * that turn's terminal event. They open nothing: no reader of the log treats a steer as the start
@@ -846,8 +852,13 @@ export class SingleAgentRuntime implements Runtime {
       const closed = await request.steering.close(
         request.signal?.aborted === true ? "drop" : "defer",
       );
+      const reason =
+        request.signal?.reason instanceof TurnAbortError &&
+        request.signal.reason.code !== "cancelled"
+          ? "interrupted"
+          : "stopped";
       for (const steer of closed.dropped)
-        scope.emit("steer.dropped", { steerId: steer.id, text: steer.text, reason: "stopped" });
+        scope.emit("steer.dropped", { steerId: steer.id, text: steer.text, reason });
       if (closed.dropped.length > 0) await scope.sink.drain();
       if (closed.deferred.length > 0 || closed.dropped.length > 0)
         getLogger().info(
@@ -1513,7 +1524,9 @@ export class SingleAgentRuntime implements Runtime {
    * read before any model has read it. A drain that fails throws, and the turn fails as it would on
    * any other event it could not record.
    *
-   * A queue that cannot be asked is not that: the steers stay waiting and the next step asks again.
+   * A queue that cannot be asked is not that: the next step asks again. Usually the steers are
+   * still waiting for it, but not always — a take that committed and whose answer was lost on the
+   * way back has marked them read with no event, and nothing offers those back (ADR-0027 D4).
    */
   #steeringFor(
     steering: RequestSteering,

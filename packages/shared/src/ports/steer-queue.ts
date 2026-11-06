@@ -109,7 +109,8 @@ export interface SteerQueue {
    * Marks the request's waiting steers read and returns them, oldest first.
    *
    * Conditional on `owner` still holding the lease, like a renewal: a worker that lost its lease
-   * reads nothing, so a zombie cannot hand somebody's words to a turn that no longer counts.
+   * reads nothing, so a zombie cannot hand somebody's words to a turn that no longer counts. Nor
+   * does a request being stopped: what waits there is the person's to have back.
    */
   take(requestId: string, owner: string): Promise<Steer[]>;
 
@@ -119,7 +120,8 @@ export interface SteerQueue {
    *
    * Called once, by the worker, after the request's last turn and before it is settled. Conditional
    * on the lease like `take`: a worker that lost its lease resolves nothing, and the janitor
-   * answers for those steers once it reclaims the request.
+   * answers for those steers once it reclaims the request. A request with a cancel already on its
+   * row drops them whatever `disposition` says: the Stop can reach the row before the worker.
    */
   close(requestId: string, owner: string, disposition: "defer" | "drop"): Promise<ClosedSteers>;
 

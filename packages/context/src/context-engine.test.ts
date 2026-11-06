@@ -3,6 +3,7 @@ import type { BuiltContext, ContextRequest, FailedAttempt } from "@nap/shared/po
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory, MemoryProvider } from "@nap/shared/ports/memory-provider";
 import { describe, expect, it } from "vitest";
+import { prepareCompaction } from "./compaction.ts";
 import {
   DEFAULT_BUDGET_TOKENS,
   ELIDED_TOOL_OUTPUT,
@@ -1477,6 +1478,41 @@ describe("steering", () => {
     ];
     const built = await engine().build(request({ history }));
     expect(texts(built.messages).join("\n")).not.toContain("never read");
+  });
+
+  it("carries a steer once after a compaction that kept the exchange it was read in", async () => {
+    // The steer is read beside the results of the newest exchange, which is the one a compaction
+    // keeps word for word; it is also among the requests every rebuild protects. Once is enough.
+    const before = [
+      userMessage(1, "Build a notes app"),
+      toolCall(1, "toolu_1"),
+      toolResult(1, "toolu_1", "listed"),
+      event("steer.applied", 1, { steerId, text: "Use Postgres instead" }),
+    ];
+    const plan = prepareCompaction(before, 10_000);
+    if (plan === null) throw new Error("nothing to compact");
+    const history = [
+      ...before,
+      event("compaction.completed", 1, {
+        id: turnId(1),
+        result: {
+          kind: "api",
+          checkpoint: { coveredThrough: plan.coveredThrough, summary: "s", tail: plan.tail },
+        },
+        usage: null,
+        beforeTokens: null,
+        afterTokens: null,
+      }),
+    ];
+
+    const built = await engine().build(request({ history }));
+
+    const said = JSON.stringify(built.messages).split(
+      JSON.stringify(renderSteer("Use Postgres instead")).slice(1, -1),
+    );
+    expect(said).toHaveLength(2);
+    // And the exchange it kept is still whole: the call and its result, nothing else.
+    expect(toolResults(built.messages).map((result) => result.toolCallId)).toEqual(["toolu_1"]);
   });
 
   it.each(["window", "budget"] as const)(

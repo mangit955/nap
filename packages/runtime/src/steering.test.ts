@@ -24,6 +24,7 @@ import { scriptGit } from "@nap/sandbox/testing/script-git";
 import { NapEventSchema } from "@nap/shared/events";
 import type { LLMProvider, LLMRequest } from "@nap/shared/ports/llm-provider";
 import type { RequestSteering } from "@nap/shared/ports/steer-queue";
+import { TurnAbortError } from "@nap/shared/turn-abort";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 
@@ -240,7 +241,58 @@ describe("a steer sent while a turn runs", () => {
     expect(queue.inFlight).toBe(1);
   });
 
-  it("closes the request to steers whatever happened, so a later message is the next turn", async () => {
+  it("says the turn was interrupted, not stopped, when its worker gave it up", async () => {
+    // A drain that ran out of time, or a lease that went away: nobody pressed Stop, and the pane
+    // must not say they did.
+    for (const code of ["shutdown", "lease_lost"] as const) {
+      events = new InMemoryEventStore();
+      const controller = new AbortController();
+      const { runtime } = subject([reading], async (call) => {
+        if (call === 1) {
+          await send("use SQLite");
+          controller.abort(new TurnAbortError(code));
+        }
+      });
+      const { id, steering } = await leased();
+
+      await runtime.runTurn({
+        turnId: id,
+        sessionId: SESSION_ID,
+        message: "build a notes app",
+        steering,
+        signal: controller.signal,
+      });
+
+      const log = await events.readFrom(SESSION_ID, 0);
+      expect(
+        log.filter((event) => event.type === "steer.dropped").map((event) => event.payload),
+      ).toEqual([expect.objectContaining({ text: "use SQLite", reason: "interrupted" })]);
+      await queue.settle(id, OWNER, "failed");
+    }
+  });
+
+  it("hands a steer back when the Stop reached the queue before it reached the worker", async () => {
+    // The worker has not yet heard of the Stop, so the turn runs to its end and asks to defer. The
+    // queue knows better, and the words must not run as a turn the person already stopped.
+    const { runtime } = subject([reading], async (call) => {
+      if (call === 1) {
+        await send("never mind");
+        await queue.requestCancel(SESSION_ID);
+      }
+    });
+    const { id, steering } = await leased();
+
+    await runtime.runTurn({ turnId: id, sessionId: SESSION_ID, message: "hi", steering });
+
+    const log = await events.readFrom(SESSION_ID, 0);
+    expect(log.filter((event) => event.type === "steer.applied")).toEqual([]);
+    expect(
+      log.filter((event) => event.type === "steer.dropped").map((event) => event.payload),
+    ).toEqual([expect.objectContaining({ text: "never mind", reason: "stopped" })]);
+    expect(queue.inFlight).toBe(1);
+  });
+
+  it("closes a finished request to steers, so a later message is the next turn", async () => {
     const { runtime } = subject([[{ text: "Done." }]]);
     const { id, steering } = await leased();
 
