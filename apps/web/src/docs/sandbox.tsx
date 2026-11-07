@@ -81,11 +81,13 @@ export function Sandbox() {
         that kind of work. They are looked for in <Code>.nap/skills/</Code>, then in the{" "}
         <Code>.agents/skills/</Code> and <Code>.claude/skills/</Code> folders an imported repository
         may already have, one folder deep, through the sandbox port like every other read. That is
-        three directory listings and one read per skill, in parallel, at the start of each turn,
-        with a five-second deadline. At most 32 are read; a description may be 500 characters and a
-        whole file 24,000. A skill that breaks a rule, or repeats a name an earlier folder already
-        used, is skipped and its reason shown, and a sandbox that cannot answer makes the skills
-        unavailable for that turn rather than absent. Nothing about a skill fails a turn.
+        three directory listings in parallel, then up to 32 skill reads in parallel, at the start of
+        each turn, with a five-second deadline. At most 32 are read; a description may be 500
+        characters and a whole file 24,000. A skill that breaks a rule, or repeats a name an earlier
+        folder already used, is skipped and its reason shown. Excess-folder warnings name at most 32
+        folders and count the rest, so diagnostics stay bounded. Each reason is capped at 500
+        characters. A sandbox that cannot answer makes the skills unavailable for that turn rather
+        than absent. Nothing about a skill fails a turn.
       </P>
 
       <P>

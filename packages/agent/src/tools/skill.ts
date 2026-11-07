@@ -137,6 +137,12 @@ type Found =
 async function readListed(index: SkillIndex, name: string, ctx: ToolContext): Promise<Found> {
   const listed = index.skills.find((skill) => skill.name === name);
   if (listed === undefined) {
+    if (index.unavailable !== undefined)
+      return {
+        ok: false,
+        retry: true,
+        output: `The project's skills could not be listed (${index.unavailable}). Cannot determine whether ${name} exists.`,
+      };
     const known = index.skills.map((skill) => skill.name);
     const skipped = index.skipped.find((skip) => skip.path.includes(`/${name}/`));
     return {

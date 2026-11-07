@@ -8,8 +8,8 @@
  *
  * Everything here reads the workspace through `SandboxManager`, because the project's files live
  * in its sandbox and never on the host running this code. Discovery is three single-level
- * listings and one read per skill, all in parallel, under one deadline — never a walk, never a
- * command, so it works against every fake and costs one round of requests at the start of a turn.
+ * listings in parallel, then up to 32 reads in parallel, under one deadline. It never walks the
+ * tree or runs a command, and discovery runs only at the start of a turn.
  *
  * Nothing about a skill can fail a turn. A file that is malformed, oversized or a duplicate is
  * skipped with a reason somebody can act on, and a sandbox that cannot answer makes the skills
@@ -292,10 +292,16 @@ async function discover(
     );
   }
 
-  const skipped: SkippedSkill[] = folders.slice(MAX_SKILLS).map((folder) => ({
+  const skipped: SkippedSkill[] = folders.slice(MAX_SKILLS, MAX_SKILLS * 2).map((folder) => ({
     path: `${folder}/${SKILL_FILE}`,
     reason: `more than ${MAX_SKILLS} skills in this project; this one was not read`,
   }));
+  const omitted = folders.length - MAX_SKILLS * 2;
+  if (omitted > 0)
+    skipped.push({
+      path: base,
+      reason: `${omitted} additional skill folders were not read; excess-folder details are limited to ${MAX_SKILLS}`,
+    });
   const reads = await Promise.all(
     folders.slice(0, MAX_SKILLS).map(async (folder) => {
       const path = `${folder}/${SKILL_FILE}`;
@@ -330,7 +336,13 @@ async function discover(
     const { body: _body, ...summary } = parsed.value;
     skills.push(summary);
   }
-  return { skills, skipped: [...unread, ...skipped] };
+  return {
+    skills,
+    skipped: [...unread, ...skipped].map((skip) => ({
+      ...skip,
+      reason: skip.reason.length <= 500 ? skip.reason : `${skip.reason.slice(0, 499)}…`,
+    })),
+  };
 }
 
 function describe(error: SandboxError): string {

@@ -27,6 +27,11 @@ describe("renderSkillListing", () => {
     expect(listing.split("</project_skills>")).toHaveLength(2);
   });
 
+  it("qualifies loading guidance for turns whose toolset excludes skills", () => {
+    const listing = renderSkillListing({ skills: [skill("x", "y")], skipped: [] });
+    expect(listing).toContain("When the skill tool is available");
+  });
+
   it("frames the descriptions as the project's words, not Nap's instructions", () => {
     const listing = renderSkillListing({ skills: [skill("x", "y")], skipped: [] });
     expect(listing).toMatch(/project's own words/);

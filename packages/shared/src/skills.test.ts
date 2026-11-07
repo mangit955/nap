@@ -245,6 +245,26 @@ describe("discoverSkills", () => {
     expect(sandbox.calls.filter((call) => call.startsWith("read"))).toHaveLength(MAX_SKILLS);
   });
 
+  it("bounds excess-directory diagnostics and records how many were omitted", async () => {
+    const files: Record<string, string> = {};
+    for (let n = 0; n < MAX_SKILLS * 2 + 3; n += 1) {
+      const name = `s${String(n).padStart(2, "0")}`;
+      files[`${ROOT}/.nap/skills/${name}/SKILL.md`] = skillFile(`name: ${name}\ndescription: d`);
+    }
+    const sandbox = sandboxWith(files);
+    const index = await discoverSkills(sandbox, "sbx", ROOT);
+
+    expect(index.skills).toHaveLength(MAX_SKILLS);
+    expect(index.skipped).toHaveLength(MAX_SKILLS + 1);
+    expect(index.skipped.at(-1)).toEqual({
+      path: ROOT,
+      reason: "3 additional skill folders were not read; excess-folder details are limited to 32",
+    });
+    expect(index.skipped.some((skip) => skip.path.includes("/s64/"))).toBe(false);
+    expect(skillsDiscoveredPayload(index).skipped).toHaveLength(MAX_SKILLS + 1);
+    expect(sandbox.calls.filter((call) => call.startsWith("read"))).toHaveLength(MAX_SKILLS);
+  });
+
   it("reports a sandbox that cannot answer as unavailable, never as an empty project", async () => {
     const sandbox = sandboxWith({}, { list: { code: "unavailable", message: "down" } });
     const index = await discoverSkills(sandbox, "sbx", ROOT);
@@ -260,6 +280,19 @@ describe("discoverSkills", () => {
     );
     const index = await discoverSkills(sandbox, "sbx", ROOT);
     expect(index.skipped).toEqual([{ path, reason: "could not be read (timeout: slow)" }]);
+  });
+
+  it("bounds a sandbox read failure's diagnostic before it reaches context or events", async () => {
+    const path = `${ROOT}/.nap/skills/style/SKILL.md`;
+    const sandbox = sandboxWith(
+      { [path]: skillFile("name: style\ndescription: a") },
+      { read: { [path]: { code: "timeout", message: "slow ".repeat(200) } } },
+    );
+    const index = await discoverSkills(sandbox, "sbx", ROOT);
+    expect(index.skipped).toHaveLength(1);
+    expect(index.skipped[0]?.reason).toContain("could not be read");
+    expect(index.skipped[0]?.reason.length).toBeLessThanOrEqual(500);
+    expect(skillsDiscoveredPayload(index).skipped[0]?.reason.length).toBeLessThanOrEqual(500);
   });
 
   it("gives up at its deadline rather than holding the turn", async () => {

@@ -111,6 +111,22 @@ describe("the skill tool", () => {
     expect(events.some((event) => event.type === "skill.loaded")).toBe(false);
   });
 
+  it("preserves unavailable discovery rather than claiming the project has no skills", async () => {
+    manager.listFiles = async () => ({
+      ok: false,
+      error: { code: "unavailable", message: "sandbox is down" },
+    });
+    await startTurn();
+
+    const outcome = await run("skill", { name: "migrations" });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.output).toContain("sandbox is down");
+    expect(outcome.output).toMatch(/could not be listed/);
+    expect(outcome.output).not.toContain("This project has none");
+    expect(events.some((event) => event.type === "skill.loaded")).toBe(false);
+  });
+
   it("says why a skill that has become malformed cannot be loaded", async () => {
     await put("migrations", "no frontmatter at all");
 

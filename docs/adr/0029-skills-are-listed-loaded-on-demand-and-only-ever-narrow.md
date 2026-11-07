@@ -37,7 +37,7 @@ Unknown keys are dropped, not refused: other harnesses write `license`, `metadat
 
 ### D2: Bounds, and a skill never fails a turn
 
-- At most **32 skills** are read. Every listed skill costs its description on every turn, and a repository with more is better served by fewer, broader ones. The rest are skipped by name, in path order.
+- At most **32 skills** are read. Every listed skill costs its description on every turn, and a repository with more is better served by fewer, broader ones. The rest are skipped in path order. At most 32 excess folders are named individually, followed by one notice counting any remaining folders. Together with at most 32 read or parse failures, discovery emits at most 65 diagnostic rows, each with at most 500 characters of reason text. This bounds prompt and event detail even for a repository with many skill folders or a sandbox returning a long failure message.
 - A description of at most **500 characters**.
 - A whole `SKILL.md` of at most **24,000 characters**, which stays under the 30,000-character tool output cap with the framing the tool adds, so a loaded skill is never cut off mid-instruction. Longer detail belongs in files beside it, which the agent reads when the instructions send it there.
 - Discovery takes at most **5 seconds**, the file listing's deadline.
@@ -46,7 +46,7 @@ A malformed, duplicate, oversized or unreadable skill is **skipped with a reason
 
 ### D3: Discovery runs at the start of each turn, and the listing rides in the turn's own message
 
-Discovery is three single-level `listFiles` calls and one `readFile` per skill, all in parallel, alongside the file listing in `ContextEngine.build`. That is once per turn, never per model step. It is not a walk and not a command, so it works against every fake and costs one round of requests. A compaction's rebuild runs it again, which is rare and cheap.
+Discovery runs three single-level `listFiles` calls together, then up to 32 `readFile` calls together, alongside the file listing in `ContextEngine.build`. That is two request waves for a project with skills, once per turn, never per model step. It is not a walk or a command, so it works against every fake. A compaction's rebuild runs it again, which is rare and cheap.
 
 The listing — names and descriptions, under `<project_skills>` — goes at the end of the turn's own message, beside the file listing, in the **turn context**. That is the one place ADR-0024 lets change from turn to turn. So a skill added, edited or removed mid-session reaches the next turn, and costs no cache: the system prompt and the tool block never mention any skill. A project without skills adds nothing to the prompt at all.
 
@@ -86,7 +86,7 @@ It runs alone, never beside reads, because loading one changes what the next cal
 - **Every turn a person or a check started, whether or not the project has skills.** The tool block is the head of every cached prefix (ADR-0024). Offering `skill` only once a project had skills would make the session's first skill rewrite its cache.
 - **Plan mode, yes.** It only reads, and a plan should follow the project's own instructions for the work it plans.
 - **Helpers, no.** A helper sees none of the turn's conversation and gets a self-contained task; the parent puts whatever a skill says that matters into the task. A helper with its own index and narrowing would be a second skill session per turn for little gain.
-- **App tests, no.** Their tool set is fixed to looking at the running app.
+- **App tests, no.** Their tool set is fixed to looking at the running app. Listing guidance is conditional on the tool being available, so it does not direct an app test to call an excluded tool.
 
 ### D6: Two events
 
@@ -99,14 +99,14 @@ The turn log records counts, and the loaded skill's name and the tools it narrow
 
 ### D7: The pane, the harness and the docs
 
-The work log folds `skill.loaded` onto its call's row, opening an orphan row for a client that joined after the call, as `subagent.started` does. The row reads "Used skill *name*", groups as "Used N skills" with a book icon, and opens to the skill's path, what it narrowed the turn to, and the instructions the agent received. `skills.discovered` becomes a notice: the skills found, and a warning naming each skipped file and why.
+The work log folds `skill.loaded` onto its call's row, opening an orphan row for a client that joined after the call, as `subagent.started` does. The row reads "Used skill *name*", groups as "Used N skills" with a book icon, and opens to the skill's path, what it narrowed the turn to, and the instructions the agent received. `skills.discovered` becomes a notice: the skills found, and a warning naming skipped files and why, with bounded excess-folder detail and a count for the rest.
 
 `bun run harness` seeds its in-memory project with `.nap/skills/react-components/SKILL.md` and scripts a `skill` call, so the free dry run shows discovery, the event and the load. The `/docs` sandbox section describes the mechanism, and `CONTEXT.md` defines **Skill**.
 
 ## Consequences
 
 - A repository's skills work in Nap as they are, from either convention.
-- Every turn pays three directory listings, plus one read per skill, in parallel. On a project with none, all three listings come back not-found.
+- Every turn pays three parallel directory listings, followed by up to 32 parallel skill reads. On a project with none, all three listings come back not-found.
 - A skill can make a turn safer and never more capable. The cost is that a skill author who meant a scoped `Bash(...)` grant gets no `run_command` at all, and is told so.
 - The context engine's stub sandbox now allows exactly what discovery needs: listing the three skill roots, and reading a `SKILL.md`. Every other listing and every other read still throws, so a regression that makes context assembly read the project's files is still caught.
 
@@ -115,6 +115,6 @@ The work log folds `skill.loaded` onto its call's row, opening an orphan row for
 Only real infrastructure can settle these:
 
 - Whether real models load a skill when the work matches its description, and follow its instructions.
-- What discovery costs against E2B. Three listings and N reads in parallel should fit well inside the five-second deadline, but it has not been timed.
+- What discovery costs against E2B. The three listings and subsequent read wave share a five-second deadline, but their real latency has not been timed.
 - That the E2B adapter's `listFiles` on a missing folder maps to `file_not_found`, as the code reads it, on every path the template produces. The mapping was read in the adapter, not observed.
 - How E2B's `listFiles` reports a skill folder that is a symlink. It may come back as a file, which would make that skill invisible.
