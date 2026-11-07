@@ -195,8 +195,9 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
       // `state_security_mismatch`, which reaches the browser as `?error=state_mismatch`.
       //
       // Left alone in development, where both are localhost — see `isCrossSite`. Nothing
-      // here rescues a browser that blocks third-party cookies outright (Safari, Brave):
-      // the fix for those is one site rather than two.
+      // here rescues a browser that blocks third-party cookies outright (Safari, Brave),
+      // which is why production refuses to boot on two sites (`env.ts`); this branch is for
+      // an https deployment outside production that accepts Chrome and Firefox alone.
       ...(isCrossSite(config.baseUrl, config.webOrigin)
         ? { defaultCookieAttributes: { sameSite: "none", secure: true } }
         : {}),

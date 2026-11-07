@@ -1,10 +1,12 @@
 /**
  * Whether a browser will treat this API's session cookie as a third-party one.
  *
- * The web app and the API are deployed to two different hosts — a Vercel domain and a
- * Railway one — which are separate sites as far as a browser is concerned. A cookie set by
- * one and sent to the other is therefore third-party, and the `SameSite=Lax` default means
- * it is never sent at all: sign-in appears to succeed and every request after it is a 401.
+ * The web app and the API are two hosts. Under one registrable domain (`nap.example.com` and
+ * `api.example.com`) they are one site and the cookie is first-party. On two — the app on
+ * `vercel.app` and the API on `onrender.com`, say — a cookie set by one and sent to the other is
+ * third-party, and the `SameSite=Lax` default means it is never sent at all: sign-in appears to
+ * succeed and every request after it is a 401. `SameSite=None` rescues Chrome and Firefox there;
+ * nothing rescues Safari or Brave, which is why production refuses to boot that way (`env.ts`).
  *
  * Derived from the two URLs the process already knows rather than configured, because there
  * is no deployment where an operator would want to answer this differently from what those
@@ -27,12 +29,13 @@ export function isCrossSite(apiUrl: string, webOrigin: string): boolean {
  * Hosting suffixes under which every customer gets a subdomain, so two of them are different
  * sites however much of the name they share.
  *
- * These are the two this project deploys to, not an attempt at the list. They are here
- * because getting one of them wrong is the expensive direction: a false `same site` drops
- * the cookie back to `SameSite=Lax`, which stops sign-in working in *every* browser rather
- * than in the third-party-blocking ones alone.
+ * These are the ones this project has deployed to — Vercel for the app, Render for the API, and
+ * Railway before Render — not an attempt at the list. They are here because getting one of them
+ * wrong is the expensive direction: a false `same site` drops the cookie back to `SameSite=Lax`,
+ * which stops sign-in working in *every* browser rather than in the third-party-blocking ones
+ * alone, and lets a production boot through that should have been refused.
  */
-const HOSTING_SUFFIXES = ["vercel.app", "railway.app"];
+const HOSTING_SUFFIXES = ["vercel.app", "onrender.com", "railway.app"];
 
 /**
  * Whether two hostnames are the same site, near enough for the deployments this runs in.
@@ -43,7 +46,7 @@ const HOSTING_SUFFIXES = ["vercel.app", "railway.app"];
  * labels. That is exact for the shape this is asked about — an app and an API placed under
  * one domain an operator owns — and wrong for multi-label public suffixes, where it would
  * call two unrelated tenants of `example.co.uk` the same site. `HOSTING_SUFFIXES` covers the
- * two such suffixes this project actually meets; the rest of that class remains a known and
+ * hosting suffixes this project actually meets; the rest of that class remains a known and
  * accepted gap.
  *
  * An address is not a name, so two hosts reached by IP are only the same site when they are

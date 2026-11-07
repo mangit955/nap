@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import { isCrossSite } from "./auth/cross-site.ts";
 
 export const MAX_WORKER_FALLBACK_POLL_SECONDS = 30;
 
@@ -481,6 +482,27 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       code: "custom",
       path: [key],
       message: `must not exceed NAP_MAX_SANDBOXES_TOTAL (${env.NAP_MAX_SANDBOXES_TOTAL}), or the per-user limit can never be reached`,
+    });
+  }
+
+  // Two sites mean a third-party session cookie, and Safari and Brave drop those whatever
+  // `SameSite` says: sign-in answers 200, the browser throws the cookie away, and every request
+  // after it is a 401 that no server log can tell from a signed-out visitor. It shipped that way
+  // once, on `vercel.app` and `onrender.com`, and stayed unnoticed because Chrome was fine.
+  //
+  // Refused rather than warned about, because a warning lands in a log nobody reads while
+  // visitors bounce. Production only: development and every harness run on localhost, which
+  // is one site, and the kind clusters set production over plain http, which `isCrossSite`
+  // never calls cross-site. A failed boot fails the release before anything rolls forward.
+  if (env.NODE_ENV === "production" && isCrossSite(env.NAP_API_URL, env.NAP_WEB_ORIGIN)) {
+    const host = (url: string) => new URL(url).hostname;
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_WEB_ORIGIN"],
+      message:
+        `must be on the same site as NAP_API_URL in production (${host(env.NAP_WEB_ORIGIN)} and ` +
+        `${host(env.NAP_API_URL)} are not), or Safari and Brave drop the session cookie and ` +
+        "nobody using them can sign in. Serve both from subdomains of one domain — docs/DEPLOY.md",
     });
   }
 

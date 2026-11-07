@@ -3,6 +3,7 @@ import { isCrossSite } from "./cross-site.ts";
 
 describe("isCrossSite", () => {
   it("is true when the browser app and this API are on different hosts over https", () => {
+    expect(isCrossSite("https://nap-api.onrender.com", "https://nap-tawny.vercel.app")).toBe(true);
     expect(isCrossSite("https://nap-api.up.railway.app", "https://nap.vercel.app")).toBe(true);
   });
 
@@ -47,12 +48,13 @@ describe("isCrossSite", () => {
   });
 
   it("stays true for two tenants of one hosting suffix, which are not the same site", () => {
-    // `vercel.app` and `railway.app` are public suffixes: every customer gets a subdomain of
+    // `vercel.app`, `onrender.com` and `railway.app` are public suffixes: every customer gets a subdomain of
     // one, and two of them are no more the same site than two unrelated domains. Reporting
     // them same-site would drop the cookie back to `Lax`, which breaks sign-in in *every*
     // browser rather than in Safari alone — so the shared-parent rule below skips them.
     expect(isCrossSite("https://nap-api.vercel.app", "https://nap.vercel.app")).toBe(true);
     expect(isCrossSite("https://a.up.railway.app", "https://b.up.railway.app")).toBe(true);
+    expect(isCrossSite("https://nap-api.onrender.com", "https://nap.onrender.com")).toBe(true);
   });
 
   it("keeps a real subdomain of one tenant same-site, hosting suffix or not", () => {
@@ -64,6 +66,7 @@ describe("isCrossSite", () => {
     // with `.vercel.app`, and calling those one site is the same expensive mistake.
     expect(isCrossSite("https://vercel.app", "https://nap.vercel.app")).toBe(true);
     expect(isCrossSite("https://nap.vercel.app", "https://vercel.app")).toBe(true);
+    expect(isCrossSite("https://onrender.com", "https://nap-api.onrender.com")).toBe(true);
   });
 
   it("is true for two hosts reached by address, which share labels without sharing a name", () => {
