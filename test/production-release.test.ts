@@ -58,6 +58,52 @@ function provider({
 }
 
 describe("production release", () => {
+  it("reads the worker migration command where Render reports it", async () => {
+    // The shape of a real GET /v1/services/:id for the worker once the command is set: Render
+    // nests it under envSpecificDetails and leaves no top-level field. A PATCH with a top-level
+    // preDeployCommand is ignored by the API, which is how this was found.
+    const io = provider();
+    await releaseProduction(config, {
+      ...io,
+      request: async (url, init) => {
+        if (url.endsWith("/services/srv-dbc2vg3rjlhs73al1lng"))
+          return Response.json({
+            autoDeploy: "no",
+            serviceDetails: {
+              plan: "standard",
+              envSpecificDetails: {
+                dockerfilePath: "./Dockerfile",
+                preDeployCommand: "bun packages/db/scripts/migrate.ts",
+              },
+            },
+          });
+        return io.request(url, init);
+      },
+    });
+    expect(io.calls.filter((call) => call.method === "POST")).toHaveLength(4);
+  });
+
+  it("does not accept a top-level migration command in place of the one Render runs", async () => {
+    const io = provider();
+    await expect(
+      releaseProduction(config, {
+        ...io,
+        request: async (url, init) => {
+          if (url.endsWith("/services/srv-dbc2vg3rjlhs73al1lng"))
+            return Response.json({
+              autoDeploy: "no",
+              serviceDetails: {
+                preDeployCommand: "bun packages/db/scripts/migrate.ts",
+                envSpecificDetails: { preDeployCommand: "echo skip migrations" },
+              },
+            });
+          return io.request(url, init);
+        },
+      }),
+    ).rejects.toThrow();
+    expect(io.calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
   it("waits for the migrated worker, then API readiness and reaper before publishing the exact web commit", async () => {
     const io = provider();
     await releaseProduction(config, io);

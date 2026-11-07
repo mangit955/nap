@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import { isCrossSite } from "./auth/cross-site.ts";
 
 export const MAX_WORKER_FALLBACK_POLL_SECONDS = 30;
 
@@ -504,6 +505,47 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       path: [key],
       message: `must not exceed NAP_MAX_SANDBOXES_TOTAL (${env.NAP_MAX_SANDBOXES_TOTAL}), or the per-user limit can never be reached`,
     });
+  }
+
+  // Two sites mean a third-party session cookie, and Safari and Brave drop those whatever
+  // `SameSite` says: sign-in answers 200, the browser throws the cookie away, and every request
+  // after it is a 401 that no server log can tell from a signed-out visitor. It shipped that way
+  // once, on `vercel.app` and `onrender.com`, and stayed unnoticed because Chrome was fine.
+  //
+  // Refuse rather than warn so a release fails before visitors reach broken sign-in. Public
+  // production URLs require HTTPS: isCrossSite only chooses cookie attributes and exempts HTTP,
+  // which would otherwise let mixed-content and schemeful same-site failures through this guard.
+  // The kind clusters run production images on HTTP localhost. Permit that same-host loopback
+  // pair, including literal IPv4/IPv6, without exempting public HTTP or different loopback hosts.
+  if (env.NODE_ENV === "production") {
+    const api = new URL(env.NAP_API_URL);
+    const web = new URL(env.NAP_WEB_ORIGIN);
+    const localHttp =
+      api.protocol === "http:" &&
+      web.protocol === "http:" &&
+      api.hostname === web.hostname &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(api.hostname);
+
+    if (!localHttp && (api.protocol !== "https:" || web.protocol !== "https:")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["NAP_WEB_ORIGIN"],
+        message:
+          "must use HTTPS together with NAP_API_URL in production, except for HTTP URLs on " +
+          "the same loopback host — docs/DEPLOY.md",
+      });
+    }
+
+    if (isCrossSite(env.NAP_API_URL, env.NAP_WEB_ORIGIN)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["NAP_WEB_ORIGIN"],
+        message:
+          `must be on the same site as NAP_API_URL in production (${web.hostname} and ` +
+          `${api.hostname} are not), or Safari and Brave drop the session cookie and ` +
+          "nobody using them can sign in. Serve both from subdomains of one domain — docs/DEPLOY.md",
+      });
+    }
   }
 
   // A configuration that reaps later than the provider kills is worse than no reaper at all:

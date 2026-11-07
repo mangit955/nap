@@ -75,6 +75,7 @@ export async function releaseProduction(input: unknown, overrides: Partial<Relea
     // Blueprint changes are not applied by Trigger Deploy. Refuse before any deployment if the
     // existing worker cannot migrate first; otherwise it boots against the old queue schema.
     if (name === "worker")
+      // Where Render's API reports it — nested, not top-level; see the test that pins the shape.
       z.object({
         serviceDetails: z.object({
           envSpecificDetails: z.object({

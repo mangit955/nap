@@ -116,6 +116,8 @@ NAP_EVENT_BUS=postgres
 
 The example file documents each variable. The API validates its configuration at startup, including
 the database, model provider, authentication, key encryption, and snapshot storage settings.
+Production also rejects configurations that would make sign-in depend on third-party cookies.
+See the [deployment requirements](docs/DEPLOY.md#one-site-for-both-halves).
 
 Start the processes in separate terminals:
 

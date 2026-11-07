@@ -23,6 +23,7 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
+import { z } from "zod";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
 import { createAuth } from "./auth.ts";
@@ -393,6 +394,117 @@ describe("the GitHub callback", () => {
     // The person is one; the sign-ins are two. Collapsing those would mean the second login
     // silently reused the first one's session rather than making its own.
     expect(await sessionRowsFor(GITHUB_EMAIL)).toHaveLength(2);
+  });
+});
+
+describe("GitHub OAuth through the public API proxy", () => {
+  const webOrigin = "https://app.example.com";
+  const publicBase = `${webOrigin}/backend`;
+  const internalOrigin = "https://nap-api.onrender.com";
+
+  function proxiedApp() {
+    const auth = createAuth(db.db, {
+      secret: "a-test-secret-that-is-long-enough-to-be-a-secret",
+      baseUrl: publicBase,
+      webOrigin,
+      allowAnonymous: false,
+      github: { clientId: "test-client-id", clientSecret: "test-client-secret" },
+    });
+    return {
+      auth,
+      app: createApp({
+        logger: createLogger({ level: "silent" }, { write: () => {} }),
+        webOrigin,
+        auth,
+        stream: {
+          store: new InMemoryEventStore(),
+          bus: new InMemoryEventBus(),
+          upgradeWebSocket: () => Promise.resolve(new Response(null)),
+        },
+      }),
+    };
+  }
+
+  async function startOAuth(app: ReturnType<typeof createApp>) {
+    // Vercel strips /backend before forwarding, including on the provider's callback.
+    const started = await app.request(`${internalOrigin}/api/auth/sign-in/social`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: webOrigin },
+      body: JSON.stringify({ provider: "github", callbackURL: `${webOrigin}/welcome` }),
+    });
+    expect(started.status).toBe(200);
+    const body = z.object({ url: z.string().url() }).parse(await started.json());
+    const authorize = new URL(body.url);
+    expect(authorize.hostname).toBe("github.com");
+    expect(authorize.searchParams.get("redirect_uri")).toBe(
+      `${publicBase}/api/auth/callback/github`,
+    );
+    const state = authorize.searchParams.get("state");
+    if (state === null) throw new Error("OAuth authorize URL has no state");
+    const cookies = started.headers.getSetCookie().join("; ");
+    expect(cookies).toContain("Secure");
+    expect(cookies).toContain("SameSite=Lax");
+    expect(cookies).not.toContain("Partitioned");
+    return { state, cookie: cookieFrom(started) };
+  }
+
+  it("keeps state and persists a first-party session after the stripped callback", async () => {
+    stubGithub();
+    const { app, auth } = proxiedApp();
+    const started = await startOAuth(app);
+    const callback = await app.request(
+      `${internalOrigin}/api/auth/callback/github?code=test-code&state=${encodeURIComponent(started.state)}`,
+      { headers: { cookie: started.cookie }, redirect: "manual" },
+    );
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get("location")).toBe(`${webOrigin}/welcome`);
+    const cookies = callback.headers.getSetCookie().join("; ");
+    expect(cookies).toContain("__Secure-better-auth.session_token=");
+    expect(cookies).toContain("Secure");
+    expect(cookies).toContain("SameSite=Lax");
+    expect(cookies).not.toContain("Partitioned");
+    expect(cookies).not.toMatch(/domain=/i);
+
+    const cookie = cookieFrom(callback);
+    const sessionResponse = await app.request(`${internalOrigin}/api/auth/get-session`, {
+      headers: { cookie },
+    });
+    expect(sessionResponse.status).toBe(200);
+    const session = z
+      .object({ session: z.object({ id: z.string() }), user: z.object({ email: z.string() }) })
+      .parse(await sessionResponse.json());
+    expect(session.user.email).toBe(GITHUB_EMAIL);
+    const [persisted] = await db.db
+      .select({ id: authSessions.id })
+      .from(authSessions)
+      .where(eq(authSessions.id, session.session.id));
+    expect(persisted?.id).toBe(session.session.id);
+    expect(await auth.getUser(new Headers({ cookie }))).not.toBeNull();
+  });
+
+  it.each(["missing cookie", "wrong state"])("refuses a callback with %s", async (failure) => {
+    stubGithub();
+    const { app, auth } = proxiedApp();
+    const started = await startOAuth(app);
+    const before = await sessionRowsFor(GITHUB_EMAIL);
+    const state = failure === "wrong state" ? `${started.state}-tampered` : started.state;
+    const callback = await app.request(
+      `${internalOrigin}/api/auth/callback/github?code=test-code&state=${encodeURIComponent(state)}`,
+      {
+        headers: failure === "missing cookie" ? {} : { cookie: started.cookie },
+        redirect: "manual",
+      },
+    );
+    expect(callback.status).toBe(302);
+    const location = new URL(callback.headers.get("location") ?? "");
+    expect(location.origin).toBe(webOrigin);
+    expect(location.pathname).toBe("/sign-in");
+    expect(location.searchParams.get("error")).toBeTruthy();
+    expect(callback.headers.getSetCookie().join("; ")).not.toContain(
+      "__Secure-better-auth.session_token=",
+    );
+    expect(await auth.getUser(new Headers({ cookie: started.cookie }))).toBeNull();
+    expect(await sessionRowsFor(GITHUB_EMAIL)).toHaveLength(before.length);
   });
 });
 

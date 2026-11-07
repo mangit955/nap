@@ -20,6 +20,7 @@ import { type AccountRouteDeps, registerAccountRoutes } from "./account/routes.t
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
+import type { StreamTickets } from "./auth/stream-ticket.ts";
 import { type ComputerAccessDeps, registerComputerAccessRoutes } from "./computer/access.ts";
 import { registerTestRecordingRoutes, type TestRecordingDeps } from "./computer/recordings.ts";
 import {
@@ -119,6 +120,11 @@ export type AppDeps = {
     upgradeWebSocket: UpgradeWebSocket;
     /** Overridden only by the smoke script, which cannot wait 30 seconds for a ping. */
     heartbeat?: HeartbeatOptions;
+    /**
+     * Lets a page open `/ws` on a host its session cookie does not belong to. Absent means
+     * `/ws` takes the cookie alone and the route that issues tickets does not exist.
+     */
+    tickets?: StreamTickets;
   };
   /**
    * Reading a project's files needs a session's sandbox, which means a `SessionStore` — and
@@ -220,7 +226,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
    * guarded by existing. Making one public is an edit to the allow-list inside `requireUser`,
    * which is a decision someone has to write down rather than one they can forget to make.
    */
-  app.use("*", requireUser(deps.authenticate));
+  app.use("*", requireUser(deps.authenticate, deps.stream.tickets));
   if (deps.github !== undefined) registerGitHubRoutes(app, deps.github);
   if (deps.sessionStarts !== undefined) registerSessionStartRoutes(app, deps.sessionStarts);
   if (deps.sessionNavigation !== undefined) registerNavigationRoutes(app, deps.sessionNavigation);
@@ -288,6 +294,29 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
    * happens in somebody's project, so it is authorized like any other route reading one, and
    * refused here rather than by a socket that opens and then goes quiet.
    */
+  /**
+   * A ticket for opening one session's `/ws` without a cookie — see `auth/stream-ticket.ts`.
+   *
+   * Reached through the web app's proxy, where the cookie is first-party, and checked against the
+   * session's owner here as well as at `/ws`, so nobody holds a ticket for a stream that is not
+   * theirs. `no-store`, because a cached ticket is somebody else's ticket.
+   */
+  const { tickets } = deps.stream;
+  if (tickets !== undefined) {
+    app.post("/sessions/:sessionId/stream-ticket", async (c) => {
+      const owned = await findOwnedSession(
+        deps.stream.sessions ?? { get: async () => null, setSandboxId: async () => undefined },
+        c.req.param("sessionId"),
+        c.get("userId"),
+      );
+      if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
+
+      const caller = { userId: c.get("userId"), isAnonymous: c.get("isAnonymous") };
+      c.header("Cache-Control", "no-store");
+      return c.json({ ticket: tickets.issue(caller, owned.value.sessionId) });
+    });
+  }
+
   app.get("/ws", async (c) => {
     const query = parseStreamQuery(new URL(c.req.url));
     if (!query.ok) return c.json({ error: query.error.message }, 400);

@@ -417,8 +417,8 @@ Two ways to get this wrong, both quiet:
   *"expected string to have >=1 characters"*. Leave optional variables out entirely — including
   `NAP_CHROME_PATH`, which the image sets and a blank platform variable would shadow.
 
-The two origins refer to each other, so the first deployment is circular: deploy the API,
-take its domain to Vercel, then come back and set `NAP_WEB_ORIGIN` and redeploy.
+**They must be one site** — under `NODE_ENV=production` every process refuses to boot otherwise.
+[One site for both halves](#one-site-for-both-halves) says why, and gives the values.
 
 ### 3. The web app on Vercel
 
@@ -451,8 +451,8 @@ Two variables, both inlined at build time — changing either needs a redeploy, 
 restart:
 
 ```
-NEXT_PUBLIC_API_URL     https://<the railway domain>
-NEXT_PUBLIC_API_WS_URL  wss://<the railway domain>
+NEXT_PUBLIC_API_URL     https://nap-tawny.vercel.app/backend
+NEXT_PUBLIC_API_WS_URL  wss://nap-api.onrender.com
 ```
 
 `wss://`, not `ws://`: a page served over https may not open an insecure socket.
@@ -460,32 +460,67 @@ NEXT_PUBLIC_API_WS_URL  wss://<the railway domain>
 ### 4. OAuth callbacks
 
 better-auth builds redirect URIs from `NAP_API_URL`, so each provider's app needs
-`https://<railway domain>/api/auth/callback/github` (and `/google`).
+`https://nap-tawny.vercel.app/backend/api/auth/callback/github` (and `/google`).
 
-## The session cookie, and the browsers where sign-in will not work
+## One site for both halves
 
-The app and the API are on two different sites (`vercel.app` and `railway.app`), which
-makes the session cookie third-party. `apps/api/src/auth/cross-site.ts` detects that from
-the two URLs and switches the cookie to `SameSite=None; Secure`, without which the browser
-would keep the cookie and never send it back — sign-in answering 200 and everything after
-it answering 401.
+The browser must see the app and the API as one site, or the session cookie is third-party —
+and **Safari and Brave drop third-party cookies whatever `SameSite` says**: `POST
+/api/auth/sign-in/*` answers 200, the identity row is written, the browser refuses the
+`Set-Cookie`, and every request after it is a 401. Chrome and Firefox are fine, which is how it
+went unnoticed while the app was on `vercel.app` and the API on `onrender.com` (and `railway.app`
+before that), until #86. **Every process now refuses to boot under `NODE_ENV=production` when
+`NAP_API_URL` and `NAP_WEB_ORIGIN` are two sites**, and `test/same-site.test.ts` fails CI when
+`render.yaml` says they are. `apps/api/src/auth/cross-site.ts` decides what counts as one site.
+Both public URLs must use HTTPS. Production images allow HTTP only when both URLs use the same
+loopback host, as the local kind clusters do.
 
-**Not `Partitioned`, and that is not an oversight.** It looks like the right companion to
-`SameSite=None` and it breaks OAuth completely. A partitioned cookie is keyed to the
-top-level site that was open when it was set, so the `state` cookie written during the
-authorize POST is filed under the *app's* site; the provider's callback is a top-level
-navigation to the *API's* site, a different partition, where the browser does not send it.
-better-auth sees a state cookie that never came back and refuses with
-`state_security_mismatch`, which arrives as `…/?error=state_mismatch`. It was shipped that
-way once and found by trying to sign in with GitHub.
+**As deployed, the API is published under the web app's own origin.** Both halves are on free
+hosts, and a free `vercel.app` name cannot have an `api.` sibling on Render, so
+`apps/web/vercel.json` forwards `https://nap-tawny.vercel.app/backend/*` to
+`https://nap-api.onrender.com/*` and the browser never talks to Render's host for anything with a
+cookie. What that costs, each of which the code already accounts for:
 
-**Safari and Brave block third-party cookies outright, so sign-in does not work there.**
-Chrome and Firefox are fine. This is a known, accepted limitation of running the two halves
-on free subdomains, and the fix is to stop being cross-site: put both behind one registrable
-domain (`nap.example.com` and `api.example.com`), at which point `isCrossSite` returns
-`false` on its own and the cookie goes back to `SameSite=Lax` with no code change: it
-compares registrable domains rather than hosts, and `cross-site.ts` says how far that
-comparison is trusted. DNS on both dashboards, update the four URL variables, redeploy.
+- **`NAP_API_URL` is the public address, path and all** — `https://nap-tawny.vercel.app/backend`.
+  OAuth redirect URIs are built from it, so the provider sends the browser back through the
+  proxy, where the cookie is. better-auth takes a base URL with a path as the whole of it, so
+  `apps/api/src/auth/public-url.ts` gives it `…/backend/api/auth` and shows it each request at
+  the address the browser used; `apps/web/src/auth/auth-base-url.ts` does the same for the client.
+- **The forward must never cache.** It carries every authenticated response, and a cached one is
+  somebody else's: `x-vercel-enable-rewrite-caching: 0` on `/backend/*`, asserted by
+  `test/same-site.test.ts`.
+- **Vercel does not forward WebSocket upgrades**, so the event stream still connects to
+  `wss://nap-api.onrender.com/ws`, where the cookie is not sent. The page first asks for a
+  **stream ticket** over the proxy and carries it in the socket's query string —
+  `apps/api/src/auth/stream-ticket.ts`.
+- **Vercel waits 120 seconds for a first byte**, the same as the API's own request limit.
+- GitHub's webhooks can stay on Render's host: they carry no cookie.
+
+The variables, then: `NAP_API_URL=https://nap-tawny.vercel.app/backend` and
+`NAP_WEB_ORIGIN=https://nap-tawny.vercel.app` on all three Render services;
+`NEXT_PUBLIC_API_URL=https://nap-tawny.vercel.app/backend` and
+`NEXT_PUBLIC_API_WS_URL=wss://nap-api.onrender.com` on Vercel. The OAuth callbacks are
+`https://nap-tawny.vercel.app/backend/api/auth/callback/github` for sign-in, and
+`https://nap-tawny.vercel.app/backend/github/callback` (setup: `…/backend/github/setup`) on the
+GitHub App.
+
+**With a domain of your own, the proxy is unnecessary**: `nap.<domain>` on Vercel and
+`api.<domain>` on Render are one site, `NAP_API_URL=https://api.<domain>`, the WebSocket carries
+the cookie itself, and the rewrite in `vercel.json` can go.
+
+Check a deployment with `curl -si -X POST https://nap-tawny.vercel.app/backend/api/auth/sign-in/anonymous
+-H "Origin: https://nap-tawny.vercel.app" | grep -i set-cookie`, which should say `SameSite=Lax`,
+then sign in from Safari by every method — the social path has no in-app check, so a failure there
+lands on `/sign-in?expired=1` rather than saying why.
+
+**Never `Partitioned`.** On two sites it looks like the right companion to `SameSite=None`,
+and it breaks OAuth completely. A partitioned cookie is keyed to the top-level site that was
+open when it was set, so the `state` cookie written during the authorize POST is filed under
+the *app's* site; the provider's callback is a top-level navigation to the *API's* site, a
+different partition, where the browser does not send it. better-auth sees a state cookie that
+never came back and refuses with `state_security_mismatch`, which arrives as
+`…/?error=state_mismatch`. It was shipped that way once and found by trying to sign in with
+GitHub.
 
 ## What a public URL costs
 
@@ -532,8 +567,8 @@ is affordable, and they are worth setting deliberately rather than inheriting:
 ## Verifying a deployment
 
 ```bash
-curl https://<railway domain>/health          # 200, every check "ok"
-NAP_API_URL=https://<railway domain> bun run acceptance --keep
+curl https://nap-api.onrender.com/health          # 200, every check "ok"
+NAP_API_URL=https://nap-api.onrender.com bun run acceptance --keep
 ```
 
 `apps/api/scripts/acceptance.ts` drives the six steps of `docs/PLAN.md` §6 over the same

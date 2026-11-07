@@ -26,7 +26,8 @@
 
 import { addLogContext } from "@nap/shared/logging";
 import type { MiddlewareHandler } from "hono";
-import type { Authenticate } from "./auth.ts";
+import type { Authenticate, Caller } from "./auth.ts";
+import type { StreamTickets } from "./stream-ticket.ts";
 
 /**
  * What the middleware puts on the context for handlers below it.
@@ -62,7 +63,15 @@ export function isPublicPath(path: string): boolean {
  * without authentication should have no reach into anybody's data; the opposite default turns
  * one forgotten line in boot into every project being served to whoever asks.
  */
-export function requireUser(authenticate: Authenticate | undefined): MiddlewareHandler<{
+export function requireUser(
+  authenticate: Authenticate | undefined,
+  /**
+   * Accepted on `/ws` alone, in place of the cookie a browser cannot send there — see
+   * `stream-ticket.ts`. A ticket that is present and does not verify is refused rather than
+   * falling back to the cookie, which would hide a client bug and reward a forgery.
+   */
+  tickets?: StreamTickets,
+): MiddlewareHandler<{
   Variables: AuthVariables;
 }> {
   return async (c, next) => {
@@ -72,9 +81,14 @@ export function requireUser(authenticate: Authenticate | undefined): MiddlewareH
     // this is here so the guarantee does not depend on the order two middlewares are registered.
     if (c.req.method === "OPTIONS") return await next();
 
-    if (isPublicPath(new URL(c.req.url).pathname)) return await next();
+    const url = new URL(c.req.url);
+    if (isPublicPath(url.pathname)) return await next();
 
-    const caller = await authenticate?.(c.req.raw.headers);
+    const ticket = url.pathname === "/ws" ? url.searchParams.get("ticket") : null;
+    const caller: Caller | null | undefined =
+      ticket !== null && tickets !== undefined
+        ? tickets.verify(ticket, url.searchParams.get("sessionId") ?? "")
+        : await authenticate?.(c.req.raw.headers);
     if (caller === undefined || caller === null) {
       return c.json({ error: "not signed in" }, 401);
     }

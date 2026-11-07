@@ -45,4 +45,11 @@ it("builds the exact setup and callback URLs and requests only implemented permi
     },
   });
   expect(manifest.default_permissions).not.toHaveProperty("workflows");
+  // Behind the web app's proxy the API is published under a path, and every URL GitHub is
+  // given has to carry it or it lands on a page of the web app instead.
+  expect(githubAppManifest("https://web.example/backend/", "https://web.example")).toMatchObject({
+    hook_attributes: { url: "https://web.example/backend/github/webhook" },
+    callback_urls: ["https://web.example/backend/github/callback"],
+    setup_url: "https://web.example/backend/github/setup",
+  });
 });

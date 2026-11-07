@@ -45,28 +45,27 @@ const UNREACHABLE = "We couldn't reach the server. Check your connection and try
  * accepted these ones and created the identity. What failed is storage, and telling somebody
  * their password was wrong sends them off to reset one that was fine.
  *
- * Names browsers rather than describing the mechanism, because the only useful thing a person can
- * do with this is open a different one. Turning off "Prevent cross-site tracking" also works and
- * is offered second, since it is a setting most people should not be talked into changing.
+ * The app and the API share one site, so a cookie dropped here is one this browser was told to
+ * refuse — cookies blocked for the site, or an extension stripping them. It used to name Safari
+ * and Brave, when the two halves were on different sites and every one of those failed; production
+ * now refuses to boot that way, so naming a browser would be blaming the wrong thing.
  */
 const COOKIE_BLOCKED =
-  "Your browser blocked the sign-in cookie, so we couldn't keep you signed in. Safari and Brave " +
-  "block cookies set by another site, and Nap's API is on one. Open Nap in Chrome or Firefox, or " +
-  "turn off “Prevent cross-site tracking” in Safari's privacy settings.";
+  "Your browser blocked the sign-in cookie, so we couldn't keep you signed in. Allow cookies " +
+  "for this site, or turn off any extension that blocks them, and try again.";
 
 /**
  * Whether the identity the server just created survived the trip into the browser.
  *
- * The failure this exists for answers **200**: Safari and Brave block third-party cookies
- * outright, so `POST /api/auth/sign-in/*` succeeds, the row is written, and the `Set-Cookie` is
- * silently refused. Nothing in the result says so — the redirect fires, every request after it is
+ * The failure this exists for answers **200**: a browser blocking this site's cookies lets
+ * `POST /api/auth/sign-in/*` succeed and the row be written, then silently refuses the
+ * `Set-Cookie`. Nothing in the result says so — the redirect fires, every request after it is
  * a 401, and the page bounces straight back here having apparently done nothing. Asking the
  * server who we are is the only thing on this side that can tell the difference.
  *
  * Detects the *condition* rather than the browser. A user-agent test would be wrong in both
- * directions: Brave fails this way while reporting itself as Chrome, and a first-party
- * deployment — one registrable domain across both halves, which is what `docs/DEPLOY.md`
- * recommends — has no such problem in any browser.
+ * directions: Brave reports itself as Chrome, and whether cookies are blocked is a setting, not
+ * a browser.
  *
  * **Fails open**, which is the important half. This is a guard against one browser behaviour, not
  * a second gate on getting in: a blip while asking must not strand somebody whose cookie was

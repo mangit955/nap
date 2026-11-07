@@ -47,9 +47,6 @@ Please do not report these as vulnerabilities:
 - **Rotating `NAP_KEY_ENCRYPTION_SECRET` makes every stored key stop opening.** That is the intended
   behaviour of a rotation, not data loss — everyone falls back to the free tier until they paste
   theirs again.
-- **The hosted demo signs you out on Safari and Brave.** The app and its API are on two different
-  sites, so the session cookie is third-party and those browsers block it. Tracked as
-  [#86](https://github.com/mangit955/nap/issues/86).
 
 The hosted demo at [nap-tawny.vercel.app](https://nap-tawny.vercel.app) is a portfolio deployment
 running on free tiers. Please do not load-test it, and do not use it to store anything you care

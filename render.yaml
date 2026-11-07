@@ -41,8 +41,12 @@ services:
         value: postgres
       - key: NODE_ENV
         value: production
+      # The API's public address is a path on the web app's own origin — Vercel forwards
+      # `/backend/*` here (apps/web/vercel.json) — so the session cookie is first-party in every
+      # browser. Two sites would make it third-party, which Safari and Brave drop; production
+      # refuses to boot that way. See docs/DEPLOY.md, "One site for both halves".
       - key: NAP_API_URL
-        value: https://nap-api.onrender.com
+        value: https://nap-tawny.vercel.app/backend
       - key: NAP_WEB_ORIGIN
         value: https://nap-tawny.vercel.app
       # Render Postgres is reached directly, with no pooler in between, so one URL serves both the

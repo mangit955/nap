@@ -472,3 +472,63 @@ describe("NAP_ALLOWED_MODELS", () => {
     expect(() => parseEnv({ ...VALID, NAP_ALLOWED_MODELS: " , " })).toThrow(/NAP_ALLOWED_MODELS/);
   });
 });
+
+describe("where the two halves are served from", () => {
+  // The deployment this check was written after: the app on Vercel's suffix, the API on
+  // Render's. Two sites, so the session cookie is third-party and Safari and Brave drop it.
+  const CROSS_SITE = {
+    NAP_API_URL: "https://nap-api.onrender.com",
+    NAP_WEB_ORIGIN: "https://nap-tawny.vercel.app",
+  } as const;
+
+  it("refuses to boot in production when the browser would treat the session cookie as third-party", () => {
+    // Sign-in answers 200 there and every request after it is a 401, which nothing on the
+    // server sees. Refusing at boot is the only place the mistake is visible before a visitor.
+    expect(() => parseEnv({ ...VALID, ...CROSS_SITE, NODE_ENV: "production" })).toThrow(
+      /NAP_WEB_ORIGIN: .*same site as NAP_API_URL/,
+    );
+  });
+
+  it("accepts production when both are subdomains of one domain", () => {
+    const env = parseEnv({
+      ...VALID,
+      NODE_ENV: "production",
+      NAP_API_URL: "https://api.example.com",
+      NAP_WEB_ORIGIN: "https://nap.example.com",
+    });
+
+    expect(env.NAP_WEB_ORIGIN).toBe("https://nap.example.com");
+  });
+
+  it.each(["localhost", "127.0.0.1", "[::1]"])("accepts production on plain http at %s", (host) => {
+    // `infra/k8s/proof` and `infra/k8s/load` set NODE_ENV=production with localhost URLs.
+    expect(() =>
+      parseEnv({
+        ...VALID,
+        NODE_ENV: "production",
+        NAP_API_URL: `http://${host}:8080`,
+        NAP_WEB_ORIGIN: `http://${host}:3000`,
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["http://nap-api.onrender.com", "https://nap-tawny.vercel.app"],
+    ["https://api.example.com", "http://nap.example.com"],
+    ["http://api.example.com", "http://nap.example.com"],
+    ["http://localhost.example.com", "http://localhost.example.com"],
+    ["http://localhost", "https://localhost"],
+    ["http://localhost", "http://127.0.0.1"],
+    ["ftp://api.example.com", "https://nap.example.com"],
+  ])("refuses unsafe production schemes or loopback pairs: %s and %s", (api, web) => {
+    expect(() =>
+      parseEnv({ ...VALID, NODE_ENV: "production", NAP_API_URL: api, NAP_WEB_ORIGIN: web }),
+    ).toThrow(/NAP_WEB_ORIGIN: .*HTTPS/);
+  });
+
+  it("leaves a cross-site pair alone outside production", () => {
+    // Development and the harnesses keep working against whatever they point at; the cookie
+    // falls back to `SameSite=None` there, which is enough for Chrome and Firefox.
+    expect(() => parseEnv({ ...VALID, ...CROSS_SITE, NODE_ENV: "development" })).not.toThrow();
+  });
+});
