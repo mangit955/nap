@@ -34,7 +34,7 @@ import type { NapEventOf, PromptSource, ToolName } from "@nap/shared/events";
 import { type PlanStatus, planStates } from "@nap/shared/plan-mode";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { type AppTestState, foldAppTests } from "../computer/app-test-state.ts";
-import { inFlightTurn } from "./working-state.ts";
+import { inFlightTurn, shorten } from "./working-state.ts";
 
 export type FileChange = {
   path: string;
@@ -54,6 +54,9 @@ export type HelperRun = {
   summary: string | null;
   toolCalls: number;
 };
+
+/** The project skill a `skill` call loaded, as its `skill.loaded` said (ADR-0029). */
+export type LoadedSkill = Omit<NapEventOf<"skill.loaded">["payload"], "toolCallId">;
 
 /**
  * Who a block of prose came from.
@@ -110,6 +113,8 @@ export type TranscriptItem =
       desktop?: { state: "starting" | "ready"; at: string };
       /** What a `run_subagent` call handed off, and how it ended — a helper's own calls are not logged. */
       helper?: HelperRun;
+      /** Which skill a `skill` call loaded. Read from its own event, never from the call's input. */
+      skill?: LoadedSkill;
     }
   /**
    * The agent's checklist, one per turn, drawn where it last changed so it stays beside the work
@@ -656,6 +661,34 @@ export function buildTranscript(
           toolCalls: event.payload.toolCalls,
         };
         helpers.set(id, step);
+        break;
+      }
+
+      case "skill.loaded": {
+        const step =
+          stepsById.get(event.payload.toolCallId) ?? openOrphan(event, "skill", items, stepsById);
+        step.skill = {
+          name: event.payload.name,
+          path: event.payload.path,
+          allowedTools: event.payload.allowedTools,
+        };
+        break;
+      }
+
+      case "skills.discovered": {
+        // Recorded only when the skills changed, so each one is news: a skill added, broken or gone.
+        const { skills, skipped } = event.payload;
+        const found =
+          skills.length === 0
+            ? "The project has no skills now."
+            : `Project skills: ${skills.map((skill) => skill.name).join(", ")}.`;
+        const passed = skipped.map((skip) => `Skipped ${shorten(skip.path)}: ${skip.reason}.`);
+        items.push({
+          kind: "notice",
+          key,
+          level: skipped.length > 0 ? "warning" : "info",
+          text: [found, ...passed].join(" "),
+        });
         break;
       }
 

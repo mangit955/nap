@@ -210,6 +210,19 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     type: "plan.proposed",
     payload: { toolCallId: "plan", title: "private title", plan: "private plan" },
   }),
+  "skills.discovered": stored({
+    ...base(120),
+    type: "skills.discovered",
+    payload: {
+      skills: [{ name: "review", description: "private description", path: "/app/SKILL.md" }],
+      skipped: [{ path: "/app/x/SKILL.md", reason: "private reason" }],
+    },
+  }),
+  "skill.loaded": stored({
+    ...base(121),
+    type: "skill.loaded",
+    payload: { toolCallId: "skill", name: "review", path: "/app/SKILL.md", allowedTools: null },
+  }),
   "steer.received": stored({
     ...base(102),
     type: "steer.received",

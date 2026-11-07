@@ -18,6 +18,7 @@
  */
 
 import {
+  BookOpenText,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -265,6 +266,8 @@ function EntryIcon({ kind, className = ICON }: { kind: ToolGroupSummaryKind; cla
       return <MessageCircleQuestionMark aria-hidden="true" className={className} />;
     case "delegate":
       return <Split aria-hidden="true" className={className} />;
+    case "skill":
+      return <BookOpenText aria-hidden="true" className={className} />;
     case "reasoning":
       return <Brain aria-hidden="true" className={className} />;
     case "mixed":

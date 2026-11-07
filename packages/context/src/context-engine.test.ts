@@ -536,6 +536,85 @@ describe("NapContextEngine", () => {
     });
   });
 
+  describe("the project's skills", () => {
+    const SKILL = `${ROOT}/.nap/skills/add-migration/SKILL.md`;
+    const withSkill = (description = "Adding a database migration") =>
+      stubSandbox([...projectTree(), SKILL], {
+        skills: {
+          [SKILL]: `---\nname: add-migration\ndescription: ${description}\n---\nRun drizzle-kit generate.`,
+        },
+      });
+    const discovered = (turn: number, description: string) =>
+      event("skills.discovered", turn, {
+        skills: [{ name: "add-migration", description, path: SKILL }],
+        skipped: [],
+      });
+
+    it("are listed in the turn's own message and never in the system prompt", async () => {
+      // The system prompt heads every cached prefix (ADR-0024); a skill edited mid-session must
+      // change only what a later request does not repeat.
+      const context = await engine().build(request({ sandbox: withSkill() }));
+
+      expect(turnContextOf(context)).toContain("- add-migration: Adding a database migration");
+      expect(context.systemPrompt).not.toContain("add-migration");
+      expect(context.skills?.index.skills.map((s) => s.name)).toEqual(["add-migration"]);
+    });
+
+    it("leave nothing in the prompt of a project that has none", async () => {
+      const context = await engine().build(request());
+
+      expect(told(context)).not.toContain("<project_skills>");
+      expect(context.skills?.announce).toBe(false);
+    });
+
+    it("are announced when they differ from the last record, and only then", async () => {
+      const first = await engine().build(request({ sandbox: withSkill() }));
+      const same = await engine().build(
+        request({
+          sandbox: withSkill(),
+          history: [discovered(1, "Adding a database migration")],
+        }),
+      );
+      const edited = await engine().build(
+        request({
+          sandbox: withSkill("Migrations, the drizzle way"),
+          history: [discovered(1, "x")],
+        }),
+      );
+
+      expect(first.skills?.announce).toBe(true);
+      expect(same.skills?.announce).toBe(false);
+      expect(edited.skills?.announce).toBe(true);
+    });
+
+    it("are given up after the file listing and before memories", async () => {
+      const memory: MemoryProvider = {
+        retrieve: async () => [{ id: "m1", content: "the user prefers tabs", score: 1 }],
+        write: async () => {},
+      };
+      // As many skills as a project may have, each with as long a description as it may have.
+      const paths = Array.from({ length: 32 }, (_, i) => `${ROOT}/.nap/skills/s${i}/SKILL.md`);
+      const sandbox = stubSandbox([...hugeTree(400), ...paths], {
+        skills: Object.fromEntries(
+          paths.map((path, i) => [
+            path,
+            `---\nname: s${i}\ndescription: ${"d".repeat(480)}\n---\nBody.`,
+          ]),
+        ),
+      });
+
+      const context = await engine({ budgetTokens: MIN_BUDGET_TOKENS }).build(
+        request({ sandbox, memory }),
+      );
+
+      expect(told(context)).not.toContain("<project_files>");
+      expect(told(context)).not.toContain("<project_skills>");
+      expect(told(context)).toContain("the user prefers tabs");
+      // Out of the prompt, but still known: the tool loads by name from the same index.
+      expect(context.skills?.index.skills).toHaveLength(32);
+    });
+  });
+
   describe("memories", () => {
     const remembering = (memories: Memory[]): MemoryProvider => ({
       retrieve: async () => memories,

@@ -1,5 +1,5 @@
 /**
- * A `SandboxManager` that can only list a workspace, once per question.
+ * A `SandboxManager` that can only list a workspace, once per question, and find its skills.
  *
  * Assembling context is a read-only act: it looks at the shape of the project and nothing
  * else. Every method other than `listTree` therefore throws, and those throws are the point
@@ -7,6 +7,9 @@
  * contents, mutate the workspace, or walk it a folder at a time" from a claim in a comment into
  * something the test suite fails on. A stub that quietly returned empty results for `exec` or
  * `listFiles` would let that regression through unnoticed.
+ *
+ * The one exception is skill discovery (ADR-0029), held to exactly what it needs: a listing of
+ * each of the skill folders and nothing else, and a read of a `SKILL.md` and nothing else.
  *
  * This lives here, small and local, instead of reaching for the full in-memory fake next
  * door: the fake belongs to the sandbox package, and this package is not allowed to depend
@@ -21,6 +24,7 @@ import type {
   SandboxManager,
 } from "@nap/shared/ports/sandbox-manager";
 import type { Result, VoidResult } from "@nap/shared/result";
+import { SKILL_FILE, SKILL_ROOTS } from "@nap/shared/skills";
 
 /** Every file in the workspace, by absolute path — what a real sandbox holds, before filtering. */
 export type Workspace = readonly string[];
@@ -33,6 +37,8 @@ export type StubSandboxOptions = {
   failing?: boolean;
   /** Receives every listing a caller asks for, so a test can hold it to one per build. */
   onListTree?: (call: ListTreeCall) => void;
+  /** What a `SKILL.md` in the workspace says, by absolute path. One listed without text is unreadable. */
+  skills?: Readonly<Record<string, string>>;
 };
 
 function unreachable(method: string): never {
@@ -66,8 +72,23 @@ export function stubSandbox(workspace: Workspace, opts: StubSandboxOptions = {})
       };
     },
 
-    async listFiles(): Promise<Result<FileNode[], SandboxError>> {
-      return unreachable("listFiles");
+    async listFiles(_sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {
+      if (!SKILL_ROOTS.some((dir) => path.endsWith(`/${dir}`))) return unreachable("listFiles");
+      const prefix = `${path}/`;
+      const children = new Set(
+        workspace
+          .filter((file) => file.startsWith(prefix))
+          .map((file) => file.slice(prefix.length).split("/")[0] ?? ""),
+      );
+      if (children.size === 0)
+        return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
+      return {
+        ok: true,
+        value: [...children].map((name) => ({
+          path: `${prefix}${name}`,
+          type: workspace.includes(`${prefix}${name}`) ? "file" : "directory",
+        })),
+      };
     },
     async create(): Promise<Result<Sandbox, SandboxError>> {
       return unreachable("create");
@@ -84,8 +105,14 @@ export function stubSandbox(workspace: Workspace, opts: StubSandboxOptions = {})
     async writeFile(): Promise<VoidResult<SandboxError>> {
       return unreachable("writeFile");
     },
-    async readFile(): Promise<Result<string, SandboxError>> {
-      return unreachable("readFile");
+    async readFile(_sandboxId: string, path: string): Promise<Result<string, SandboxError>> {
+      if (!path.endsWith(`/${SKILL_FILE}`)) return unreachable("readFile");
+      if (!workspace.includes(path))
+        return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
+      const text = opts.skills?.[path];
+      if (text === undefined)
+        return { ok: false, error: { code: "unavailable", message: `${path} could not be read` } };
+      return { ok: true, value: text };
     },
     async writeFileBytes(): Promise<VoidResult<SandboxError>> {
       return unreachable("writeFileBytes");

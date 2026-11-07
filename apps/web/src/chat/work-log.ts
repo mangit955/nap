@@ -39,7 +39,8 @@ export type ToolGroupAction =
   | "computer"
   | "plan"
   | "ask"
-  | "delegate";
+  | "delegate"
+  | "skill";
 
 /** What a group is, for its icon: one kind of work, a thought, or several kinds. */
 export type ToolGroupSummaryKind = ToolGroupAction | "reasoning" | "mixed";
@@ -59,6 +60,7 @@ const ACTIONS: Record<ToolKind, ToolGroupAction> = {
   plan: "plan",
   ask: "ask",
   delegate: "delegate",
+  skill: "skill",
 };
 
 export function toolGroupAction(entry: Step | Extract<WorkEntry, { kind: "files" }>) {
@@ -136,6 +138,8 @@ function actionLabel(action: ToolGroupAction, count: number): string {
       return `Asked ${count === 1 ? "a question" : `${count} questions`}`;
     case "delegate":
       return `Delegated ${count} ${count === 1 ? "task" : "tasks"}`;
+    case "skill":
+      return `Used ${count} ${count === 1 ? "skill" : "skills"}`;
   }
 }
 
@@ -222,7 +226,7 @@ function changedLabel(step: Step): string | undefined {
 
 function argument(
   step: Step,
-  key: "command" | "path" | "pattern" | "question" | "task",
+  key: "command" | "path" | "pattern" | "question" | "task" | "name",
 ): string | undefined {
   const value = (step.input as Record<string, unknown>)[key];
   return typeof value === "string" && value.trim() !== "" ? shorten(value.trim()) : undefined;
@@ -300,6 +304,10 @@ export function workEntryDisplayLabel(entry: WorkEntry): string {
       return "Collected a helper's report";
     case "propose_plan":
       return "Proposed a plan";
+    case "skill": {
+      const name = entry.skill?.name ?? argument(entry, "name");
+      return name === undefined ? "Used a skill" : `Used skill ${name}`;
+    }
   }
 }
 

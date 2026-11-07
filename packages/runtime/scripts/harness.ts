@@ -82,6 +82,11 @@ function scriptedProvider(): LLMProvider {
         ],
       },
       {
+        // The fake project carries a skill for exactly this, so the dry run shows one listed,
+        // loaded and recorded (ADR-0029).
+        toolCalls: [{ id: "skill_1", name: "skill", input: { name: "react-components" } }],
+      },
+      {
         thinking: ["The project has no toggle yet, ", "so I will add one component."],
         streamedText: ["I'll add ", "the component."],
         text: "I'll add the component.",
@@ -170,6 +175,17 @@ function scriptedPlanProvider(): LLMProvider {
 /** What the project template declares, which is what the dry run's checks are discovered from. */
 const TEMPLATE_MANIFEST = { scripts: { build: "vite build", dev: "vite --host" } };
 
+/**
+ * A repository skill in the fake project, so every dry run exercises discovery, the listing and the
+ * `skill` tool. It narrows nothing: the turn after it still has to write a file.
+ */
+const HARNESS_SKILL = `---
+name: react-components
+description: Adding or changing a React component in src/
+---
+One component per file under src/, named for what it renders. Export it by name, not as default.
+`;
+
 /** An in-memory sandbox answering the commands a turn actually runs, git included. */
 function fakeSandbox(): InMemorySandboxManager {
   return new InMemorySandboxManager({
@@ -181,7 +197,10 @@ function fakeSandbox(): InMemorySandboxManager {
     // And a manifest, so the dry run shows the verification a real one runs. Without it the
     // verifier finds nothing to discover checks from and every dry run ends `abandoned`,
     // which is the harness lying about the shape of a turn.
-    seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },
+    seed: {
+      [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST),
+      [`${PROJECT_ROOT_PATH}/.nap/skills/react-components/SKILL.md`]: HARNESS_SKILL,
+    },
   })
     .script(COMMIT_COMMAND, committed("0".repeat(40)))
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${"0".repeat(40)}\n` });

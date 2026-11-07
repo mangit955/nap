@@ -230,6 +230,13 @@ function detail(event: NapEvent): string {
       return event.payload.items
         .map((item) => `[${PLAN_MARKS[item.status]}] ${item.content}`)
         .join(" ");
+    case "skills.discovered":
+      return [
+        ...event.payload.skills.map((skill) => skill.name),
+        ...event.payload.skipped.map((skip) => `skipped ${skip.path}: ${oneLine(skip.reason)}`),
+      ].join(", ");
+    case "skill.loaded":
+      return `${event.payload.name} ${event.payload.path}${event.payload.allowedTools === null ? "" : ` — limited to ${event.payload.allowedTools.join(", ") || "nothing"}`}`;
     case "agent.question":
       return `${oneLine(event.payload.question)} — ${event.payload.options.map((option) => option.label).join(" / ")}`;
     case "plan.proposed":
