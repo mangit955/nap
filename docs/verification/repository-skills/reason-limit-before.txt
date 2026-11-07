@@ -1,0 +1,26 @@
+
+ RUN  v4.1.10 /Users/manasraghuwanshi/.t3/worktrees/nap/feat-repository-skills
+
+ ❯ |unit| packages/shared/src/skills.test.ts (33 tests | 1 failed) 20ms
+     × bounds a sandbox read failure's diagnostic before it reaches context or events 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |unit| packages/shared/src/skills.test.ts > discoverSkills > bounds a sandbox read failure's diagnostic before it reaches context or events
+AssertionError: expected 1029 to be less than or equal to 500
+ ❯ packages/shared/src/skills.test.ts:306:45
+    304|     expect(index.skipped).toHaveLength(1);
+    305|     expect(index.skipped[0]?.reason).toContain("could not be read");
+    306|     expect(index.skipped[0]?.reason.length).toBeLessThanOrEqual(500);
+       |                                             ^
+    307|     expect(skillsDiscoveredPayload(index).skipped[0]?.reason.length).t…
+    308|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 32 passed (33)
+   Start at  12:51:36
+   Duration  202ms (transform 32ms, setup 0ms, import 68ms, tests 20ms, environment 0ms)
+
