@@ -69,7 +69,8 @@ export const CostEstimateSchema = z.strictObject({
    *
    * The model the run *asked* for. Nothing in the event log records which model answered,
    * so a provider-side fallback would be priced at the requested model's rate — one more
-   * reason the figure is an estimate, and one the log would have to change to fix.
+   * reason the figure is an estimate, and one the log would have to change to fix. A Fusion
+   * sidekick's tokens are priced the same way, which overstates a Fusion run's cost (ADR-0030).
    */
   model: z.string().min(1),
   /** Which table produced it, so an old report is not silently repriced by a new one. */

@@ -94,6 +94,7 @@ export type NapConfig = Pick<
   | "NAP_MODEL"
   | "NAP_FALLBACK_MODEL"
   | "NAP_SUBAGENT_MODEL"
+  | "NAP_SIDEKICK_MODEL"
   | "NAP_FREE_MODEL"
   | "NAP_ALLOWED_MODELS"
   | "NAP_MAX_STEPS"
@@ -438,6 +439,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
         config.NAP_SUBAGENT_MODEL === undefined
           ? undefined
           : { explore: config.NAP_SUBAGENT_MODEL },
+      sidekickModel: config.NAP_SIDEKICK_MODEL,
     }),
     events: deps.events,
     bus: deps.bus,

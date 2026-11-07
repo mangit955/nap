@@ -268,7 +268,14 @@ is not a field anywhere: it is the person's next message, whether they clicked a
 conversation and fewer tools: *explore* reads and searches, *general* may also edit and run
 commands. It spends the turn's budget, ends with the turn, and leaves only its start, its file
 changes and its report in the log. Offered to imported repositories. Called a subagent in the code
-(`run_subagent`), which is the same thing.
+(`run_subagent`), which is the same thing. With **Fusion** on, an explore helper runs on the
+**sidekick**.
+
+**Fusion** — a turn's **lead** paired with a cheaper **sidekick**, which the deployment names and
+pays for (`NAP_SIDEKICK_MODEL`). The lead is the model the turn runs on, the one the person picked.
+The sidekick only *condenses*: it runs explore helpers and writes compaction summaries, which are
+text that only the lead reads. Anything it fails is done by the lead. It is never used on a person's
+own key. See `docs/adr/0030-fusion-the-sidekick-condenses-and-the-lead-acts.md`.
 
 **Background shell** — a command started to keep running, read and typed into and stopped by id
 over later calls. Its state lives in files inside the sandbox, so it outlives the turn and the worker
