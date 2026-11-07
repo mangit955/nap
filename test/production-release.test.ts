@@ -49,7 +49,7 @@ function provider({
       } else {
         data = {
           autoDeploy: "no",
-          serviceDetails: { preDeployCommand: workerMigration },
+          serviceDetails: { envSpecificDetails: { preDeployCommand: workerMigration } },
         };
       }
       return Response.json(data);
@@ -58,7 +58,10 @@ function provider({
 }
 
 describe("production release", () => {
-  it("reads the worker migration command from Render's serviceDetails", async () => {
+  it("reads the worker migration command where Render reports it", async () => {
+    // The shape of a real GET /v1/services/:id for the worker once the command is set: Render
+    // nests it under envSpecificDetails and leaves no top-level field. A PATCH with a top-level
+    // preDeployCommand is ignored by the API, which is how this was found.
     const io = provider();
     await releaseProduction(config, {
       ...io,
@@ -67,8 +70,11 @@ describe("production release", () => {
           return Response.json({
             autoDeploy: "no",
             serviceDetails: {
-              preDeployCommand: "bun packages/db/scripts/migrate.ts",
-              envSpecificDetails: { buildCommand: "bun install --frozen-lockfile" },
+              plan: "standard",
+              envSpecificDetails: {
+                dockerfilePath: "./Dockerfile",
+                preDeployCommand: "bun packages/db/scripts/migrate.ts",
+              },
             },
           });
         return io.request(url, init);
@@ -77,7 +83,7 @@ describe("production release", () => {
     expect(io.calls.filter((call) => call.method === "POST")).toHaveLength(4);
   });
 
-  it("does not accept a nested migration command in place of the configured command", async () => {
+  it("does not accept a top-level migration command in place of the one Render runs", async () => {
     const io = provider();
     await expect(
       releaseProduction(config, {
@@ -87,8 +93,8 @@ describe("production release", () => {
             return Response.json({
               autoDeploy: "no",
               serviceDetails: {
-                preDeployCommand: "echo skip migrations",
-                envSpecificDetails: { preDeployCommand: "bun packages/db/scripts/migrate.ts" },
+                preDeployCommand: "bun packages/db/scripts/migrate.ts",
+                envSpecificDetails: { preDeployCommand: "echo skip migrations" },
               },
             });
           return io.request(url, init);
