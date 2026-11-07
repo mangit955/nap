@@ -387,8 +387,10 @@ Two ways to get this wrong, both quiet:
   *"expected string to have >=1 characters"*. Leave optional variables out entirely — including
   `NAP_CHROME_PATH`, which the image sets and a blank platform variable would shadow.
 
-The two origins refer to each other, so the first deployment is circular: deploy the API,
-take its domain to Vercel, then come back and set `NAP_WEB_ORIGIN` and redeploy.
+**Both must be subdomains of one domain you own** — `NAP_API_URL=https://api.<domain>` and
+`NAP_WEB_ORIGIN=https://nap.<domain>`. Under `NODE_ENV=production` every process refuses to boot
+when they are two sites; [One site for both halves](#one-site-for-both-halves) says why. Choosing
+the names up front also means neither origin waits on the other's deployment.
 
 ### 3. The web app on Vercel
 
@@ -421,8 +423,8 @@ Two variables, both inlined at build time — changing either needs a redeploy, 
 restart:
 
 ```
-NEXT_PUBLIC_API_URL     https://<the railway domain>
-NEXT_PUBLIC_API_WS_URL  wss://<the railway domain>
+NEXT_PUBLIC_API_URL     https://api.<domain>
+NEXT_PUBLIC_API_WS_URL  wss://api.<domain>
 ```
 
 `wss://`, not `ws://`: a page served over https may not open an insecure socket.
@@ -430,32 +432,49 @@ NEXT_PUBLIC_API_WS_URL  wss://<the railway domain>
 ### 4. OAuth callbacks
 
 better-auth builds redirect URIs from `NAP_API_URL`, so each provider's app needs
-`https://<railway domain>/api/auth/callback/github` (and `/google`).
+`https://api.<domain>/api/auth/callback/github` (and `/google`).
 
-## The session cookie, and the browsers where sign-in will not work
+## One site for both halves
 
-The app and the API are on two different sites (`vercel.app` and `railway.app`), which
-makes the session cookie third-party. `apps/api/src/auth/cross-site.ts` detects that from
-the two URLs and switches the cookie to `SameSite=None; Secure`, without which the browser
-would keep the cookie and never send it back — sign-in answering 200 and everything after
-it answering 401.
+The app and the API must be subdomains of one registrable domain — `nap.<domain>` on Vercel,
+`api.<domain>` on Render's `nap-api` service. Then the session cookie is first-party and
+`SameSite=Lax`, and sign-in works in every browser.
 
-**Not `Partitioned`, and that is not an oversight.** It looks like the right companion to
-`SameSite=None` and it breaks OAuth completely. A partitioned cookie is keyed to the
-top-level site that was open when it was set, so the `state` cookie written during the
-authorize POST is filed under the *app's* site; the provider's callback is a top-level
-navigation to the *API's* site, a different partition, where the browser does not send it.
-better-auth sees a state cookie that never came back and refuses with
-`state_security_mismatch`, which arrives as `…/?error=state_mismatch`. It was shipped that
-way once and found by trying to sign in with GitHub.
+On two sites it is third-party, and **Safari and Brave drop third-party cookies whatever
+`SameSite` says**: `POST /api/auth/sign-in/*` answers 200, the identity row is written, the
+browser refuses the `Set-Cookie`, and every request after it is a 401. Chrome and Firefox are
+fine, which is how it went unnoticed. Production ran that way on `vercel.app` and `onrender.com`
+(and `railway.app` before that) until #86, so **every process now refuses to boot under
+`NODE_ENV=production` when `NAP_API_URL` and `NAP_WEB_ORIGIN` are two sites**, naming both
+hosts. A release that hits it fails at the worker, before anything rolls forward.
+`apps/api/src/auth/cross-site.ts` decides what counts as one site, and says how far that is
+trusted; development and the kind clusters are unaffected, being localhost or plain http.
 
-**Safari and Brave block third-party cookies outright, so sign-in does not work there.**
-Chrome and Firefox are fine. This is a known, accepted limitation of running the two halves
-on free subdomains, and the fix is to stop being cross-site: put both behind one registrable
-domain (`nap.example.com` and `api.example.com`), at which point `isCrossSite` returns
-`false` on its own and the cookie goes back to `SameSite=Lax` with no code change: it
-compares registrable domains rather than hosts, and `cross-site.ts` says how far that
-comparison is trusted. DNS on both dashboards, update the four URL variables, redeploy.
+Moving an existing deployment onto a domain, in this order:
+
+1. Add `api.<domain>` as a custom domain on the `nap-api` service and `nap.<domain>` on the
+   Vercel project, and create the DNS records each dashboard asks for. The old
+   `onrender.com` and `vercel.app` hosts keep answering throughout.
+2. Add `https://api.<domain>/api/auth/callback/{github,google}` to the OAuth apps.
+3. Set `NAP_API_URL` and `NAP_WEB_ORIGIN` on all three Render services and redeploy them.
+4. Set `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_API_WS_URL` on Vercel and **rebuild** — they are
+   inlined at build time, so a restart keeps the old ones.
+5. Update `render.yaml` and the `/readyz` URL in `scripts/production-release.ts` to match.
+
+Between steps 3 and 4 the old build's requests are refused by CORS, so do them back to back.
+Check with `curl -si -X POST https://api.<domain>/api/auth/sign-in/anonymous -H "Origin:
+https://nap.<domain>" | grep -i set-cookie`, which should say `SameSite=Lax`, then sign in from
+Safari by every method — the social path has no in-app check, so a failure there lands on
+`/sign-in?expired=1` rather than saying why.
+
+**Never `Partitioned`.** On two sites it looks like the right companion to `SameSite=None`,
+and it breaks OAuth completely. A partitioned cookie is keyed to the top-level site that was
+open when it was set, so the `state` cookie written during the authorize POST is filed under
+the *app's* site; the provider's callback is a top-level navigation to the *API's* site, a
+different partition, where the browser does not send it. better-auth sees a state cookie that
+never came back and refuses with `state_security_mismatch`, which arrives as
+`…/?error=state_mismatch`. It was shipped that way once and found by trying to sign in with
+GitHub.
 
 ## What a public URL costs
 
@@ -498,8 +517,8 @@ is affordable, and they are worth setting deliberately rather than inheriting:
 ## Verifying a deployment
 
 ```bash
-curl https://<railway domain>/health          # 200, every check "ok"
-NAP_API_URL=https://<railway domain> bun run acceptance --keep
+curl https://api.<domain>/health          # 200, every check "ok"
+NAP_API_URL=https://api.<domain> bun run acceptance --keep
 ```
 
 `apps/api/scripts/acceptance.ts` drives the six steps of `docs/PLAN.md` §6 over the same

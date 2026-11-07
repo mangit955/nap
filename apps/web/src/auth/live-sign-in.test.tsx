@@ -223,9 +223,10 @@ describe("the way in with no account", () => {
 
 describe("when the browser accepts the sign-in and drops the cookie", () => {
   /*
-   * Safari and Brave block third-party cookies outright, and the API is on a different site from
-   * this app — so the request *succeeds*, the identity is created, and the browser silently
-   * refuses to store what came back. Nothing on this page can see that: `result.error` is null,
+   * A browser that blocks cookies for this site — every cookie, or a content blocker that strips
+   * them — lets the request *succeed*, the identity be created, and then silently refuses to
+   * store what came back. (It was every Safari and Brave once, while the app and the API were on
+   * two different sites; production now refuses to boot that way.) Nothing on this page can see that: `result.error` is null,
    * so the old code redirected, and every request after it was a 401 that bounced straight back
    * here. To the person pressing the button, the app does nothing at all.
    *
@@ -255,7 +256,7 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Try for free" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/chrome|firefox/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/allow cookies/i);
   });
 
   it("does not blame the credentials for it", async () => {
