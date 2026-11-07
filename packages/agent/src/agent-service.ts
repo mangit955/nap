@@ -45,6 +45,7 @@ import { DirectoryRules } from "./hooks/directory-rules.ts";
 import type { TurnHook } from "./hooks/hook.ts";
 import { PlanMode } from "./hooks/plan-mode.ts";
 import { PlanTracking } from "./hooks/plan-tracking.ts";
+import { Steering } from "./hooks/steering.ts";
 import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
 import { appendText, SubagentPool } from "./subagents.ts";
 import type { ToolDefinition } from "./tools/definitions.ts";
@@ -63,6 +64,14 @@ export const MAX_TRUNCATION_RECOVERIES = 2;
 
 /** How many times stop hooks may keep one turn going. Two, so no hook can keep it alive. */
 export const MAX_STOP_REFUSALS = 2;
+
+/**
+ * What the loop keeps spare for a steer before taking one: room for the steer itself, which has not
+ * been read when the decision is made, and for any reminder a hook adds to that request. Generous
+ * because the cost of guessing low is a message marked read that no model answered, and the cost
+ * of guessing high is only that message waiting for the next turn.
+ */
+const STEER_ROOM_TOKENS = 2_048;
 
 export type AgentServiceOptions = {
   provider: LLMProvider;
@@ -205,6 +214,11 @@ class Turn {
       }),
       ...(this.#offered.has("todo_write") ? [new PlanTracking()] : []),
       ...(request.mode === "plan" ? [new PlanMode()] : []),
+      // Only with both halves: somewhere the steers come from, and the engine's word on how one
+      // reads. A turn with neither hears nothing until it ends, and what was sent becomes the next.
+      ...(request.steering !== undefined && request.context.renderSteer !== undefined
+        ? [new Steering(request.steering, request.context.renderSteer)]
+        : []),
       ...(options.hooks?.(request) ?? []),
     ];
   }
@@ -232,6 +246,14 @@ class Turn {
     }
 
     for (;;) {
+      if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
+
+      // A safe point: the last batch is answered, in one message, and nothing is running. What the
+      // person sent meanwhile goes after those results, in that message — so it never separates a
+      // result from its call, and it lands after everything the cache already holds (ADR-0024).
+      // Only on a step that is going to call the model: one about to fail on its budget or its
+      // context takes nothing, and what waits becomes the next turn instead.
+      for (const text of await this.#interjections(1)) appendText(this.#messages, text);
       if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
 
       const contextFailure = await this.#checkContext();
@@ -385,6 +407,25 @@ class Turn {
           );
           continue;
         }
+        // The model is finished with what it was asked; somebody may have asked for more since.
+        // Answered with the turn's next step rather than left for a turn behind this one, which
+        // would begin by rebuilding the context this one already holds.
+        // Two steps, as an objection needs: one to read it and one for whatever it asks for. The
+        // reply goes into the conversation ahead of the steer, so it is counted in the room too.
+        const reply: LLMMessage = {
+          role: "assistant",
+          content: result.text === "" ? "(no reply)" : result.text,
+        };
+        const steered = await this.#interjections(2, [reply]);
+        if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
+        if (steered.length > 0) {
+          this.#messages.push(reply);
+          this.#messages.push({
+            role: "user",
+            content: steered.map((text) => ({ type: "text", text })),
+          });
+          continue;
+        }
         const objection = await this.#objection();
         if (objection !== undefined) {
           this.#continueWith(result.text, objection);
@@ -414,6 +455,44 @@ class Turn {
         : await this.#firstStopReason();
     if (reason !== undefined) this.#stopRefusals += 1;
     return reason;
+  }
+
+  /**
+   * The person's words since the model last heard from them, from every hook that has any.
+   *
+   * Asked only with room left to answer them: `steps` model calls, and a next request — carrying
+   * `before`, whatever goes into the conversation ahead of the steer — that fits the turn's tokens
+   * and the context's ceilings with a steer's worth to spare. Taking a steer marks
+   * it read for good, so one taken by a turn that then failed on its budget would be a message
+   * nobody ever answered — and would have turned a turn that was finishing into a failed one. Left
+   * untaken, it becomes the next turn when this one ends, with a budget of its own.
+   */
+  async #interjections(steps: number, before: readonly LLMMessage[] = []): Promise<string[]> {
+    if (this.#cancelled() || !this.#roomToAnswer(steps, before)) return [];
+    const said: string[] = [];
+    for (const hook of this.#hooks) said.push(...((await hook.interject?.()) ?? []));
+    return said;
+  }
+
+  /**
+   * Whether the next model request would pass the failures at the top of a step with `before` and
+   * a steer added. The same limits, estimated the same way, so the two do not disagree about what
+   * "room" means; the margin stands in for the steer, whose size is not known until it has been
+   * taken. It does not model compaction, which the top of a step may use to make room: where only
+   * compacting would fit the steer, this declines, and the steer waits for a later step or for the
+   * next turn rather than being taken on the hope that compaction succeeds.
+   */
+  #roomToAnswer(steps: number, before: readonly LLMMessage[]): boolean {
+    if (this.#budget.remaining().steps < steps) return false;
+    const input = this.#estimate(before) + STEER_ROOM_TOKENS;
+    const ceiling = this.#request.context.budgetTokens;
+    const contextWindow = this.#turn.contextWindowTokens;
+    if (contextWindow !== undefined && input + this.#headroom() >= contextWindow) return false;
+    return (
+      ceiling === undefined ||
+      (input <= ceiling &&
+        input <= (this.#helpers?.availableTokens() ?? this.#budget.remaining().tokens))
+    );
   }
 
   async #firstStopReason(): Promise<string | undefined> {
@@ -472,10 +551,11 @@ class Turn {
     this.#emit({ type: "system.notice", payload: { level: "info", text } });
   }
 
-  #estimate(): number {
+  /** The next request's input, with `appended` added after the conversation as it stands. */
+  #estimate(appended: readonly LLMMessage[] = []): number {
     const estimate = estimateContextTokens({
       systemPrompt: this.#request.context.systemPrompt,
-      messages: this.#messages,
+      messages: appended.length === 0 ? this.#messages : [...this.#messages, ...appended],
       tools: this.#tools,
     });
     const calibrated = (this.#reportedInput ?? 0) + estimate - this.#inputEstimate;

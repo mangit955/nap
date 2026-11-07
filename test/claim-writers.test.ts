@@ -68,7 +68,7 @@ describe("every writer of a turn request announces a claim wake-up", () => {
       }),
     );
     expect(inserts).toEqual({
-      "packages/db/src/postgres-turn-queue.ts": 1,
+      "packages/db/src/postgres-turn-queue.ts": 3,
       "packages/db/src/session-start-store.ts": 1,
       "packages/db/src/github-store.ts": 2,
     });

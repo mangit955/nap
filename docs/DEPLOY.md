@@ -662,3 +662,35 @@ non-Render rollout:
 4. Deploy the web.
 
 See [ADR-0025](adr/0025-plan-mode-proposes-and-the-next-message-decides.md).
+
+## Steering rollout
+
+Steering adds the `turn_steers` table and `turn_requests.steering_closed` (migration 0019), three event
+types (`steer.received`, `steer.applied`, `steer.dropped`) and one route (`POST
+/sessions/:id/steers`). Unlike plan mode, **the API writes one of the new events**: it records
+`steer.received` the moment it admits a steer, so the new shapes appear in a log as soon as a new
+API takes a steer, not only once a new worker runs.
+
+Every reader parses events strictly, so the order is the same as plan mode's, for the same reasons,
+plus one. An old worker runs a request without reading or closing its steers. That request settles
+normally, so nothing ever answers for the steers joined to it. The pane offers each back as not
+sent once the session is idle. So no old worker may be claiming once a new API admits steers.
+
+1. Apply migration 0019. The table is new and the column defaults to false, so the old API and old
+   workers carry on.
+2. Stop and drain every old worker, then deploy the new workers.
+3. Deploy the reaper, then the API. The reaper's janitor reads whole session logs. An old one that
+   meets `steer.received` while closing out a request fails that request's announcement and retries
+   it on its next tick. On Render the release deploys the API first, so expect that for at most one
+   reaper deploy. Retries are idempotent, so the failure costs a delay, not a terminal event.
+4. Deploy the web. Only the new web sends a steer. An old tab cannot parse the new events, and
+   reloading it fixes that.
+
+Rolling back is not the reverse. Once any `steer.*` event is in a session's log, an API, worker or
+reaper from before this change rejects that whole session, as it would any shape it cannot parse, so
+a prior image is not a safe rollback once a new API has admitted a steer. Stop the steering producers
+and roll forward with compatible readers instead, as with any new event metadata above.
+
+The Render release script already deploys in this order, apart from step 3's swap, and the worker's
+pre-deploy command applies 0019 before new workers boot. See
+[ADR-0028](adr/0028-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).

@@ -74,7 +74,20 @@ describe("parseHarnessArgs", () => {
       budgetTokens: 20_000,
       keep: true,
       plan: "off",
+      steer: undefined,
     });
+  });
+
+  it("sends a message into the running turn on --steer, words and all", () => {
+    expect(parsed("hi").steer).toBeUndefined();
+    expect(parsed("--steer=use Postgres, not SQLite", "hi").steer).toBe("use Postgres, not SQLite");
+    // Only the first `=` separates the flag from its value.
+    expect(parsed("--steer=a=b", "hi").steer).toBe("a=b");
+  });
+
+  it("refuses a --steer that says nothing", () => {
+    expect(rejected("--steer", "hi")).toMatch(/--steer needs the message/);
+    expect(rejected("--steer=  ", "hi")).toMatch(/--steer needs the message/);
   });
 
   it("runs a plan mode turn on --plan, and approves its plan on --approve as well", () => {

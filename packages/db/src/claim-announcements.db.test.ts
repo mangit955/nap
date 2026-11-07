@@ -144,6 +144,39 @@ describe("PostgresTurnQueue", () => {
     expect(await seen()).toEqual(["queued"]);
   });
 
+  it("announces a steer queued as a turn only after it commits", async () => {
+    const { sessionId } = await session();
+    const request = turn(sessionId);
+    const { claims, seen } = watching(stateOf(request.id));
+    const queue = new PostgresTurnQueue(db, { claims });
+
+    expect(await queue.steer(request)).toEqual({ as: "turn" });
+    expect(await seen()).toEqual(["queued"]);
+    expect(await queue.steer(request)).toEqual({ as: "turn" });
+    expect(await seen()).toEqual(["queued"]);
+  });
+
+  it("announces deferred steers after commit, but not a steer joining a turn", async () => {
+    const { sessionId } = await session();
+    const request = turn(sessionId);
+    const quiet = new PostgresTurnQueue(db, { claims: null });
+    await quiet.enqueue(request);
+    await lease(request.id, "worker-1");
+    const steer = turn(sessionId);
+    const { claims, seen } = watching(stateOf(steer.id));
+    const queue = new PostgresTurnQueue(db, { claims });
+
+    expect(await queue.steer(steer)).toEqual({ as: "steer", requestId: request.id });
+    expect(await seen()).toEqual([]);
+    expect(await queue.close(request.id, "worker-1", "defer")).toEqual({
+      deferred: [{ id: steer.id, text: steer.message }],
+      dropped: [],
+    });
+    expect(await seen()).toEqual(["queued"]);
+    await queue.close(request.id, "worker-1", "defer");
+    expect(await seen()).toEqual(["queued"]);
+  });
+
   it("announces a settle, with the session's lease already given back", async () => {
     const { sessionId } = await session();
     const request = turn(sessionId);

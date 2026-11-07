@@ -3,6 +3,7 @@ import type { BuiltContext, ContextRequest, FailedAttempt } from "@nap/shared/po
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory, MemoryProvider } from "@nap/shared/ports/memory-provider";
 import { describe, expect, it } from "vitest";
+import { prepareCompaction } from "./compaction.ts";
 import {
   DEFAULT_BUDGET_TOKENS,
   ELIDED_TOOL_OUTPUT,
@@ -14,6 +15,7 @@ import {
 } from "./context-engine.ts";
 import { FILE_LIST_UNAVAILABLE } from "./file-tree.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
+import { renderSteer } from "./steer.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
 import { PLAN_MODE_PROMPT, REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
 import { stubSandbox } from "./testing/stub-sandbox.ts";
@@ -1423,4 +1425,117 @@ describe("the compaction history pointer", () => {
     expect(JSON.stringify(built.messages)).not.toContain(HISTORY);
     expect(JSON.stringify(built.messages)).not.toContain("history file");
   });
+});
+
+describe("steering", () => {
+  const steerId = "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11";
+
+  it("renders a steer as the person's words, said while the agent worked", () => {
+    const rendered = renderSteer("Use Postgres instead");
+    expect(rendered).toContain("Use Postgres instead");
+    // Framed, so it cannot be read as the output of the tool it follows.
+    expect(rendered).not.toBe("Use Postgres instead");
+  });
+
+  it("offers the same rendering it replays history with", async () => {
+    const built = await engine().build(request());
+    expect(built.renderSteer).toBe(renderSteer);
+  });
+
+  it("replays an applied steer where it was read, beside the results it followed", async () => {
+    const history = [
+      userMessage(1, "Build a notes app"),
+      toolCall(1, "toolu_1"),
+      toolResult(1, "toolu_1", "listed"),
+      event("steer.applied", 1, { steerId, text: "Use Postgres instead" }),
+      agentMessage(1, "Switching to Postgres."),
+      completed(1),
+    ];
+    const built = await engine().build(request({ history }));
+
+    const answer = built.messages.find(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some((block) => block.type === "tool_result"),
+    );
+    // One user message answers the call and carries the steer after it, exactly as the loop sent
+    // it: a result and the words that followed it are never split across two messages.
+    expect(answer?.role).toBe("user");
+    expect(Array.isArray(answer?.content) && answer.content.map((block) => block.type)).toEqual([
+      "tool_result",
+      "text",
+    ]);
+    expect(texts(built.messages)).toContain(renderSteer("Use Postgres instead"));
+  });
+
+  it("replays neither a steer still waiting nor one that was dropped", async () => {
+    const history = [
+      userMessage(1, "Build a notes app"),
+      event("steer.received", 1, { steerId, text: "never read" }),
+      event("steer.dropped", 1, { steerId, text: "never read", reason: "stopped" }),
+      agentMessage(1, "Done."),
+      completed(1),
+    ];
+    const built = await engine().build(request({ history }));
+    expect(texts(built.messages).join("\n")).not.toContain("never read");
+  });
+
+  it("carries a steer once after a compaction that kept the exchange it was read in", async () => {
+    // The steer is read beside the results of the newest exchange, which is the one a compaction
+    // keeps word for word; it is also among the requests every rebuild protects. Once is enough.
+    const before = [
+      userMessage(1, "Build a notes app"),
+      toolCall(1, "toolu_1"),
+      toolResult(1, "toolu_1", "listed"),
+      event("steer.applied", 1, { steerId, text: "Use Postgres instead" }),
+    ];
+    const plan = prepareCompaction(before, 10_000);
+    if (plan === null) throw new Error("nothing to compact");
+    const history = [
+      ...before,
+      event("compaction.completed", 1, {
+        id: turnId(1),
+        result: {
+          kind: "api",
+          checkpoint: { coveredThrough: plan.coveredThrough, summary: "s", tail: plan.tail },
+        },
+        usage: null,
+        beforeTokens: null,
+        afterTokens: null,
+      }),
+    ];
+
+    const built = await engine().build(request({ history }));
+
+    const said = JSON.stringify(built.messages).split(
+      JSON.stringify(renderSteer("Use Postgres instead")).slice(1, -1),
+    );
+    expect(said).toHaveLength(2);
+    // And the exchange it kept is still whole: the call and its result, nothing else.
+    expect(toolResults(built.messages).map((result) => result.toolCallId)).toEqual(["toolu_1"]);
+  });
+
+  it.each(["window", "budget"] as const)(
+    "keeps a steer's words after %s eviction, as it keeps a prompt's",
+    async (eviction) => {
+      const history = [
+        userMessage(1, "Build a notes app"),
+        event("steer.applied", 1, { steerId, text: "Never use SQLite." }),
+        // Larger than the budget case's whole budget, so that case really evicts the turn.
+        agentMessage(1, "w".repeat(20_000)),
+        completed(1),
+        userMessage(2, "Add tags."),
+        agentMessage(2, "OK"),
+        completed(2),
+      ];
+      const built = await new NapContextEngine({
+        maxTurns: eviction === "window" ? 1 : 20,
+        budgetTokens: eviction === "budget" ? 4_000 : 80_000,
+      }).build(request({ history }));
+      const userText = texts(built.messages.filter((message) => message.role === "user")).join(
+        "\n",
+      );
+      expect(userText.split("Never use SQLite.")).toHaveLength(2);
+    },
+  );
 });

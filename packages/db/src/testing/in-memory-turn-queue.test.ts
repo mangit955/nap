@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { enqueueRequest } from "./enqueue-request.ts";
 import { InMemoryTurnQueue } from "./in-memory-turn-queue.ts";
+import { steerQueueContract } from "./steer-queue-contract.ts";
+
+steerQueueContract("InMemoryTurnQueue", () => ({
+  queue: new InMemoryTurnQueue(),
+  session: async () => ({ sessionId: crypto.randomUUID(), userId: crypto.randomUUID() }),
+}));
 
 /**
  * The fake is production-quality code that every worker test depends on, so it is tested for the
@@ -26,6 +32,25 @@ async function enqueue(sessionId: string, message = "do a thing") {
     billsToUser: false,
   });
 }
+
+describe("enqueue", () => {
+  it("refuses an id that is already a request, as the primary key does", async () => {
+    const { id } = await enqueue("session-a");
+
+    await expect(
+      queue.enqueue({
+        id,
+        sessionId: "session-a",
+        userId: "user-1",
+        kind: "turn",
+        message: "the same words again",
+        model: "openai/gpt-5-mini",
+        billsToUser: false,
+      }),
+    ).rejects.toThrow(id);
+    expect(queue.enqueued).toHaveLength(1);
+  });
+});
 
 describe("claim", () => {
   it("answers null when nothing is queued", async () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MAX_WAITING_STEERS } from "@nap/shared/ports/steer-queue";
 import { eq, inArray, sql as sqlOf } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -6,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "v
 import { PostgresTurnQueue } from "./postgres-turn-queue.ts";
 import { projects, sessions, turnRequests, users } from "./schema.ts";
 import { enqueueRequest } from "./testing/enqueue-request.ts";
+import { steerQueueContract } from "./testing/steer-queue-contract.ts";
 
 /**
  * The queue against a real Postgres, because the thing being tested cannot be observed anywhere
@@ -977,4 +979,202 @@ it("persists and claims an app test's job identity through a fresh adapter", asy
     billsToUser: true,
   });
   expect(await restarted.anyLeased([owner.sessionId])).toBe(true);
+});
+
+steerQueueContract("PostgresTurnQueue", () => ({ queue, session: seedSession }));
+
+describe("steering against the end of a request", () => {
+  /** Polls until this many statements are waiting on a lock, so an interleaving is staged, not hoped for. */
+  async function waiters(atLeast: number): Promise<void> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const [row] = await sql<{ n: number }[]>`
+        select count(*)::int as n from pg_locks where not granted`;
+      if ((row?.n ?? 0) >= atLeast) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(`fewer than ${atLeast} statements ever waited on a lock`);
+  }
+
+  it("never admits a steer to a request that is closing without resolving it", async () => {
+    // The window that matters: an admission has read the request as open and not yet inserted
+    // its row, while the worker closes the request. A blocker holding an uncommitted row with the
+    // steer's own id parks the admission exactly there — its insert waits on the primary key.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    const steerId = randomUUID();
+
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`
+        insert into turn_steers (id, session_id, user_id, request_id, message, model)
+        values (${steerId}, ${seed.sessionId}, ${seed.userId}, ${requestId}, 'blocker', 'm')`;
+
+      const admitting = queue.steer({
+        id: steerId,
+        ...seed,
+        message: "use Postgres instead",
+        model: "openai/gpt-5-mini",
+        billsToUser: false,
+      });
+      await waiters(1);
+
+      // Admission holds the request's row, so the close waits for it rather than resolving the
+      // steers it can see now — which do not yet include this one.
+      const closing = queue.close(requestId, "worker-a", "defer");
+      await Promise.race([waiters(2), closing]);
+      await blocker`rollback`;
+
+      const [admitted, closed] = await Promise.all([admitting, closing]);
+      expect(admitted).toEqual({ as: "steer", requestId });
+      expect(closed.deferred.map((steer) => steer.id)).toEqual([steerId]);
+      expect(await queue.steersOf(requestId)).toEqual([
+        { id: steerId, text: "use Postgres instead", state: "deferred" },
+      ]);
+    } finally {
+      blocker.release();
+    }
+  });
+
+  /** A message to a session, under a fresh id unless the test is retrying one. */
+  function message(seed: { sessionId: string; userId: string }, text = "use Postgres instead") {
+    return {
+      id: randomUUID(),
+      ...seed,
+      message: text,
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    };
+  }
+
+  /**
+   * Holds the leased request's row the way an admission in progress does, starts `admissions`
+   * against it, and lets them go only once every one of them is waiting on that row — so they
+   * re-read the request one after another, which is the interleaving a race would have to win.
+   */
+  async function afterHeldRow<T>(requestId: string, admissions: () => Promise<T>[]): Promise<T[]> {
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`select id from turn_requests where id = ${requestId} for no key update`;
+      const started = admissions();
+      await waiters(started.length);
+      await blocker`commit`;
+      return await Promise.all(started);
+    } finally {
+      blocker.release();
+    }
+  }
+
+  it("lands a retried message once when the retries race for the backlog's last place", async () => {
+    // Both attempts look for the id before either has written it, so neither finds the other. The
+    // first to the row joins and fills the backlog; the second must not then see a full backlog
+    // and queue the same words again as a turn of their own.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    for (let index = 1; index < MAX_WAITING_STEERS; index += 1)
+      await queue.steer(message(seed, `steer ${index}`));
+    const retried = message(seed);
+
+    const answers = await afterHeldRow(requestId, () => [
+      queue.steer(retried),
+      queue.steer(retried),
+    ]);
+
+    expect(answers).toEqual([
+      { as: "steer", requestId },
+      { as: "steer", requestId },
+    ]);
+    expect(await queue.getStatus({ id: retried.id, ...seed })).toBeNull();
+    // And the request still closes, resolving every steer it holds.
+    const closed = await queue.close(requestId, "worker-a", "defer");
+    expect(closed.deferred.map((steer) => steer.id)).toContain(retried.id);
+    expect((await queue.steersOf(requestId)).filter((steer) => steer.state === "pending")).toEqual(
+      [],
+    );
+  });
+
+  it("admits no more than the backlog allows when two messages race for its last place", async () => {
+    // What counting under the row's lock is for: a lock two admissions could hold at once would let
+    // both count the same backlog and both join.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    for (let index = 1; index < MAX_WAITING_STEERS; index += 1)
+      await queue.steer(message(seed, `steer ${index}`));
+
+    const answers = await afterHeldRow(requestId, () => [
+      queue.steer(message(seed, "first")),
+      queue.steer(message(seed, "second")),
+    ]);
+
+    expect(answers.map((answer) => answer.as).sort()).toEqual(["steer", "turn"]);
+    expect(
+      (await queue.steersOf(requestId)).filter((steer) => steer.state === "pending"),
+    ).toHaveLength(MAX_WAITING_STEERS);
+  });
+
+  it("lands a retried message once when a claim falls between its two attempts", async () => {
+    // Two attempts at one id that target different things hold no row in common: the first finds
+    // nothing running and queues a turn, a worker then claims a request, and the second finds that
+    // request to join. Neither can see the other's uncommitted row. A blocker holding an
+    // uncommitted turn under the same id parks the first attempt on the primary key, after it has
+    // decided and before it commits, which is the whole of that window.
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    const retried = message(seed);
+
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`
+        insert into turn_requests (id, session_id, user_id, kind, message, model)
+        values (${retried.id}, ${seed.sessionId}, ${seed.userId}, 'turn', 'blocker', 'm')`;
+
+      const first = queue.steer(retried);
+      await waiters(1);
+      expect((await queue.claim("worker-a"))?.id).toBe(requestId);
+      const second = queue.steer(retried);
+      // The second waits for the first to finish; without that it answers at once, and the poll
+      // is left to give up on its own.
+      await Promise.race([waiters(2).catch(() => undefined), second]);
+      await blocker`rollback`;
+
+      expect(await Promise.all([first, second])).toEqual([{ as: "turn" }, { as: "turn" }]);
+      expect(await queue.steersOf(requestId)).toEqual([]);
+      expect(await queue.getStatus({ id: retried.id, ...seed })).toEqual({
+        id: retried.id,
+        state: "queued",
+      });
+    } finally {
+      blocker.release();
+    }
+  });
+
+  it("lands every message of a burst exactly once while the request closes under it", async () => {
+    const seed = await seedSession();
+    const { id: requestId } = await enqueueTurn(seed);
+    await queue.claim("worker-a");
+    const ids = Array.from({ length: 12 }, () => randomUUID());
+
+    const admissions = ids.map((id) =>
+      queue.steer({ id, ...seed, message: id, model: "openai/gpt-5-mini", billsToUser: false }),
+    );
+    const closed = await queue.close(requestId, "worker-a", "defer");
+    const admitted = await Promise.all(admissions);
+
+    const deferred = new Set(closed.deferred.map((steer) => steer.id));
+    for (const [index, id] of ids.entries()) {
+      const status = await queue.getStatus({ id, ...seed });
+      // A steer the close resolved, or a turn of its own: never both, never neither.
+      if (admitted[index]?.as === "steer") expect(deferred.has(id)).toBe(true);
+      else expect(deferred.has(id)).toBe(false);
+      expect(status?.state).toBe("queued");
+    }
+    expect((await queue.steersOf(requestId)).filter((steer) => steer.state === "pending")).toEqual(
+      [],
+    );
+  });
 });

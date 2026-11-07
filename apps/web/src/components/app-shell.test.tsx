@@ -368,6 +368,8 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Files" }));
     fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
     expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    // Still known to be running, with the prompt not yet in the log: nothing more is taken until
+    // it lands, since the composer tracks one submission at a time.
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
   });
 

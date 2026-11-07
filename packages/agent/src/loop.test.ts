@@ -1119,3 +1119,334 @@ describe("a plan mode turn", () => {
     expect(payloads("turn.completed")[0]).not.toHaveProperty("awaiting");
   });
 });
+
+describe("steering", () => {
+  const render = (text: string) => `[steer] ${text}`;
+  /** A request with a mailbox: each `take` hands over whatever the test put there since the last. */
+  function steered(overrides: Partial<AgentTurnRequest> = {}) {
+    const mailbox: string[] = [];
+    let takes = 0;
+    const base = request();
+    return {
+      mailbox,
+      takes: () => takes,
+      request: request({
+        context: { ...base.context, renderSteer: render },
+        steering: {
+          take: async () => {
+            takes += 1;
+            return mailbox.splice(0).map((text, index) => ({ id: `s${takes}-${index}`, text }));
+          },
+        },
+        ...overrides,
+      }),
+    };
+  }
+
+  it("hands a steer to the model at the next step, after the results, in the same message", async () => {
+    const { agent, provider } = run([
+      [{ toolCalls: [call("read_file", { path: APP }, "a")] }, { text: "ok" }],
+    ]);
+    const turn = steered();
+    const read = manager.readFile.bind(manager);
+    manager.readFile = async (id, path) => {
+      // Sent while the call runs; read only once its batch is answered.
+      if (path === APP) turn.mailbox.push("Use Postgres instead");
+      return read(id, path);
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(textOf(provider.requests[0]?.messages.at(-1))).not.toContain("Postgres");
+    const last = provider.requests[1]?.messages.at(-1);
+    expect(Array.isArray(last?.content) && last.content.map((block) => block.type)).toEqual([
+      "tool_result",
+      "text",
+    ]);
+    expect(Array.isArray(last?.content) && last.content.at(-1)).toEqual({
+      type: "text",
+      text: "[steer] Use Postgres instead",
+    });
+    expect(types().filter((type) => type === "turn.completed")).toHaveLength(1);
+  });
+
+  it("keeps a turn going when a steer arrives after the model's last reply", async () => {
+    const { agent, provider } = run([[{ text: "Done." }, { text: "Switched to Postgres." }]]);
+    const turn = steered();
+    const take = turn.request.steering?.take;
+    let asked = 0;
+    // Empty at the first step; there by the time the model says it is finished.
+    turn.request.steering = {
+      take: async () => {
+        asked += 1;
+        if (asked === 2) turn.mailbox.push("Use Postgres instead");
+        return (await take?.()) ?? [];
+      },
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(provider.requests).toHaveLength(2);
+    const [reply, steer] = provider.requests[1]?.messages.slice(-2) ?? [];
+    expect(reply?.role).toBe("assistant");
+    expect(textOf(reply)).toBe("Done.");
+    expect(steer?.role).toBe("user");
+    expect(textOf(steer)).toBe("[steer] Use Postgres instead");
+    expect(types().filter((type) => type === "turn.completed")).toHaveLength(1);
+  });
+
+  it("never asks for steers while a batch is running", async () => {
+    const { agent } = run([
+      [
+        {
+          toolCalls: [
+            call("read_file", { path: APP }, "a"),
+            call("write_file", { path: OTHER, contents: "changed\n" }, "w"),
+            call("read_file", { path: OTHER }, "b"),
+          ],
+        },
+        { text: "ok" },
+      ],
+    ]);
+    let running = 0;
+    let askedMidBatch = false;
+    for (const method of ["readFile", "writeFile"] as const) {
+      const original = manager[method].bind(manager) as (...args: unknown[]) => Promise<unknown>;
+      (manager as unknown as Record<string, unknown>)[method] = async (...args: unknown[]) => {
+        running += 1;
+        try {
+          return await original(...args);
+        } finally {
+          running -= 1;
+        }
+      };
+    }
+    const turn = steered();
+    turn.request.steering = {
+      take: async () => {
+        if (running > 0) askedMidBatch = true;
+        return [];
+      },
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(askedMidBatch).toBe(false);
+  });
+
+  it("takes no steer it has no step left to answer", async () => {
+    const { agent, provider } = run([[{ text: "Done." }]], { budget: { maxSteps: 1 } });
+    const turn = steered();
+    const take = turn.request.steering?.take;
+    // Nothing at the first step; sent while its one model call runs, so there is no step after it.
+    turn.request.steering = {
+      take: async () => {
+        const taken = (await take?.()) ?? [];
+        turn.mailbox.push("and another");
+        return taken;
+      },
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(provider.requests).toHaveLength(1);
+    // Left where it was, for whoever closes the request to queue as the next turn.
+    expect(turn.mailbox).toEqual(["and another"]);
+    expect(types().at(-1)).toBe("turn.completed");
+  });
+
+  it("does not fail a finished turn by steering it with no room left", async () => {
+    // Two steps: the model finishes on the first, the steer arrives during it, and one step is not
+    // enough to answer a steer the model may well answer with a tool call.
+    const { agent } = run(
+      [[{ text: "Done." }, { toolCalls: [call("read_file", { path: APP }, "a")] }, { text: "x" }]],
+      { budget: { maxSteps: 2 } },
+    );
+    const turn = steered();
+    const take = turn.request.steering?.take;
+    turn.request.steering = {
+      take: async () => {
+        const taken = (await take?.()) ?? [];
+        turn.mailbox.push("Use Postgres");
+        return taken;
+      },
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(types().at(-1)).toBe("turn.completed");
+    // Left for whoever closes the request to queue as the next turn, which has a budget of its own.
+    expect(turn.mailbox).toEqual(["Use Postgres"]);
+  });
+
+  it("does not fail a finished turn by steering it when the next request would not be paid for", async () => {
+    const { agent } = run(
+      [
+        [
+          { text: "Done.", usage: { inputTokens: 49_990, outputTokens: 5 } },
+          { text: "Switched to Postgres." },
+        ],
+      ],
+      { budget: { maxTokens: 50_000 } },
+    );
+    const turn = steered();
+    turn.request.context = { ...turn.request.context, budgetTokens: 80_000 };
+    const take = turn.request.steering?.take;
+    turn.request.steering = {
+      take: async () => {
+        const taken = (await take?.()) ?? [];
+        turn.mailbox.push("Use Postgres");
+        return taken;
+      },
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(types().at(-1)).toBe("turn.completed");
+    expect(turn.mailbox).toEqual(["Use Postgres"]);
+  });
+
+  it("counts the reply a steer would follow when deciding there is room to answer it", async () => {
+    // The steer goes after the model's last reply, which the next request carries and the last
+    // one did not. Ten thousand tokens in, a ceiling of thirteen thousand leaves room for a steer
+    // alone but not for a three-thousand-token reply in front of it.
+    const { agent } = run([
+      [
+        { text: "x".repeat(12_000), usage: { inputTokens: 10_000, outputTokens: 3_000 } },
+        { text: "Switched to Postgres." },
+      ],
+    ]);
+    const turn = steered();
+    turn.request.context = { ...turn.request.context, budgetTokens: 13_000 };
+    const take = turn.request.steering?.take;
+    turn.request.steering = {
+      take: async () => {
+        const taken = (await take?.()) ?? [];
+        // Sent while the model writes its reply, once.
+        if (turn.takes() === 1) turn.mailbox.push("Use Postgres");
+        return taken;
+      },
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(types().at(-1)).toBe("turn.completed");
+    expect(turn.mailbox).toEqual(["Use Postgres"]);
+  });
+
+  it("takes nothing at the top of a step that is going to fail before calling the model", async () => {
+    const { agent, provider } = run(
+      [
+        [
+          {
+            toolCalls: [call("read_file", { path: APP }, "a")],
+            usage: { inputTokens: 49_990, outputTokens: 5 },
+          },
+          { text: "unused" },
+        ],
+      ],
+      { budget: { maxTokens: 50_000 } },
+    );
+    const turn = steered();
+    turn.request.context = { ...turn.request.context, budgetTokens: 80_000 };
+    const read = manager.readFile.bind(manager);
+    manager.readFile = async (id, path) => {
+      if (path === APP) turn.mailbox.push("Use Postgres");
+      return read(id, path);
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(provider.requests).toHaveLength(1);
+    expect(payloads("turn.failed")).toEqual([
+      expect.objectContaining({ reason: "budget_exceeded" }),
+    ]);
+    // Not marked read by a turn that never called the model again.
+    expect(turn.mailbox).toEqual(["Use Postgres"]);
+  });
+
+  it("asks a cancelled turn for nothing", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { agent } = run([[{ text: "unused" }]]);
+    const turn = steered({ signal: controller.signal });
+
+    await agent.runTurn(turn.request);
+
+    expect(turn.takes()).toBe(0);
+    expect(types().at(-1)).toBe("turn.failed");
+  });
+
+  it("asks a turn cancelled as its model finished for nothing more", async () => {
+    // Stopped after the model's last reply arrived and before the loop decided what to do with
+    // it — a Stop the row does not know about, such as a shutdown, lands exactly there. A steer
+    // taken now would be marked read by a turn that is about to fail without answering it.
+    const controller = new AbortController();
+    const { agent } = run([[{ text: "Done." }, { text: "unused" }]]);
+    const turn = steered({
+      signal: controller.signal,
+      onEvent: (event) => {
+        events.push(event);
+        if (event.type === "agent.message") controller.abort();
+      },
+    });
+    const take = turn.request.steering?.take;
+    turn.request.steering = {
+      take: async () => {
+        const taken = (await take?.()) ?? [];
+        // Sent while the first step's model call runs, once.
+        if (turn.takes() === 1) turn.mailbox.push("Use Postgres");
+        return taken;
+      },
+    };
+
+    await agent.runTurn(turn.request);
+
+    expect(payloads("turn.failed")).toEqual([expect.objectContaining({ reason: "cancelled" })]);
+    expect(turn.takes()).toBe(1);
+    expect(turn.mailbox).toEqual(["Use Postgres"]);
+  });
+
+  it("lets a turn that ended on a question end, leaving the steer for the next turn", async () => {
+    const { agent, provider } = run([
+      [
+        {
+          toolCalls: [
+            call(
+              "ask_user",
+              {
+                question: "Which layout?",
+                options: [
+                  { label: "Grid", description: null },
+                  { label: "List", description: null },
+                ],
+                multiSelect: false,
+              },
+              "q",
+            ),
+          ],
+        },
+      ],
+    ]);
+    const turn = steered();
+    const before = turn.takes;
+
+    await agent.runTurn(turn.request);
+    turn.mailbox.push("too late for this turn");
+
+    expect(provider.requests).toHaveLength(1);
+    expect(before()).toBe(1);
+    expect(turn.mailbox).toEqual(["too late for this turn"]);
+  });
+
+  it("offers no steers to a turn whose context cannot say how one reads", async () => {
+    const { agent } = run([[{ text: "ok" }]]);
+    const turn = steered();
+    const { renderSteer: _unused, ...context } = turn.request.context;
+    turn.mailbox.push("waiting");
+
+    await agent.runTurn({ ...turn.request, context });
+
+    expect(turn.takes()).toBe(0);
+  });
+});

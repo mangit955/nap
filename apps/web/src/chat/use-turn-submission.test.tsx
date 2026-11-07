@@ -598,3 +598,102 @@ it("admits an app test without an optimistic user message and follows its prepar
   await waitFor(() => expect(view.result.current.running).toBe(false));
   expect(view.result.current.testPhase).toBe("idle");
 });
+
+describe("a message sent while a turn runs", () => {
+  /** A server that admits steers, answering each as `as`, and records what it was sent. */
+  function steering(as: "steer" | "turn") {
+    const calls: { path: string; body: Record<string, unknown> }[] = [];
+    const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
+      const path = new URL(url).pathname;
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      if (init?.method === "POST") calls.push({ path, body });
+      if (init?.method !== "POST") return new Response(null, { status: 404 });
+      const id = path.endsWith("/steers") ? body.id : TURN;
+      return Response.json({ accepted: true, requestId: id, as }, { status: 202 });
+    };
+    return { calls, fetchJson };
+  }
+
+  it("is sent to the running turn under an id of its own, and waits beside the transcript", async () => {
+    const server = steering("steer");
+    const { result, rerender } = submission(server.fetchJson);
+    const log = [userSaid("Build a notes app"), started()];
+    rerender(log);
+
+    await act(async () => {
+      await result.current.submit("Use Postgres instead", "openai/gpt-5.6-luna");
+    });
+
+    expect(server.calls).toEqual([
+      {
+        path: `/sessions/${SESSION}/steers`,
+        body: {
+          id: expect.any(String),
+          message: "Use Postgres instead",
+          model: "openai/gpt-5.6-luna",
+        },
+      },
+    ]);
+    const id = server.calls[0]?.body.id as string;
+    expect(result.current.pendingSteer).toBe("Use Postgres instead");
+    // Not a queued prompt: the turn already running is the one answering it.
+    expect(result.current.pending).toBeUndefined();
+
+    rerender([...log, ev("steer.received", { steerId: id, text: "Use Postgres instead" })]);
+    await waitFor(() => expect(result.current.pendingSteer).toBeUndefined());
+  });
+
+  it("becomes an ordinary queued prompt when the server queued it as the next turn", async () => {
+    const server = steering("turn");
+    const { result, rerender } = submission(server.fetchJson);
+    rerender([userSaid("Build a notes app"), started()]);
+
+    await act(async () => {
+      await result.current.submit("Add tags");
+    });
+
+    expect(result.current.pendingSteer).toBeUndefined();
+    expect(result.current.pending).toBe("Add tags");
+  });
+
+  it("takes the turn route for what only a turn of its own can carry", async () => {
+    const server = steering("turn");
+    const { result, rerender } = submission(server.fetchJson);
+    rerender([userSaid("Build a notes app"), started()]);
+    const image: MediaAttachment = {
+      kind: "image",
+      name: "a.jpg",
+      frames: [{ mediaType: "image/jpeg", data: "/9j/", timestamp: 0 }],
+    };
+
+    for (const send of [
+      () => result.current.submit("like this", undefined, [image]),
+      () => result.current.submit("/compact"),
+      () =>
+        result.current.submit("Approved.", undefined, undefined, {
+          intent: "approve",
+          planTurnId: TURN,
+        }),
+    ])
+      await act(async () => {
+        await send();
+      });
+
+    expect(server.calls.map((call) => call.path)).toEqual([
+      `/sessions/${SESSION}/turns`,
+      `/sessions/${SESSION}/turns`,
+      `/sessions/${SESSION}/turns`,
+    ]);
+  });
+
+  it("goes to the turn route when nothing is running", async () => {
+    const server = steering("turn");
+    const { result } = submission(server.fetchJson);
+
+    await act(async () => {
+      await result.current.submit("Build a notes app");
+    });
+
+    expect(server.calls.map((call) => call.path)).toEqual([`/sessions/${SESSION}/turns`]);
+  });
+});

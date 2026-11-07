@@ -29,6 +29,7 @@ import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
+import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
@@ -36,8 +37,9 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { COMMIT_COMMAND, committed } from "@nap/sandbox/testing/script-git";
 import { loadEnvFile } from "@nap/shared/env-file";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
-import type { LLMProvider } from "@nap/shared/ports/llm-provider";
+import type { LLMProvider, LLMRequest } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { RequestSteering } from "@nap/shared/ports/steer-queue";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { formatEvent, HARNESS_DEFAULTS, HARNESS_USAGE, parseHarnessArgs } from "../src/harness.ts";
 import { SingleAgentRuntime } from "../src/single-agent-runtime.ts";
@@ -244,6 +246,78 @@ const bus = new InMemoryEventBus();
 // persistence test, and everything printed here was still appended before it was published.
 bus.subscribe(sessionId, (event) => console.log(formatEvent(event)));
 
+// Allocated here for the reason admission allocates one: nothing queued this turn, so the harness
+// is what names it.
+const firstTurnId = crypto.randomUUID();
+
+/**
+ * `--steer`: the first turn runs under a lease on a queue, and the message is admitted to it while
+ * the turn's first model call is in flight — the queue first, then `steer.received` in the log, the
+ * order the API admits one in. The agent reads it at its next step, after that call's tool results.
+ */
+let steering: RequestSteering | undefined;
+let steerQueue: InMemoryTurnQueue | undefined;
+if (options.steer !== undefined) {
+  const queue = new InMemoryTurnQueue();
+  steerQueue = queue;
+  const userId = crypto.randomUUID();
+  const plan = options.plan === "off" ? {} : { plan: { intent: "propose" as const } };
+  await queue.enqueue({
+    id: firstTurnId,
+    sessionId,
+    userId,
+    kind: "turn",
+    message: options.prompt,
+    ...plan,
+    model: options.model,
+    billsToUser: false,
+  });
+  await queue.claim("harness");
+  steering = {
+    take: () => queue.take(firstTurnId, "harness"),
+    close: (disposition) => queue.close(firstTurnId, "harness", disposition),
+  };
+  const message = options.steer;
+  let sent = false;
+  const inner = provider;
+  provider = {
+    startTurn: (turnOptions) => {
+      const turn = inner.startTurn(turnOptions);
+      return {
+        ...turn,
+        usage: () => turn.usage(),
+        complete: async (request: LLMRequest) => {
+          const answer = turn.complete(request);
+          if (!sent) {
+            sent = true;
+            const steerId = crypto.randomUUID();
+            const admitted = await queue.steer({
+              id: steerId,
+              sessionId,
+              userId,
+              message,
+              ...plan,
+              model: options.model,
+              billsToUser: false,
+            });
+            if (admitted.as === "steer")
+              bus.publish(
+                await events.append({
+                  type: "steer.received",
+                  sessionId,
+                  turnId: admitted.requestId,
+                  createdAt: new Date().toISOString(),
+                  payload: { steerId, text: message },
+                }),
+              );
+          }
+          return await answer;
+        },
+      };
+    },
+  };
+}
+
 const runtime = new SingleAgentRuntime({
   sessions,
   sandbox,
@@ -269,16 +343,19 @@ const runtime = new SingleAgentRuntime({
 });
 
 const startedAt = Date.now();
-// Allocated here for the reason admission allocates one: nothing queued this turn, so the harness
-// is what names it.
-const firstTurnId = crypto.randomUUID();
 let outcome = await runtime.runTurn({
   sessionId,
   turnId: firstTurnId,
   message: options.prompt,
   model: options.model,
   ...(options.plan === "off" ? {} : { plan: { intent: "propose" as const } }),
+  ...(steering === undefined ? {} : { steering }),
 });
+if (steerQueue !== undefined) {
+  for (const steer of await steerQueue.steersOf(firstTurnId))
+    console.log(`\nSteer ${steer.state}: ${steer.text}`);
+  await steerQueue.settle(firstTurnId, "harness", outcome.ok ? "done" : "failed");
+}
 if (options.plan === "approve" && outcome.ok) {
   // What the plan card's Approve button sends: the approval names the turn that proposed.
   console.log("\n— approving the plan —\n");

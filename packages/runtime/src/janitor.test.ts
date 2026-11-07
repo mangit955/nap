@@ -543,3 +543,98 @@ it("discards an orphaned test capture and closes its recording state without rep
   });
   expect((await logOf()).filter((event) => event.type === "test.completed")).toHaveLength(1);
 });
+
+describe("steers a dead worker's request never read", () => {
+  function steer(message: string) {
+    return {
+      id: crypto.randomUUID(),
+      sessionId: SESSION,
+      userId: "user-1",
+      message,
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    };
+  }
+
+  function sweepSteering() {
+    return sweepOrphanedRequests({
+      queue,
+      steers: queue,
+      events,
+      bus,
+      now: () => new Date(now).toISOString(),
+    });
+  }
+
+  it("hands each back as interrupted, and runs none of them", async () => {
+    const id = await abandoned();
+    const read = steer("and dark mode");
+    await queue.steer(read);
+    // Read and recorded before the worker died: the log already says where it went.
+    await queue.take(id, "worker-1");
+    await events.append({
+      type: "steer.applied",
+      payload: { steerId: read.id, text: read.message },
+      sessionId: SESSION,
+      turnId: id,
+      createdAt: new Date(now).toISOString(),
+    });
+    // A third, read by the worker but never recorded: the model never saw it either.
+    const unrecorded = steer("and a footer");
+    await queue.steer(unrecorded);
+    await queue.take(id, "worker-1");
+    const late = steer("still waiting");
+    await queue.steer(late);
+    pastGrace();
+
+    await sweepSteering();
+
+    const dropped = (await logOf()).filter((event) => event.type === "steer.dropped");
+    expect(dropped.map((event) => event.payload)).toEqual([
+      { steerId: unrecorded.id, text: "and a footer", reason: "interrupted" },
+      { steerId: late.id, text: "still waiting", reason: "interrupted" },
+    ]);
+    // Never re-run on the janitor's say-so: nothing is queued for the session.
+    expect(queue.inFlight).toBe(0);
+  });
+
+  it("says nothing about a steer that already became the next turn", async () => {
+    const id = await abandoned();
+    const unread = steer("add tags");
+    await queue.steer(unread);
+    // The worker closed the request and died before settling it.
+    await queue.close(id, "worker-1", "defer");
+    pastGrace();
+
+    await sweepSteering();
+
+    expect((await logOf()).filter((event) => event.type === "steer.dropped")).toEqual([]);
+    expect(queue.stateOf(unread.id)).toBe("queued");
+  });
+
+  it("writes nothing twice when a second tick finishes what the first began", async () => {
+    await abandoned();
+    await queue.steer(steer("use Postgres instead"));
+    pastGrace();
+    // Everything durable, and only the bookkeeping failed, so the next tick announces it again.
+    const forgetful: TurnQueue = {
+      orphanExpired: (limit) => queue.orphanExpired(limit),
+      unannouncedOrphans: (limit) => queue.unannouncedOrphans(limit),
+      markOrphanAnnounced: () => Promise.reject(new Error("no connection")),
+      enqueue: (request) => queue.enqueue(request),
+      getStatus: (request) => queue.getStatus(request),
+      hasPending: (sessionId) => queue.hasPending(sessionId),
+      claim: (owner) => queue.claim(owner),
+      renew: (requestId, owner) => queue.renew(requestId, owner),
+      settle: (requestId, owner, state) => queue.settle(requestId, owner, state),
+      requestCancel: (sessionId) => queue.requestCancel(sessionId),
+      anyLeased: (sessionIds) => queue.anyLeased(sessionIds),
+    };
+    await sweepOrphanedRequests({ queue: forgetful, steers: queue, events, bus });
+    expect(await queue.unannouncedOrphans()).toHaveLength(1);
+
+    await sweepSteering();
+
+    expect((await logOf()).filter((event) => event.type === "steer.dropped")).toHaveLength(1);
+  });
+});

@@ -47,7 +47,7 @@ import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import { approvedPlanOfJob, pendingPlan } from "@nap/shared/plan-mode";
-import type { AgentService } from "@nap/shared/ports/agent-service";
+import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore, PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
@@ -67,8 +67,10 @@ import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-man
 import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
+import type { RequestSteering, Steer } from "@nap/shared/ports/steer-queue";
 import type { Result } from "@nap/shared/result";
 import { shellQuote } from "@nap/shared/shell";
+import { TurnAbortError } from "@nap/shared/turn-abort";
 import type { VerificationResult } from "@nap/verify/run-checks";
 import {
   type AcquiredSandbox,
@@ -121,6 +123,8 @@ type TurnScope = {
  */
 type TurnSettings = {
   lease?: QueueLeaseIdentity | undefined;
+  /** The request's steering, read by every turn it runs; see `TurnRequest`. */
+  steering?: RequestSteering | undefined;
   work?: { stopped: boolean };
   sessionId: string;
   signal?: AbortSignal | undefined;
@@ -816,6 +820,63 @@ export class SingleAgentRuntime implements Runtime {
       };
     }
 
+    const outcome = await this.#runTurnInScope(request, turnId, scope);
+    await this.#closeSteering(request, scope);
+    return outcome;
+  }
+
+  /**
+   * Ends steering for a request whose last turn is over (ADR-0028).
+   *
+   * After the job loop rather than after the person's turn, so a repair can still read what was
+   * sent while the checks ran. Whatever nothing read becomes the next turn — unless the request was
+   * stopped, in which case nothing more runs and each unread steer is handed back with an event
+   * saying so. The queue decides that as well as this: a Stop already on the request's row drops
+   * them even when the abort has not reached this process yet. A worker that has lost its lease
+   * resolves nothing here, and the janitor answers for those steers once it reclaims the request.
+   *
+   * The reason names who ended it. Only a person's Stop is `stopped`; a drain that ran out of time
+   * or a lease that went away is `interrupted`, as a dead worker is, because the pane tells the
+   * person which of the two happened to their message.
+   *
+   * The dropped events are under the request's own turn id, as the received ones are, and after
+   * that turn's terminal event. They open nothing: no reader of the log treats a steer as the start
+   * of a turn.
+   */
+  async #closeSteering(
+    request: Extract<TurnRequest, { message: string }>,
+    scope: TurnScope,
+  ): Promise<void> {
+    if (request.steering === undefined) return;
+    try {
+      const closed = await request.steering.close(
+        request.signal?.aborted === true ? "drop" : "defer",
+      );
+      const reason =
+        request.signal?.reason instanceof TurnAbortError &&
+        request.signal.reason.code !== "cancelled"
+          ? "interrupted"
+          : "stopped";
+      for (const steer of closed.dropped)
+        scope.emit("steer.dropped", { steerId: steer.id, text: steer.text, reason });
+      if (closed.dropped.length > 0) await scope.sink.drain();
+      if (closed.deferred.length > 0 || closed.dropped.length > 0)
+        getLogger().info(
+          { deferred: closed.deferred.length, dropped: closed.dropped.length },
+          "steers the request never read were resolved",
+        );
+    } catch (error) {
+      // The request still settles, and its turn's outcome stands. Steers left waiting on a settled
+      // request are read by nothing; the pane offers each back once the session is idle.
+      getLogger().warn({ err: error }, "could not close steering for a request");
+    }
+  }
+
+  async #runTurnInScope(
+    request: Extract<TurnRequest, { message: string }>,
+    turnId: string,
+    scope: TurnScope,
+  ): Promise<TurnOutcome> {
     const { session, sink } = scope;
 
     /**
@@ -1350,6 +1411,11 @@ export class SingleAgentRuntime implements Runtime {
         onEvent: (event) => {
           sink.emit(event);
         },
+        ...(settings.steering === undefined ||
+        options.manualCompaction !== undefined ||
+        appTest !== undefined
+          ? {}
+          : { steering: this.#steeringFor(settings.steering, scope) }),
         ...(options.manualCompaction === undefined ? {} : { operation: "compact" }),
         compactContext: contextCompactor({
           ...(options.manualCompaction === undefined
@@ -1447,6 +1513,44 @@ export class SingleAgentRuntime implements Runtime {
     emit("turn.failed", { reason: "internal", message });
     await sink.drain();
     return { ok: false, turnId, reason: "internal", message };
+  }
+
+  /**
+   * What the agent reads steers through: the request's waiting ones, each recorded where it is read.
+   *
+   * **Recorded before it is handed over, and durably.** The agent emits nothing for a steer; this
+   * writes `steer.applied` under the turn reading it — after every event the agent emitted before
+   * this step, since they share the sink — and drains before returning, so the log says a steer was
+   * read before any model has read it. A drain that fails throws, and the turn fails as it would on
+   * any other event it could not record.
+   *
+   * A queue that cannot be asked is not that: the next step asks again. Usually the steers are
+   * still waiting for it, but not always — a take that committed and whose answer was lost on the
+   * way back has marked them read with no event, and nothing offers those back (ADR-0028 D4).
+   */
+  #steeringFor(
+    steering: RequestSteering,
+    scope: TurnScope,
+  ): NonNullable<AgentTurnRequest["steering"]> {
+    return {
+      take: async () => {
+        let steers: Steer[];
+        try {
+          steers = await steering.take();
+        } catch (error) {
+          getLogger().warn(
+            { err: error },
+            "could not read waiting steers; asking at the next step",
+          );
+          return [];
+        }
+        if (steers.length === 0) return steers;
+        for (const steer of steers)
+          scope.emit("steer.applied", { steerId: steer.id, text: steer.text });
+        await scope.sink.drain();
+        return steers;
+      },
+    };
   }
 
   /**

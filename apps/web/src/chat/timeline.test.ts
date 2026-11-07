@@ -656,3 +656,41 @@ describe("a turn that is running", () => {
     expect(only(opened, "work-toggle").groupId).toBe(live.groupId);
   });
 });
+
+describe("steers", () => {
+  const STEER = "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11";
+
+  it("draws one still waiting after the live row, which keeps the run it is in", () => {
+    reset();
+    const { event } = call("run_command", { command: "bun run build" });
+    const timeline = rows(
+      [
+        prompt(),
+        started(),
+        ev("steer.received", { steerId: STEER, text: "use Postgres" }),
+        ...read("a.ts"),
+        event,
+      ],
+      { running: true },
+    );
+
+    expect(shape(timeline)).toEqual(["user", "working", "turn-start", "live", "steer"]);
+    // The read and the running command: one run, uninterrupted by the message waiting after it.
+    expect(only(timeline, "work-live").entries).toHaveLength(2);
+  });
+
+  it("keeps one the agent read in view when its turn folds, between the work it split", () => {
+    reset();
+    const timeline = rows([
+      prompt(),
+      started(),
+      ...read("a.ts"),
+      ev("steer.applied", { steerId: STEER, text: "use Postgres" }),
+      ...read("b.ts"),
+      say("Switched to Postgres."),
+      completed(5_000),
+    ]);
+
+    expect(shape(timeline)).toEqual(["user", "fold", "turn-start", "steer", "agent", "turn-end"]);
+  });
+});

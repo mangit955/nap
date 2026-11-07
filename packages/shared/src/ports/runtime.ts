@@ -17,6 +17,7 @@ import type { QueueLeaseIdentity } from "./project-computer-access.ts";
 import type { PlanIntent } from "../agent-plan.ts";
 import type { TurnFailureReason } from "../events.ts";
 import type { ModelCredentials } from "./llm-provider.ts";
+import type { RequestSteering } from "./steer-queue.ts";
 
 type TurnRequestBase = {
   lease?: QueueLeaseIdentity | undefined;
@@ -58,8 +59,15 @@ export type TurnRequest = TurnRequestBase &
          * lease, where the log cannot move.
          */
         plan?: PlanIntent | undefined;
+        /**
+         * Messages sent to this request while it runs (ADR-0028). Read at the step boundaries of
+         * every turn it runs, its repairs included, and closed once its last turn has ended:
+         * whatever was never read becomes the next turn, or is dropped if the request was stopped.
+         * Absent, as for anything not run from the queue, nothing joins it.
+         */
+        steering?: RequestSteering | undefined;
       }
-    | { kind: "test"; jobId: string; message?: never; plan?: never }
+    | { kind: "test"; jobId: string; message?: never; plan?: never; steering?: never }
   );
 
 export type TurnOutcome =

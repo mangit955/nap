@@ -1031,3 +1031,41 @@ describe("plan mode", () => {
     expect(box()).toHaveAttribute("placeholder", expect.stringMatching(/plan/i));
   });
 });
+
+describe("steering a turn that is running", () => {
+  it("sends a message into the running turn beside the Stop control", () => {
+    const onSubmit = vi.fn();
+    show({ running: true, steering: true, onSubmit });
+    expect(box()).toBeEnabled();
+    expect(box()).toHaveAttribute("placeholder", expect.stringMatching(/next step/));
+    type("Use Postgres instead");
+
+    fireEvent.click(screen.getByRole("button", { name: "Send to the running turn" }));
+
+    expect(onSubmit).toHaveBeenCalledWith("Use Postgres instead");
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    expect(box()).toHaveValue("");
+  });
+
+  it("sends with Enter too, and keeps plan mode's intent", () => {
+    const onSubmit = vi.fn();
+    show({ running: true, steering: true, onSubmit });
+    fireEvent.click(screen.getByRole("button", { name: /plan mode/i }));
+    type("and plan the tags");
+
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledWith("and plan the tags", undefined, "plan");
+  });
+
+  it("offers nothing to send while a turn runs that cannot be steered", () => {
+    const onSubmit = vi.fn();
+    show({ running: true, onSubmit });
+    expect(box()).toBeDisabled();
+    type("Use Postgres instead");
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(screen.queryByRole("button", { name: "Send to the running turn" })).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});

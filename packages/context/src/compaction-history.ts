@@ -153,6 +153,11 @@ export function renderHistoryEntries(
           ),
         ]);
         break;
+      case "steer.applied":
+        // Something the model was told, by the person, where the agent read it — a summary written
+        // without it would carry on with what they had just changed.
+        entry(event, "user, sent while the agent worked", indent(event.payload.text));
+        break;
       case "agent.message": {
         // Prose reaches the log in the pieces it streamed in. One answer is one entry.
         if (prose !== undefined && prose === event.turnId) {
@@ -220,6 +225,7 @@ export function renderHistoryEntries(
 function isConversation(event: NapEvent): boolean {
   return (
     event.type === "user.message" ||
+    event.type === "steer.applied" ||
     event.type === "agent.message" ||
     event.type === "tool.call" ||
     event.type === "tool.result"

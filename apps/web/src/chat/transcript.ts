@@ -34,6 +34,7 @@ import type { NapEventOf, PromptSource, ToolName } from "@nap/shared/events";
 import { type PlanStatus, planStates } from "@nap/shared/plan-mode";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { type AppTestState, foldAppTests } from "../computer/app-test-state.ts";
+import { inFlightTurn } from "./working-state.ts";
 
 export type FileChange = {
   path: string;
@@ -146,6 +147,27 @@ export type TranscriptItem =
       plan: string;
       status: PlanStatus;
     }
+  /**
+   * A message the person sent while a turn ran (ADR-0028), drawn as theirs wherever it landed.
+   *
+   * `read` is drawn where the agent read it, which is the point of drawing it at all: everything
+   * above it the agent did without it. `dropped` is drawn where it was given up, offering the words
+   * back. The other three have not landed yet and are drawn after everything else — `waiting`
+   * while the request it joined is still running, `queued` once that request has ended (it becomes
+   * a turn of its own, behind whatever runs now), and
+   * `undelivered` once the session has been seen idle with it still unanswered. A steer that became
+   * the next turn is not drawn as a steer at all: that turn's prompt is the same words.
+   */
+  | {
+      kind: "steer";
+      key: number;
+      steerId: string;
+      text: string;
+      status: SteerStatus;
+      reason?: "stopped" | "interrupted";
+      /** The plan intent of the turn it was sent to, so sending it again plans rather than builds. */
+      retryPlan?: PlanIntent | undefined;
+    }
   | { kind: "computer-recording"; key: number; text: "Started recording" | "Stopped recording" }
   | { kind: "computer-frame"; key: number; frame: NapEventOf<"computer.screenshot"> }
   | { kind: "files"; key: number; files: FileChange[] }
@@ -164,6 +186,25 @@ export type TranscriptItem =
   /** `at` on both ends is what a finished turn's "Worked for" is measured between. */
   | { kind: "turn-start"; key: number; at: string; source: PromptSource }
   | ({ kind: "turn-end"; key: number; at: string } & TurnOutcome);
+
+export type SteerStatus = "waiting" | "queued" | "read" | "dropped" | "undelivered";
+
+/** The statuses of a steer that has not landed, which are drawn after everything else. */
+export const UNLANDED_STEERS: ReadonlySet<SteerStatus> = new Set([
+  "waiting",
+  "queued",
+  "undelivered",
+]);
+
+export type TranscriptOptions = {
+  /**
+   * Through which `seq` the server has said this session has nothing queued or running. A steer
+   * received at or before it that never landed anywhere never will — its turn was lost, or the
+   * turn it became was cancelled while queued, neither of which writes anything — and is offered
+   * back rather than drawn waiting for ever.
+   */
+  idleThroughSeq?: number | undefined;
+};
 
 type TurnOutcome =
   | {
@@ -224,10 +265,37 @@ function repairTurns(events: readonly StoredEvent[]): ReadonlySet<string> {
   return ids;
 }
 
-export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[] {
+export function buildTranscript(
+  events: readonly StoredEvent[],
+  options: TranscriptOptions = {},
+): TranscriptItem[] {
   const tests = new Map(foldAppTests(events).map((test) => [test.turnId, test]));
   const repairs = repairTurns(events);
   const items: TranscriptItem[] = [];
+  /**
+   * Steers, read across the whole log first: a steer is written by two processes, so its events can
+   * land in either order, and where it is drawn depends on what became of it rather than on which
+   * of its events came first.
+   */
+  const steersRead = new Set(
+    events.flatMap((event) => (event.type === "steer.applied" ? [event.payload.steerId] : [])),
+  );
+  const prompted = new Set(
+    events.flatMap((event) => (event.type === "user.message" ? [event.turnId] : [])),
+  );
+  const steersDrawn = new Set<string>();
+  const steersWaiting = new Map<string, { key: number; text: string; requestId: string }>();
+  /**
+   * The request each repair turn ran under, since a repair has a turn id of its own but reads the
+   * steers of the request it repairs. Every other turn is its own request.
+   */
+  const requestOfRepair = new Map(
+    events.flatMap((event) =>
+      event.type === "user.message" && event.payload.repair !== undefined
+        ? [[event.turnId, event.payload.repair.requestId] as const]
+        : [],
+    ),
+  );
   /**
    * A verification came back red and no turn has opened since, so the next prompt is the one it
    * is about to write.
@@ -387,6 +455,47 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         } else {
           retryByTurn.set(event.turnId, lastUserRequest);
         }
+        break;
+      }
+
+      case "steer.received":
+        // Drawn nowhere here: where it goes depends on what became of it, decided below.
+        if (!steersWaiting.has(event.payload.steerId))
+          steersWaiting.set(event.payload.steerId, {
+            key,
+            text: event.payload.text,
+            // Written under the request it joined, which is the only turn that can read it.
+            requestId: event.turnId,
+          });
+        break;
+
+      case "steer.applied":
+        if (steersDrawn.has(event.payload.steerId)) break;
+        steersDrawn.add(event.payload.steerId);
+        items.push({
+          kind: "steer",
+          key,
+          steerId: event.payload.steerId,
+          text: event.payload.text,
+          status: "read",
+        });
+        break;
+
+      case "steer.dropped": {
+        // Read wins: a janitor that could not see the record of a read must not offer it back.
+        if (steersRead.has(event.payload.steerId) || steersDrawn.has(event.payload.steerId)) break;
+        steersDrawn.add(event.payload.steerId);
+        // A steer joins only a turn in its own mode, so the turn says what it was.
+        const plan = retryByTurn.get(event.turnId)?.plan;
+        items.push({
+          kind: "steer",
+          key,
+          steerId: event.payload.steerId,
+          text: event.payload.text,
+          status: "dropped",
+          reason: event.payload.reason,
+          ...(plan?.intent === "propose" ? { retryPlan: plan } : {}),
+        });
         break;
       }
 
@@ -661,6 +770,28 @@ export function buildTranscript(events: readonly StoredEvent[]): TranscriptItem[
         break;
       }
     }
+  }
+
+  // Steers that have not landed anywhere, after everything: they are the newest thing said, and
+  // drawing one at the point it was received would put it amid work the agent did without it.
+  const idleThroughSeq = options.idleThroughSeq ?? 0;
+  // Waiting only while the request it joined is the one running. Any other turn in flight is one
+  // the steer cannot reach: once its request ended unread, it is a queued turn of its own.
+  const running = inFlightTurn(events, idleThroughSeq)?.turnId;
+  const runningRequest =
+    running === undefined ? undefined : (requestOfRepair.get(running) ?? running);
+  for (const [steerId, { key, text, requestId }] of steersWaiting) {
+    if (steersDrawn.has(steerId) || prompted.has(steerId)) continue;
+    const plan = retryByTurn.get(requestId)?.plan;
+    items.push({
+      kind: "steer",
+      key,
+      steerId,
+      text,
+      status:
+        key <= idleThroughSeq ? "undelivered" : runningRequest === requestId ? "waiting" : "queued",
+      ...(plan?.intent === "propose" ? { retryPlan: plan } : {}),
+    });
   }
 
   // Settled by what came after, so decided once the whole log has been read.

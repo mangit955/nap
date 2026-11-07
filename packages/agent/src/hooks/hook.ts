@@ -8,8 +8,8 @@
  * piece leans on. A hook can add words and can delay the end; it cannot emit a terminal event,
  * persist anything or reorder a batch, because none of those are on this interface.
  *
- * Four seams, each with a user today (ADR-0020). Hooks run in the order they were given, and
- * each sees the outcome the one before it produced.
+ * Five seams, each with a user today (ADR-0020, and ADR-0028 for the fifth). Hooks run in the order
+ * they were given, and each sees the outcome the one before it produced.
  */
 
 import type { LLMToolCall } from "@nap/shared/ports/llm-provider";
@@ -33,4 +33,13 @@ export interface TurnHook {
   beforeStop?(): Promise<string | undefined>;
   /** The working conversation was replaced by a summary, taking anything a hook added with it. */
   compacted?(): void;
+  /**
+   * What the person said since the model last heard from them, rendered, oldest first — or nothing.
+   *
+   * Unlike a reminder these are the person's words, not the harness's, so they go in as the user's
+   * text rather than inside `<reminder>`. Asked only at a step boundary: at the top of a step, after
+   * the previous batch's results, and when the model has stopped with a step still to spend — where
+   * an answer keeps the turn going rather than letting it end on work the person has just changed.
+   */
+  interject?(): Promise<readonly string[]>;
 }

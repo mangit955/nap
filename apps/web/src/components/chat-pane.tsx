@@ -57,9 +57,12 @@ export function ChatPane({
   events,
   loading = false,
   pending,
+  pendingSteer,
   pendingAttachments,
   pendingAfterCompaction = false,
   running = false,
+  steering = false,
+  idleThroughSeq = 0,
   testPhase = "idle",
   activity,
   error,
@@ -90,9 +93,18 @@ export function ChatPane({
    */
   loading?: boolean;
   pending?: string | undefined;
+  /** A message sent into the running turn that the log does not hold yet (ADR-0028). */
+  pendingSteer?: string | undefined;
   pendingAttachments?: MediaAttachment[] | undefined;
   pendingAfterCompaction?: boolean;
   running?: boolean;
+  /** Whether a message sent while a turn runs joins it. Off in the many render-only tests. */
+  steering?: boolean;
+  /**
+   * Through which `seq` the server says nothing is queued or running, so a steer it covers that
+   * never landed is offered back rather than drawn waiting for ever.
+   */
+  idleThroughSeq?: number;
   testPhase?: TurnSubmission["testPhase"];
   activity?: { startedAt: string | undefined; openedAt?: string | undefined };
   error?: string | undefined;
@@ -123,11 +135,14 @@ export function ChatPane({
   /** Opening the key form, for a model this caller cannot reach. */
   onAddKey?: (() => void) | undefined;
 }) {
-  const empty = events.length === 0 && pending === undefined;
+  const empty = events.length === 0 && pending === undefined && pendingSteer === undefined;
   // Folded once, read twice: the transcript renders it and the composer asks it whether a
   // compaction is running. Both used to fold the log for themselves, so every frame of a
   // streaming turn walked it twice to answer one question.
-  const transcript = useMemo(() => buildTranscript(events), [events]);
+  const transcript = useMemo(
+    () => buildTranscript(events, { idleThroughSeq }),
+    [events, idleThroughSeq],
+  );
   const turn = activity === undefined ? inFlightTurn(events) : activity;
   // "Working for" hangs off the prompt it answers. While that prompt is still the optimistic one
   // it is below the transcript, so the row goes under it here rather than inside the log.
@@ -170,7 +185,7 @@ export function ChatPane({
   // ending, and the running flag alone would miss every event inside it.
   const [noticeShown, setNoticeShown] = useState("");
   const scroller = useStickToBottom<HTMLElement>(
-    `${events.length}:${pending}:${running}:${composerHeight}:${noticeShown}`,
+    `${events.length}:${pending}:${pendingSteer}:${running}:${composerHeight}:${noticeShown}`,
   );
 
   return (
@@ -210,6 +225,7 @@ export function ChatPane({
                 {pending !== undefined && !pendingAfterCompaction && (
                   <PendingMessage text={pending} />
                 )}
+                {pendingSteer !== undefined && <PendingSteer text={pendingSteer} />}
                 <AppTestCards
                   events={events}
                   running={running}
@@ -252,6 +268,7 @@ export function ChatPane({
               }
               visible={active}
               running={running}
+              steering={steering}
               error={error}
               firstPrompt={firstPrompt}
               onSubmit={onSubmit}
@@ -332,6 +349,28 @@ function PendingMessage({ text }: { text: string }) {
   );
 }
 
+/**
+ * A message sent into the running turn, before the log has it. Drawn the way the transcript draws
+ * one waiting — same bubble, same group, same place after everything — because it is the same
+ * message, and the log's copy replaces it without anything moving.
+ */
+function PendingSteer({ text }: { text: string }) {
+  return (
+    <div className="mx-auto max-w-[46rem] px-5 pb-4">
+      <fieldset
+        aria-label="Sent while the agent worked"
+        className="m-0 flex min-w-0 flex-col items-end gap-1 border-0 p-0"
+      >
+        <div className="chat-user-message whitespace-pre-wrap opacity-70">
+          <span className="sr-only">You: </span>
+          {text}
+        </div>
+        <p className="text-[11px] text-muted">Sending to the running turn…</p>
+      </fieldset>
+    </div>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-8 py-10 text-center">
@@ -382,6 +421,7 @@ export function LiveChatPane({
     startTest,
     cancel,
     pending,
+    pendingSteer,
     pendingAttachments,
     pendingAfterCompaction,
     running,
@@ -439,9 +479,16 @@ export function LiveChatPane({
         // its way, so the log this pane will show has not even been subscribed to.
         loading={sessionId === undefined || (!replayed && events.length === 0)}
         pending={pending}
+        pendingSteer={pendingSteer}
         pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}
         running={running}
+        // A message typed while the agent works joins the turn at its next step (ADR-0028). The
+        // server decides whether it can; whatever cannot join is queued as the next turn. Only one
+        // submission is tracked at a time, so not while one is still on its way: a second would
+        // take its place on screen, and a failure of the first would have nowhere to be shown.
+        steering={pending === undefined && pendingSteer === undefined}
+        idleThroughSeq={idleThroughSeq}
         testPhase={testPhase}
         activity={{ startedAt, openedAt }}
         error={error}

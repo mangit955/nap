@@ -223,6 +223,12 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     body: { message: "hello" },
   },
   {
+    method: "POST",
+    path: "/sessions/:sessionId/steers",
+    examplePath: `/sessions/${SESSION}/steers`,
+    body: { id: REQUEST, message: "use Postgres instead" },
+  },
+  {
     method: "GET",
     path: "/sessions/:sessionId/turns/:requestId",
     examplePath: `/sessions/${SESSION}/turns/${REQUEST}`,

@@ -12,6 +12,7 @@ import type {
   TurnOutcome,
   TurnRequest,
 } from "@nap/shared/ports/runtime";
+import type { SteerQueue } from "@nap/shared/ports/steer-queue";
 import type { LeasedTurnRequest, TurnQueue } from "@nap/shared/ports/turn-queue";
 import { TurnAbortError } from "@nap/shared/turn-abort";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -130,6 +131,7 @@ function start(
     renewIntervalMs?: number;
     cancels?: Pick<CancelChannel, "listen">;
     listenTimeoutMs?: number;
+    steers?: Pick<SteerQueue, "take" | "close">;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -149,6 +151,7 @@ function start(
     ...(overrides.abortGraceMs === undefined ? {} : { abortGraceMs: overrides.abortGraceMs }),
     ...(overrides.onClaimTick === undefined ? {} : { onClaimTick: overrides.onClaimTick }),
     ...(overrides.publish === undefined ? {} : { publish: overrides.publish }),
+    ...(overrides.steers === undefined ? {} : { steers: overrides.steers }),
   });
   workers.push(worker);
   return worker;
@@ -207,6 +210,40 @@ describe("running a claimed request", () => {
     expect(runtime.turns[0]?.signal).toBeInstanceOf(AbortSignal);
     // Nobody paid for this one themselves, so nothing was opened and nothing is passed.
     expect(runtime.turns[0]?.credentials).toBeUndefined();
+  });
+
+  it("hands a turn the steering of its own lease, and an app test none", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    start(queue, runtime, { steers: queue });
+    const { id } = await enqueueTurn(queue);
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    const steer = {
+      id: crypto.randomUUID(),
+      sessionId: "session-a",
+      userId: "user-1",
+      message: "use Postgres",
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    };
+    await expect(queue.steer(steer)).resolves.toEqual({ as: "steer", requestId: id });
+
+    const steering = runtime.turns[0]?.kind === "test" ? undefined : runtime.turns[0]?.steering;
+    // Bound to this worker's lease: what it takes is this request's, and nobody else may.
+    await expect(steering?.take()).resolves.toEqual([{ id: steer.id, text: "use Postgres" }]);
+    await expect(steering?.close("defer")).resolves.toEqual({ deferred: [], dropped: [] });
+    runtime.complete();
+
+    await enqueueRequest(queue, {
+      sessionId: "session-b",
+      userId: "user-1",
+      kind: "test",
+      message: crypto.randomUUID(),
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    });
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(2));
+    expect(runtime.turns[1]?.steering).toBeUndefined();
   });
 
   it("runs the turn under the request's own id", async () => {

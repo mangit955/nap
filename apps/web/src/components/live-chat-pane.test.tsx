@@ -775,13 +775,21 @@ it("shares reconciled legacy activity with composer, Context and the visible clo
   );
   try {
     expect(screen.getByRole("status", { name: "Agent is working" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    // Working: what is typed now steers the running turn rather than starting one.
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute(
+      "placeholder",
+      expect.stringMatching(/next step/),
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(screen.queryByRole("status", { name: "Agent is working" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveAttribute(
+      "placeholder",
+      expect.stringMatching(/next step/),
+    );
     expect(onActivity).toHaveBeenLastCalledWith({
       sessionId: SESSION_ID,
       running: false,
@@ -1088,4 +1096,171 @@ describe("LiveChatPane computer recovery", () => {
   it("keeps a reader's scrolled-up position when recovery appears after the transcript settles", async () => {
     expect(await latePause(() => 400)).toBe(400);
   });
+});
+
+describe("LiveChatPane steering a running turn", () => {
+  const running = (): SessionLog => {
+    const events = [
+      ev("user.message", { text: "Build a notes app" }, 1),
+      ev("turn.started", { source: "user" }, 2),
+    ];
+    return { ...failedTurn(), events, lastSeq: 2, jobs: jobView(events) };
+  };
+
+  it("takes no second message while the first is still on its way", async () => {
+    // One submission is tracked at a time. A second sent now would take the first one's place on
+    // screen, and if the first then failed, its words would be lost without a word said.
+    const steers: string[] = [];
+    let answer: (response: Response) => void = () => {};
+    const server = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/steers") && init?.method === "POST") {
+        steers.push((JSON.parse(String(init.body)) as { message: string }).message);
+        return await new Promise<Response>((resolve) => {
+          answer = resolve;
+        });
+      }
+      return fetchJson(url, init);
+    };
+    render(<LiveChatPane sessionId={SESSION_ID} log={running()} fetchJson={server} />);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(box).toBeEnabled());
+
+    fireEvent.change(box, { target: { value: "Use Postgres instead" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send to the running turn" }));
+    await waitFor(() => expect(steers).toEqual(["Use Postgres instead"]));
+
+    await waitFor(() => expect(box).toBeDisabled());
+    expect(
+      screen.queryByRole("button", { name: "Send to the running turn" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(box, { target: { value: "and add tags" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(steers).toEqual(["Use Postgres instead"]);
+
+    await act(async () => {
+      answer(Response.json({ accepted: true, requestId: crypto.randomUUID(), as: "steer" }));
+    });
+  });
+
+  it("sends a message into the running turn and shows it waiting, once", async () => {
+    const steers: { id: string; message: string }[] = [];
+    const server = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/steers") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { id: string; message: string };
+        steers.push(body);
+        return Response.json({ accepted: true, requestId: body.id, as: "steer" }, { status: 202 });
+      }
+      return fetchJson(url, init);
+    };
+    const view = render(<LiveChatPane sessionId={SESSION_ID} log={running()} fetchJson={server} />);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(box).toBeEnabled());
+
+    fireEvent.change(box, { target: { value: "Use Postgres instead" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send to the running turn" }));
+
+    await waitFor(() => expect(steers).toHaveLength(1));
+    expect(turns).toEqual([]);
+    const waiting = await screen.findByRole("group", { name: "Sent while the agent worked" });
+    expect(waiting).toHaveTextContent("Use Postgres instead");
+
+    // The log catches up: the waiting message is the log's now, and there is still only one.
+    const log = running();
+    const events = [
+      ...log.events,
+      ev("steer.received", { steerId: steers[0]?.id ?? "", text: "Use Postgres instead" }, 3),
+    ];
+    view.rerender(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={{ ...log, events, lastSeq: 3, jobs: jobView(events) }}
+        fetchJson={server}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getAllByRole("group", { name: "Sent while the agent worked" })).toHaveLength(1),
+    );
+    expect(screen.getByRole("group", { name: "Sent while the agent worked" })).toHaveTextContent(
+      "Waiting for the agent's next step",
+    );
+  });
+  it("shows a message that fell back to a turn as the next message, not as a steer", async () => {
+    // The server could not join it to the running turn, so it queued it as a turn of its own: on
+    // screen it is the message waiting to be the next turn, and nothing more can be sent until
+    // that turn starts.
+    const steers: string[] = [];
+    const server = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (url.endsWith("/steers") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { id: string; message: string };
+        steers.push(body.message);
+        return Response.json({ accepted: true, requestId: body.id, as: "turn" }, { status: 202 });
+      }
+      return fetchJson(url, init);
+    };
+    render(<LiveChatPane sessionId={SESSION_ID} log={running()} fetchJson={server} />);
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    await waitFor(() => expect(box).toBeEnabled());
+
+    fireEvent.change(box, { target: { value: "Use Postgres instead" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send to the running turn" }));
+
+    await waitFor(() => expect(steers).toEqual(["Use Postgres instead"]));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("group", { name: "Sent while the agent worked" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Use Postgres instead")).toBeInTheDocument();
+    expect(box).toBeDisabled();
+    expect(turns).toEqual([]);
+  });
+
+  it.each([false, true])(
+    "offers an unread steer back with its original planning intent (%s)",
+    async (planning) => {
+      // The log alone still shows the turn running, with the steer waiting on it. What says the
+      // turn is over is the server's activity read, and only that can turn the steer into one that
+      // was never sent.
+      const events = [
+        ev(
+          "user.message",
+          {
+            text: "Build a notes app",
+            ...(planning ? { plan: { intent: "propose" as const } } : {}),
+          },
+          1,
+        ),
+        ev("turn.started", { source: "user" }, 2),
+        ev("steer.received", { steerId: crypto.randomUUID(), text: "Use Postgres instead" }, 3),
+      ];
+      const server = async (url: string, init?: RequestInit): Promise<Response> => {
+        if (url.includes("/activity"))
+          return Response.json({ sessionId: SESSION_ID, throughSeq: 3, active: false });
+        return fetchJson(url, init);
+      };
+      render(
+        <LiveChatPane
+          sessionId={SESSION_ID}
+          log={{ ...running(), events, lastSeq: 3, jobs: jobView(events) }}
+          fetchJson={server}
+        />,
+      );
+      expect(
+        await screen.findByRole("group", { name: "Sent while the agent worked" }),
+      ).toHaveTextContent("Waiting for the agent's next step");
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole("group", { name: "Sent while the agent worked" }),
+          ).toHaveTextContent("Not sent: nothing read it before the turn ended."),
+        { timeout: 3000 },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Send again" }));
+      await waitFor(() =>
+        expect(turns.map((turn) => turn.message)).toEqual(["Use Postgres instead"]),
+      );
+      expect(turns[0]?.plan).toEqual(planning ? { intent: "propose" } : undefined);
+    },
+  );
 });

@@ -31,6 +31,7 @@ import type { SessionNavigation } from "@nap/shared/session-navigation";
  */
 
 import type { NapEvent, NapEventType } from "@nap/shared/events";
+import { STEER_STATES } from "@nap/shared/ports/steer-queue";
 import { TURN_REQUEST_KINDS, TURN_REQUEST_STATES } from "@nap/shared/ports/turn-queue";
 import { sql } from "drizzle-orm";
 import {
@@ -468,6 +469,13 @@ export const turnRequests = pgTable(
      */
     billsToUser: boolean("bills_to_user").notNull().default(false),
     cancelRequested: boolean("cancel_requested").notNull().default(false),
+    /**
+     * Set by the worker when it resolves this request's steers, just before settling it: from then
+     * on a message sent to the session is the next turn, not part of this one (ADR-0028). A column
+     * rather than a state, because the request is still leased — still running its last
+     * housekeeping — and the partial unique index must go on seeing it as such.
+     */
+    steeringClosed: boolean("steering_closed").notNull().default(false),
     /** Which worker process holds the lease. Every renewal is conditional on it. */
     leaseOwner: text("lease_owner"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
@@ -494,6 +502,56 @@ export const turnRequests = pgTable(
     index("turn_requests_unannounced_orphans")
       .on(t.leaseExpiresAt)
       .where(sql`${t.state} = 'orphaned' and ${t.finishedAt} is null`),
+  ],
+);
+
+/** Where a steer stands; declared from the port's tuple, like the queue's enums. */
+export const steerState = pgEnum("steer_state", STEER_STATES);
+
+/**
+ * Messages sent while a turn runs, each joined to the request it was admitted to (ADR-0028).
+ *
+ * **The row is the decision, the log is the record.** Whether a steer was read, deferred or dropped
+ * is settled here, by one conditional update each, so it happens at most once; the `steer.*` events
+ * say what happened, and where in the turn, for everything that renders or rebuilds a conversation.
+ *
+ * **The id is the client's**, and it is also the id of the turn request a steer becomes when it
+ * falls back — so a message has one identity wherever it lands, and a retried POST finds it.
+ */
+export const turnSteers = pgTable(
+  "turn_steers",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The leased request it joined. Every read and every resolution is scoped to it. */
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => turnRequests.id, { onDelete: "cascade" }),
+    message: text("message").notNull(),
+    /** The composer's plan intent, for the turn it becomes if it falls back. */
+    plan: jsonb("plan").$type<PlanIntent>(),
+    /** What that turn would run on, and who pays: resolved at admission like a turn's. */
+    model: text("model").notNull(),
+    billsToUser: boolean("bills_to_user").notNull().default(false),
+    state: steerState("state").notNull().default("pending"),
+    createdAt,
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    // What a worker reads at every step, and what admission counts: the steers still waiting on one
+    // request. Partial, so it holds only pending rows rather than every steer ever — what is waiting
+    // now, plus the few left pending by a request that ended without closing (ADR-0028), which
+    // nothing reads again and nothing cleans up.
+    index("turn_steers_waiting").on(t.requestId, t.createdAt).where(sql`${t.state} = 'pending'`),
+    index("turn_steers_request").on(t.requestId, t.createdAt),
+    // Both foreign keys cascade, so deleting a session or a person looks their steers up by these.
+    index("turn_steers_session").on(t.sessionId),
+    index("turn_steers_user").on(t.userId),
   ],
 );
 

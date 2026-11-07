@@ -27,6 +27,7 @@ import type { MediaAttachment } from "@nap/shared/media";
 
 import type { PlanIntent } from "@nap/shared/agent-plan";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { SteerAcceptanceSchema } from "@nap/shared/ports/steer-queue";
 import {
   SessionActivitySchema,
   TurnAcceptanceSchema,
@@ -62,6 +63,12 @@ export type TurnSubmission = {
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
+  /**
+   * A message sent into the running turn (ADR-0028) that the log has not caught up with yet. Kept
+   * apart from `pending` because it is not a prompt waiting for a turn: the turn answering it is
+   * already running, and its place is with the transcript's own waiting steers, not under it.
+   */
+  pendingSteer: string | undefined;
   pendingAttachments: MediaAttachment[] | undefined;
   pendingAfterCompaction: boolean;
   running: boolean;
@@ -80,7 +87,7 @@ export type TurnActivity = Pick<TurnSubmission, "running" | "idleThroughSeq"> & 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 type PendingSubmission = {
-  purpose: "message" | "test";
+  purpose: "message" | "test" | "steer";
   key: symbol;
   sessionId: string;
   text: string;
@@ -166,12 +173,18 @@ export function useTurnSubmission(options: {
     const arrived = events.some(
       (event) =>
         event.sessionId === pending.sessionId &&
-        event.turnId === pending.requestId &&
-        (event.type === "user.message" ||
-          event.type === "test.started" ||
-          event.type === "turn.failed" ||
-          event.type === "turn.completed" ||
-          (pending.text === "/compact" && event.type === "compaction.started")),
+        // A steer is acknowledged by any record of it — waiting, read, or given back — or by the
+        // turn it became, which carries its id.
+        (((event.type === "steer.received" ||
+          event.type === "steer.applied" ||
+          event.type === "steer.dropped") &&
+          event.payload.steerId === pending.requestId) ||
+          (event.turnId === pending.requestId &&
+            (event.type === "user.message" ||
+              event.type === "test.started" ||
+              event.type === "turn.failed" ||
+              event.type === "turn.completed" ||
+              (pending.text === "/compact" && event.type === "compaction.started")))),
     );
     if (arrived) setPending((current) => (current?.key === pending.key ? undefined : current));
   }, [events, pending]);
@@ -179,7 +192,8 @@ export function useTurnSubmission(options: {
   // A cancelled queued row never produces a user.message. Only that exact row's terminal
   // status can settle it; the active compaction's failure says nothing about a later prompt.
   useEffect(() => {
-    if (pending?.kind !== "accepted") return;
+    // A steer has no request row to ask about until it becomes a turn, and then its prompt says so.
+    if (pending?.kind !== "accepted" || pending.purpose === "steer") return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const reconcile = async (): Promise<void> => {
@@ -298,29 +312,43 @@ export function useTurnSubmission(options: {
     const text = intent.kind === "test" ? "Test the app" : intent.message.trim();
     const attachments = intent.kind === "message" ? intent.attachments : undefined;
     if (sessionId === undefined || text === "") return false;
+    const compacting =
+      intent.kind === "message" &&
+      turn !== undefined &&
+      buildTranscript(events.filter((event) => event.sessionId === sessionId)).some(
+        (item) =>
+          item.kind === "compaction" && item.turnId === turn.turnId && item.status === "running",
+      );
+    // Into the running turn, if one is running and this is words alone (ADR-0028). Images, a
+    // `/compact` and a plan approval are each a turn of their own, so those still queue behind it,
+    // as does anything sent while a compaction runs, which takes no steers.
+    const steer =
+      intent.kind === "message" &&
+      !compacting &&
+      (turn !== undefined || observation?.active === true) &&
+      (attachments?.length ?? 0) === 0 &&
+      text !== "/compact" &&
+      intent.plan?.intent !== "approve";
+    // The message's identity whichever way the server places it, chosen here so a retried POST is
+    // the same message rather than a second one.
+    const id = crypto.randomUUID();
 
     const key = Symbol();
     active.current = key;
     setPending({
-      purpose: intent.kind,
+      purpose: steer ? "steer" : intent.kind,
       key,
       sessionId,
       text,
       attachments,
       kind: "posting",
-      afterCompaction:
-        intent.kind === "message" &&
-        turn !== undefined &&
-        buildTranscript(events.filter((event) => event.sessionId === sessionId)).some(
-          (item) =>
-            item.kind === "compaction" && item.turnId === turn.turnId && item.status === "running",
-        ),
+      afterCompaction: compacting,
     });
     setError(undefined);
 
     try {
       const response = await fetchRef.current(
-        `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/${intent.kind === "test" ? "tests" : "turns"}`,
+        `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/${intent.kind === "test" ? "tests" : steer ? "steers" : "turns"}`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -331,15 +359,21 @@ export function useTurnSubmission(options: {
           body: JSON.stringify(
             intent.kind === "test"
               ? { jobId: intent.jobId, model }
-              : { message: text, model, attachments, plan: intent.plan },
+              : steer
+                ? { id, message: text, model, plan: intent.plan }
+                : { message: text, model, attachments, plan: intent.plan },
           ),
         },
       );
 
       if (!response.ok) throw new Error(await refusalMessage(response));
-      const accepted = TurnAcceptanceSchema.safeParse(await readJson(response));
+      const receipt = await readJson(response);
+      const accepted = TurnAcceptanceSchema.safeParse(receipt);
+      // Where the server put a steer: into the turn, or queued as the next one, which is then a
+      // prompt waiting like any other.
+      const landed = steer ? SteerAcceptanceSchema.safeParse(receipt) : undefined;
       if (active.current !== key || sessionRef.current !== sessionId) return true;
-      if (!accepted.success) {
+      if (!accepted.success || landed?.success === false) {
         // A successful but malformed receipt may already have queued the work. Do not invite
         // a duplicate send by reporting admission failure or correlating it with another turn.
         setPending((current) =>
@@ -352,7 +386,14 @@ export function useTurnSubmission(options: {
       }
       setPending((current) =>
         current?.key === key
-          ? { ...current, kind: "accepted", requestId: accepted.data.requestId }
+          ? {
+              ...current,
+              ...(landed?.success === true && landed.data.as === "turn"
+                ? { purpose: "message" as const }
+                : {}),
+              kind: "accepted",
+              requestId: accepted.data.requestId,
+            }
           : current,
       );
       return true;
@@ -407,6 +448,8 @@ export function useTurnSubmission(options: {
     cancel,
     pending:
       pending?.sessionId === sessionId && pending?.purpose === "message" ? pending.text : undefined,
+    pendingSteer:
+      pending?.sessionId === sessionId && pending?.purpose === "steer" ? pending.text : undefined,
     pendingAttachments: pending?.sessionId === sessionId ? pending?.attachments : undefined,
     pendingAfterCompaction: pending?.sessionId === sessionId && pending?.afterCompaction === true,
     running:

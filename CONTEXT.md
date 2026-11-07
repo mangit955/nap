@@ -239,6 +239,18 @@ carries the plan out, named for the plan, and the plan rides in the turn context
 that job. An approval of a plan that is no longer awaiting builds nothing, and settles nothing
 either. If the approving turn fails, the plan is awaiting again unless a newer request has replaced it.
 
+**Steer** — a message somebody sends while a turn is running on their session, which joins that
+turn rather than queueing one behind it: the agent reads it at its next step boundary, and the log
+records it there (`steer.applied`). Not a **turn request**, though one with the same id stands in
+for it when the turn ends without reading it — it is then simply the next turn. A turn that was
+stopped, or whose worker died, runs none of its unread steers; each is offered back
+(`steer.dropped`). Admitted and charged exactly as a prompt is. See
+[ADR-0028](docs/adr/0028-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).
+
+**Step boundary** — the only place a turn takes anything new in: between model calls, once the last
+batch of tool calls is answered in its one message, or when the model has stopped with room still to
+answer. Never during a batch, so a steer never separates a tool result from its call.
+
 **Question** — a multiple-choice question the agent ends its turn on (`agent.question`). Its answer
 is not a field anywhere: it is the person's next message, whether they clicked an option or typed.
 

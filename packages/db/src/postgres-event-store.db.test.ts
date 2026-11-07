@@ -676,6 +676,22 @@ const PAYLOADS = [
     payload: { toolCallId: "toolu_plan", title: "Dark theme", plan: "1. Tokens\n2. Toggle" },
   },
   {
+    type: "steer.received",
+    payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres" },
+  },
+  {
+    type: "steer.applied",
+    payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres" },
+  },
+  {
+    type: "steer.dropped",
+    payload: {
+      steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11",
+      text: "Use Postgres",
+      reason: "interrupted",
+    },
+  },
+  {
     type: "subagent.started",
     payload: { toolCallId: "toolu_sub", subagentId: "sub_1", profile: "explore", task: "Find it" },
   },

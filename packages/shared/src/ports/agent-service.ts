@@ -18,6 +18,7 @@ import type { ModelCredentials } from "./llm-provider.ts";
 import type { ObjectStore } from "./object-store.ts";
 import type { DesktopAction, SandboxDesktop } from "./sandbox-desktop.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
+import type { Steer } from "./steer-queue.ts";
 
 export type AgentTurnRequest = {
   compactContext?: import("../compaction.ts").CompactContext;
@@ -57,6 +58,13 @@ export type AgentTurnRequest = {
    * sent it, so it is carried like `promptSource` rather than configured on the service.
    */
   mode?: "plan" | undefined;
+  /**
+   * Messages the person sent while this turn runs (ADR-0028). `take` hands over the ones not read
+   * yet, each already recorded in the log at the point it is being read; the loop asks only between
+   * model calls, and only with a step left to answer. Absent, the turn hears nothing until it ends,
+   * and whatever was sent becomes the next turn.
+   */
+  steering?: { take(): Promise<readonly Steer[]> } | undefined;
   /** Called for each event as it happens, before it has been persisted. */
   onEvent: (event: PendingEvent) => void;
   /** Cancellation mid-turn must stop tool execution, not just ignore the result. */

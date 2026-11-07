@@ -230,6 +230,22 @@ const CASES = [
     payload: { toolCallId: "p1", title: "Dark theme", plan: "1. Add colour tokens" },
   },
   {
+    type: "steer.received",
+    payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres" },
+  },
+  {
+    type: "steer.applied",
+    payload: { steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11", text: "Use Postgres" },
+  },
+  {
+    type: "steer.dropped",
+    payload: {
+      steerId: "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11",
+      text: "Use Postgres",
+      reason: "stopped",
+    },
+  },
+  {
     type: "subagent.started",
     payload: { toolCallId: "s1", subagentId: "helper-1", profile: "explore", task: "Find it" },
   },
@@ -1018,4 +1034,174 @@ it("does not take a repair prompt for the answer to a question", () => {
     ev("user.message", { text: "The build failed; fix it." }),
   );
   expect(items.find((item) => item.kind === "question")).toMatchObject({ answer: null });
+});
+
+describe("steers", () => {
+  const STEER = "5b0e4f7a-6a8c-4c43-9e44-2d8b3a7f0c11";
+  const received = (text = "Use Postgres") => ev("steer.received", { steerId: STEER, text });
+  const applied = (text = "Use Postgres") => ev("steer.applied", { steerId: STEER, text });
+  const ended = () =>
+    ev("turn.completed", {
+      usage: { inputTokens: 1, outputTokens: 1 },
+      durationMs: 1,
+      commitSha: null,
+    });
+  const steersOf = (items: TranscriptItem[]) => items.filter((item) => item.kind === "steer");
+
+  it("draws a steer the agent read where it read it, and nowhere else", () => {
+    const items = fold(
+      ev("user.message", { text: "Build a notes app" }),
+      ev("turn.started", { source: "user" }),
+      received(),
+      call("c1", "read_file", { path: "/home/user/app/x.tsx" }),
+      result("c1", "read_file", true, "contents"),
+      applied(),
+      ev("agent.message", { text: "Switching." }),
+    );
+
+    expect(items.map((item) => item.kind)).toEqual([
+      "message",
+      "turn-start",
+      "step",
+      "steer",
+      "message",
+    ]);
+    expect(steersOf(items)).toEqual([
+      expect.objectContaining({ steerId: STEER, text: "Use Postgres", status: "read" }),
+    ]);
+  });
+
+  it("draws a steer still waiting after everything, waiting while a turn runs", () => {
+    const items = fold(
+      ev("user.message", { text: "Build a notes app" }),
+      ev("turn.started", { source: "user" }),
+      received(),
+      call("c1", "read_file", { path: "/home/user/app/x.tsx" }),
+    );
+
+    expect(items.at(-1)).toMatchObject({ kind: "steer", status: "waiting" });
+  });
+
+  it("calls one queued, not waiting, while a turn other than the one it was sent to runs", () => {
+    // Two steers the turn never read became two queued turns. While the first of them runs, the
+    // second is a turn of its own waiting behind it, not a message that turn will read.
+    const SECOND = "6c1f5a8b-7b9d-4d54-8f55-3e9c4b8a1d22";
+    const items = fold(
+      ev("user.message", { text: "Build" }),
+      received("and tags"),
+      ev("steer.received", { steerId: SECOND, text: "and a footer" }),
+      ended(),
+      evIn(STEER, ev("user.message", { text: "and tags" })),
+      evIn(STEER, ev("turn.started", { source: "user" })),
+    );
+
+    expect(steersOf(items)).toEqual([
+      expect.objectContaining({ steerId: SECOND, status: "queued" }),
+    ]);
+  });
+
+  it("calls one waiting while a repair of the request it joined runs, which may read it", () => {
+    const items = fold(
+      ev("user.message", { text: "Build" }),
+      received(),
+      ended(),
+      evIn(
+        REPAIR_TURN,
+        ev("user.message", {
+          text: "The `typecheck` check failed.",
+          repair: { requestId: TURN, jobId: "0e1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b" },
+        }),
+      ),
+      evIn(REPAIR_TURN, ev("turn.started", { source: "verification" })),
+    );
+
+    expect(steersOf(items)).toEqual([expect.objectContaining({ status: "waiting" })]);
+  });
+
+  it("calls one queued once the turn it was sent to has ended", () => {
+    const items = fold(ev("user.message", { text: "Build" }), received(), ended());
+    expect(items.at(-1)).toMatchObject({ kind: "steer", status: "queued" });
+  });
+
+  it("draws nothing for a steer that became the next turn but that turn's own prompt", () => {
+    const items = fold(
+      ev("user.message", { text: "Build" }),
+      received("and tags"),
+      ended(),
+      evIn(STEER, ev("user.message", { text: "and tags" })),
+    );
+
+    expect(steersOf(items)).toEqual([]);
+    expect(items.filter((item) => item.kind === "message").map((item) => item.text)).toEqual([
+      "Build",
+      "and tags",
+    ]);
+  });
+
+  it("reads one steer once, whichever order the processes wrote it in", () => {
+    // The worker can record reading it before the API records receiving it.
+    const items = fold(ev("user.message", { text: "Build" }), applied(), received(), applied());
+    expect(steersOf(items)).toEqual([expect.objectContaining({ status: "read" })]);
+  });
+
+  it("hands a dropped steer back where it was dropped, with the plan intent its turn had", () => {
+    const items = fold(
+      ev("user.message", { text: "Plan a dark theme", plan: { intent: "propose" } }),
+      received("plan tags too"),
+      ev("turn.failed", { reason: "cancelled", message: "The turn was cancelled." }),
+      ev("steer.dropped", { steerId: STEER, text: "plan tags too", reason: "stopped" }),
+    );
+
+    expect(items.at(-1)).toEqual({
+      kind: "steer",
+      key: expect.any(Number),
+      steerId: STEER,
+      text: "plan tags too",
+      status: "dropped",
+      reason: "stopped",
+      retryPlan: { intent: "propose" },
+    });
+  });
+
+  it.each(["before", "after"] as const)(
+    "never offers back a steer the agent read, even if a drop landed %s the read",
+    (order) => {
+      const drop = () =>
+        ev("steer.dropped", { steerId: STEER, text: "Use Postgres", reason: "interrupted" });
+      const items =
+        order === "before"
+          ? fold(ev("user.message", { text: "Build" }), drop(), applied())
+          : fold(ev("user.message", { text: "Build" }), applied(), drop());
+      expect(steersOf(items)).toEqual([expect.objectContaining({ status: "read" })]);
+    },
+  );
+
+  it("keeps plan intent when an unread planning steer is offered back after idle", () => {
+    const events = [
+      ev("user.message", { text: "Plan a dark theme", plan: { intent: "propose" } }),
+      received("plan tags too"),
+      ended(),
+    ];
+
+    expect(buildTranscript(events, { idleThroughSeq: events.at(-1)?.seq }).at(-1)).toMatchObject({
+      kind: "steer",
+      status: "undelivered",
+      retryPlan: { intent: "propose" },
+    });
+  });
+
+  it("calls a waiting steer undelivered once the session was seen idle past it", () => {
+    const events = [ev("user.message", { text: "Build" }), received(), ended()];
+    const idle = events.at(-1)?.seq ?? 0;
+    nextSeq = 1;
+
+    expect(buildTranscript(events, { idleThroughSeq: idle }).at(-1)).toMatchObject({
+      kind: "steer",
+      status: "undelivered",
+    });
+    expect(buildTranscript(events, { idleThroughSeq: idle - 2 }).at(-1)).toMatchObject({
+      kind: "steer",
+      status: "queued",
+    });
+  });
 });
