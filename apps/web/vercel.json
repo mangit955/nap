@@ -2,7 +2,26 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "git": {
-    "deploymentEnabled": { "main": false }
+    "deploymentEnabled": {
+      "main": false
+    }
   },
-  "installCommand": "cd ../.. && bun install --ignore-scripts"
+  "installCommand": "cd ../.. && bun install --ignore-scripts",
+  "rewrites": [
+    {
+      "source": "/backend/:path*",
+      "destination": "https://nap-api.onrender.com/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/backend/:path*",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    }
+  ]
 }

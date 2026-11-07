@@ -20,6 +20,8 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { ServerFrameSchema } from "@nap/shared/ws-protocol";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
+import { credentialedFetch } from "../api/credentialed-fetch.ts";
 
 /**
  * What the hook needs from a socket. A real `WebSocket` satisfies this structurally, so the
@@ -46,7 +48,14 @@ export type EventStreamOptions = {
   sessionId: string | undefined;
   baseUrl?: string;
   createSocket?: CreateSocket;
+  /**
+   * A ticket for the socket to carry, asked for before every connection — or nothing, when the
+   * socket goes to the host the session cookie belongs to. See `DEFAULT_FETCH_TICKET`.
+   */
+  fetchTicket?: FetchTicket;
 };
+
+export type FetchTicket = (sessionId: string) => Promise<string | undefined>;
 
 export type EventStream = {
   events: StoredEvent[];
@@ -64,6 +73,32 @@ export type EventStream = {
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_WS_URL ?? "ws://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+const TicketSchema = z.object({ ticket: z.string().min(1) });
+
+/**
+ * Asks the API for a stream ticket, but only where the socket needs one.
+ *
+ * In production the page reaches the API through its own origin, so the session cookie belongs to
+ * the page's host — and Vercel does not forward WebSocket upgrades, so the socket goes to the
+ * API's own host, where that cookie is never sent. The ticket is fetched over the proxied path,
+ * where the cookie *is* sent, and lasts a minute. In development both are the same `localhost`
+ * and the cookie reaches the socket by itself, so nothing is asked.
+ *
+ * Derived from the two URLs rather than configured, so the two cannot disagree.
+ */
+const DEFAULT_FETCH_TICKET: FetchTicket | undefined =
+  new URL(API_URL).host === new URL(DEFAULT_BASE_URL).host
+    ? undefined
+    : async (sessionId) => {
+        const response = await credentialedFetch(
+          `${API_URL}/sessions/${encodeURIComponent(sessionId)}/stream-ticket`,
+          { method: "POST", cache: "no-store" },
+        );
+        if (!response.ok) return undefined;
+        return TicketSchema.parse(await response.json()).ticket;
+      };
 
 export function useEventStream(options: EventStreamOptions): EventStream {
   const { sessionId, baseUrl = DEFAULT_BASE_URL } = options;
@@ -81,6 +116,8 @@ export function useEventStream(options: EventStreamOptions): EventStream {
   const lastSeqRef = useRef(0);
   const createSocketRef = useRef(createSocket);
   createSocketRef.current = createSocket;
+  const fetchTicketRef = useRef(options.fetchTicket ?? DEFAULT_FETCH_TICKET);
+  fetchTicketRef.current = options.fetchTicket ?? DEFAULT_FETCH_TICKET;
 
   useEffect(() => {
     if (sessionId === undefined) {
@@ -102,7 +139,23 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     const connect = (): void => {
       if (abandoned) return;
 
-      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1`;
+      const fetchTicket = fetchTicketRef.current;
+      if (fetchTicket === undefined) {
+        open(undefined);
+        return;
+      }
+      // A ticket that could not be had still opens a socket: the server refuses it, the socket
+      // closes, and the retry below asks again — the recovery this hook already has.
+      void fetchTicket(sessionId)
+        .catch(() => undefined)
+        .then((ticket) => {
+          if (!abandoned) open(ticket);
+        });
+    };
+
+    const open = (ticket: string | undefined): void => {
+      const query = ticket === undefined ? "" : `&ticket=${encodeURIComponent(ticket)}`;
+      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1${query}`;
       const current = createSocketRef.current(url);
       socket = current;
 

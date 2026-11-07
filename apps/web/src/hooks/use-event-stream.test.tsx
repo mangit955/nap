@@ -388,3 +388,73 @@ it("retains opted-in repair ownership while advancing the replay cursor", () => 
   expect(result.current.events).toEqual([repair]);
   expect(result.current.lastSeq).toBe(1);
 });
+
+describe("connecting with a ticket", () => {
+  /*
+   * In production the page reaches the API through its own origin, so the session cookie is
+   * first-party there — and the socket goes to the API's own host, where that cookie is never
+   * sent. Each connection therefore asks for a one-minute ticket first and carries it in the URL.
+   */
+  function renderTicketed(
+    net: ReturnType<typeof sockets>,
+    fetchTicket: () => Promise<string | undefined>,
+  ) {
+    return renderHook(() =>
+      useEventStream({
+        sessionId: SESSION,
+        baseUrl: URL_BASE,
+        createSocket: net.createSocket,
+        fetchTicket,
+      }),
+    );
+  }
+
+  it("carries the ticket it was given", async () => {
+    const net = sockets();
+    renderTicketed(net, async () => "ticket-1");
+
+    await vi.waitFor(() => expect(net.opened).toHaveLength(1));
+    expect(new URL(net.latest.url).searchParams.get("ticket")).toBe("ticket-1");
+  });
+
+  it("asks for a fresh one on every reconnect, since the old one may have expired", async () => {
+    const net = sockets();
+    const fetchTicket = vi.fn<() => Promise<string | undefined>>();
+    fetchTicket.mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    renderTicketed(net, fetchTicket);
+
+    await vi.waitFor(() => expect(net.opened).toHaveLength(1));
+    act(() => net.latest.drop());
+    await vi.waitFor(() => expect(net.opened).toHaveLength(2), { timeout: BACKOFF.initialMs * 4 });
+
+    expect(new URL(net.latest.url).searchParams.get("ticket")).toBe("second");
+  });
+
+  it("still connects when no ticket could be had, and lets the server say no", async () => {
+    // Retrying on a closed socket is already how this hook recovers; a ticket that failed is
+    // one more reason for a socket to close, not a new state to get stuck in.
+    const net = sockets();
+    renderTicketed(net, async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    await vi.waitFor(() => expect(net.opened).toHaveLength(1));
+    expect(new URL(net.latest.url).searchParams.has("ticket")).toBe(false);
+  });
+
+  it("opens nothing if the component went away while it was asking", async () => {
+    const net = sockets();
+    let release: (ticket: string) => void = () => {};
+    const { unmount } = renderTicketed(
+      net,
+      () => new Promise<string>((resolve) => (release = resolve)),
+    );
+
+    unmount();
+    release("late");
+    // Long enough for the ticket's promise chain to have settled and acted, if it were going to.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(net.opened).toHaveLength(0);
+  });
+});

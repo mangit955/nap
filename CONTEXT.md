@@ -320,6 +320,14 @@ on a webhook's behalf.
 lock**: it works through the webhook inbox, then gives a bounded number of stale pull requests a PR
 refresh. Started only in the reaper (or `all`), and only when a GitHub App is configured.
 
+**API proxy path** — `/backend` on the web app's own origin, which Vercel forwards to the API with
+the prefix stripped. `NAP_API_URL` is this public address, so the session cookie is first-party.
+Not the API's own host, which only the event stream (and webhooks) still reach directly.
+
+**Stream ticket** — a one-minute signed proof of who is opening one session's `/ws`, issued over the
+**API proxy path** where the cookie is sent, and carried in the socket's query string to the API's
+own host, where it is not. Not a session: it is worth nothing on any other route.
+
 ## NapBench glossary
 
 NapBench is the evaluation harness that measures Nap's agent. Its vocabulary is kept separate

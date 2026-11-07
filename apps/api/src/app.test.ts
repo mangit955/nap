@@ -6,6 +6,8 @@ import { VERSION } from "@nap/shared/version";
 import { WSContext, type WSEvents } from "hono/ws";
 import { describe, expect, it, vi } from "vitest";
 import { type AppDeps, createApp } from "./app.ts";
+import type { Authenticate } from "./auth/auth.ts";
+import { createStreamTickets } from "./auth/stream-ticket.ts";
 import { createLogger } from "./logger.ts";
 import { createMetrics, WS_CONNECTIONS_METRIC } from "./metrics.ts";
 
@@ -241,6 +243,99 @@ describe("GET /ws", () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
     expect(upgrader.calls).toEqual([]);
+  });
+});
+
+describe("stream tickets", () => {
+  /*
+   * In production the page reaches this API through the web app's own origin, so the session
+   * cookie is first-party — but Vercel does not forward WebSocket upgrades, so `/ws` is opened
+   * against this API's own host, where that cookie is never sent. The page asks for a ticket over
+   * the proxied path and hands it to `/ws` instead.
+   */
+  const tickets = createStreamTickets("a-secret-long-enough-to-sign-a-cookie-with");
+  const STRANGER = "00000000-0000-4000-8000-0000000000ff";
+
+  function ticketApp(upgrader: FakeUpgrader | undefined, authenticate: Authenticate) {
+    return app({
+      authenticate,
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]),
+        upgradeWebSocket: (upgrader ?? new FakeUpgrader()).upgrade,
+        tickets,
+      },
+    });
+  }
+  const owner: Authenticate = async () => ({ userId: FAKE_OWNER, isAnonymous: false });
+  const nobody: Authenticate = async () => null;
+
+  it("issues one to the session's owner, uncached", async () => {
+    const res = await ticketApp(undefined, owner).request(`/sessions/${SESSION}/stream-ticket`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const { ticket } = (await res.json()) as { ticket: string };
+    expect(tickets.verify(ticket, SESSION)).toEqual({ userId: FAKE_OWNER, isAnonymous: false });
+  });
+
+  it("issues none for somebody else's session", async () => {
+    const stranger: Authenticate = async () => ({ userId: STRANGER, isAnonymous: false });
+    const res = await ticketApp(undefined, stranger).request(`/sessions/${SESSION}/stream-ticket`, {
+      method: "POST",
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("lets a ticket open the stream with no cookie at all", async () => {
+    const upgrader = new FakeUpgrader();
+    const ticket = tickets.issue({ userId: FAKE_OWNER, isAnonymous: false }, SESSION);
+
+    const res = await ticketApp(upgrader, nobody).request(
+      `/ws?sessionId=${SESSION}&ticket=${encodeURIComponent(ticket)}`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(upgrader.calls).toHaveLength(1);
+  });
+
+  it("refuses a ticket that does not verify, even with a cookie behind it", async () => {
+    // A bad ticket is a client bug or a forgery; falling back to the cookie would hide the first
+    // and reward the second.
+    const upgrader = new FakeUpgrader();
+    const res = await ticketApp(upgrader, owner).request(
+      `/ws?sessionId=${SESSION}&ticket=forged.x`,
+    );
+
+    expect(res.status).toBe(401);
+    expect(upgrader.calls).toEqual([]);
+  });
+
+  it("still checks the session is the ticket holder's", async () => {
+    const upgrader = new FakeUpgrader();
+    const ticket = tickets.issue({ userId: STRANGER, isAnonymous: false }, SESSION);
+
+    const res = await ticketApp(upgrader, nobody).request(
+      `/ws?sessionId=${SESSION}&ticket=${encodeURIComponent(ticket)}`,
+    );
+
+    expect(res.status).toBe(404);
+    expect(upgrader.calls).toEqual([]);
+  });
+
+  it("is worth nothing anywhere but /ws", async () => {
+    const ticket = tickets.issue({ userId: FAKE_OWNER, isAnonymous: false }, SESSION);
+
+    const res = await ticketApp(undefined, nobody).request(
+      `/sessions/${SESSION}/stream-ticket?sessionId=${SESSION}&ticket=${encodeURIComponent(ticket)}`,
+      { method: "POST" },
+    );
+
+    expect(res.status).toBe(401);
   });
 });
 

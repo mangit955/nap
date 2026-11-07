@@ -572,6 +572,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       bus: deps.bus,
       sessions: deps.sessions,
       upgradeWebSocket: deps.upgradeWebSocket,
+      ...(deps.auth === undefined ? {} : { tickets: deps.auth.streamTickets }),
     },
     files: { sessions: deps.sessions, sandbox: deps.sandbox },
     ...(deps.providerAccounts === undefined
