@@ -11,6 +11,11 @@
  * it may be a paid model the deployment covers intentionally. Anything else needs a key
  * belonging to whoever is asking.
  *
+ * The models the deployment itself names — `NAP_FALLBACK_MODEL`, `NAP_SUBAGENT_MODEL` and the
+ * Fusion sidekick, `NAP_SIDEKICK_MODEL` — also run on its key, but only inside turns it already
+ * pays for, because the agent uses them only on a turn with no credentials. They are never a
+ * way for a caller to reach a model this function refused them.
+ *
  * A pure function taking everything it needs, so the whole policy is a table in a test rather
  * than a set of branches spread across a route handler. That matters here more than usual —
  * "which of these eleven combinations lets somebody spend my money?" is a question that has to
@@ -21,6 +26,7 @@
  * means falling through to `NAP_MODEL`, which is a paid model.
  */
 
+import { isFreeModel } from "@nap/shared/model-capabilities";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 
 /** What is known about the asker: the key they saved, already opened, or nothing. */
@@ -61,11 +67,6 @@ export function refusalStatus(code: Extract<TurnAccess, { ok: false }>["code"]):
   return code === "byok_required" ? 403 : 400;
 }
 
-/** OpenRouter's convention, and the only thing that marks a model as costing nothing. */
-export function isFree(model: string): boolean {
-  return model.endsWith(":free");
-}
-
 /**
  * Whether a key of this kind can reach this model at all.
  *
@@ -88,7 +89,7 @@ export function availableModels(
   key: CallerKey,
   freeModel?: string,
 ): string[] {
-  if (key === null) return allowed.filter((model) => model === freeModel || isFree(model));
+  if (key === null) return allowed.filter((model) => model === freeModel || isFreeModel(model));
   return allowed.filter((model) => reachableWith(model, key.platform));
 }
 
@@ -113,7 +114,8 @@ export function resolveTurnAccess(request: TurnAccessRequest): TurnAccess {
     // whether it carries the `:free` suffix — the suffix is OpenRouter's convention, but the
     // deployment may intentionally pay for a non-free model as its demo offering.
     if (requested === undefined) return { ok: true, model: request.freeModel };
-    if (requested === request.freeModel || isFree(requested)) return { ok: true, model: requested };
+    if (requested === request.freeModel || isFreeModel(requested))
+      return { ok: true, model: requested };
 
     return {
       ok: false,

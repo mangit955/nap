@@ -3,9 +3,11 @@ import {
   CompactionCheckpointSchema,
   ContextMessageSchema,
   estimateContextTokens,
+  isUsableSummary,
   latestCheckpoint,
 } from "./compaction.ts";
 import type { NapEventOf } from "./events.ts";
+import type { LLMTurnResult } from "./ports/llm-provider.ts";
 
 it("counts tool schemas and images as context without treating base64 bytes as text", () => {
   const plain = { systemPrompt: "system", messages: [], tools: [] };
@@ -142,4 +144,28 @@ it("round-trips block tool results and rejects recursive tools at the context bo
       ],
     }).success,
   ).toBe(false);
+});
+
+it("accepts as a summary only a complete message with text and no tool calls", () => {
+  const usage = { inputTokens: 1, outputTokens: 1 };
+  const message: Extract<LLMTurnResult, { type: "message" }> = {
+    type: "message",
+    text: "a summary",
+    toolCalls: [],
+    usage,
+  };
+  expect(isUsableSummary(message)).toBe(true);
+  expect(isUsableSummary({ ...message, truncated: false })).toBe(true);
+  expect(isUsableSummary({ ...message, truncated: true })).toBe(false);
+  expect(isUsableSummary({ ...message, text: " \n " })).toBe(false);
+  expect(
+    isUsableSummary({
+      ...message,
+      toolCalls: [{ id: "x", name: "read_file", input: {} }],
+    }),
+  ).toBe(false);
+  expect(isUsableSummary({ type: "refusal", usage })).toBe(false);
+  expect(isUsableSummary({ type: "error", message: "upstream", retryable: false, usage })).toBe(
+    false,
+  );
 });

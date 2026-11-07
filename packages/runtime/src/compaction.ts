@@ -1,6 +1,10 @@
 import { prepareCompaction, summaryRequest, textOnlyContext } from "@nap/context/compaction";
 import { compactionBoundaries } from "@nap/context/compaction-history";
-import { type CompactContext, estimateContextTokens } from "@nap/shared/compaction";
+import {
+  type CompactContext,
+  estimateContextTokens,
+  isUsableSummary,
+} from "@nap/shared/compaction";
 import type { NapEvent, NapEventOf } from "@nap/shared/events";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
 import type { TokenUsage } from "@nap/shared/ports/llm-provider";
@@ -111,7 +115,7 @@ export function contextCompactor(options: {
               ? result.message
               : "The model declined to summarize this conversation.",
           );
-        if (result.truncated || result.toolCalls.length > 0 || result.text.trim() === "")
+        if (!isUsableSummary(result))
           throw new Error(
             "The model did not return a complete summary. Previous context was kept.",
           );

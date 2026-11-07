@@ -1,11 +1,6 @@
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import { describe, expect, it } from "vitest";
-import {
-  availableModels,
-  isFree,
-  resolveTurnAccess,
-  type TurnAccessRequest,
-} from "./model-access.ts";
+import { availableModels, resolveTurnAccess, type TurnAccessRequest } from "./model-access.ts";
 
 /** The shape of a real allowlist: cheap paid, expensive paid, and free. */
 const ALLOWED = [
@@ -28,15 +23,6 @@ function ask(overrides: Partial<TurnAccessRequest> = {}): TurnAccessRequest {
     ...overrides,
   };
 }
-
-describe("isFree", () => {
-  it("reads OpenRouter's convention and nothing else", () => {
-    expect(isFree("openai/gpt-oss-20b:free")).toBe(true);
-    expect(isFree("anthropic/claude-opus-5")).toBe(false);
-    // Not a suffix, so not free. A substring match here would make ":free-tier-preview" free.
-    expect(isFree("vendor/free-model")).toBe(false);
-  });
-});
 
 describe("with no key of their own", () => {
   it("runs the free model when nothing is named", () => {
