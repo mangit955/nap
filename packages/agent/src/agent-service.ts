@@ -1,4 +1,4 @@
-import { estimateContextTokens } from "@nap/shared/compaction";
+import { estimateContextTokens, isUsableSummary } from "@nap/shared/compaction";
 import { pruneComputerImages } from "@nap/shared/computer-context";
 import { skillsDiscoveredPayload } from "@nap/shared/skills";
 
@@ -28,7 +28,7 @@ import { skillsDiscoveredPayload } from "@nap/shared/skills";
 
 import type { SubagentProfile } from "@nap/shared/agent-plan";
 import type { NapEvent, NapEventOf, ToolName, TurnFailureReason } from "@nap/shared/events";
-import { modelSupportsImages } from "@nap/shared/model-capabilities";
+import { isFreeModel, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type {
@@ -39,6 +39,7 @@ import type {
   LLMToolCall,
   LLMTurn,
   LLMTurnResult,
+  TokenUsage,
 } from "@nap/shared/ports/llm-provider";
 import { CANCELLED, pause, stopAware } from "./cancellation.ts";
 import { DeltaStream } from "./delta-stream.ts";
@@ -75,6 +76,13 @@ export const MAX_STOP_REFUSALS = 2;
  */
 const STEER_ROOM_TOKENS = 2_048;
 
+/**
+ * How long one sidekick request may run before the lead does the work instead (ADR-0030). A
+ * summary of one compaction chunk is a few thousand tokens out; a sidekick still writing it after
+ * this long is stalled, and the lead repeating it costs less than the turn waiting on it.
+ */
+export const SIDEKICK_TIMEOUT_MS = 120_000;
+
 export type AgentServiceOptions = {
   provider: LLMProvider;
   /** Per-turn ceilings. Defaults come from ./safety/budget.ts. */
@@ -94,6 +102,15 @@ export type AgentServiceOptions = {
    * key, a helper runs on the turn's model — the only one that key is known to reach.
    */
   subagentModels?: Partial<Record<SubagentProfile, string>> | undefined;
+  /**
+   * Fusion's sidekick: a cheaper model the turn's condensing work runs on — `explore` helpers and
+   * compaction summaries — while the turn's own model, the lead, does everything else (ADR-0030).
+   * Already on the deployment's allowlist. Used only when the deployment is paying, the turn's
+   * model is not free, and it is not the model the turn is on; absent, Fusion is off.
+   */
+  sidekickModel?: string | undefined;
+  /** How long one sidekick request may run before the lead takes it over. */
+  sidekickTimeoutMs?: number;
   /** How long a transient model failure waits before one more attempt. */
   retryDelayMs?: number;
   /** Further hooks, after the built-in ones. For a composition, and for tests. */
@@ -138,7 +155,12 @@ class Turn {
   readonly #options: AgentServiceOptions;
   /** Replaced only by a fallback after a refusal; every turn it has been is in `#turns`. */
   #turn: LLMTurn;
+  /** Every model conversation this turn opened — the lead's, a fallback's, the sidekick's. */
   readonly #turns: LLMTurn[] = [];
+  /** Opened on the first summary the sidekick is asked for, so a turn with none opens nothing. */
+  #sidekickTurn: LLMTurn | undefined;
+  /** Set when the sidekick failed a summary; the lead writes the rest of this turn's summaries. */
+  #sidekickFailed = false;
   readonly #budget: TurnBudget;
   readonly #now: () => string;
   readonly #clock: () => number;
@@ -199,8 +221,12 @@ class Turn {
         ? undefined
         : new SubagentPool({
             provider: options.provider,
+            // Searching is condensing: the sidekick's, when there is one (ADR-0030). A helper that
+            // writes changes what the person keeps, so it stays on the model they picked.
             modelFor: (profile) =>
-              (deploymentPays ? options.subagentModels?.[profile] : undefined) ?? this.#model,
+              (profile === "explore" ? this.#sidekick() : undefined) ??
+              (deploymentPays ? options.subagentModels?.[profile] : undefined) ??
+              this.#model,
             credentials: request.credentials,
             prompts,
             rootRules: request.context.rootRules === true,
@@ -559,6 +585,107 @@ class Turn {
     return true;
   }
 
+  /**
+   * Fusion's sidekick for this turn, or nothing when the lead does its own condensing (ADR-0030).
+   *
+   * A person's own key is only ever sent to the model they picked, so on their key there is no
+   * sidekick at all and the turn runs exactly as it would without Fusion. A sidekick that is the
+   * model the turn is on — after a fallback, say — is no sidekick either. Nor is there one for a
+   * free lead: that turn costs the deployment nothing, so a sidekick could only add cost to it.
+   */
+  #sidekick(): string | undefined {
+    const sidekick = this.#options.sidekickModel;
+    return sidekick === undefined ||
+      this.#request.credentials !== undefined ||
+      sidekick === this.#model ||
+      isFreeModel(this.#model)
+      ? undefined
+      : sidekick;
+  }
+
+  /**
+   * The sidekick's conversation for one compaction summary, or nothing when the lead writes it.
+   * Every reason a summary is not the sidekick's is decided here, before anything is awaited, so a
+   * turn with no sidekick sends the lead its request exactly as it did before Fusion.
+   *
+   * `spare` is what the budget holds beyond the compaction's own reserve. The sidekick is tried
+   * only when that pays for its attempt and for the lead repeating it, and, when the turn goes on
+   * after the summary, for the lead's next request as well: the context at its current size, which
+   * a compaction only shrinks, plus the output headroom the loop allows a request. A failed
+   * attempt's tokens still count against the ceiling, so near it one failure can still cost the
+   * turn its finish where the lead alone would not have; this narrows that window by estimate,
+   * and cannot close it without letting the sidekick's tokens escape the budget (ADR-0030 D4).
+   *
+   * A request the sidekick's window cannot hold is not a failure, only not the sidekick's. A
+   * provider that cannot open the sidekick's conversation is one, and the lead writes the rest.
+   */
+  #sidekickFor(cost: number, spare: number, continues: boolean): LLMTurn | undefined {
+    const model = this.#sidekickFailed ? undefined : this.#sidekick();
+    if (model === undefined) return undefined;
+    const next = continues ? this.#estimate() + this.#headroom() : 0;
+    if (cost * 2 + next > spare) return undefined;
+    if (this.#sidekickTurn === undefined) {
+      try {
+        this.#sidekickTurn = this.#options.provider.startTurn({ model });
+      } catch {
+        this.#sidekickFailed = true;
+        return undefined;
+      }
+      this.#turns.push(this.#sidekickTurn);
+    }
+    const held = this.#sidekickTurn.contextWindowTokens ?? Number.POSITIVE_INFINITY;
+    return cost > held ? undefined : this.#sidekickTurn;
+  }
+
+  /**
+   * One compaction summary from the sidekick: the result when it is a usable summary, and
+   * otherwise what the failed attempt spent, for the lead to repeat the request.
+   *
+   * Usable is what the compactor will accept (`isUsableSummary`). Anything else — a refusal, an
+   * error, a throw, a reply cut off or never finished in time — is the lead's to do, and after one
+   * such failure the lead writes the rest of the turn's summaries, so a sidekick that is down costs
+   * one wasted request per turn rather than one per chunk.
+   *
+   * A cancelled turn is not a failed sidekick: it throws as the lead's own request does, and
+   * nothing is handed to the lead.
+   */
+  async #summarizeOnSidekick(
+    sidekick: LLMTurn,
+    request: LLMRequest,
+  ): Promise<{ summary?: LLMTurnResult; wasted?: TokenUsage }> {
+    const deadline = new AbortController();
+    const timer = setTimeout(
+      () => deadline.abort(),
+      this.#options.sidekickTimeoutMs ?? SIDEKICK_TIMEOUT_MS,
+    );
+    const signal =
+      this.#request.signal === undefined
+        ? deadline.signal
+        : AbortSignal.any([this.#request.signal, deadline.signal]);
+    let completed: LLMTurnResult | typeof CANCELLED | undefined;
+    try {
+      completed = await stopAware(sidekick.complete({ ...request, signal }), signal);
+    } catch {
+      completed = undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (this.#cancelled()) throw new Error("Compaction cancelled.");
+    if (completed === undefined || completed === CANCELLED) {
+      // Abandoned or thrown: the transport may still bill a request whose usage never arrived.
+      this.#usageIncomplete = true;
+      this.#sidekickFailed = true;
+      return {};
+    }
+    this.#budget.recordUsage(completed.usage);
+    if (!isUsableSummary(completed)) {
+      this.#sidekickFailed = true;
+      return { wasted: completed.usage };
+    }
+    this.#delivered(request.messages);
+    return { summary: completed };
+  }
+
   #notice(text: string): void {
     this.#emit({ type: "system.notice", payload: { level: "info", text } });
   }
@@ -653,22 +780,35 @@ class Turn {
       const remaining = this.#budget.remaining();
       const availableTokens = this.#helpers?.availableTokens() ?? remaining.tokens;
       const reserve = trigger === "automatic" ? 4_096 : 0;
-      if (
-        remaining.steps <= (trigger === "automatic" ? 1 : 0) ||
-        estimate + (request.maxOutputTokens ?? 4_096) + reserve > availableTokens
-      )
+      const cost = estimate + (request.maxOutputTokens ?? 4_096);
+      if (remaining.steps <= (trigger === "automatic" ? 1 : 0) || cost + reserve > availableTokens)
         throw new Error("Not enough turn budget remains for compaction and continuation.");
-      if (
-        estimate + (request.maxOutputTokens ?? 4_096) >
-        (this.#turn.contextWindowTokens ?? Number.POSITIVE_INFINITY)
-      )
+      if (cost > (this.#turn.contextWindowTokens ?? Number.POSITIVE_INFINITY))
         throw new Error("The compaction request exceeds this model's context window.");
+      // One step per summary, whichever model writes it, so Fusion moves no step ceiling.
       this.#budget.recordStep();
+      // A manual compaction ends its turn; an automatic one is followed by the lead's next step.
+      const sidekick = this.#sidekickFor(cost, availableTokens - reserve, trigger === "automatic");
+      let wasted: TokenUsage | undefined;
+      if (sidekick !== undefined) {
+        const attempt = await this.#summarizeOnSidekick(sidekick, request);
+        if (attempt.summary !== undefined) return attempt.summary;
+        wasted = attempt.wasted;
+      }
       const result = await stopAware(this.#turn.complete(request), this.#request.signal);
       if (result === CANCELLED) throw new Error("Compaction cancelled.");
       if (result.type === "message") this.#delivered(request.messages);
       this.#budget.recordUsage(result.usage);
-      return result;
+      // The compaction reports what it cost, the sidekick's failed attempt included.
+      return wasted === undefined
+        ? result
+        : {
+            ...result,
+            usage: {
+              inputTokens: result.usage.inputTokens + wasted.inputTokens,
+              outputTokens: result.usage.outputTokens + wasted.outputTokens,
+            },
+          };
     };
     const native = this.#turn.compact;
     const result = await this.#request.compactContext({

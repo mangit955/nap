@@ -163,6 +163,18 @@ const BaseSchema = z.object({
    * allowlist. Helpers are offered to imported repositories only (ADR-0020).
    */
   NAP_SUBAGENT_MODEL: z.string().min(1).optional(),
+  /**
+   * Fusion's sidekick: a cheaper model the turn's condensing work runs on — `explore` helpers and
+   * compaction summaries — while the turn's own model does everything else (ADR-0030). A summary
+   * the sidekick fails is written by the lead; a search it fails is reported to the lead.
+   *
+   * Only on turns the deployment pays for, which under `resolveTurnAccess` are the free tier's
+   * turns on `NAP_FREE_MODEL`. So it saves money only when `NAP_FREE_MODEL` is dearer than the
+   * sidekick, does nothing when the two are the same model, and is never used on a `:free` lead or
+   * on a person's own key, where the expensive leads are. Unset is Fusion off. Must be on the
+   * allowlist, and replaces `NAP_SUBAGENT_MODEL`, so the two may not both be set.
+   */
+  NAP_SIDEKICK_MODEL: z.string().min(1).optional(),
 
   /**
    * Which models a request may ask for, as a comma-separated list.
@@ -448,7 +460,7 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
 
   // A model the deployment would switch a turn to has passed the same check a person's choice
   // does, or the allowlist has a side door.
-  for (const key of ["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL"] as const) {
+  for (const key of ["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL", "NAP_SIDEKICK_MODEL"] as const) {
     const model = env[key];
     if (model !== undefined && !env.NAP_ALLOWED_MODELS.includes(model))
       ctx.addIssue({
@@ -457,6 +469,16 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
         message: `must be one of NAP_ALLOWED_MODELS (${model} is not)`,
       });
   }
+
+  // Both would say what explore helpers run on. Refused rather than ranked, so nobody has to
+  // remember which one wins.
+  if (env.NAP_SIDEKICK_MODEL !== undefined && env.NAP_SUBAGENT_MODEL !== undefined)
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_SIDEKICK_MODEL"],
+      message:
+        "NAP_SIDEKICK_MODEL replaces NAP_SUBAGENT_MODEL: the sidekick already runs explore helpers, so set one of them",
+    });
 
   // The free-tier model has to be reachable too, or every turn by somebody without a key is
   // refused by the allowlist — which is everybody on their first visit.

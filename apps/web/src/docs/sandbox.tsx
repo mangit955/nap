@@ -20,7 +20,8 @@ computer  computer (image models, when a desktop is composed)
 skill     skill (the project's own instruction packs)
 
 file, search and command tools proxy to SandboxManager.
-a helper is a second loop over the same ports, inside the turn's budget.`;
+a helper is a second loop over the same ports, inside the turn's budget;
+with Fusion on, a search helper runs on the sidekick.`;
 
 export function Sandbox() {
   return (
@@ -128,6 +129,27 @@ export function Sandbox() {
         conditional update, so none is read twice. A message can still go unanswered if the
         turn&rsquo;s end fails to record, or if the record of reading it is lost on the way back;
         once the session is idle, the chat offers it back.
+      </P>
+
+      <P>
+        A deployment can pair the model a turn runs on, the <Term>lead</Term>, with a cheaper{" "}
+        <Term>sidekick</Term>. This pairing is called <Term>Fusion</Term>, and it is off unless the
+        deployment names a sidekick. The sidekick only condenses: it runs the helpers that search,
+        and it writes compaction summaries. Both produce text that only the lead reads, and the lead
+        can recover what that text leaves out by reading the files or searching the saved history.
+        Everything that changes the project or answers the person stays with the lead, including
+        helpers that edit. The sidekick runs only on turns the deployment pays for, which today are
+        the free tier&rsquo;s turns on the deployment&rsquo;s demo model. On a person&rsquo;s own
+        key every request goes to the model they picked, and a turn on a free model has no sidekick,
+        which could only add cost to it. The sidekick&rsquo;s tokens come from the same turn budget
+        and appear in the turn&rsquo;s usage. A summary is offered to the sidekick only when the
+        budget could also pay for the lead to write it and, if the turn goes on, for the
+        lead&rsquo;s next request. If the sidekick refuses, errors, returns something that is not a
+        complete summary, or takes more than two minutes, the lead writes the same summary. After
+        one such failure, the lead writes every later summary in that turn. A search helper that
+        fails reports the failure to the lead, which can search for itself. The lead&rsquo;s tool
+        block and system prompt, the prefix its cache reads, are unchanged, so its cache is
+        unaffected.
       </P>
 
       <P>

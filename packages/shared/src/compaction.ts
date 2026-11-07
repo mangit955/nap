@@ -110,6 +110,24 @@ export function estimateContextTokens(
   return Math.ceil(chars / 4) + images;
 }
 
+/**
+ * Whether a model's reply can be used as a compaction summary: a complete message, with text and
+ * no tool calls. One rule, because two parties ask it — the runtime's compactor, which refuses
+ * anything else, and the agent, which hands the request to the lead when the Fusion sidekick's
+ * reply would be refused (ADR-0030). Were they to differ, a sidekick reply could pass the agent
+ * and fail the compaction without the lead ever being asked.
+ */
+export function isUsableSummary(
+  result: LLMTurnResult,
+): result is Extract<LLMTurnResult, { type: "message" }> {
+  return (
+    result.type === "message" &&
+    result.truncated !== true &&
+    result.toolCalls.length === 0 &&
+    result.text.trim() !== ""
+  );
+}
+
 /** Native sessions own their history; API sessions replace only the working message list. */
 export type CompactContext = (request: {
   messages: LLMMessage[];
