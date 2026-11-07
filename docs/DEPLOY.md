@@ -101,12 +101,12 @@ Keep Render auto-deploy off and run the manual command without a concurrent Acti
 For a release that changes the durable event contract, follow the controlled rollout below
 instead of relying on the normal rolling deployment sequence.
 
-**Publish the desktop template before releasing a commit that changes it.** No release publishes
-the E2B template, and a merge to `main` releases. If `packages/sandbox/src/desktop-build.ts` has
-changed since the template was last published, publish it from the release commit first
-([how](#computer-capability-rollout)), then merge or release. A release that runs ahead of the
-template is safe but degraded: its runtime refuses every machine built from another build, so
-computer use is unavailable until the template catches up ([why](computer-use.md#desktop-builds)).
+**A desktop build change requires a controlled rollout before merging.** A merge to `main`
+automatically releases, but the release script neither publishes the E2B template nor drains
+computer reservations before replacing the runtime. If `packages/sandbox/src/desktop-build.ts`
+changes, complete the [desktop build rollout](#deploy-a-desktop-build-change) before merging or
+starting a manual release. Publishing alone is insufficient: the new runtime also refuses to
+drain input scopes on old images, so a held reservation can block the project's turns and closure.
 
 The [Render deploy API](https://api-docs.render.com/reference/create-deploy),
 [Vercel deployment API](https://vercel.com/docs/rest-api/deployments/create-a-new-deployment),
@@ -635,8 +635,35 @@ The boot composition supplies the scoped exec desktop and recording adapter, the
 
 The desktop image is a separate manual publication. Prepare and review it with `bun run --cwd packages/sandbox template:build --prepare`; publishing requires explicit paid mode, the target alias, the prepared directory and its reviewed manifest hash. Publication refuses a prepared image whose build is not the checkout's `DESKTOP_BUILD`, and prints the build it published. Preparation selects two vCPUs and `DESKTOP_MEMORY_MB` (2,048 MB), and publication refuses a prepared directory of any other size. An integrated run with a real app peaked at 915 of 976 MiB on the earlier 1-GiB machine ([computer use](computer-use.md#verified-on-a-vm)), which is why it doubled; no run establishes capacity for larger applications.
 
-Existing VMs do not receive a rebuilt template. Close and reopen a project through the ordinary snapshot/restore flow when a fresh machine is needed; do not destroy an active workspace to install the desktop. Recording media survives VM teardown in object storage, behind owner authorization, and project deletion derives its possible keys from durable test starts.
+Existing VMs do not receive a rebuilt template. A project with no held computer reservation can close and reopen through the ordinary snapshot/restore flow to get a fresh machine. A held reservation blocks that flow; use the rollout below before replacing its matching runtime. Do not destroy an active workspace to install the desktop. Recording media survives VM teardown in object storage, behind owner authorization, and project deletion derives its possible keys from durable test starts.
 
+### Deploy a desktop build change
+
+The build check covers every driver command, including `closeAndDrain`. A new runtime cannot
+obtain a drain proof from an old-image scope. Preserve the old matching reaper until every held
+scope has drained; otherwise those reservations remain recovery pending and exclude project
+turns and closure even after the template is republished.
+
+Before any `DESKTOP_BUILD`-changing merge or release, including introduction of this gate:
+
+1. Block owner-input requests at ingress and let in-flight owner-input requests settle. Stop and
+   drain all old workers, and wait for their exit so neither owner nor model input can create
+   another reservation. Keep the old reaper, whose runtime matches the existing images, running.
+2. Allow that reaper to recover outstanding scopes. Query the production database:
+   ```sql
+   SELECT count(*) FROM project_computer_operations;
+   ```
+   Proceed only when the result is `0`. If any row remains, stop the release and investigate
+   with the matching reaper still available. Never delete a reservation or force abandonment
+   to pass this gate; abandonment can discard source after the last snapshot.
+3. Prepare, review and publish the template from the release commit as described above. Only
+   after the reservation count is zero may the matching old reaper be stopped or replaced.
+4. Merge or release the new commit with owner input still blocked. Deploy required migrations,
+   workers, API and reaper in the release order above, then the web. Reopen owner input only
+   after the matching services are live. Ordinary stale projects without a held reservation
+   can then close and reopen to use the new image.
+
+This is an operator precondition; the automatic release does not enforce the SQL check.
 
 ### Deploy the scoped input protocol together
 

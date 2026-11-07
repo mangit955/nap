@@ -60,16 +60,21 @@ Every new event has schema parsing, issue-path, discriminant and JSON round-trip
 
 The desktop image and the runtime that drives it are deployed separately, so the adapter refuses
 to drive any machine whose image is not its own build. `DESKTOP_BUILD`
-(`packages/sandbox/src/desktop-build.ts`) is a hash of every source the image runs: the start
-script, each module the driver bundle inlines, and the image's installed packages. Preparing the
+(`packages/sandbox/src/desktop-build.ts`) hashes the start script, the repository modules the
+driver bundle inlines, and the desktop package-install command. It does not attest bundled
+third-party dependency versions, the builder, or installed system/browser binary versions. Preparing the
 template writes it into the image; every driver command first compares the two and, on a
 difference, runs nothing and returns `outdated`. The agent is told its computer is unavailable
 and why, the Computer pane shows its unavailable state, and owner input is refused as on a
-machine without scoped input. The rest of the project keeps working.
+machine without scoped input. Source work can continue when the project has no held computer
+reservation.
 
 That covers both ways a machine ends up behind: a deploy ahead of the published template, and a
-machine created before the last publication. Only republishing fixes the first. Closing and
-reopening the project fixes the second, once the template is current.
+machine created before the last publication. Republish for the first; close and reopen an
+unreserved project for the second once the template is current. A held input reservation is an
+exception: the new runtime cannot drain its old-image scope, so turns and project closure stay
+blocked. Complete the [controlled desktop build rollout](DEPLOY.md#deploy-a-desktop-build-change)
+with the matching old reaper before replacing it.
 
 Changing any of those sources fails `desktop-build.test.ts` until `DESKTOP_BUILD` is updated,
 and publication refuses a prepared image whose build is not this checkout's. The deploy order is
@@ -105,10 +110,11 @@ gigabyte above that peak. The full run was not repeated at the new size.
 
 ## Current limits
 
-Machines created before that publication report `outdated` until their project is closed and
-reopened. Desktop behavior, screenshot bytes and model responses in the free checks are fakes. The
+Machines from a different desktop build report `outdated`. Projects without a held reservation
+can close and reopen once the template is current; held scopes require the controlled rollout
+above. Desktop behavior, screenshot bytes and model responses in the free checks are fakes. The
 app test cards and explicit Fix it UI are separate from the backend.
 
 Actual Computer pane and work-log browser evidence is under [panel review](assets/computer-use/panel-review/README.md) and [work-log review](assets/computer-use/work-log-review/README.md). The standalone mockup is design evidence, not proof of the live desktop or recording transport.
 
-Backend gates passed: full tests, typecheck and lint. The existing CSS specificity warning and stale browser-data notice remain unchanged. The app-test runtime, ledger, prompt and target suites appear in `vitest list --project unit`. Production desktop and provider behavior remain unmeasured.
+Backend gates passed: full tests, typecheck and lint. The existing CSS specificity warning and stale browser-data notice remain unchanged. The app-test runtime, ledger, prompt and target suites appear in `vitest list --project unit`. The real VM run used the production composition with a local throwaway database; hosted production endpoints were not exercised, and the full run was not repeated at 2 GiB.
