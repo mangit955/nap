@@ -75,15 +75,37 @@ Changing any of those sources fails `desktop-build.test.ts` until `DESKTOP_BUILD
 and publication refuses a prepared image whose build is not this checkout's. The deploy order is
 in [DEPLOY.md](DEPLOY.md#release-production).
 
+## Verified on a VM
+
+On 2026-11-07 the template was republished from `e35c80cd` (E2B build
+`7961b3ba-59c8-4dc8-8f95-9a270e320ff3`, `DESKTOP_BUILD` `a89efce5…`, Chrome 156.0.8078.47) and one
+VM ran a full turn and an app test. It ran under the production composition (`bootNap`: the API
+and worker processes, a Postgres event bus, the E2B desktop adapter and the R2 object store) with
+`anthropic/claude-sonnet-5` on the account's own OpenRouter key; only the database was a local
+throwaway. The image's build file matched, so the gate let every command through.
+
+- The build turn made a kanban app (16 tool calls, 201,565 input and 6,438 output tokens, 109 s);
+  typecheck and build passed and the job completed as `verified`.
+- The app test started the desktop, took four screenshots, recorded two assertions and passed both
+  (82,779 input and 1,353 output tokens, 43 s). Annotation times fell on the recording's clock.
+- Screenshots and the 44.6-second H.264 recording were stored in R2 and served back through the
+  owner routes, the recording by byte range; a seek decoded. Chrome's `--no-sandbox` warning bar
+  is gone from the recording.
+- The owner stream route returned credentials, and its WebSocket answered `RFB 003.008` through the
+  sandbox's public proxy. Owner input while idle applied three actions.
+- Deleting the project removed all nine of its R2 objects and destroyed the VM.
+
+**Memory has almost no headroom.** E2B's per-VM metrics (one sample every five seconds) put peak use
+at 915 MiB of the 976 MiB the guest sees, during the app test, with the Vite dev server (369 MB RSS),
+Chrome (about 330 MB across its processes) and the recorder running. After the test 145 MiB was
+available, with no swap. No process was killed, but this was a small app, so the 1 GiB allocation is
+not shown to fit heavier ones.
+
 ## Current limits
 
-What real VMs have verified is in [ADR-0019](adr/0019-the-desktop-debugger-has-no-port.md). The
-published template predates the current start script and driver, so until it is republished every
-machine reports `outdated`. The build carrying `--test-type` has not been seen on a VM, and no VM
-has run a test turn with a real model, the deployed runtime and real object storage
-([#193](https://github.com/mangit955/nap/issues/193)). Desktop behavior, screenshot bytes and model
-responses in the free checks are fakes. The app test cards and explicit Fix it UI are separate
-from the backend.
+Machines created before that publication report `outdated` until their project is closed and
+reopened. Desktop behavior, screenshot bytes and model responses in the free checks are fakes. The
+app test cards and explicit Fix it UI are separate from the backend.
 
 Actual Computer pane and work-log browser evidence is under [panel review](assets/computer-use/panel-review/README.md) and [work-log review](assets/computer-use/work-log-review/README.md). The standalone mockup is design evidence, not proof of the live desktop or recording transport.
 
