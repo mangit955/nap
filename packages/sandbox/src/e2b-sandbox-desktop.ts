@@ -18,7 +18,9 @@ import type {
 } from "@nap/shared/ports/sandbox-recordings";
 import type { Result } from "@nap/shared/result";
 import { z } from "zod";
+import { DESKTOP_BUILD } from "./desktop-build.ts";
 import {
+  DESKTOP_BUILD_FILE,
   DESKTOP_DRIVER,
   DESKTOP_STREAM_PORT,
   DesktopCapabilitiesSchema,
@@ -39,6 +41,18 @@ const unavailable: DesktopError = {
   message: "Nap's computer is unavailable.",
 };
 const cancelled: DesktopError = { code: "cancelled", message: "Desktop operation cancelled." };
+const outdated: DesktopError = {
+  code: "outdated",
+  message:
+    "Nap's computer is unavailable in this workspace: its desktop image does not match this version of Nap. Nothing was sent, and retrying will not help.",
+};
+/**
+ * Prefixes every driver command, so a machine built from another template build never runs its
+ * driver against this code — whether the published template was not rebuilt before a deploy,
+ * or the machine predates the last rebuild. POSIX only: the sandbox's /bin/sh is dash.
+ */
+const OUTDATED_EXIT = 86;
+const BUILD_GATE = `[ "$(cat ${DESKTOP_BUILD_FILE} 2>/dev/null)" = ${DESKTOP_BUILD} ] || exit ${OUTDATED_EXIT}; `;
 
 /** Keeps process commands and private transport data behind the existing sandbox exec port. */
 export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordings {
@@ -114,10 +128,11 @@ export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordin
     try {
       const result = await this.#sandbox.exec(
         request.sandboxId,
-        `timeout --signal=TERM --kill-after=2 10s node ${DESKTOP_DRIVER}`,
+        `${BUILD_GATE}timeout --signal=TERM --kill-after=2 10s node ${DESKTOP_DRIVER}`,
         undefined,
         request.signal ? { signal: request.signal } : undefined,
       );
+      if (result.ok && result.value.exitCode === OUTDATED_EXIT) return "no";
       if (!result.ok || result.value.exitCode !== 0 || result.value.stdout.length > 4096)
         return "unknown";
       const capabilities = DesktopCapabilitiesSchema.safeParse(JSON.parse(result.value.stdout));
@@ -144,7 +159,8 @@ export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordin
       DesktopObservationSchema,
       request.signal,
     );
-    return result.ok
+    // Refused at the gate, the action never reached the machine.
+    return result.ok || result.error.code === "outdated"
       ? result
       : {
           ok: false,
@@ -263,7 +279,7 @@ export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordin
   #command(request: DesktopRequest): string {
     const data = Buffer.from(JSON.stringify(request)).toString("base64");
     const invoke = `node ${DESKTOP_DRIVER} '${data}'`;
-    return `timeout --signal=TERM --kill-after=2 55s ${invoke}`;
+    return `${BUILD_GATE}timeout --signal=TERM --kill-after=2 55s ${invoke}`;
   }
 
   async #request<T>(
@@ -301,6 +317,7 @@ export class E2BSandboxDesktop implements DesktopInputTransport, SandboxRecordin
             code: result.error.code === "timeout" ? "timeout" : "unavailable",
           },
         };
+      if (result.value.exitCode === OUTDATED_EXIT) return { ok: false, error: outdated };
       const failure: DesktopError = {
         ...unavailable,
         code: result.value.exitCode === 124 ? "timeout" : "unavailable",

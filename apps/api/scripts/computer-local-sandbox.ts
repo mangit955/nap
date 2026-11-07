@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, join, posix, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import { desktopBuild } from "@nap/sandbox/desktop-template";
 import { listTreeViaExec } from "@nap/shared/list-tree";
 import type {
   ExecOutputHandler,
@@ -319,6 +320,8 @@ function copyTemplate(repositoryRoot: string, context: string): void {
     join(context, "start-desktop.sh"),
   );
   chmodSync(join(context, "start-desktop.sh"), 0o755);
+  // The desktop adapter runs no driver whose image lacks this checkout's build.
+  writeFileSync(join(context, "build"), `${desktopBuild({ root: repositoryRoot })}\n`);
 }
 
 function allowedSandboxPath(path: string): string | undefined {

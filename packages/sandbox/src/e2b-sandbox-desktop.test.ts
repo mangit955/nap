@@ -1,7 +1,11 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
-import { DesktopRequestSchema } from "./desktop-protocol.ts";
+import { DESKTOP_BUILD } from "./desktop-build.ts";
+import { DESKTOP_BUILD_FILE, DESKTOP_DRIVER, DesktopRequestSchema } from "./desktop-protocol.ts";
 import { E2BSandboxDesktop } from "./e2b-sandbox-desktop.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
 import { isolatedDesktop } from "./testing/isolated-desktop.ts";
@@ -226,4 +230,77 @@ it("cannot say when the machine cannot be asked", async () => {
     error: { code: "unavailable", message: "gone" },
   });
   expect(await f.transport.supportsScopedInput({ sandboxId: "s" })).toBe("unknown");
+});
+
+describe("a machine whose desktop image is not this build", () => {
+  // What the gate in front of every driver command answers when the image's build differs.
+  const outdatedExit = (f: ReturnType<typeof fixture>) => {
+    f.sandbox.exec = async (sandboxId, command) => {
+      f.calls.push({ sandboxId, command, input: null });
+      return { ok: true, value: { exitCode: 86, stdout: "", stderr: "" } };
+    };
+  };
+  it("checks the image's build before every driver command", async () => {
+    const f = fixture([
+      answer({ width: 1024, height: 768 }),
+      answer({ kind: "none" }),
+      protocol2,
+      answer({ kind: "none" }),
+    ]);
+    await f.desktop.start({ sandboxId: "s", devServerUrl: "http://localhost:5173" });
+    await f.desktop.act("s", { action: "left_click", coordinate: [1, 2] });
+    await f.transport.supportsScopedInput({ sandboxId: "s" });
+    const controller = new AbortController();
+    const waiting = f.desktop.act("s", { action: "wait", duration: 3 }, controller.signal);
+    controller.abort();
+    await waiting;
+    const gate = `[ "$(cat ${DESKTOP_BUILD_FILE} 2>/dev/null)" = ${DESKTOP_BUILD} ] || exit 86; `;
+    expect(f.calls.length).toBeGreaterThanOrEqual(5);
+    for (const call of f.calls) expect(call.command.startsWith(gate)).toBe(true);
+  });
+  it("refuses start with a typed reason instead of running an older driver", async () => {
+    const f = fixture([]);
+    outdatedExit(f);
+    expect(
+      await f.desktop.start({ sandboxId: "s", devServerUrl: "http://localhost:5173" }),
+    ).toMatchObject({ ok: false, error: { code: "outdated" } });
+  });
+  it("says nothing was sent rather than that input completion is unknown", async () => {
+    const f = fixture([]);
+    outdatedExit(f);
+    expect(await f.desktop.act("s", { action: "left_click", coordinate: [1, 2] })).toMatchObject({
+      ok: false,
+      error: { code: "outdated" },
+    });
+  });
+  it("gives such a machine no scoped input", async () => {
+    const f = fixture([]);
+    outdatedExit(f);
+    expect(await f.transport.supportsScopedInput({ sandboxId: "s" })).toBe("no");
+  });
+  it.each([
+    ["matches", DESKTOP_BUILD, 0],
+    ["differs", "0".repeat(64), 86],
+    ["is missing", undefined, 86],
+  ])(
+    "runs the driver under a real shell only when the image's build %s",
+    async (_name, stamp, exit) => {
+      const f = fixture([answer({ width: 1024, height: 768 })]);
+      await f.desktop.start({ sandboxId: "s", devServerUrl: "http://localhost:5173" });
+      const directory = mkdtempSync(join(tmpdir(), "nap-desktop-gate-"));
+      try {
+        const buildFile = join(directory, "build");
+        if (stamp !== undefined) writeFileSync(buildFile, `${stamp}\n`);
+        const driver = join(directory, "driver.mjs");
+        writeFileSync(driver, "process.exit(0);\n");
+        const command = (f.calls[0]?.command ?? "")
+          .replace(DESKTOP_BUILD_FILE, buildFile)
+          .replace(DESKTOP_DRIVER, driver);
+        // The sandbox's /bin/sh is dash, so the gate may use nothing bash alone understands.
+        expect(spawnSync("sh", ["-c", command]).status).toBe(exit);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });
