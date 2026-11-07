@@ -1,6 +1,6 @@
 # Computer use implementation and free checks
 
-The rollout decisions are in [ADR-0018](adr/0018-the-agent-gets-a-computer.md). That ADR remains an implementation draft until paid desktop and transport measurements are available. The [map](https://github.com/mangit955/nap/issues/137) tracks completed and deferred work.
+The rollout decisions are in [ADR-0018](adr/0018-the-agent-gets-a-computer.md). The [map](https://github.com/mangit955/nap/issues/137) tracks completed and deferred work.
 
 ## App test backend
 
@@ -10,7 +10,7 @@ Under that lease, runtime confirms the latest job is completed at its checkpoint
 
 App tests offer source-reading tools and the image-gated computer. The executor also refuses invented write/edit/command calls. These turns have a separate budget, perform no git commit, and never enter deterministic arbitration or automatic repair. Their assertions do not advance a checkpoint.
 
-`AppTestRun` is the assertion ledger. Setup precedes test chapters. An assertion first records an ID, expectation and `untested` result. Computer input requires a pending expectation. A verdict must match that ID and expectation in the current chapter, follow input, and follow a newer stored screenshot. `test.annotation` carries the annotation and elapsed milliseconds. `test.completed` carries distinct assertion counts and whether execution completed or was interrupted. These sequence guards cannot establish whether a model's visual judgement is true; that is the benchmark's question.
+`AppTestRun` is the assertion ledger. Setup precedes test chapters. An assertion first records an ID, expectation and `untested` result. Computer input requires a pending expectation. A verdict must match that ID and expectation in the current chapter, follow input, and follow a newer stored screenshot. `test.annotation` carries the annotation and its time in milliseconds: on the recording's clock while one runs, otherwise elapsed since the test started. `test.completed` carries distinct assertion counts and whether execution completed or was interrupted. These sequence guards cannot establish whether a model's visual judgement is true; that is the benchmark's question.
 
 Cancellation preserves untested assertions and closes the test as interrupted. The janitor does the same after a lost worker, reading durable annotations and avoiding duplicate terminals on a later sweep. It does not requeue the test. A failing assertion never invokes a repair callback. The UI's explicit repair action belongs to the next UI ticket.
 
@@ -37,8 +37,8 @@ this checkout first, because Next holds a lock on its dev output. Ctrl-C stops t
 and removes the disposable database; local changes and accounts from that run are lost.
 
 The desktop is injected through `composeNap`, and production boot (`apps/api/src/boot.ts`)
-composes the E2B desktop adapter unconditionally, so the next deploy turns it on. A
-composition test was seen failing without that wire. The preview provider has a collected unit
+composes the E2B desktop adapter unconditionally, so a deploy turns it on. A composition test
+was seen failing without that wire. The preview provider has a collected unit
 suite and all scripts belong to the API TypeScript program. No dependency or CI glob changed.
 
 ## Free reproduction
@@ -56,9 +56,34 @@ The new queue kind needs the generated `0013_chunky_midnight.sql` migration. Dat
 
 Every new event has schema parsing, issue-path, discriminant and JSON round-trip coverage plus Postgres round trips. Logging, harness formatting, and transcript event tables include the new types. New suites are collected in the unit project and package TypeScript programs. No package dependency, architecture table, hook or CI glob changed. The benchmark's editing-only test doubles now explicitly reject app-test requests; runtime imports no benchmark code.
 
+## Desktop builds
+
+The desktop image and the runtime that drives it are deployed separately, so the adapter refuses
+to drive any machine whose image is not its own build. `DESKTOP_BUILD`
+(`packages/sandbox/src/desktop-build.ts`) is a hash of every source the image runs: the start
+script, each module the driver bundle inlines, and the image's installed packages. Preparing the
+template writes it into the image; every driver command first compares the two and, on a
+difference, runs nothing and returns `outdated`. The agent is told its computer is unavailable
+and why, the Computer pane shows its unavailable state, and owner input is refused as on a
+machine without scoped input. The rest of the project keeps working.
+
+That covers both ways a machine ends up behind: a deploy ahead of the published template, and a
+machine created before the last publication. Only republishing fixes the first. Closing and
+reopening the project fixes the second, once the template is current.
+
+Changing any of those sources fails `desktop-build.test.ts` until `DESKTOP_BUILD` is updated,
+and publication refuses a prepared image whose build is not this checkout's. The deploy order is
+in [DEPLOY.md](DEPLOY.md#release-production).
+
 ## Current limits
 
-Production boot composes the E2B desktop adapter unconditionally, so a deploy turns the desktop on. Republish the desktop template from the commit being deployed and run one VM against it first: the published build predates the current start script and driver. What real VMs have verified is in [ADR-0019](adr/0019-the-desktop-debugger-has-no-port.md). Desktop behavior, screenshot bytes and model responses in these checks are fakes. Annotation timestamps are elapsed from the app test; recording must anchor them to capture start. The app test cards and explicit Fix it UI are separate from the backend.
+What real VMs have verified is in [ADR-0019](adr/0019-the-desktop-debugger-has-no-port.md). The
+published template predates the current start script and driver, so until it is republished every
+machine reports `outdated`. The build carrying `--test-type` has not been seen on a VM, and no VM
+has run a test turn with a real model, the deployed runtime and real object storage
+([#193](https://github.com/mangit955/nap/issues/193)). Desktop behavior, screenshot bytes and model
+responses in the free checks are fakes. The app test cards and explicit Fix it UI are separate
+from the backend.
 
 Actual Computer pane and work-log browser evidence is under [panel review](assets/computer-use/panel-review/README.md) and [work-log review](assets/computer-use/work-log-review/README.md). The standalone mockup is design evidence, not proof of the live desktop or recording transport.
 

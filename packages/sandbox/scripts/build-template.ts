@@ -4,13 +4,14 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadEnvFile } from "@nap/shared/env-file";
-import { defaultBuildLogger, Template, waitForPort } from "e2b";
+import { defaultBuildLogger, Template } from "e2b";
+import { DESKTOP_BUILD } from "../src/desktop-build.ts";
 import {
-  DESKTOP_INSTALL_COMMAND,
+  desktopTemplateDefinition,
   prepareDesktopTemplate,
   validateDesktopTemplate,
 } from "../src/desktop-template.ts";
-import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "../src/template.ts";
+import { NAP_TEMPLATE } from "../src/template.ts";
 
 const args = process.argv.slice(2);
 if (args.includes("--prepare")) {
@@ -57,38 +58,10 @@ const actual = createHash("sha256")
 if (actual !== expected) throw new Error("The prepared manifest does not match the reviewed hash.");
 loadEnvFile(join(import.meta.dirname, "../../../apps/api/.env"), process.env);
 if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is required.");
-const installNode = [
-  "curl -fsSL https://deb.nodesource.com/setup_24.x | bash -",
-  "apt-get install -y nodejs",
-  'for b in node npm npx; do [ -x "/usr/bin/$b" ] && ln -sf "/usr/bin/$b" "/usr/local/bin/$b"; done',
-  "true",
-].join(" && ");
-const template = Template({
-  fileContextPath: directory,
-  fileIgnorePatterns: ["node_modules", "dist", ".git"],
-})
-  .fromBaseImage()
-  .runCmd(installNode, { user: "root" })
-  .runCmd("curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash", { user: "root" })
-  .runCmd(DESKTOP_INSTALL_COMMAND, { user: "root" })
-  .makeDir("/usr/local/lib/nap-desktop", { user: "root" })
-  .copy("desktop/driver.mjs", "/usr/local/lib/nap-desktop/driver.mjs", { user: "root" })
-  .copy("desktop/start-desktop.sh", "/usr/local/bin/nap-desktop-start", { user: "root" })
-  .runCmd("chmod 755 /usr/local/bin/nap-desktop-start", { user: "root" })
-  .makeDir(TEMPLATE_WORKDIR, { user: "user" })
-  .setWorkdir(TEMPLATE_WORKDIR)
-  .setUser("user")
-  .copy("app/package.json", TEMPLATE_WORKDIR, { user: "user" })
-  .runCmd("bun install", { user: "user" })
-  .copy("app", TEMPLATE_WORKDIR, { user: "user" })
-  .runCmd(
-    'git init -b main && git add -A && git -c user.email=agent@nap.dev -c user.name=Nap commit -m "Initial commit"',
-    { user: "user" },
-  )
-  .setStartCmd(`cd ${TEMPLATE_WORKDIR} && bun run dev`, waitForPort(TEMPLATE_DEV_PORT));
+const template = desktopTemplateDefinition(directory);
 const built = await Template.build(template, NAP_TEMPLATE, {
   cpuCount: result.value.cpuCount,
   memoryMB: result.value.memoryMB,
   onBuildLogs: defaultBuildLogger(),
 });
-console.log(JSON.stringify({ ...built, manifestSha256: actual }));
+console.log(JSON.stringify({ ...built, manifestSha256: actual, desktopBuild: DESKTOP_BUILD }));
