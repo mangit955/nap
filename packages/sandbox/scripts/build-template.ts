@@ -7,6 +7,7 @@ import { loadEnvFile } from "@nap/shared/env-file";
 import { defaultBuildLogger, Template } from "e2b";
 import { DESKTOP_BUILD } from "../src/desktop-build.ts";
 import {
+  DESKTOP_MEMORY_MB,
   desktopTemplateDefinition,
   prepareDesktopTemplate,
   validateDesktopTemplate,
@@ -35,7 +36,7 @@ if (!args.includes("--real")) {
       template: NAP_TEMPLATE,
       desktop: "lazy",
       cpuCount: 2,
-      memoryMB: 1024,
+      memoryMB: DESKTOP_MEMORY_MB,
       next: "--prepare",
     }),
   );

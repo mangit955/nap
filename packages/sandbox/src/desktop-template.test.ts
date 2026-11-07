@@ -17,6 +17,7 @@ import { afterEach, expect, it } from "vitest";
 import { DESKTOP_BUILD } from "./desktop-build.ts";
 import { DESKTOP_BUILD_FILE, DESKTOP_DRIVER } from "./desktop-protocol.ts";
 import {
+  DESKTOP_MEMORY_MB,
   desktopTemplateDefinition,
   prepareDesktopTemplate,
   validateDesktopTemplate,
@@ -46,7 +47,7 @@ it("prepares a real standalone driver and starter app without publishing or copy
     version: 1,
     template: "nap-vite-react",
     cpuCount: 2,
-    memoryMB: 1024,
+    memoryMB: DESKTOP_MEMORY_MB,
   });
   expect(existsSync(join(directory, "app/.env"))).toBe(false);
   expect(existsSync(join(directory, "app/node_modules"))).toBe(false);
@@ -76,6 +77,16 @@ it("refuses to publish a build the runtime at this commit would refuse to run", 
     ok: false,
     error: { message: expect.stringContaining("DESKTOP_BUILD") },
   });
+});
+it("refuses to publish a machine size other than this checkout's", () => {
+  const directory = workspace();
+  const prepared = prepareDesktopTemplate({ directory });
+  expect(prepared.ok).toBe(true);
+  if (!prepared.ok) return;
+  // A directory prepared before the size changed: the build stamp alone would not notice.
+  const manifest = { ...prepared.value, memoryMB: DESKTOP_MEMORY_MB / 2 };
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2));
+  expect(validateDesktopTemplate(directory)).toMatchObject({ ok: false });
 });
 it.each(["tampered", "extra", "missing"])(
   "rejects %s prepared assets before publication",

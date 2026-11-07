@@ -95,11 +95,13 @@ throwaway. The image's build file matched, so the gate let every command through
   sandbox's public proxy. Owner input while idle applied three actions.
 - Deleting the project removed all nine of its R2 objects and destroyed the VM.
 
-**Memory has almost no headroom.** E2B's per-VM metrics (one sample every five seconds) put peak use
-at 915 MiB of the 976 MiB the guest sees, during the app test, with the Vite dev server (369 MB RSS),
-Chrome (about 330 MB across its processes) and the recorder running. After the test 145 MiB was
-available, with no swap. No process was killed, but this was a small app, so the 1 GiB allocation is
-not shown to fit heavier ones.
+**One GiB had almost no headroom, so the machine is now 2 GiB.** E2B's per-VM metrics (one sample
+every five seconds) put peak use at 915 MiB of the 976 MiB the guest saw, during the app test, with
+the Vite dev server (369 MB RSS), Chrome (about 330 MB across its processes) and the recorder
+running. After the test 145 MiB was available, with no swap. No process was killed, but this was a
+small app. The template was republished the same day at `DESKTOP_MEMORY_MB` (2,048 MB, build
+`5a818218`, same desktop build); a fresh machine from it reports 1,982 MiB to the guest, about a
+gigabyte above that peak. The full run was not repeated at the new size.
 
 ## Current limits
 

@@ -20,11 +20,16 @@ import { NAP_TEMPLATE, TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "./template.ts
 
 export const DESKTOP_INSTALL_COMMAND =
   "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 libx11-6 libxtst6 xvfb x11-utils openbox xdotool ffmpeg x11vnc websockify novnc dbus-x11 fonts-liberation ca-certificates wget openssl util-linux && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/nap-chrome.deb && apt-get install -y /tmp/nap-chrome.deb && rm /tmp/nap-chrome.deb && mkdir -p /etc/opt/chrome/policies/managed && chown user:user /etc/opt/chrome/policies/managed";
+/**
+ * The desktop machine's memory. One GiB peaked at 915 of the 976 MiB the guest sees on a small
+ * app, with Vite, Chrome and the recorder running: docs/computer-use.md, "Verified on a VM".
+ */
+export const DESKTOP_MEMORY_MB = 2048;
 const ManifestSchema = z.strictObject({
   version: z.literal(1),
   template: z.literal(NAP_TEMPLATE),
   cpuCount: z.literal(2),
-  memoryMB: z.literal(1024),
+  memoryMB: z.literal(DESKTOP_MEMORY_MB),
   files: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
 });
 export type DesktopTemplateManifest = z.infer<typeof ManifestSchema>;
@@ -125,7 +130,7 @@ export function prepareDesktopTemplate(options: {
       version: 1,
       template: NAP_TEMPLATE,
       cpuCount: 2,
-      memoryMB: 1024,
+      memoryMB: DESKTOP_MEMORY_MB,
       files: files(options.directory),
     };
     writeFileSync(join(options.directory, "manifest.json"), JSON.stringify(manifest, null, 2));
