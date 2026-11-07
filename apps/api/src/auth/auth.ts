@@ -30,6 +30,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { anonymous } from "better-auth/plugins/anonymous";
 import { z } from "zod";
 import { isCrossSite } from "./cross-site.ts";
+import { asPublicRequest, authBaseUrl } from "./public-url.ts";
+import { createStreamTickets, type StreamTickets } from "./stream-ticket.ts";
 
 /**
  * The connection, as `createDatabase` hands it over. Taken from there rather than imported
@@ -77,6 +79,8 @@ export type AuthInstance = {
    * link that leads to a 404 because the plugin is not registered is worse than no link.
    */
   demo: boolean;
+  /** Signed with the same secret as the cookie; see `stream-ticket.ts` for why `/ws` needs them. */
+  streamTickets: StreamTickets;
 };
 
 export type OAuthCredentials = {
@@ -136,7 +140,8 @@ const SessionUserSchema = z.object({ isAnonymous: z.boolean().optional() });
 export function createAuth(db: Db, config: AuthConfig): AuthInstance {
   const auth = betterAuth({
     secret: config.secret,
-    baseURL: config.baseUrl,
+    // The public address, which may sit under the web app's proxy path — see `public-url.ts`.
+    baseURL: authBaseUrl(config.baseUrl),
     // The browser is on another origin in development, and the sign-in POST comes from there.
     trustedOrigins: [config.webOrigin],
 
@@ -237,7 +242,7 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
   ];
 
   return {
-    handler: auth.handler,
+    handler: (request) => auth.handler(asPublicRequest(request, config.baseUrl)),
 
     // The library answers with the session *and* the user; only the id and the one flag leave
     // this file, so nothing downstream can start depending on a shape better-auth is free to
@@ -258,5 +263,6 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
 
     socialProviders,
     demo: config.allowAnonymous,
+    streamTickets: createStreamTickets(config.secret),
   };
 }

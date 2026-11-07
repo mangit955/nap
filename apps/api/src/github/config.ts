@@ -50,7 +50,8 @@ export function githubConfigFromEnv(env: ConfigEnv): GitHubConfig | null {
 }
 
 export function githubAppManifest(apiUrl: string, webOrigin: string) {
-  const api = new URL(apiUrl).origin;
+  // The whole address, path included: behind the web app's proxy the API lives under one.
+  const api = new URL(apiUrl).href.replace(/\/+$/, "");
   const web = new URL(webOrigin).origin;
   return {
     name: "Nap repository connection",

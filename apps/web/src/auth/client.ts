@@ -1,14 +1,16 @@
 /**
  * The browser's half of authentication.
  *
- * Pointed at the API rather than at this app: the session cookie belongs to the API's origin,
- * because that is the origin every other request in this app is made to. The client sends
- * credentials on its own — it is built for exactly this — which is why nothing here repeats
- * the `credentials: "include"` that `credentialedFetch` adds to the hand-written calls.
+ * Pointed at the API, wherever every other request in this app is made to: `localhost:3001` in
+ * development, and in production this app's own origin under `/backend`, which Vercel forwards to
+ * the API — so the session cookie is first-party there. The client sends credentials on its own,
+ * which is why nothing here repeats the `credentials: "include"` that `credentialedFetch` adds to
+ * the hand-written calls.
  */
 
 import { anonymousClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
+import { authBaseUrl } from "./auth-base-url.ts";
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
@@ -20,7 +22,7 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
  * is the good failure — the bad one would be a 404 at runtime.
  */
 export const authClient = createAuthClient({
-  baseURL: DEFAULT_BASE_URL,
+  baseURL: authBaseUrl(DEFAULT_BASE_URL),
   plugins: [anonymousClient()],
 });
 

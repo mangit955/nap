@@ -30,6 +30,7 @@ import { encryptionKeyFrom } from "../account/secret-box.ts";
 import type { AppDeps } from "../app.ts";
 import { ScriptedProviderSignIn } from "../providers/scripted-sign-in.ts";
 import { TurnRegistry } from "../turns/registry.ts";
+import { createStreamTickets } from "./stream-ticket.ts";
 
 /** A model that costs nothing, which is what a caller with no key of their own may run. */
 const FREE_MODEL = "poolside/laguna-s-2.1:free";
@@ -121,6 +122,12 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     examplePath: `/sessions/${SESSION}/computer/screenshots/1`,
   },
   { method: "GET", path: "/ws", examplePath: `/ws?sessionId=${SESSION}` },
+  {
+    method: "POST",
+    path: "/sessions/:sessionId/stream-ticket",
+    examplePath: `/sessions/${SESSION}/stream-ticket`,
+    body: {},
+  },
   { method: "GET", path: "/models", examplePath: "/models" },
   // Somebody else's API key is the single most sensitive thing this app stores, so these are
   // the three entries in this table it would be worst to be missing.
@@ -345,6 +352,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       bus: new InMemoryEventBus(),
       sessions,
       upgradeWebSocket: async () => new Response(null),
+      tickets: createStreamTickets("route-table-secret-route-table-secret"),
     },
     computerAccess: {
       sessions,
@@ -426,6 +434,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       getUser: async () => null,
       socialProviders: [],
       demo: false,
+      streamTickets: createStreamTickets("route-table-secret-route-table-secret"),
     },
   };
 }
