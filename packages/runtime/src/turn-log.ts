@@ -127,6 +127,16 @@ function detail(event: NapEvent): Record<string, unknown> {
     case "agent.question":
       return { toolCallId: event.payload.toolCallId, options: event.payload.options.length };
 
+    // Counts, never descriptions or reasons: both are text from the repository.
+    case "skills.discovered":
+      return { skills: event.payload.skills.length, skipped: event.payload.skipped.length };
+    case "skill.loaded":
+      return {
+        toolCallId: event.payload.toolCallId,
+        name: event.payload.name,
+        allowedTools: event.payload.allowedTools,
+      };
+
     case "plan.proposed":
       // How long, never what: a plan quotes the project and the person's request.
       return { toolCallId: event.payload.toolCallId, planChars: event.payload.plan.length };

@@ -250,6 +250,24 @@ const TREATMENTS = [
     shows: /Use Postgres.*Not sent: the turn was interrupted/,
   },
   {
+    type: "skills.discovered",
+    payload: {
+      skills: [{ name: "review", description: "Reviewing code", path: "/home/user/app/x" }],
+      skipped: [{ path: "/home/user/app/.nap/skills/y/SKILL.md", reason: "no frontmatter" }],
+    },
+    shows: /Project skills: review.*Skipped .*no frontmatter/,
+  },
+  {
+    type: "skill.loaded",
+    payload: {
+      toolCallId: "k1",
+      name: "review",
+      path: "/home/user/app/.nap/skills/review/SKILL.md",
+      allowedTools: ["read_file"],
+    },
+    shows: /Used skill review.*Limited the turn to read_file/,
+  },
+  {
     type: "subagent.started",
     payload: {
       toolCallId: "s1",
@@ -612,6 +630,29 @@ describe("reasoning arriving as it is produced", () => {
     expect(screen.getByRole("log")).toHaveTextContent(/Planning the list/);
     expect(screen.getByRole("button", { name: "Read src/App.tsx" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Planning the list/ })).toBeNull();
+  });
+
+  it("names a skill row by the skill, and opens it to where it came from and what it said", () => {
+    show(
+      ev("tool.call", { toolCallId: "k1", toolName: "skill", input: { name: "review" } }),
+      ev("skill.loaded", {
+        toolCallId: "k1",
+        name: "review",
+        path: "/home/user/app/.nap/skills/review/SKILL.md",
+        allowedTools: null,
+      }),
+      ev("tool.result", {
+        toolCallId: "k1",
+        toolName: "skill",
+        ok: true,
+        output: "Only look at the diff.",
+      }),
+    );
+    expandAll();
+
+    expect(screen.getByRole("button", { name: /Used skill review/, expanded: true })).toBeVisible();
+    expect(screen.getByRole("log")).toHaveTextContent(/\.nap\/skills\/review\/SKILL\.md/);
+    expect(screen.getByRole("log")).toHaveTextContent(/Only look at the diff\./);
   });
 
   it("fades in only the passage still being written", () => {

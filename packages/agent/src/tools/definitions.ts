@@ -28,6 +28,7 @@ import {
 import { ComputerActionSchema } from "@nap/shared/computer";
 import { TOOL_NAMES, type ToolName } from "@nap/shared/events";
 import type { LLMToolDefinition } from "@nap/shared/ports/llm-provider";
+import { SkillNameSchema } from "@nap/shared/skills";
 import { z } from "zod";
 
 /**
@@ -144,6 +145,9 @@ export const TOOL_SCHEMAS = {
     subagent_id: z.string().min(1).describe("The id run_subagent returned"),
   }),
   propose_plan: ProposedPlanSchema,
+  skill: z.strictObject({
+    name: SkillNameSchema.describe("A skill's name, exactly as <project_skills> lists it"),
+  }),
 } satisfies Record<ToolName, z.ZodType>;
 
 export type ToolSchemas = typeof TOOL_SCHEMAS;
@@ -196,6 +200,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Wait for a helper started with background set, and get its final report. Every background helper must be read before you finish.",
   propose_plan:
     "Put your finished plan in front of the person for approval, and end your turn. Call it once, after you have read enough to be specific. Nothing is built until they approve; if they ask for changes you will plan again.",
+  skill:
+    "Load one of the project's skills: its instructions for a kind of work, listed by name in <project_skills>. Call it before starting work that matches a skill's description, and follow what it says for the rest of the turn where it fits the request. Returns the instructions and the skill's folder, which holds any files they mention.",
 };
 
 /**
@@ -240,7 +246,8 @@ export const APP_TEST_TOOL_NAMES: readonly ToolName[] = [
  * Commands are refused even if offered accidentally: readers can invoke repository-configured
  * programs. `run_subagent` only permits helpers that cannot write, enforced at execution. `shell_output` reads a command an earlier turn started. Absent on
  * purpose: every edit tool, typing into or stopping a shell, the checklist (the plan *is* the
- * deliverable), and the computer, whose clicks change the running app's state.
+ * deliverable), and the computer, whose clicks change the running app's state. `skill` only reads,
+ * and a plan should follow the project's own instructions for the work it plans (ADR-0029).
  */
 export const PLAN_MODE_TOOL_NAMES: readonly ToolName[] = [
   "read_file",
@@ -252,6 +259,7 @@ export const PLAN_MODE_TOOL_NAMES: readonly ToolName[] = [
   "run_subagent",
   "read_subagent",
   "propose_plan",
+  "skill",
 ];
 
 /** A definition whose name is known to be a real tool, so nothing downstream has to assert it. */

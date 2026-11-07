@@ -250,6 +250,14 @@ const CASES = [
     payload: { toolCallId: "s1", subagentId: "helper-1", profile: "explore", task: "Find it" },
   },
   {
+    type: "skills.discovered",
+    payload: { skills: [], skipped: [] },
+  },
+  {
+    type: "skill.loaded",
+    payload: { toolCallId: "k1", name: "review", path: "/app/SKILL.md", allowedTools: null },
+  },
+  {
     type: "subagent.completed",
     payload: {
       subagentId: "helper-1",
@@ -1015,6 +1023,59 @@ describe("the agent's plan, questions and helpers", () => {
       toolName: "run_subagent",
       helper: { subagentId: "helper-1", outcome: "completed", summary: "src/a.ts:1", toolCalls: 2 },
     });
+  });
+});
+
+describe("skills", () => {
+  const PATH = "/home/user/app/.nap/skills/review/SKILL.md";
+
+  it("hangs the skill a call loaded on the call, with what it narrowed the turn to", () => {
+    const items = fold(
+      ev("tool.call", { toolCallId: "k", toolName: "skill", input: { name: "review" } }),
+      ev("skill.loaded", {
+        toolCallId: "k",
+        name: "review",
+        path: PATH,
+        allowedTools: ["read_file"],
+      }),
+      ev("tool.result", { toolCallId: "k", toolName: "skill", ok: true, output: "<skill>…" }),
+    );
+
+    expect(stepsOf(items)).toMatchObject([
+      {
+        toolName: "skill",
+        status: "ok",
+        skill: { name: "review", path: PATH, allowedTools: ["read_file"] },
+      },
+    ]);
+  });
+
+  it("still names the skill for a client that joined after the call", () => {
+    const items = fold(
+      ev("skill.loaded", { toolCallId: "k", name: "review", path: PATH, allowedTools: null }),
+    );
+
+    expect(stepsOf(items)).toMatchObject([{ toolName: "skill", skill: { name: "review" } }]);
+  });
+
+  it("says which skills a turn found, and warns about any it skipped", () => {
+    const found = fold(
+      ev("skills.discovered", {
+        skills: [{ name: "review", description: "Reviewing", path: PATH }],
+        skipped: [],
+      }),
+    );
+    const broken = fold(
+      ev("skills.discovered", {
+        skills: [],
+        skipped: [{ path: "/home/user/app/.nap/skills/x/SKILL.md", reason: "no frontmatter" }],
+      }),
+    );
+
+    expect(found).toMatchObject([{ kind: "notice", level: "info" }]);
+    expect(found[0]).toHaveProperty("text", expect.stringContaining("review"));
+    expect(broken).toMatchObject([{ kind: "notice", level: "warning" }]);
+    expect(broken[0]).toHaveProperty("text", expect.stringContaining("no frontmatter"));
   });
 });
 

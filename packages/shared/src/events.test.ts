@@ -501,6 +501,53 @@ const CASES = [
     issuePath: ["payload", "items", 0, "status"],
   },
   {
+    type: "skills.discovered",
+    valid: {
+      ...ENVELOPE,
+      type: "skills.discovered",
+      payload: {
+        skills: [
+          {
+            name: "add-migration",
+            description: "Adding a database migration",
+            path: "/home/user/app/.nap/skills/add-migration/SKILL.md",
+          },
+        ],
+        skipped: [{ path: "/home/user/app/.nap/skills/broken/SKILL.md", reason: "no frontmatter" }],
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "skills.discovered",
+      payload: { skills: [], skipped: [{ path: "/x/SKILL.md", reason: "" }] },
+    },
+    issuePath: ["payload", "skipped", 0, "reason"],
+  },
+  {
+    type: "skill.loaded",
+    valid: {
+      ...ENVELOPE,
+      type: "skill.loaded",
+      payload: {
+        toolCallId: "toolu_skill",
+        name: "add-migration",
+        path: "/home/user/app/.nap/skills/add-migration/SKILL.md",
+        allowedTools: ["read_file", "run_command"],
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "skill.loaded",
+      payload: {
+        toolCallId: "toolu_skill",
+        name: "add-migration",
+        path: "/home/user/app/.nap/skills/add-migration/SKILL.md",
+        allowedTools: ["sudo"],
+      },
+    },
+    issuePath: ["payload", "allowedTools", 0],
+  },
+  {
     type: "agent.question",
     valid: {
       ...ENVELOPE,

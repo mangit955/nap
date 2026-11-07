@@ -42,7 +42,21 @@ describe("toolNamesFor", () => {
       "run_subagent",
       "search_files",
       "shell_output",
+      "skill",
     ]);
+  });
+
+  it("offers skills to every turn a person or a check started, whether or not the project has any", () => {
+    // Offered even to a project with none, so a first skill added mid-session does not change
+    // the declared tools — the head of every cached prefix (ADR-0024, ADR-0029).
+    for (const promptSource of ["user", "verification"] as const)
+      expect(toolNamesFor({ ...USER, promptSource }).has("skill")).toBe(true);
+  });
+
+  it("offers skills to neither a helper nor an app test", () => {
+    expect(toolNamesFor({ ...USER, subagent: "explore" }).has("skill")).toBe(false);
+    expect(toolNamesFor({ ...USER, subagent: "general" }).has("skill")).toBe(false);
+    expect(toolNamesFor({ ...USER, promptSource: "test" }).has("skill")).toBe(false);
   });
 
   it("keeps a plan mode turn read-only on every model family and without the computer", () => {

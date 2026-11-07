@@ -17,6 +17,7 @@ plan      todo_write · propose_plan (plan mode)
 ask       ask_user
 delegate  run_subagent · read_subagent (imported repositories)
 computer  computer (image models, when a desktop is composed)
+skill     skill (the project's own instruction packs)
 
 file, search and command tools proxy to SandboxManager.
 a helper is a second loop over the same ports, inside the turn's budget.`;
@@ -72,6 +73,37 @@ export function Sandbox() {
         admission and again under the lease, and settles nothing. If the turn that approved a plan
         fails, the plan waits again and can be approved again, unless a newer request has replaced
         it.
+      </P>
+
+      <P>
+        A project can carry <Term>skills</Term>: folders holding a <Code>SKILL.md</Code>, whose
+        frontmatter gives a name and one line on when to use it, and whose body is instructions for
+        that kind of work. They are looked for in <Code>.nap/skills/</Code>, then in the{" "}
+        <Code>.agents/skills/</Code> and <Code>.claude/skills/</Code> folders an imported repository
+        may already have, one folder deep, through the sandbox port like every other read. That is
+        three directory listings in parallel, then up to 32 skill reads in parallel, at the start of
+        each turn, with a five-second deadline. At most 32 are read; a description may be 500
+        characters and a whole file 24,000. A skill that breaks a rule, or repeats a name an earlier
+        folder already used, is skipped and its reason shown. Excess-folder warnings name at most 32
+        folders and count the rest, so diagnostics stay bounded. Each reason is capped at 500
+        characters. A sandbox that cannot answer makes the skills unavailable for that turn rather
+        than absent. Nothing about a skill fails a turn.
+      </P>
+
+      <P>
+        The agent sees only the names and descriptions, at the end of the turn&rsquo;s own message
+        beside the file listing, so a skill added or edited mid-session changes nothing a provider
+        has cached. They are the first thing given up after the file listing when a turn runs short
+        of room. The <Code>skill</Code> tool loads one by name, reading it fresh, and looks again if
+        the name is new since the turn began. Its instructions are framed as the project&rsquo;s
+        guidance, below Nap&rsquo;s own: a skill may come from a repository anybody wrote. For the
+        same reason it grants nothing. An <Code>allowed-tools</Code> list narrows the rest of the
+        turn to the tools it names that the turn already had, a second skill narrows what the first
+        left, and an entry Nap cannot enforce, such as a command limited to some arguments, grants
+        nothing at all. Asking the person, keeping the checklist, proposing a plan and loading
+        another skill stay available. The log records which skills a turn found, only when that
+        changed, and which one each call loaded. Plan mode can load skills; helpers and app tests
+        cannot.
       </P>
 
       <P>
