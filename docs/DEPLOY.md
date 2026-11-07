@@ -465,6 +465,8 @@ went unnoticed while the app was on `vercel.app` and the API on `onrender.com` (
 before that), until #86. **Every process now refuses to boot under `NODE_ENV=production` when
 `NAP_API_URL` and `NAP_WEB_ORIGIN` are two sites**, and `test/same-site.test.ts` fails CI when
 `render.yaml` says they are. `apps/api/src/auth/cross-site.ts` decides what counts as one site.
+Both public URLs must use HTTPS. Production images allow HTTP only when both URLs use the same
+loopback host, as the local kind clusters do.
 
 **As deployed, the API is published under the web app's own origin.** Both halves are on free
 hosts, and a free `vercel.app` name cannot have an `api.` sibling on Render, so

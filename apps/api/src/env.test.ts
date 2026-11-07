@@ -484,16 +484,30 @@ describe("where the two halves are served from", () => {
     expect(env.NAP_WEB_ORIGIN).toBe("https://nap.example.com");
   });
 
-  it("accepts production on plain http, which is how the kind clusters run the image", () => {
+  it.each(["localhost", "127.0.0.1", "[::1]"])("accepts production on plain http at %s", (host) => {
     // `infra/k8s/proof` and `infra/k8s/load` set NODE_ENV=production with localhost URLs.
     expect(() =>
       parseEnv({
         ...VALID,
         NODE_ENV: "production",
-        NAP_API_URL: "http://localhost:8080",
-        NAP_WEB_ORIGIN: "http://localhost:3000",
+        NAP_API_URL: `http://${host}:8080`,
+        NAP_WEB_ORIGIN: `http://${host}:3000`,
       }),
     ).not.toThrow();
+  });
+
+  it.each([
+    ["http://nap-api.onrender.com", "https://nap-tawny.vercel.app"],
+    ["https://api.example.com", "http://nap.example.com"],
+    ["http://api.example.com", "http://nap.example.com"],
+    ["http://localhost.example.com", "http://localhost.example.com"],
+    ["http://localhost", "https://localhost"],
+    ["http://localhost", "http://127.0.0.1"],
+    ["ftp://api.example.com", "https://nap.example.com"],
+  ])("refuses unsafe production schemes or loopback pairs: %s and %s", (api, web) => {
+    expect(() =>
+      parseEnv({ ...VALID, NODE_ENV: "production", NAP_API_URL: api, NAP_WEB_ORIGIN: web }),
+    ).toThrow(/NAP_WEB_ORIGIN: .*HTTPS/);
   });
 
   it("leaves a cross-site pair alone outside production", () => {
