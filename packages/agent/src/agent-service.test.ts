@@ -6,6 +6,7 @@ import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { LLMMessage, LLMToolCall } from "@nap/shared/ports/llm-provider";
+import { discoverSkills } from "@nap/shared/skills";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
@@ -882,4 +883,60 @@ it("gives app tests a separate budget and refuses source changes even if the mod
     "budget_exceeded",
   );
   expect((await manager.readFile(sandboxId, APP)).ok).toBe(false);
+});
+
+describe("skills", () => {
+  const SKILL = `${PROJECT_ROOT}/.nap/skills/review/SKILL.md`;
+
+  async function withSkill(announce: boolean): Promise<AgentTurnRequest> {
+    await manager.writeFile(
+      sandboxId,
+      SKILL,
+      "---\nname: review\ndescription: Reviewing code\nallowed-tools: Read\n---\nOnly look.\n",
+    );
+    const index = await discoverSkills(manager, sandboxId, PROJECT_ROOT);
+    return request({ context: { ...CONTEXT, skills: { index, announce } } });
+  }
+
+  it("records what the turn found right after it starts, when the engine says it is news", async () => {
+    const { agent } = service([[{ text: "Nothing to do." }]]);
+
+    await agent.runTurn(await withSkill(true));
+
+    expect(recorder.types.slice(0, 2)).toEqual(["turn.started", "skills.discovered"]);
+    expect(recorder.payloadsOf("skills.discovered")).toEqual([
+      { skills: [{ name: "review", description: "Reviewing code", path: SKILL }], skipped: [] },
+    ]);
+  });
+
+  it("records nothing when the skills are what the session last recorded", async () => {
+    const { agent } = service([[{ text: "Nothing to do." }]]);
+
+    await agent.runTurn(await withSkill(false));
+
+    expect(recorder.types).not.toContain("skills.discovered");
+  });
+
+  it("keeps a skill's narrowing for every later step of the turn", async () => {
+    // Each step's tools get a fresh context; the narrowing must survive that, or a skill's
+    // allowed-tools would hold for one batch and lapse at the next.
+    const { agent } = service([
+      [
+        { toolCalls: [call("skill", { name: "review" }, "toolu_s")] },
+        {
+          toolCalls: [call("write_file", { path: APP, contents: "x\n" }, "toolu_w")],
+        },
+        { text: "Done." },
+      ],
+    ]);
+
+    await agent.runTurn(await withSkill(false));
+
+    const results = recorder.events.filter((event) => event.type === "tool.result");
+    expect(results.map((event) => [event.payload.toolName, event.payload.ok])).toEqual([
+      ["skill", true],
+      ["write_file", false],
+    ]);
+    expect((await manager.readFile(sandboxId, APP)).ok).toBe(false);
+  });
 });

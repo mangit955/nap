@@ -38,6 +38,7 @@ import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-
 
 import { pruneComputerImages } from "@nap/shared/computer-context";
 import type { NapEvent } from "@nap/shared/events";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type {
   BuiltContext,
   ContextEngine,
@@ -46,9 +47,16 @@ import type {
 } from "@nap/shared/ports/context-engine";
 import type { LLMContentBlock, LLMMessage } from "@nap/shared/ports/llm-provider";
 import type { Memory } from "@nap/shared/ports/memory-provider";
+import {
+  discoverSkills,
+  type SkillIndex,
+  skillsDiscoveredPayload,
+  skillsUnchanged,
+} from "@nap/shared/skills";
 import { TOOL_KINDS, type ToolKind } from "@nap/shared/tool-kinds";
 import { buildFileTreeDigest } from "./file-tree.ts";
 import { renderJobBrief } from "./job-brief.ts";
+import { renderSkillListing } from "./skill-listing.ts";
 import { renderSteer } from "./steer.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
 import {
@@ -447,10 +455,16 @@ export class NapContextEngine implements ContextEngine {
     if (request.attachments?.length && !images) throw new Error(MODEL_MEDIA_UNSUPPORTED);
     const memories = await request.memory.retrieve(request.sessionId, request.userMessage);
 
-    let digest = await buildFileTreeDigest(request.sandbox, request.sandboxId, {
-      ...(this.#root === undefined ? {} : { root: this.#root }),
-      ...(this.#maxFileEntries === undefined ? {} : { maxEntries: this.#maxFileEntries }),
-    });
+    // Both at once: they are independent reads of the same sandbox, and each has its own deadline.
+    const [tree, skills] = await Promise.all([
+      buildFileTreeDigest(request.sandbox, request.sandboxId, {
+        ...(this.#root === undefined ? {} : { root: this.#root }),
+        ...(this.#maxFileEntries === undefined ? {} : { maxEntries: this.#maxFileEntries }),
+      }),
+      discoverSkills(request.sandbox, request.sandboxId, this.#root ?? PROJECT_ROOT_PATH),
+    ]);
+    let digest = tree;
+    let skillListing = renderSkillListing(skills);
 
     // Cap retained exchanges before consulting the budget. Original requests survive outside
     // that window through protectedMessages below.
@@ -548,7 +562,7 @@ export class NapContextEngine implements ContextEngine {
     const instructions = request.mode === "plan" ? `${trusted}\n\n${PLAN_MODE_PROMPT}` : trusted;
     const cost = (): number =>
       estimateTokens(instructions) +
-      estimateTokens(turnContext(digest, remembered, brief(), approved)) +
+      estimateTokens(turnContext(digest, skillListing, remembered, brief(), approved)) +
       messagesTokens([...protectedMessages(), ...turns.flatMap((turn) => turn.messages)]) +
       estimateTokens(userMessage) +
       mediaTokens;
@@ -594,16 +608,20 @@ export class NapContextEngine implements ContextEngine {
     // 3. Give up the file listing.
     if (cost() > this.#budgetTokens) digest = "";
 
-    // 4. Give up retrieved memories.
+    // 4. Give up the skill listing. After the file listing, because it is smaller and the agent
+    //    cannot rebuild it with one call; the `skill` tool still loads any name it already knows.
+    if (cost() > this.#budgetTokens) skillListing = "";
+
+    // 5. Give up retrieved memories.
     if (cost() > this.#budgetTokens) remembered = [];
 
-    // 5. Give up the older failures, oldest first, always keeping the most recent — that one
+    // 6. Give up the older failures, oldest first, always keeping the most recent — that one
     //    is the failure being repaired right now, and losing it is losing the turn's subject.
     while (cost() > this.#budgetTokens && attempts.length > 1) {
       attempts = attempts.slice(1);
     }
 
-    // 6. Shorten what the surviving failure printed, keeping its tail. A check can print more
+    // 7. Shorten what the surviving failure printed, keeping its tail. A check can print more
     //    than the whole budget, so a section nothing can shrink would make the budget a wish.
     if (cost() > this.#budgetTokens) {
       // Measured with the quote already gone, so the ceiling is what is left over rather than
@@ -612,7 +630,7 @@ export class NapContextEngine implements ContextEngine {
       outputTokens = 0;
       const floor =
         estimateTokens(instructions) +
-        estimateTokens(turnContext(digest, remembered, brief(), approved));
+        estimateTokens(turnContext(digest, skillListing, remembered, brief(), approved));
       outputTokens = Math.max(
         this.#budgetTokens -
           floor -
@@ -643,7 +661,7 @@ export class NapContextEngine implements ContextEngine {
           ...history,
           { role: "user", content: [...media, textBlock(userMessage)] } satisfies LLMMessage,
         ];
-    const context = turnContext(digest, remembered, brief(), approved);
+    const context = turnContext(digest, skillListing, remembered, brief(), approved);
     if (context !== "") appendToLastUserMessage(messages, context);
 
     return {
@@ -654,6 +672,7 @@ export class NapContextEngine implements ContextEngine {
       messages,
       estimatedTokens: estimateTokens(instructions) + messagesTokens(messages),
       renderSteer,
+      skills: { index: skills, announce: announceSkills(request.history, skills) },
       // Helpers earn their keep where a search would otherwise fill the context: an imported
       // repository. A Nap project is a handful of files listed in the prompt already, where a
       // helper is a second model paid to find what the first can see (ADR-0020).
@@ -685,7 +704,21 @@ function basePrompt(workspace?: "repository"): string {
 }
 
 /**
- * What changes from one turn to the next: the file listing, the job brief and memories.
+ * Whether this index is news to the session: different from the last one it recorded. A sandbox
+ * that could not be asked is never news, so a slow turn does not record the skills as gone.
+ */
+function announceSkills(history: NapEvent[], index: SkillIndex): boolean {
+  if (index.unavailable !== undefined) return false;
+  const last = history.findLast((event) => event.type === "skills.discovered");
+  return !skillsUnchanged(
+    last?.type === "skills.discovered" ? last.payload : undefined,
+    skillsDiscoveredPayload(index),
+  );
+}
+
+/**
+ * What changes from one turn to the next: the file listing, the skill listing, the job brief and
+ * memories.
  *
  * Not in the system prompt, and the reason is the cache. The API renders tools, then the system
  * prompt, then the messages, and a cache entry is a byte-identical prefix — so a listing that
@@ -695,12 +728,21 @@ function basePrompt(workspace?: "repository"): string {
  * anyway. It is also not trusted instructions: file names and quoted check output are project
  * data, and the user's role is the honest place for them.
  */
-function turnContext(digest: string, memories: Memory[], job: string, approved: string): string {
+function turnContext(
+  digest: string,
+  skills: string,
+  memories: Memory[],
+  job: string,
+  approved: string,
+): string {
   const sections: string[] = [];
 
   if (digest !== "") {
     sections.push(`<project_files>\n${digest}\n</project_files>`);
   }
+
+  // Beside the listing it is a part of: what the project offers, read before what was asked of it.
+  if (skills !== "") sections.push(skills);
 
   if (job !== "") {
     sections.push(job);

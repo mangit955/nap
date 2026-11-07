@@ -32,6 +32,7 @@ import { editFile, listFiles, readFile, writeFile } from "./files.ts";
 import { applyPatch } from "./patch.ts";
 import { globFiles, searchFiles } from "./search.ts";
 import { runCommand, shellInput, shellKill, shellOutput } from "./shell.ts";
+import { loadSkill } from "./skill.ts";
 
 export type { ToolContext, ToolOutcome } from "./context.ts";
 
@@ -69,6 +70,7 @@ const HANDLERS: { [K in ToolName]: ToolHandler<ToolArgs<K>> } = {
   run_subagent: runSubagent,
   read_subagent: (args, _call, ctx) => readSubagent(args, ctx),
   propose_plan: proposePlan,
+  skill: loadSkill,
 };
 
 /** The registry's schemas, seen through the same mapping the handlers are. */
@@ -106,6 +108,9 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
           : TOOL_KINDS[name.data] === "ask"
             ? "Nobody can answer a question from here. Decide on the most reasonable reading of what you were asked, and continue."
             : `${name.data} is not available in this turn. Available tools: ${[...ctx.offered].join(", ")}.`;
+  // A tool the turn was offered may still be one a loaded skill took away (ADR-0029). Checked
+  // after the offer, so a skill can only ever add a refusal, never lift one.
+  const narrowed = refusal ?? ctx.skills?.refusal(name.data);
 
   emit(ctx, {
     type: "tool.call",
@@ -113,7 +118,7 @@ export async function executeTool(call: LLMToolCall, ctx: ToolContext): Promise<
   });
 
   const outcome: ToolOutcome =
-    refusal === undefined ? await dispatch(name.data, call, ctx) : { ok: false, output: refusal };
+    narrowed === undefined ? await dispatch(name.data, call, ctx) : { ok: false, output: narrowed };
   const capped = { ...outcome, output: truncate(outcome.output) };
 
   emit(ctx, {

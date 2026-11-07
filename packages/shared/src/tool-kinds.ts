@@ -17,7 +17,9 @@ export type ToolKind =
   | "plan"
   | "ask"
   | "delegate"
-  | "computer";
+  | "computer"
+  /** Loading the project's own instructions for a kind of work (ADR-0029). */
+  | "skill";
 
 export const TOOL_KINDS: Record<ToolName, ToolKind> = {
   read_file: "read",
@@ -37,4 +39,5 @@ export const TOOL_KINDS: Record<ToolName, ToolKind> = {
   run_subagent: "delegate",
   read_subagent: "delegate",
   computer: "computer",
+  skill: "skill",
 };

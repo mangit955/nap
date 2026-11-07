@@ -41,7 +41,8 @@ import { TestRecordingStateSchema } from "./test-recording.ts";
  * not record one. Only ever added to — a session written last year names the tools it had, and
  * removing one would make that session unreadable. Which of these a given turn is *offered* is
  * the agent's registry's decision, not this list's (ADR-0020); the computer is offered only to
- * image-capable models (ADR-0018).
+ * image-capable models (ADR-0018). `skill` loads one of the project's own instruction packs
+ * (ADR-0029).
  */
 export const TOOL_NAMES = [
   "read_file",
@@ -61,6 +62,7 @@ export const TOOL_NAMES = [
   "run_subagent",
   "read_subagent",
   "propose_plan",
+  "skill",
 ] as const;
 
 export const ToolNameSchema = z.enum(TOOL_NAMES);
@@ -278,6 +280,36 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     summary: z.string(),
     toolCalls: z.int().nonnegative(),
     usage: TokenUsageSchema,
+  }),
+  /**
+   * The skills a turn found in the project, and the ones it passed over and why (ADR-0029).
+   *
+   * Written at the start of a turn only when it differs from the last one in the session, so a
+   * session that never touches its skills records them once, and a skill that is added, edited
+   * into something unreadable, or removed is visible where it happened. Nothing replays from it:
+   * the agent is told the current skills on every turn regardless.
+   */
+  event("skills.discovered", {
+    skills: z.array(
+      z.strictObject({
+        name: z.string().min(1),
+        description: z.string().min(1),
+        path: z.string().min(1),
+      }),
+    ),
+    skipped: z.array(z.strictObject({ path: z.string().min(1), reason: z.string().min(1) })),
+  }),
+  /**
+   * The agent loaded a skill's instructions, by the `skill` call that did it (ADR-0029). Its own
+   * event, as `plan.updated` is, so the pane can say which skill without trusting the call's
+   * arguments. `allowedTools` is the set the skill narrowed the rest of the turn to, already
+   * intersected with what the turn had; `null` when it narrowed nothing.
+   */
+  event("skill.loaded", {
+    toolCallId: z.string().min(1),
+    name: z.string().min(1),
+    path: z.string().min(1),
+    allowedTools: z.array(ToolNameSchema).nullable(),
   }),
   event("computer.screenshot", {
     toolCallId: z.string().min(1),
