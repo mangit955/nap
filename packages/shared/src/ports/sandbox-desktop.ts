@@ -72,8 +72,12 @@ export type DesktopObservation =
   | { kind: "none" }
   | { kind: "text"; text: string }
   | { kind: "cursor"; coordinate: [number, number] };
+/**
+ * `outdated`: the machine's desktop image is not the build this runtime drives, so nothing was
+ * sent to it. Retrying never clears it; a machine from a republished template does.
+ */
 export type DesktopError = {
-  code: "not_started" | "unavailable" | "cancelled" | "timeout" | "completion_unknown";
+  code: "not_started" | "unavailable" | "cancelled" | "timeout" | "completion_unknown" | "outdated";
   message: string;
 };
 export type DesktopStart = {

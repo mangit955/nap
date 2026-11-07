@@ -77,9 +77,7 @@ export async function releaseProduction(input: unknown, overrides: Partial<Relea
     if (name === "worker")
       z.object({
         serviceDetails: z.object({
-          envSpecificDetails: z.object({
-            preDeployCommand: z.literal("bun packages/db/scripts/migrate.ts"),
-          }),
+          preDeployCommand: z.literal("bun packages/db/scripts/migrate.ts"),
         }),
       }).parse(service);
   }

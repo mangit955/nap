@@ -1,0 +1,17 @@
+{
+  "scenario": "before",
+  "revision": "420f9d2839f7cfcded3a4b75bdaa285f002c0371",
+  "component": "apps/web/src/auth/live-sign-in.tsx",
+  "alert": "Your browser blocked the sign-in cookie, so we couldn't keep you signed in. Safari and Brave block cookies set by another site, and Nap's API is on one. Open Nap in Chrome or Firefox, or turn off \u201cPrevent cross-site tracking\u201d in Safari's privacy settings.",
+  "browser": "Chrome/156.0.8078.80",
+  "adapters": "auth succeeds but getSession returns null; providers fixture; Next router no-op",
+  "cssNames": [
+    "06zamw8o3a4my.css",
+    "0ptnv7in87p7m.css",
+    "0rnfwxp5y7fgw.css",
+    "1l_g888u6x4_n.css",
+    "2zqjm5y8fonr7.css",
+    "449-9lg4bq1iz.css"
+  ],
+  "source_sha256": "4808360b935267e710e05bb2c0cc5fcd63eedd24436a74ad145fe3a5552224e3"
+}

@@ -28,7 +28,7 @@ RUN curl --fail --location --silent --show-error \
   && rm -rf /var/lib/apt/lists/* \
   && test "$(google-chrome-stable --product-version)" = "${CHROME_VERSION%-1}"
 
-COPY driver.mjs /usr/local/lib/nap-desktop/driver.mjs
+COPY driver.mjs build /usr/local/lib/nap-desktop/
 COPY start-desktop.sh /usr/local/bin/nap-desktop-start
 COPY exec.mjs file-helper.mjs tcp-forward.mjs /usr/local/lib/nap-local/
 COPY supervisor.mjs /usr/local/lib/nap-local/supervisor.mjs

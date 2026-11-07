@@ -101,6 +101,13 @@ Keep Render auto-deploy off and run the manual command without a concurrent Acti
 For a release that changes the durable event contract, follow the controlled rollout below
 instead of relying on the normal rolling deployment sequence.
 
+**A desktop build change requires a controlled rollout before merging.** A merge to `main`
+automatically releases, but the release script neither publishes the E2B template nor drains
+computer reservations before replacing the runtime. If `packages/sandbox/src/desktop-build.ts`
+changes, complete the [desktop build rollout](#deploy-a-desktop-build-change) before merging or
+starting a manual release. Publishing alone is insufficient: the new runtime also refuses to
+drain input scopes on old images, so a held reservation can block the project's turns and closure.
+
 The [Render deploy API](https://api-docs.render.com/reference/create-deploy),
 [Vercel deployment API](https://vercel.com/docs/rest-api/deployments/create-a-new-deployment),
 and [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration)
@@ -661,14 +668,41 @@ model-provider credentials have separate purposes.
 
 The boot composition supplies the scoped exec desktop and recording adapter, the durable Postgres input reservation store, coordinator, and already-required auth secret. Migration 0016 must be applied before enabling these workers or owner input. New claims exclude every reserved project. The reaper runs bounded input recovery separately from idle teardown. VNC remains view-only; owner input uses the authenticated API and is excluded while any project session has a lease. Stream credentials never enter events. Deploy strict event readers and owner media routes before producing `test.recording` events.
 
-The desktop image is a separate manual publication. Prepare and review it with `bun run --cwd packages/sandbox template:build --prepare`; publishing requires explicit paid mode, the target alias, the prepared directory and its reviewed manifest hash. Preparation selects two vCPUs and 1,024 MB. The cloud spike measured a minimal Chrome/Vite fixture at that size; it did not establish capacity for larger applications. Production publication and integrated cloud validation remain pending approval.
+The desktop image is a separate manual publication. Prepare and review it with `bun run --cwd packages/sandbox template:build --prepare`; publishing requires explicit paid mode, the target alias, the prepared directory and its reviewed manifest hash. Publication refuses a prepared image whose build is not the checkout's `DESKTOP_BUILD`, and prints the build it published. Preparation selects two vCPUs and `DESKTOP_MEMORY_MB` (2,048 MB), and publication refuses a prepared directory of any other size. An integrated run with a real app peaked at 915 of 976 MiB on the earlier 1-GiB machine ([computer use](computer-use.md#verified-on-a-vm)), which is why it doubled; no run establishes capacity for larger applications.
 
-Existing VMs do not receive a rebuilt template. Close and reopen a project through the ordinary snapshot/restore flow when a fresh machine is needed; do not destroy an active workspace to install the desktop. Recording media survives VM teardown in object storage, behind owner authorization, and project deletion derives its possible keys from durable test starts.
+Existing VMs do not receive a rebuilt template. A project with no held computer reservation can close and reopen through the ordinary snapshot/restore flow to get a fresh machine. A held reservation blocks that flow; use the rollout below before replacing its matching runtime. Do not destroy an active workspace to install the desktop. Recording media survives VM teardown in object storage, behind owner authorization, and project deletion derives its possible keys from durable test starts.
 
+### Deploy a desktop build change
+
+The build check covers every driver command, including `closeAndDrain`. A new runtime cannot
+obtain a drain proof from an old-image scope. Preserve the old matching reaper until every held
+scope has drained; otherwise those reservations remain recovery pending and exclude project
+turns and closure even after the template is republished.
+
+Before any `DESKTOP_BUILD`-changing merge or release, including introduction of this gate:
+
+1. Block owner-input requests at ingress and let in-flight owner-input requests settle. Stop and
+   drain all old workers, and wait for their exit so neither owner nor model input can create
+   another reservation. Keep the old reaper, whose runtime matches the existing images, running.
+2. Allow that reaper to recover outstanding scopes. Query the production database:
+   ```sql
+   SELECT count(*) FROM project_computer_operations;
+   ```
+   Proceed only when the result is `0`. If any row remains, stop the release and investigate
+   with the matching reaper still available. Never delete a reservation or force abandonment
+   to pass this gate; abandonment can discard source after the last snapshot.
+3. Prepare, review and publish the template from the release commit as described above. Only
+   after the reservation count is zero may the matching old reaper be stopped or replaced.
+4. Merge or release the new commit with owner input still blocked. Deploy required migrations,
+   workers, API and reaper in the release order above, then the web. Reopen owner input only
+   after the matching services are live. Ordinary stale projects without a held reservation
+   can then close and reopen to use the new image.
+
+This is an operator precondition; the automatic release does not enforce the SQL check.
 
 ### Deploy the scoped input protocol together
 
-Prevent mixed old/new claim code while enabling scoped input. Block owner input at ingress, stop and drain all old workers, and wait for their exit. Deploy the migration and matching API, reaper, and worker code before reopening owner input. Pending queue requests may wait. Do not clear a reservation to expedite rollout, or delete one by hand: when a machine is gone for good, its owner abandons it from the chat, which also forgets the machine so it is never given input again, and loses anything not in the project's last snapshot. Before a machine's first reservation, input asks its driver which protocol it speaks. A VM created before scoped input could never drain a reservation, so it gets no reservation and no input, and the project otherwise keeps working; close and reopen it to get a machine with the new driver. Existing VMs do not receive a new driver by publishing a template. Production publication and integrated cloud validation remain separate approval gates.
+Prevent mixed old/new claim code while enabling scoped input. Block owner input at ingress, stop and drain all old workers, and wait for their exit. Deploy the migration and matching API, reaper, and worker code before reopening owner input. Pending queue requests may wait. Do not clear a reservation to expedite rollout, or delete one by hand: when a machine is gone for good, its owner abandons it from the chat, which also forgets the machine so it is never given input again, and loses anything not in the project's last snapshot. Before a machine's first reservation, input asks its driver which protocol it speaks. A VM created before scoped input could never drain a reservation, so it gets no reservation and no input, and the project otherwise keeps working; close and reopen it to get a machine with the new driver. Existing VMs do not receive a new driver by publishing a template.
 
 The desktop runtime uses Python 3 and libX11/libXtst for fixed full-keyboard and button release and state queries. These are explicit template dependencies. Verify the real installed input binary retains the inherited descriptor with the L2 production-driver probe before claiming the mechanism works. Cooperative fixed input programs, not arbitrary processes, are the containment boundary. Local time budgets do not expire admission reservations.
 

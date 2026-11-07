@@ -49,7 +49,7 @@ function provider({
       } else {
         data = {
           autoDeploy: "no",
-          serviceDetails: { envSpecificDetails: { preDeployCommand: workerMigration } },
+          serviceDetails: { preDeployCommand: workerMigration },
         };
       }
       return Response.json(data);
@@ -58,6 +58,46 @@ function provider({
 }
 
 describe("production release", () => {
+  it("reads the worker migration command from Render's serviceDetails", async () => {
+    const io = provider();
+    await releaseProduction(config, {
+      ...io,
+      request: async (url, init) => {
+        if (url.endsWith("/services/srv-dbc2vg3rjlhs73al1lng"))
+          return Response.json({
+            autoDeploy: "no",
+            serviceDetails: {
+              preDeployCommand: "bun packages/db/scripts/migrate.ts",
+              envSpecificDetails: { buildCommand: "bun install --frozen-lockfile" },
+            },
+          });
+        return io.request(url, init);
+      },
+    });
+    expect(io.calls.filter((call) => call.method === "POST")).toHaveLength(4);
+  });
+
+  it("does not accept a nested migration command in place of the configured command", async () => {
+    const io = provider();
+    await expect(
+      releaseProduction(config, {
+        ...io,
+        request: async (url, init) => {
+          if (url.endsWith("/services/srv-dbc2vg3rjlhs73al1lng"))
+            return Response.json({
+              autoDeploy: "no",
+              serviceDetails: {
+                preDeployCommand: "echo skip migrations",
+                envSpecificDetails: { preDeployCommand: "bun packages/db/scripts/migrate.ts" },
+              },
+            });
+          return io.request(url, init);
+        },
+      }),
+    ).rejects.toThrow();
+    expect(io.calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
   it("waits for the migrated worker, then API readiness and reaper before publishing the exact web commit", async () => {
     const io = provider();
     await releaseProduction(config, io);
