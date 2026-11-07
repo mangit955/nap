@@ -12,6 +12,7 @@ import type { DistributiveOmit } from "@nap/shared/ports/event-store";
 import type { LLMObservationBlock, LLMToolCall } from "@nap/shared/ports/llm-provider";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { FileLedger } from "./ledger.ts";
+import type { SkillSession } from "./skill.ts";
 
 /**
  * Starts and collects delegated work. Implemented by the agent service, which owns the model;
@@ -54,6 +55,11 @@ export type ToolContext = {
   offered?: ReadonlySet<ToolName> | undefined;
   /** What this turn has read and written, for the rule that a file is read before it changes. */
   ledger?: FileLedger | undefined;
+  /**
+   * The turn's skills and what loading them narrowed (ADR-0029). Absent where nothing keeps them,
+   * as in a helper, which is not offered the `skill` tool.
+   */
+  skills?: SkillSession | undefined;
   /** Helpers must finish their commands before handing control back to the parent. */
   backgroundShells?: boolean;
   subagents?: SubagentRunner | undefined;

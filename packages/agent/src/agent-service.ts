@@ -1,5 +1,6 @@
 import { estimateContextTokens } from "@nap/shared/compaction";
 import { pruneComputerImages } from "@nap/shared/computer-context";
+import { skillsDiscoveredPayload } from "@nap/shared/skills";
 
 /**
  * Driving the model through one turn.
@@ -52,6 +53,7 @@ import type { ToolDefinition } from "./tools/definitions.ts";
 import { runsConcurrently } from "./tools/definitions.ts";
 import { executeTool, type ToolContext, type ToolOutcome } from "./tools/execute.ts";
 import { FileLedger } from "./tools/ledger.ts";
+import { SkillSession } from "./tools/skill.ts";
 import { modelFamily, toolNamesFor, toolsetFor } from "./tools/toolset.ts";
 
 type Payload<T extends NapEvent["type"]> = NapEventOf<T>["payload"];
@@ -146,6 +148,7 @@ class Turn {
   #tools: ToolDefinition[];
   #offered: ReadonlySet<ToolName>;
   readonly #ledger = new FileLedger();
+  readonly #skills: SkillSession;
   readonly #hooks: TurnHook[];
   readonly #helpers: SubagentPool | undefined;
   #retried = false;
@@ -186,6 +189,7 @@ class Turn {
     this.#startedAt = clock();
     this.#clock = clock;
     this.#messages = pruneComputerImages(request.context.messages, 0);
+    this.#skills = new SkillSession(request.context.skills?.index);
 
     // A cheaper helper model is the deployment's to choose and the deployment's to pay for;
     // on a person's own key the turn's model is the only one known to be reachable.
@@ -244,6 +248,14 @@ class Turn {
         return this.#fail(this.#cancelled() ? "cancelled" : "internal", result.message);
       return this.#complete();
     }
+
+    // What the context build found, recorded only when it differs from the session's last record
+    // (ADR-0029). Here rather than in the engine because every event after `turn.started` is the
+    // agent's to write. Not on a compaction, which runs no tools; the next turn finds the same
+    // difference and records it.
+    const skills = this.#request.context.skills;
+    if (skills?.announce === true)
+      this.#emit({ type: "skills.discovered", payload: skillsDiscoveredPayload(skills.index) });
 
     for (;;) {
       if (this.#cancelled()) return this.#fail("cancelled", "The turn was cancelled.");
@@ -884,6 +896,7 @@ class Turn {
       planning: this.#request.mode === "plan",
       offered: this.#offered,
       ledger: this.#ledger,
+      skills: this.#skills,
       subagents: this.#helpers,
       computer: modelSupportsImages(this.#model) ? this.#request.computer : undefined,
       signal: this.#request.signal,

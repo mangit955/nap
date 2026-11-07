@@ -655,6 +655,25 @@ const PAYLOADS = [
   { type: "job.checkpointed", payload: { jobId: JOB, commitSha: "a1b2c3d" } },
   { type: "job.completed", payload: { jobId: JOB, outcome: "exhausted" } },
   {
+    type: "skills.discovered",
+    payload: {
+      skills: [
+        { name: "review", description: "Reviewing code", path: "/app/.nap/skills/r/SKILL.md" },
+      ],
+      skipped: [{ path: "/app/.nap/skills/x/SKILL.md", reason: "no frontmatter" }],
+    },
+  },
+  {
+    type: "skill.loaded",
+    // The nullable list is what has to survive jsonb.
+    payload: {
+      toolCallId: "toolu_skill",
+      name: "review",
+      path: "/app/SKILL.md",
+      allowedTools: null,
+    },
+  },
+  {
     type: "plan.updated",
     payload: { toolCallId: "toolu_plan", items: [{ content: "Add a list", status: "pending" }] },
   },

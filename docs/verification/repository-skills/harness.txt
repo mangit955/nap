@@ -1,0 +1,38 @@
+$ bun run packages/runtime/scripts/harness.ts "Build a counter"
+Dry run on a scripted model and an in-memory sandbox. Pass --real to spend.
+
+  1  user.message    Build a counter
+  2  job.started     Build a counter
+  3  preview.ready   https://5173-04e9434b-fff0-4111-bc87-d5ac94cc6389.sandbox.invalid
+  4  turn.started
+  5  skills.discovered react-components
+  6  context.usage   4778 input tokens (estimated)
+  7  context.usage   4778 input tokens (estimated)
+  8  tool.call       computer actions
+  9  computer.status starting
+ 10  computer.status ready
+ 11  computer.screenshot computer_1 1024×768 computer/becc369d-50ef-4ad2-b670-ef97f001424e/a78f2a32-071b-40a2-8bdb-814138dea749/96317415-cbdb-4b9b-977f-dc804b7c69a2/computer_1.jpg
+ 12  tool.result     computer ok Completed 4 computer actions. Screenshot 1024×768.
+ 13  context.usage   7082 input tokens (estimated)
+ 14  context.usage   7082 input tokens (estimated)
+ 15  tool.call       skill {"name":"react-components"}
+ 16  skill.loaded    react-components /home/user/app/.nap/skills/react-components/SKILL.md
+ 17  tool.result     skill ok <skill name="react-components" directory="/home/user/app/.nap/skills/react-components"> The project…
+ 18  context.usage   7272 input tokens (estimated)
+ 19  context.usage   1200 input tokens (reported)
+ 20  agent.thinking  The project has no toggle yet, so I will add one component.
+ 21  agent.message   I'll add the component.
+ 22  tool.call       write_file {"path":"/home/user/app/src/DarkModeToggle.tsx","contents":"export function DarkModeToggle() {\n re…
+ 23  file.changed    created /home/user/app/src/DarkModeToggle.tsx
+ 24  tool.result     write_file ok Wrote /home/user/app/src/DarkModeToggle.tsx (77 characters).
+ 25  context.usage   7381 input tokens (estimated)
+ 26  context.usage   1400 input tokens (reported)
+ 27  agent.thinking  The file is written. Nothing else is needed.
+ 28  agent.message   Added the toggle component.
+ 29  turn.completed  2600 in / 110 out, 6ms, commit 0000000000000000000000000000000000000000
+ 30  verification.started
+ 31  verification.completed typecheck absent, lint absent, build passed, test absent, preview passed
+ 32  job.checkpointed 0000000000000000000000000000000000000000
+ 33  job.completed   verified
+
+Done in 0.0s — commit 0000000000000000000000000000000000000000

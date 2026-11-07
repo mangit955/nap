@@ -128,6 +128,31 @@ describe("summarizeToolGroup", () => {
   });
 });
 
+describe("skills in the work log", () => {
+  const loaded = (name: string) =>
+    step({
+      toolName: "skill",
+      input: { name },
+      skill: { name, path: `/home/user/app/.nap/skills/${name}/SKILL.md`, allowedTools: null },
+    });
+
+  it("counts the skills a group loaded", () => {
+    expect(summarizeToolGroup([loaded("review")]).summary).toBe("Used 1 skill");
+    expect(summarizeToolGroup([loaded("review"), loaded("migrations")]).summary).toBe(
+      "Used 2 skills",
+    );
+    expect(toolGroupSummaryKind([loaded("review")])).toBe("skill");
+  });
+
+  it("names the skill a row loaded, from the event when there is one and the call when not", () => {
+    expect(workEntryDisplayLabel(loaded("review"))).toBe("Used skill review");
+    expect(workEntryDisplayLabel(step({ toolName: "skill", input: { name: "seeding" } }))).toBe(
+      "Used skill seeding",
+    );
+    expect(workEntryDisplayLabel(step({ toolName: "skill", input: {} }))).toBe("Used a skill");
+  });
+});
+
 describe("toolGroupSummaryKind", () => {
   it("names a group that did one kind of thing after it", () => {
     expect(toolGroupSummaryKind([read(), read()])).toBe("read");

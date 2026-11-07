@@ -1,5 +1,6 @@
 import type { ProposedPlan } from "../agent-plan.ts";
 import type { MediaAttachment } from "../media.ts";
+import type { SkillIndex } from "../skills.ts";
 /**
  * Assembles what the model sees, and owns the context token budget.
  *
@@ -117,6 +118,15 @@ export type BuiltContext = {
    * already in the system prompt.
    */
   rootRules?: boolean | undefined;
+  /**
+   * The project's skills as this build found them (ADR-0029). The agent's `skill` tool looks a
+   * name up here first, and the listing the model reads was rendered from the same index.
+   *
+   * `announce` is whether the index differs from the last `skills.discovered` in the session, so
+   * the turn records it. Decided here because this is the component handed the log; the agent
+   * writes the event, since it writes every event of the turn after `turn.started`.
+   */
+  skills?: { index: SkillIndex; announce: boolean } | undefined;
   /**
    * How a message the person sent mid-turn is put to the model (ADR-0028) — the same words the
    * engine replays it with from the log. Absent, the turn is offered no steers: a caller that

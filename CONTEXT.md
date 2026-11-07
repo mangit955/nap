@@ -88,7 +88,7 @@ does not *fit*: staleness runs first and runs always, because a turn re-sends it
 on every round trip and a thing that fits can still be a thing not worth ten copies. See ADR-0011.
 
 **Turn context** — what the model is told that changes from one turn to the next: the file
-listing, the **job brief** and memories. It rides at the end of the turn's own message, never in the
+listing, the **skill** listing, the **job brief** and memories. It rides at the end of the turn's own message, never in the
 system prompt, so the system prompt and the settled history stay a prefix a provider can cache
 (ADR-0024). `turnContext` in `@nap/context` writes it.
 _Avoid_: system prompt, for any of it.
@@ -250,6 +250,16 @@ stopped, or whose worker died, runs none of its unread steers; each is offered b
 **Step boundary** — the only place a turn takes anything new in: between model calls, once the last
 batch of tool calls is answered in its one message, or when the model has stopped with room still to
 answer. Never during a batch, so a steer never separates a tool result from its call.
+
+**Skill** — a folder in the project holding a `SKILL.md`: frontmatter naming it and saying in one
+line when it applies, then instructions for that kind of work, plus any files they refer to. The
+agent is shown only the names and descriptions, in the **turn context**, and loads one with the
+`skill` tool. Project guidance, below Nap's own instructions, and never a grant: its
+`allowed-tools` can only narrow what the turn already had. Found under `.nap/skills/`,
+`.agents/skills/` or `.claude/skills/`; a malformed, duplicate or oversized one is **skipped** with
+its reason. See [ADR-0029](docs/adr/0029-skills-are-listed-loaded-on-demand-and-only-ever-narrow.md).
+_Avoid_: rule (directory rules are `AGENTS.md` or `CLAUDE.md` files, read when a tool touches
+their folder), prompt.
 
 **Question** — a multiple-choice question the agent ends its turn on (`agent.question`). Its answer
 is not a field anywhere: it is the person's next message, whether they clicked an option or typed.

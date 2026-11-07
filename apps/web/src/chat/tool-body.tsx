@@ -16,7 +16,7 @@ import { ComputerActions } from "../computer/computer-actions.tsx";
 import { ansiSpans } from "./ansi.ts";
 import { ChatMarkdown } from "./chat-markdown.tsx";
 import { HighlightedCode } from "./highlight.tsx";
-import type { FileChange, HelperRun } from "./transcript.ts";
+import type { FileChange, HelperRun, LoadedSkill } from "./transcript.ts";
 import { commandExitCode, type WorkEntry } from "./work-log.ts";
 import { shorten } from "./working-state.ts";
 
@@ -63,6 +63,8 @@ export function WorkEntryBody({ entry }: { entry: WorkEntry }) {
   }
 
   if (entry.helper !== undefined) return <HelperBody helper={entry.helper} />;
+  if (entry.skill !== undefined)
+    return <SkillBody skill={entry.skill} output={entry.output} failed={failed} />;
 
   if (entry.toolName === "read_file") {
     const path = typeof input.path === "string" ? shorten(input.path) : "";
@@ -99,6 +101,34 @@ function HelperBody({ helper }: { helper: HelperRun }) {
       {helper.summary !== null && helper.summary !== "" && (
         <pre className={bodyClass(helper.outcome === "failed")}>{helper.summary}</pre>
       )}
+    </div>
+  );
+}
+
+/**
+ * Where a skill came from and whether it narrowed the turn, then what the agent was given. The
+ * narrowing is said in words because it explains refusals further down the log (ADR-0029).
+ */
+function SkillBody({
+  skill,
+  output,
+  failed,
+}: {
+  skill: LoadedSkill;
+  output: string;
+  failed: boolean;
+}) {
+  const limited =
+    skill.allowedTools === null
+      ? null
+      : `Limited the turn to ${skill.allowedTools.length === 0 ? "no project tools" : skill.allowedTools.join(", ")}`;
+  return (
+    <div className="ms-7 space-y-1.5 font-mono text-2xs">
+      <div className="text-muted">
+        {shorten(skill.path)}
+        {limited !== null && <> · {limited}</>}
+      </div>
+      {output !== "" && <pre className={bodyClass(failed)}>{output}</pre>}
     </div>
   );
 }
