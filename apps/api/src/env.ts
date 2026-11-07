@@ -164,10 +164,14 @@ const BaseSchema = z.object({
   NAP_SUBAGENT_MODEL: z.string().min(1).optional(),
   /**
    * Fusion's sidekick: a cheaper model the turn's condensing work runs on — `explore` helpers and
-   * compaction summaries — while the turn's own model does everything else, and does that work
-   * itself whenever the sidekick fails it (ADR-0030). Only on turns the deployment pays for, and
-   * never on a person's own key. Unset is Fusion off. Must be on the allowlist, and replaces
-   * `NAP_SUBAGENT_MODEL`, so the two may not both be set.
+   * compaction summaries — while the turn's own model does everything else (ADR-0030). A summary
+   * the sidekick fails is written by the lead; a search it fails is reported to the lead.
+   *
+   * Only on turns the deployment pays for, which under `resolveTurnAccess` are the free tier's
+   * turns on `NAP_FREE_MODEL`. So it saves money only when `NAP_FREE_MODEL` is dearer than the
+   * sidekick, does nothing when the two are the same model, and is never used on a `:free` lead or
+   * on a person's own key, where the expensive leads are. Unset is Fusion off. Must be on the
+   * allowlist, and replaces `NAP_SUBAGENT_MODEL`, so the two may not both be set.
    */
   NAP_SIDEKICK_MODEL: z.string().min(1).optional(),
 

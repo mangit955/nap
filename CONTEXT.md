@@ -274,8 +274,9 @@ changes and its report in the log. Offered to imported repositories. Called a su
 **Fusion** — a turn's **lead** paired with a cheaper **sidekick**, which the deployment names and
 pays for (`NAP_SIDEKICK_MODEL`). The lead is the model the turn runs on, the one the person picked.
 The sidekick only *condenses*: it runs explore helpers and writes compaction summaries, which are
-text that only the lead reads. Anything it fails is done by the lead. It is never used on a person's
-own key. See `docs/adr/0030-fusion-the-sidekick-condenses-and-the-lead-acts.md`.
+text that only the lead reads. A summary it fails is written by the lead; a search it fails is
+reported to the lead, which can search for itself. It is used only on turns the deployment pays for,
+never on a person's own key or a free lead. See `docs/adr/0030-fusion-the-sidekick-condenses-and-the-lead-acts.md`.
 
 **Background shell** — a command started to keep running, read and typed into and stopped by id
 over later calls. Its state lives in files inside the sandbox, so it outlives the turn and the worker

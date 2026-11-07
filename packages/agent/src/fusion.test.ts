@@ -1,5 +1,9 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
-import type { CompactContext } from "@nap/shared/compaction";
+import {
+  type CompactContext,
+  estimateContextTokens,
+  isUsableSummary,
+} from "@nap/shared/compaction";
 import { NapEventSchema } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
@@ -32,6 +36,7 @@ const TURN_ID = "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b";
 const APP = `${PROJECT_ROOT}/src/App.tsx`;
 const LEAD = "anthropic/claude-opus-5";
 const SIDEKICK = "openai/gpt-5.6-luna";
+const FREE_LEAD = "poolside/laguna-s-2.1:free";
 const PROMPTS = { explore: "You search.", general: "You build." };
 const SUMMARY_REQUEST: LLMRequest = {
   purpose: "compaction",
@@ -72,7 +77,10 @@ function request(overrides: Partial<AgentTurnRequest> = {}): AgentTurnRequest {
   };
 }
 
-/** A manual compaction whose summary is `chunks` requests, each checked as the runtime's is. */
+/**
+ * A compaction whose summary is `chunks` requests, each sent with the turn's signal and checked
+ * with the rule the runtime's compactor uses.
+ */
 function compaction(chunks = 1): { compactContext: CompactContext; summaries: LLMTurnResult[] } {
   const summaries: LLMTurnResult[] = [];
   return {
@@ -81,9 +89,11 @@ function compaction(chunks = 1): { compactContext: CompactContext; summaries: LL
     compactContext: async (input) => {
       try {
         for (let chunk = 0; chunk < chunks; chunk += 1) {
-          const result = await input.complete(SUMMARY_REQUEST);
-          if (result.type !== "message" || result.text.trim() === "")
-            return { ok: false, message: "no summary" };
+          const result = await input.complete({
+            ...SUMMARY_REQUEST,
+            ...(input.signal === undefined ? {} : { signal: input.signal }),
+          });
+          if (!isUsableSummary(result)) return { ok: false, message: "no summary" };
           summaries.push(result);
         }
         return { ok: true, messages: [{ role: "user", content: "summary" }] };
@@ -130,17 +140,47 @@ function routed(lead: ScriptedLLMProvider, sidekick: () => LLMTurn): LLMProvider
   };
 }
 
-/** A sidekick that never answers on its own, and says so the moment it is abandoned. */
-function hanging(onRequest: () => void = () => {}): LLMTurn {
+/**
+ * A sidekick that never answers and ignores being abandoned, as a stalled transport can. Only the
+ * agent's own race can stop waiting on it, and only the signal it was handed can tell it to stop.
+ */
+function stalled(onRequest: (sent: LLMRequest) => void = () => {}): LLMTurn {
   return {
     complete: (sent) => {
-      onRequest();
-      return new Promise((_, reject) =>
-        sent.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
-      );
+      onRequest(sent);
+      return new Promise(() => {});
     },
     usage: () => ({ inputTokens: 0, outputTokens: 0 }),
   };
+}
+
+/** What the loop allows a request's output when the context budget is large: its cap. */
+const HEADROOM = 8_192;
+/** The context budget an automatic compaction is tested under; a fifth of it exceeds HEADROOM. */
+const CONTEXT_BUDGET = 50_000;
+/** What one summary request is estimated to cost, input and output. */
+const SUMMARY_COST =
+  estimateContextTokens(SUMMARY_REQUEST) + (SUMMARY_REQUEST.maxOutputTokens ?? 0);
+
+/** A normal turn that compacts automatically before its first step, as a long session's does. */
+function automatic(compactContext: CompactContext): AgentTurnRequest {
+  const base = request();
+  return request({
+    compactContext,
+    context: { ...base.context, budgetTokens: CONTEXT_BUDGET, needsCompaction: true },
+  });
+}
+
+/** What the turn estimates its next request at, from the context usage it reports first. */
+async function nextRequestEstimate(): Promise<number> {
+  const { agent } = run([[{ text: "the lead's summary" }, { text: "done" }]], {
+    sidekickModel: undefined,
+  });
+  await agent.runTurn(automatic(compaction().compactContext));
+  const reported = events.find((event) => event.type === "context.usage");
+  events = [];
+  if (reported?.type !== "context.usage") throw new Error("no context usage was reported");
+  return reported.payload.inputTokens;
 }
 
 describe("who does the condensing", () => {
@@ -213,6 +253,27 @@ describe("who does the condensing", () => {
     expect(payloads("turn.completed")).toHaveLength(1);
   });
 
+  it("has no sidekick when the lead is free, where it could only add cost", async () => {
+    // The second turn would succeed whoever runs it, so a sidekick asked here would show.
+    const { agent, provider } = run([
+      [
+        { toolCalls: [call("run_subagent", { profile: "explore", task: "Look." }, "look")] },
+        { text: "done" },
+      ],
+      [{ text: "found" }],
+    ]);
+
+    await agent.runTurn(request({ model: FREE_LEAD }));
+
+    expect(models(provider)).toEqual([FREE_LEAD, FREE_LEAD]);
+
+    const free = run([[{ text: "the lead's summary" }], [{ text: "the sidekick's summary" }]]);
+    const { sent, summaries } = compact({ model: FREE_LEAD });
+    await free.agent.runTurn(sent);
+    expect(models(free.provider)).toEqual([FREE_LEAD]);
+    expect(summaries).toEqual([expect.objectContaining({ text: "the lead's summary" })]);
+  });
+
   it("sends the lead the same first request with Fusion on as with it off", async () => {
     // The tool block and system prompt head every cached prefix (ADR-0024); Fusion must not
     // touch a byte of what the lead is sent.
@@ -226,6 +287,8 @@ describe("who does the condensing", () => {
       systemPrompt: sent?.systemPrompt,
       messages: sent?.messages,
     });
+    expect(on.provider.requests).toHaveLength(1);
+    expect(off.provider.requests).toHaveLength(1);
     expect(cached(on.provider.requests[0])).toEqual(cached(off.provider.requests[0]));
   });
 });
@@ -235,7 +298,7 @@ describe("a sidekick that fails leaves the work to the lead", () => {
     ["refuses", { refusal: true }],
     ["errors", { error: { message: "upstream", retryable: false } }],
     ["is cut off", { text: "half a summ", truncated: true }],
-    ["calls a tool", { toolCalls: [call("read_file", { path: APP }, "x")] }],
+    ["calls a tool", { text: "a summary", toolCalls: [call("read_file", { path: APP }, "x")] }],
     ["says nothing", { text: "  " }],
   ] satisfies [string, ScriptedResponse][])(
     "when it %s, the lead summarizes the same request",
@@ -305,17 +368,20 @@ describe("a sidekick that fails leaves the work to the lead", () => {
 
   it("gives up on a sidekick that takes too long, and waits on it only once", async () => {
     const lead = new ScriptedLLMProvider([[{ text: "first" }, { text: "second" }]]);
-    let asked = 0;
+    const received: (AbortSignal | undefined)[] = [];
     const agent = new NapAgentService({
-      provider: routed(lead, () => hanging(() => asked++)),
+      provider: routed(lead, () => stalled((sent) => received.push(sent.signal))),
       sidekickModel: SIDEKICK,
       sidekickTimeoutMs: 5,
     });
-    const { sent, summaries } = compact({}, 2);
+    // With a turn signal, as every turn the runtime runs has, so the deadline joins it.
+    const { sent, summaries } = compact({ signal: new AbortController().signal }, 2);
 
     await agent.runTurn(sent);
 
-    expect(asked).toBe(1);
+    expect(received).toHaveLength(1);
+    // The abandoned request was told so, which is what stops a transport billing for it.
+    expect(received[0]?.aborted).toBe(true);
     expect(summaries.map((summary) => summary.type === "message" && summary.text)).toEqual([
       "first",
       "second",
@@ -330,7 +396,7 @@ describe("a sidekick that fails leaves the work to the lead", () => {
     const lead = new ScriptedLLMProvider([[{ text: "the lead's summary" }]]);
     const controller = new AbortController();
     const agent = new NapAgentService({
-      provider: routed(lead, () => hanging(() => controller.abort())),
+      provider: routed(lead, () => stalled(() => controller.abort())),
       sidekickModel: SIDEKICK,
     });
 
@@ -338,6 +404,22 @@ describe("a sidekick that fails leaves the work to the lead", () => {
 
     expect(lead.requests).toEqual([]);
     expect(payloads("turn.failed")).toEqual([expect.objectContaining({ reason: "cancelled" })]);
+  });
+
+  it("when its conversation cannot even be opened, the lead summarizes", async () => {
+    const lead = new ScriptedLLMProvider([[{ text: "the lead's summary" }]]);
+    const agent = new NapAgentService({
+      provider: routed(lead, () => {
+        throw new Error("no such model");
+      }),
+      sidekickModel: SIDEKICK,
+    });
+    const { sent, summaries } = compact();
+
+    await agent.runTurn(sent);
+
+    expect(summaries).toEqual([expect.objectContaining({ text: "the lead's summary" })]);
+    expect(payloads("turn.completed")).toHaveLength(1);
   });
 
   it("goes straight to the lead when the budget could not also cover the lead repeating it", async () => {
@@ -356,7 +438,7 @@ describe("a sidekick that fails leaves the work to the lead", () => {
     const lead = new ScriptedLLMProvider([[{ text: "the lead's summary" }]]);
     let asked = 0;
     const agent = new NapAgentService({
-      provider: routed(lead, () => ({ ...hanging(() => asked++), contextWindowTokens: 50 })),
+      provider: routed(lead, () => ({ ...stalled(() => asked++), contextWindowTokens: 50 })),
       sidekickModel: SIDEKICK,
     });
 
@@ -365,6 +447,32 @@ describe("a sidekick that fails leaves the work to the lead", () => {
     expect(asked).toBe(0);
     expect(payloads("turn.completed")).toHaveLength(1);
   });
+});
+
+describe("an automatic compaction inside a turn", () => {
+  it.each([
+    ["has room for", 0, "the sidekick's summary", [LEAD, SIDEKICK]],
+    ["is a token short of", -1, "the lead's summary", [LEAD]],
+  ])(
+    "asks the sidekick only when the budget %s its attempt, the lead's repeat, the reserve and the lead's next request",
+    async (_, slack, writer, asked) => {
+      const next = await nextRequestEstimate();
+      // The sidekick would succeed: a short budget is the only reason it is not asked.
+      const { agent, provider } = run(
+        [[{ text: "the lead's summary" }, { text: "done" }], [{ text: "the sidekick's summary" }]],
+        { budget: { maxTokens: SUMMARY_COST * 2 + 4_096 + next + HEADROOM + slack } },
+      );
+      const { compactContext, summaries } = compaction();
+
+      await agent.runTurn(automatic(compactContext));
+
+      expect(models(provider)).toEqual(asked);
+      expect(summaries).toEqual([expect.objectContaining({ text: writer })]);
+      // The lead carries on from the summary, whoever wrote it.
+      expect(provider.requests.map((sent) => sent.purpose)).toEqual(["compaction", undefined]);
+      expect(payloads("turn.completed")).toHaveLength(1);
+    },
+  );
 });
 
 describe("the sidekick spends the turn's budget", () => {
@@ -386,6 +494,24 @@ describe("the sidekick spends the turn's budget", () => {
     );
     await over.agent.runTurn(compact().sent);
     // A manual compaction that overran fails as the compaction it was, naming the ceiling.
+    expect(payloads("turn.completed")).toEqual([]);
+    expect(payloads("turn.failed")).toEqual([
+      expect.objectContaining({ message: "token budget exceeded: 1001 tokens spent, limit 1000" }),
+    ]);
+  });
+
+  it("counts a failed attempt's tokens too, so one that overspends fails the turn", async () => {
+    // The lead would succeed; only the refused attempt's tokens can take the turn over.
+    const { agent } = run(
+      [
+        [{ text: "the lead's summary" }],
+        [{ refusal: true, usage: { inputTokens: 1_001, outputTokens: 0 } }],
+      ],
+      { budget: { maxTokens: 1_000 } },
+    );
+
+    await agent.runTurn(compact().sent);
+
     expect(payloads("turn.completed")).toEqual([]);
     expect(payloads("turn.failed")).toEqual([
       expect.objectContaining({ message: "token budget exceeded: 1001 tokens spent, limit 1000" }),

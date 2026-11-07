@@ -11,11 +11,12 @@
  * everything a person needs to tell two models apart.
  */
 
+import { isFreeModel } from "@nap/shared/model-capabilities";
 import { ModelListSchema } from "@nap/shared/models-protocol";
 import type { StoredKeyRecord } from "@nap/shared/ports/user-key-store";
 import type { Hono } from "hono";
 import type { AuthVariables } from "../auth/require-user.ts";
-import { availableModels, isFree, resolveTurnAccess } from "../turns/model-access.ts";
+import { availableModels, resolveTurnAccess } from "../turns/model-access.ts";
 
 export type ModelRouteDeps = {
   allowed: readonly string[];
@@ -55,7 +56,7 @@ export function registerModelRoutes(
           label: modelLabel(id),
           // OpenRouter's convention. Worth saying in the menu, because it is the difference
           // between a turn that costs money and one that does not.
-          free: isFree(id),
+          free: isFreeModel(id),
           available: available.has(id),
         })),
         // Whichever default this caller's turns would actually take, so the tick in the menu

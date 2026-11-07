@@ -1,4 +1,4 @@
-import { estimateContextTokens } from "@nap/shared/compaction";
+import { estimateContextTokens, isUsableSummary } from "@nap/shared/compaction";
 import { pruneComputerImages } from "@nap/shared/computer-context";
 import { skillsDiscoveredPayload } from "@nap/shared/skills";
 
@@ -28,7 +28,7 @@ import { skillsDiscoveredPayload } from "@nap/shared/skills";
 
 import type { SubagentProfile } from "@nap/shared/agent-plan";
 import type { NapEvent, NapEventOf, ToolName, TurnFailureReason } from "@nap/shared/events";
-import { modelSupportsImages } from "@nap/shared/model-capabilities";
+import { isFreeModel, modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type {
@@ -105,8 +105,8 @@ export type AgentServiceOptions = {
   /**
    * Fusion's sidekick: a cheaper model the turn's condensing work runs on — `explore` helpers and
    * compaction summaries — while the turn's own model, the lead, does everything else (ADR-0030).
-   * Already on the deployment's allowlist. Used only when the deployment is paying and it is not
-   * the model the turn is on; absent, Fusion is off.
+   * Already on the deployment's allowlist. Used only when the deployment is paying, the turn's
+   * model is not free, and it is not the model the turn is on; absent, Fusion is off.
    */
   sidekickModel?: string | undefined;
   /** How long one sidekick request may run before the lead takes it over. */
@@ -590,43 +590,69 @@ class Turn {
    *
    * A person's own key is only ever sent to the model they picked, so on their key there is no
    * sidekick at all and the turn runs exactly as it would without Fusion. A sidekick that is the
-   * model the turn is on — after a fallback, say — is no sidekick either.
+   * model the turn is on — after a fallback, say — is no sidekick either. Nor is there one for a
+   * free lead: that turn costs the deployment nothing, so a sidekick could only add cost to it.
    */
   #sidekick(): string | undefined {
     const sidekick = this.#options.sidekickModel;
     return sidekick === undefined ||
       this.#request.credentials !== undefined ||
-      sidekick === this.#model
+      sidekick === this.#model ||
+      isFreeModel(this.#model)
       ? undefined
       : sidekick;
+  }
+
+  /**
+   * The sidekick's conversation for one compaction summary, or nothing when the lead writes it.
+   * Every reason a summary is not the sidekick's is decided here, before anything is awaited, so a
+   * turn with no sidekick sends the lead its request exactly as it did before Fusion.
+   *
+   * `spare` is what the budget holds beyond the compaction's own reserve. The sidekick is tried
+   * only when that pays for its attempt and for the lead repeating it, and, when the turn goes on
+   * after the summary, for the lead's next request as well: the context at its current size, which
+   * a compaction only shrinks, plus the output headroom the loop allows a request. A failed
+   * attempt's tokens still count against the ceiling, so near it one failure can still cost the
+   * turn its finish where the lead alone would not have; this narrows that window by estimate,
+   * and cannot close it without letting the sidekick's tokens escape the budget (ADR-0030 D4).
+   *
+   * A request the sidekick's window cannot hold is not a failure, only not the sidekick's. A
+   * provider that cannot open the sidekick's conversation is one, and the lead writes the rest.
+   */
+  #sidekickFor(cost: number, spare: number, continues: boolean): LLMTurn | undefined {
+    const model = this.#sidekickFailed ? undefined : this.#sidekick();
+    if (model === undefined) return undefined;
+    const next = continues ? this.#estimate() + this.#headroom() : 0;
+    if (cost * 2 + next > spare) return undefined;
+    if (this.#sidekickTurn === undefined) {
+      try {
+        this.#sidekickTurn = this.#options.provider.startTurn({ model });
+      } catch {
+        this.#sidekickFailed = true;
+        return undefined;
+      }
+      this.#turns.push(this.#sidekickTurn);
+    }
+    const held = this.#sidekickTurn.contextWindowTokens ?? Number.POSITIVE_INFINITY;
+    return cost > held ? undefined : this.#sidekickTurn;
   }
 
   /**
    * One compaction summary from the sidekick: the result when it is a usable summary, and
    * otherwise what the failed attempt spent, for the lead to repeat the request.
    *
-   * Usable is what the compactor will accept: a complete message, with text and no tool calls.
-   * Anything else — a refusal, an error, a throw, a reply cut off or never finished in time — is
-   * the lead's to do, and after one such failure the lead writes the rest of the turn's summaries,
-   * so a sidekick that is down costs one wasted request per turn rather than one per chunk. A
-   * request its window cannot hold is not a failure, only not the sidekick's.
+   * Usable is what the compactor will accept (`isUsableSummary`). Anything else — a refusal, an
+   * error, a throw, a reply cut off or never finished in time — is the lead's to do, and after one
+   * such failure the lead writes the rest of the turn's summaries, so a sidekick that is down costs
+   * one wasted request per turn rather than one per chunk.
    *
    * A cancelled turn is not a failed sidekick: it throws as the lead's own request does, and
    * nothing is handed to the lead.
    */
   async #summarizeOnSidekick(
+    sidekick: LLMTurn,
     request: LLMRequest,
-    cost: number,
   ): Promise<{ summary?: LLMTurnResult; wasted?: TokenUsage }> {
-    const model = this.#sidekickFailed ? undefined : this.#sidekick();
-    if (model === undefined) return {};
-    if (this.#sidekickTurn === undefined) {
-      this.#sidekickTurn = this.#options.provider.startTurn({ model });
-      this.#turns.push(this.#sidekickTurn);
-    }
-    const sidekick = this.#sidekickTurn;
-    if (cost > (sidekick.contextWindowTokens ?? Number.POSITIVE_INFINITY)) return {};
-
     const deadline = new AbortController();
     const timer = setTimeout(
       () => deadline.abort(),
@@ -652,12 +678,7 @@ class Turn {
       return {};
     }
     this.#budget.recordUsage(completed.usage);
-    if (
-      completed.type !== "message" ||
-      completed.truncated === true ||
-      completed.toolCalls.length > 0 ||
-      completed.text.trim() === ""
-    ) {
+    if (!isUsableSummary(completed)) {
       this.#sidekickFailed = true;
       return { wasted: completed.usage };
     }
@@ -766,23 +787,26 @@ class Turn {
         throw new Error("The compaction request exceeds this model's context window.");
       // One step per summary, whichever model writes it, so Fusion moves no step ceiling.
       this.#budget.recordStep();
-      // The sidekick only when a failure could still be repeated by the lead within the budget,
-      // so trying it can never be what leaves the lead unable to do the work it did before.
-      const sidekick =
-        cost * 2 + reserve <= availableTokens ? await this.#summarizeOnSidekick(request, cost) : {};
-      if (sidekick.summary !== undefined) return sidekick.summary;
+      // A manual compaction ends its turn; an automatic one is followed by the lead's next step.
+      const sidekick = this.#sidekickFor(cost, availableTokens - reserve, trigger === "automatic");
+      let wasted: TokenUsage | undefined;
+      if (sidekick !== undefined) {
+        const attempt = await this.#summarizeOnSidekick(sidekick, request);
+        if (attempt.summary !== undefined) return attempt.summary;
+        wasted = attempt.wasted;
+      }
       const result = await stopAware(this.#turn.complete(request), this.#request.signal);
       if (result === CANCELLED) throw new Error("Compaction cancelled.");
       if (result.type === "message") this.#delivered(request.messages);
       this.#budget.recordUsage(result.usage);
       // The compaction reports what it cost, the sidekick's failed attempt included.
-      return sidekick.wasted === undefined
+      return wasted === undefined
         ? result
         : {
             ...result,
             usage: {
-              inputTokens: result.usage.inputTokens + sidekick.wasted.inputTokens,
-              outputTokens: result.usage.outputTokens + sidekick.wasted.outputTokens,
+              inputTokens: result.usage.inputTokens + wasted.inputTokens,
+              outputTokens: result.usage.outputTokens + wasted.outputTokens,
             },
           };
     };
