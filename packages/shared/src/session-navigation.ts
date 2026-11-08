@@ -50,6 +50,48 @@ export const NavigationChangeSchema = z.object({
   ]),
 });
 export type NavigationChange = z.infer<typeof NavigationChangeSchema>;
+/**
+ * What one change does to a session's navigation — the store persists exactly this, and the web
+ * client applies the same function to draw the result before the server has answered. Two copies
+ * would drift, and the drift would show as a row that lands on one shelf and then jumps to
+ * another when the reply arrives. `now` stamps settling and archiving.
+ */
+export function applyNavigationChange(
+  current: SessionNavigation,
+  change: NavigationChange["change"],
+  now: string,
+): SessionNavigation {
+  const navigation = { ...current };
+  switch (change.kind) {
+    case "pin":
+      navigation.pinned = change.pinned;
+      // A position is a place in one list; a row that changes list has no place in the new one.
+      navigation.position = null;
+      break;
+    case "done":
+      navigation.doneAt = change.value ? now : null;
+      navigation.snoozedUntil = null;
+      break;
+    case "archive":
+      navigation.archivedAt = change.value ? now : null;
+      break;
+    case "snooze":
+      navigation.snoozedUntil = change.until;
+      navigation.doneAt = null;
+      break;
+    case "read":
+      navigation.unread = change.unread;
+      // A delayed read must not acknowledge activity the caller never observed.
+      if (!change.unread && change.at && (!navigation.readAt || change.at > navigation.readAt))
+        navigation.readAt = change.at;
+      break;
+    case "restore":
+      Object.assign(navigation, change.navigation);
+      break;
+  }
+  return navigation;
+}
+
 export const NavigationSavedSchema = z.object({
   navigation: NavigationSchema,
   revision: z.number().int().nonnegative(),
