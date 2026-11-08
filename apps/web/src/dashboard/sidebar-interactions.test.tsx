@@ -31,26 +31,26 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-it("UI-01 keeps the mobile drawer open while a first click is pending double-click detection", () => {
-  vi.useFakeTimers();
+it("UI-01 follows a plain first click at once, with rename on the row", () => {
+  // A row that can be renamed used to hold every click for 300ms, to see whether a second one
+  // followed. Switching projects is the common case and renaming the rare one, so the first
+  // click goes now and the double-click's second click is the one that is swallowed.
+  const select = vi.fn();
+  const session = row();
   render(
-    <Dashboard
-      hero={<p>Workspace</p>}
-      sidebar={<SessionList sessions={[row()]} query="" repository="" onRename={vi.fn()} />}
+    <SessionList
+      sessions={[session]}
+      query=""
+      repository=""
+      onRename={vi.fn()}
+      onSelectProject={select}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
-  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
+
   const link = screen.getByRole("link", { name: /Review target/ });
   expect(fireEvent.click(link, { detail: 1 })).toBe(false);
-  // No timer has run and no navigation has been committed. A second pointer click still needs this row.
-  expect(screen.getByRole("button", { name: /sessions$/ })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
+
+  expect(select).toHaveBeenCalledExactlyOnceWith(session.projectId);
 });
 
 it.each(["Enter", "Escape"])(
@@ -144,8 +144,7 @@ it("UI-03 reveals the final selected row after persisted shelves have loaded", (
   }
 });
 
-it("closes the drawer only when the deferred single click commits", async () => {
-  vi.useFakeTimers();
+it("closes the drawer on the first click of a renamable row", async () => {
   render(
     <Dashboard
       hero={<p>Workspace</p>}
@@ -156,50 +155,13 @@ it("closes the drawer only when the deferred single click commits", async () => 
   const link = screen.getByRole("link", { name: /Review target/ });
   // jsdom can follow a fragment, but cannot load a new document.
   link.setAttribute("href", "#session");
-  fireEvent.click(link, { detail: 1 });
-  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
   await act(async () => {
-    vi.advanceTimersByTime(301);
+    fireEvent.click(link, { detail: 1 });
   });
   expect(screen.getByRole("button", { name: "Open sessions" })).toHaveAttribute(
     "aria-expanded",
     "false",
   );
-});
-
-it("keeps a double-click rename in the drawer after the navigation timer expires", async () => {
-  vi.useFakeTimers();
-  const rename = vi.fn();
-  render(
-    <Dashboard
-      hero={<p>Workspace</p>}
-      sidebar={<SessionList sessions={[row()]} query="" repository="" onRename={rename} />}
-    />,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
-  const link = screen.getByRole("link", { name: /Review target/ });
-  fireEvent.click(link, { detail: 1 });
-  fireEvent.click(link, { detail: 2 });
-  fireEvent.doubleClick(link);
-  await act(async () => {
-    vi.advanceTimersByTime(350);
-  });
-  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  const input = screen.getByRole("textbox", { name: "Session name" });
-  expect(input).toHaveFocus();
-  fireEvent.keyDown(input, { key: "Escape" });
-  expect(screen.getByRole("link", { name: /Review target/ })).toHaveFocus();
-  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
-    "aria-expanded",
-    "true",
-  );
-  expect(rename).not.toHaveBeenCalled();
 });
 
 it("keeps the drawer open when a document listener cancels ordinary navigation", async () => {
@@ -220,7 +182,7 @@ it("keeps the drawer open when a document listener cancels ordinary navigation",
   }
 });
 
-it("commits local project selection only after the rename delay expires", () => {
+it("commits local project selection on the first click, with no delay", () => {
   vi.useFakeTimers();
   const session = row();
   const select = vi.fn();
@@ -234,14 +196,15 @@ it("commits local project selection only after the rename delay expires", () => 
     />,
   );
   fireEvent.click(screen.getByRole("link", { name: /Review target/ }), { detail: 1 });
-  expect(select).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(299));
-  expect(select).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(1));
+  // Synchronously, and with no timer left to replay the click later.
   expect(select).toHaveBeenCalledExactlyOnceWith(session.projectId);
+  act(() => vi.advanceTimersByTime(1_000));
+  expect(select).toHaveBeenCalledOnce();
 });
 
-it("keeps double-click rename from committing a local project selection", () => {
+it("selects once on a double click, and then renames the row", () => {
+  // In the workspace the sidebar outlives the navigation, so the row the first click opened is
+  // still there for the second click and the double-click that follows it.
   vi.useFakeTimers();
   const select = vi.fn();
   render(
@@ -255,10 +218,10 @@ it("keeps double-click rename from committing a local project selection", () => 
   );
   const link = screen.getByRole("link", { name: /Review target/ });
   fireEvent.click(link, { detail: 1 });
-  fireEvent.click(link, { detail: 2 });
+  expect(fireEvent.click(link, { detail: 2 })).toBe(false);
   fireEvent.doubleClick(link);
   act(() => vi.advanceTimersByTime(350));
-  expect(select).not.toHaveBeenCalled();
+  expect(select).toHaveBeenCalledOnce();
   expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus();
 });
 
