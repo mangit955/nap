@@ -199,7 +199,7 @@ function Submenu({
       ref={element}
       role="menu"
       aria-label={label}
-      className={`composer-surface nap-float absolute top-[-4px] z-50 w-56 rounded-[10px] p-1 ${flip ? "right-full mr-1" : "left-full ml-1"}`}
+      className={`composer-surface nap-float absolute top-[-4px] z-50 w-56 rounded-[10px] p-1 ${flip ? "right-full" : "left-full"}`}
     >
       {items.map((item) => (
         <WithSeparator key={item.id} separator={item.separatorBefore}>

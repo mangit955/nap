@@ -873,6 +873,7 @@ export function SessionList({
   return (
     <DragLayer
       ids={itemIds}
+      container={root}
       fixed={SHELF_HEADERS}
       onDragStart={onDragStart}
       onDragOver={onDragOver}

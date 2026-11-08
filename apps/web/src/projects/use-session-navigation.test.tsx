@@ -222,3 +222,100 @@ it("keeps quiet about a refused read, which nobody asked for", async () => {
   });
   expect(result.current.actionError).toBeUndefined();
 });
+
+it("does not let an older Undo overwrite a later unread change", async () => {
+  const session = row("Keep unread");
+  const { server, result } = await mount([session]);
+  await act(async () => {
+    await result.current.change(session.projectId, { kind: "pin", pinned: true });
+    await result.current.change(session.projectId, { kind: "read", at: null, unread: true });
+  });
+  await act(async () => result.current.undo());
+  expect(server.rows()[0]?.navigation.unread).toBe(true);
+  expect(server.requests.at(-1)?.body).toMatchObject({ revision: 1, change: { kind: "restore" } });
+  expect(result.current.actionError).toBe(
+    "“Keep unread”: This session changed in another tab. Try again.",
+  );
+});
+
+it("captures Undo after a refused predecessor, so it cannot resurrect the refused pin", async () => {
+  const session = row("Keep unpinned");
+  const { server, result } = await mount([session]);
+  const release = server.hold();
+  server.refuseNext(409, "Pin refused.");
+  let saved: Promise<unknown> | undefined;
+  act(() => {
+    saved = Promise.all([
+      result.current.change(session.projectId, { kind: "pin", pinned: true }),
+      result.current.change(session.projectId, { kind: "done", value: true }),
+    ]);
+  });
+  await act(async () => {
+    release();
+    await saved;
+  });
+  expect(result.current.undoAction?.label).toBe("Settled");
+  await act(async () => result.current.undo());
+  expect(server.rows()[0]?.navigation).toMatchObject({ pinned: false, doneAt: null });
+});
+
+it("uses the accepted order revision when a refresh sees the commit before its response", async () => {
+  const a = row("A");
+  const b = row("B");
+  const server = navigationServer([a, b]);
+  let holdRead = false;
+  let releaseRead = () => {};
+  let releaseOrder = () => {};
+  const readGate = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  const orderGate = new Promise<void>((resolve) => {
+    releaseOrder = resolve;
+  });
+  let committed = false;
+  const fetchJson = async (url: string, init?: RequestInit) => {
+    if (holdRead && !init?.method) {
+      holdRead = false;
+      await readGate;
+    }
+    const response = await server.fetchJson(url, init);
+    if (url.endsWith("/sessions/order")) {
+      committed = true;
+      await orderGate;
+    }
+    return response;
+  };
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson }));
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+  holdRead = true;
+  let refresh: Promise<void> | undefined;
+  let ordered: Promise<boolean> | undefined;
+  act(() => {
+    refresh = result.current.reload();
+    ordered = result.current.apply([
+      { kind: "reorder", section: "active", projectIds: [b.projectId, a.projectId] },
+    ]);
+  });
+  await waitFor(() => expect(committed).toBe(true));
+  await act(async () => {
+    releaseRead();
+    await refresh;
+  });
+  let pinned: Promise<boolean> | undefined;
+  act(() => {
+    pinned = result.current.change(a.projectId, { kind: "pin", pinned: true });
+  });
+  await act(async () => {
+    releaseOrder();
+    await ordered;
+    await pinned;
+  });
+  expect(server.requests.at(-1)?.body).toEqual({
+    revision: 1,
+    change: { kind: "pin", pinned: true },
+  });
+  expect(server.rows().find((item) => item.projectId === a.projectId)?.navigation.pinned).toBe(
+    true,
+  );
+  expect(result.current.actionError).toBeUndefined();
+});

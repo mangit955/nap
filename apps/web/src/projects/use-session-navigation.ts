@@ -30,7 +30,7 @@ export type ApplyOptions = {
 
 type UndoAction = {
   label: string;
-  entries: readonly { projectId: string; navigation: SessionNavigation }[];
+  entries: readonly { projectId: string; navigation: SessionNavigation; revision: number }[];
 };
 
 /** One action waiting for the server, and the group it belongs to. */
@@ -128,7 +128,7 @@ export function useSessionNavigation({
 
   /** Sends one write and answers with the server's refusal, or nothing when it was saved. */
   const send = useCallback(
-    async (op: PendingOp): Promise<string | undefined> => {
+    async (op: PendingOp, revision?: number): Promise<string | undefined> => {
       const json = { "content-type": "application/json" };
       const current = (id: string) => confirmed.current.find((item) => item.projectId === id);
       if (op.kind === "reorder") {
@@ -152,9 +152,11 @@ export function useSessionNavigation({
         );
         if (!result.ok) return result.error;
         // The server moves each revision by one; knowing that saves waiting for a reload.
-        const moved = new Set(op.projectIds);
+        const revisions = new Map(rows.map((item) => [item?.projectId, (item?.revision ?? 0) + 1]));
         confirmed.current = withPending(confirmed.current, [op]).map((item) =>
-          moved.has(item.projectId) ? { ...item, revision: item.revision + 1 } : item,
+          revisions.has(item.projectId)
+            ? { ...item, revision: revisions.get(item.projectId) ?? item.revision }
+            : item,
         );
         return undefined;
       }
@@ -169,7 +171,7 @@ export function useSessionNavigation({
             method: "PATCH",
             keepalive: true,
             headers: json,
-            body: JSON.stringify({ revision: row.revision, change: op.change }),
+            body: JSON.stringify({ revision: revision ?? row.revision, change: op.change }),
           },
         );
         if (!result.ok) return result.error;
@@ -206,17 +208,32 @@ export function useSessionNavigation({
    * first refusal, which also drops the rest of the group unsent.
    */
   const enqueue = useCallback(
-    (ops: readonly PendingOp[], quiet: boolean): Promise<boolean> => {
+    (
+      ops: readonly PendingOp[],
+      options: ApplyOptions & { revisions?: ReadonlyMap<string, number> } = {},
+    ): Promise<boolean> => {
+      const quiet = options.quiet ?? false;
       if (!quiet) setError(undefined);
       const group: Group = { failed: false, quiet };
       const entries = ops.map((op) => ({ op, group }));
       pending.current = [...pending.current, ...entries];
       publish();
+      let before: { projectId: string; navigation: SessionNavigation }[] = [];
+      const started = queue.current.then(() => {
+        if (!options.label) return;
+        const ids = new Set(ops.flatMap((op) => (op.kind === "change" ? [op.projectId] : [])));
+        before = confirmed.current
+          .filter((row) => ids.has(row.projectId))
+          .map(({ projectId, navigation }) => ({ projectId, navigation }));
+      });
       const done = entries.reduce<Promise<void>>(
         (previous, entry) =>
           previous.then(async () => {
             if (!group.failed) {
-              const refusal = await send(entry.op);
+              const refusal = await send(
+                entry.op,
+                entry.op.kind === "change" ? options.revisions?.get(entry.op.projectId) : undefined,
+              );
               if (refusal !== undefined) {
                 group.failed = true;
                 const { op } = entry;
@@ -233,9 +250,18 @@ export function useSessionNavigation({
             );
             publish();
           }),
-        queue.current,
+        started,
       );
       queue.current = done.then(() => {
+        if (!group.failed && options.label && before.length > 0) {
+          setUndo({
+            label: options.label,
+            entries: before.flatMap((entry) => {
+              const row = confirmed.current.find((item) => item.projectId === entry.projectId);
+              return row ? [{ ...entry, revision: row.revision }] : [];
+            }),
+          });
+        }
         if (pending.current.length > 0) return;
         notify();
         void reload();
@@ -248,20 +274,8 @@ export function useSessionNavigation({
   const apply = useCallback(
     async (steps: readonly NavigationStep[], options: ApplyOptions = {}): Promise<boolean> => {
       const at = new Date().toISOString();
-      const before = withPending(
-        confirmed.current,
-        pending.current.map((entry) => entry.op),
-      );
-      const entries: UndoAction["entries"] = [
-        ...new Set(steps.flatMap((step) => (step.kind === "change" ? [step.projectId] : []))),
-      ].flatMap((projectId) => {
-        const navigation = before.find((item) => item.projectId === projectId)?.navigation;
-        return navigation ? [{ projectId, navigation }] : [];
-      });
       const ops = steps.map((step): PendingOp => (step.kind === "change" ? { ...step, at } : step));
-      const saved = await enqueue(ops, options.quiet ?? false);
-      if (saved && options.label && entries.length > 0) setUndo({ label: options.label, entries });
-      return saved;
+      return enqueue(ops, options);
     },
     [enqueue],
   );
@@ -278,14 +292,20 @@ export function useSessionNavigation({
   const undo = useCallback(async () => {
     if (!undoAction) return;
     setUndo(undefined);
-    await apply(
+    await enqueue(
       undoAction.entries.map(({ projectId, navigation }) => ({
         kind: "change",
         projectId,
         change: { kind: "restore", navigation },
+        at: new Date().toISOString(),
       })),
+      {
+        revisions: new Map(
+          undoAction.entries.map(({ projectId, revision }) => [projectId, revision]),
+        ),
+      },
     );
-  }, [apply, undoAction]);
+  }, [enqueue, undoAction]);
 
   return {
     projects,
@@ -297,10 +317,9 @@ export function useSessionNavigation({
     undo,
     reload,
     dismissUndo: () => setUndo(undefined),
-    rename: (projectId: string, name: string) =>
-      enqueue([{ kind: "rename", projectId, name }], false),
-    remove: (projectId: string) => enqueue([{ kind: "remove", projectId }], false),
-    close: (projectId: string) => enqueue([{ kind: "close", projectId }], false),
+    rename: (projectId: string, name: string) => enqueue([{ kind: "rename", projectId, name }]),
+    remove: (projectId: string) => enqueue([{ kind: "remove", projectId }]),
+    close: (projectId: string) => enqueue([{ kind: "close", projectId }]),
   };
 }
 

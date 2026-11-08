@@ -26,7 +26,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, type SortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { type ReactNode, useMemo, useRef } from "react";
+import { type ReactNode, type RefObject, useMemo, useRef } from "react";
 
 /**
  * The boundaries and an empty Settled shelf appear when a drag starts, which moves every row
@@ -70,6 +70,7 @@ function shelvesStrategy(fixed: ReadonlySet<number>): SortingStrategy {
 
 export function DragLayer({
   ids,
+  container,
   fixed,
   onDragStart,
   onDragOver,
@@ -78,6 +79,7 @@ export function DragLayer({
 }: {
   /** Every sortable item in list order: rows and markers alike. */
   ids: readonly string[];
+  container: RefObject<HTMLElement | null>;
   /** Items that never move to make room — the shelf headers. */
   fixed: ReadonlySet<string>;
   onDragStart: (id: string) => void;
@@ -114,7 +116,12 @@ export function DragLayer({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={(args) => {
+        // The row is constrained horizontally; only the real pointer says whether it left.
+        const pointer = args.pointerCoordinates;
+        const target = pointer && document.elementFromPoint(pointer.x, pointer.y);
+        return target && container.current?.contains(target) ? closestCenter(args) : [];
+      }}
       measuring={MEASURING}
       modifiers={[anchored]}
       onDragStart={({ active: started }) => {

@@ -323,6 +323,12 @@ afterAll(async () => {
 
 describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, in Chrome", () => {
   beforeEach(async () => {
+    await page.send("Emulation.setDeviceMetricsOverride", {
+      width: WIDTH,
+      height: HEIGHT,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
     // A fresh page is a fresh in-memory server, so each case starts from the same six rows.
     await page.send("Page.navigate", { url: `${origin}/` });
     await page.waitFor(`${rowOf("Pricing page")}`);
@@ -412,5 +418,85 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
     // The click that ends a drag lands on the row's link; following it would have left the page.
     await pause(400);
     expect(await page.evaluate<string>("location.pathname")).toBe("/");
+  });
+
+  it("keeps Copy and Snooze reachable while the pointer crosses into their submenus", async () => {
+    await page.send("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: HEIGHT,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    await page.evaluate(
+      "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+    );
+    await page.evaluate(
+      `Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text) => { window.__copied = text; } } })`,
+    );
+    for (const [owner, item] of [
+      ["copy", "Branch"],
+      ["snooze", "In 1 hour"],
+    ]) {
+      const point = centre(await rectOf(page, rowOf("Header polish")));
+      for (const type of ["mousePressed", "mouseReleased"]) {
+        await page.send("Input.dispatchMouseEvent", {
+          type,
+          x: point.x,
+          y: point.y,
+          button: "right",
+          buttons: type === "mousePressed" ? 2 : 0,
+          clickCount: 1,
+        });
+      }
+      const parent = `document.querySelector('[role="menuitem"][data-submenu="${owner}"]')`;
+      await page.waitFor(parent);
+      const start = centre(await rectOf(page, parent));
+      await page.mouse("mouseMoved", start.x, start.y);
+      const nested = `document.querySelector('[role="menu"][aria-label="${owner === "copy" ? "Copy" : "Snooze"}"]')`;
+      await page.waitFor(nested);
+      const submenu = await rectOf(page, nested);
+      const endX = submenu.x > start.x ? submenu.x + 10 : submenu.x + submenu.width - 10;
+      const direction = Math.sign(endX - start.x);
+      for (let x = start.x; direction * (endX - x) >= 0; x += direction) {
+        await page.mouse("mouseMoved", x, start.y);
+      }
+      expect(await page.evaluate<boolean>(`Boolean(${nested})`)).toBe(true);
+      const target = `[...(${nested}).querySelectorAll('[role="menuitem"]')].find((button) => button.textContent.startsWith(${JSON.stringify(item)}))`;
+      const end = centre(await rectOf(page, target));
+      await page.mouse("mouseMoved", end.x, end.y);
+      await page.mouse("mousePressed", end.x, end.y);
+      await page.mouse("mouseReleased", end.x, end.y);
+      await page.waitFor(`!document.querySelector('[role="menu"]')`);
+    }
+    expect(await page.evaluate<string>("window.__copied")).toBe("nap/change-1");
+    expect((await writes(page))[0]).toMatchObject({
+      body: { change: { kind: "snooze", until: expect.any(String) } },
+    });
+  });
+
+  it("abandons a drag released in the main content outside the sidebar", async () => {
+    await page.send("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: HEIGHT,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    await page.evaluate(
+      "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+    );
+    const start = centre(await rectOf(page, rowOf("Checkout flow")));
+    await page.mouse("mouseMoved", start.x, start.y);
+    await page.mouse("mousePressed", start.x, start.y);
+    await page.mouse("mouseMoved", start.x, start.y + 12);
+    await page.waitFor(`document.querySelector("[data-boundary]")`);
+    const shelf = centre(
+      await rectOf(page, `document.querySelector("section[aria-label='Settled'] button")`),
+    );
+    await page.mouse("mouseMoved", 600, shelf.y);
+    await pause(200);
+    await page.mouse("mouseReleased", 600, shelf.y);
+    await pause(350);
+    expect(await writes(page)).toEqual([]);
+    expect(await page.evaluate<boolean>(`Boolean(${rowOf("Checkout flow")})`)).toBe(true);
   });
 });
