@@ -722,8 +722,8 @@ assertion offers a separate repair the user may request; it never starts one its
 
 **Goal** — what an **App test** of a Job is judged against. Usually the Job's objective. A Job
 opened by **Fix it** has the repair prompt as its objective and the failed test's goal as its
-goal, copied from that test's `test.started` by the runtime. A goal is always something the person
-asked for, never a prompt that a repair generated.
+goal, copied from that test's `test.started` by the runtime. Structured repairs preserve this goal
+without reading it from the repair prompt. Older logs fall back to the objective and are not backfilled.
 
 **Test recording** — a video of one App test, with annotations on the video’s timeline. It shows
 what was attempted and what was visible; it does not independently establish an assertion’s truth.
