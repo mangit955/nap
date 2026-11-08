@@ -378,6 +378,19 @@ describe("plan mode", () => {
   });
 });
 
+describe("Fix it", () => {
+  it("sends the app test it repairs beside the prompt", async () => {
+    const { fetchJson, bodies } = poster();
+    const { result } = submission(fetchJson);
+
+    await act(async () => {
+      await result.current.submit("Fix the failures.", undefined, undefined, undefined, TURN);
+    });
+
+    expect(bodies[0]).toEqual({ message: "Fix the failures.", fixesTest: TURN });
+  });
+});
+
 describe("cancelling", () => {
   it("asks the server to stop the turn", async () => {
     const { fetchJson, calls } = poster();
@@ -674,12 +687,14 @@ describe("a message sent while a turn runs", () => {
           intent: "approve",
           planTurnId: TURN,
         }),
+      () => result.current.submit("Fix the failures.", undefined, undefined, undefined, TURN),
     ])
       await act(async () => {
         await send();
       });
 
     expect(server.calls.map((call) => call.path)).toEqual([
+      `/sessions/${SESSION}/turns`,
       `/sessions/${SESSION}/turns`,
       `/sessions/${SESSION}/turns`,
       `/sessions/${SESSION}/turns`,

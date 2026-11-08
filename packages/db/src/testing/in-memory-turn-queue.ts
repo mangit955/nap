@@ -112,6 +112,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
         ? {}
         : { attachments: structuredClone(request.attachments) }),
       ...(request.plan === undefined ? {} : { plan: structuredClone(request.plan) }),
+      ...(request.fixesTest === undefined ? {} : { fixesTest: request.fixesTest }),
       model: request.model,
       billsToUser: request.billsToUser,
       state: "queued",
@@ -180,6 +181,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
         ? {}
         : { attachments: structuredClone(candidate.attachments) }),
       ...(candidate.plan === undefined ? {} : { plan: structuredClone(candidate.plan) }),
+      ...(candidate.fixesTest === undefined ? {} : { fixesTest: candidate.fixesTest }),
       model: candidate.model,
       billsToUser: candidate.billsToUser,
     };
@@ -424,6 +426,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
       message: row.message,
       ...(row.attachments === undefined ? {} : { attachments: structuredClone(row.attachments) }),
       ...(row.plan === undefined ? {} : { plan: structuredClone(row.plan) }),
+      ...(row.fixesTest === undefined ? {} : { fixesTest: row.fixesTest }),
       model: row.model,
       billsToUser: row.billsToUser,
     }));

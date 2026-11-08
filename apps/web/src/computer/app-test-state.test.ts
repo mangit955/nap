@@ -59,7 +59,7 @@ it("folds declaration and verdict into one assertion and builds repair data only
 });
 it("keeps interrupted and orphan results readable without inventing repair context", () => {
   const orphan = foldAppTests(testEvents.slice(-1))[0];
-  expect(orphan?.objective).toBeNull();
+  expect(orphan?.goal).toBeNull();
   if (!orphan) throw new Error("missing orphan");
   expect(appTestRepairPrompt(orphan)).toBeUndefined();
   expect(foldAppTests(testEvents.slice(0, 2))[0]?.counts).toEqual({

@@ -345,6 +345,66 @@ describe("plan mode at admission", () => {
   });
 });
 
+describe("POST /sessions/:sessionId/turns — Fix it", () => {
+  const TEST_TURN = "5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f";
+  const JOB = "6d7e8f90-a1b2-4c3d-9e4f-5a6b7c8d9e0f";
+  const at = "2026-11-03T12:00:00.000Z";
+
+  async function testThatFailed(store: InMemoryEventStore, failed: number) {
+    const base = { sessionId: SESSION, turnId: TEST_TURN, createdAt: at };
+    await store.append({
+      ...base,
+      type: "test.started",
+      payload: { jobId: JOB, commitSha: "abcdef1", objective: "Save notes" },
+    });
+    await store.append({
+      ...base,
+      type: "test.completed",
+      payload: { jobId: JOB, status: "completed", counts: { passed: 0, failed, untested: 0 } },
+    });
+  }
+
+  it("queues the test it repairs beside the prompt", async () => {
+    const queue = new InMemoryTurnQueue();
+    const store = new InMemoryEventStore();
+    await testThatFailed(store, 1);
+    const { app: hono } = app(queue, undefined, undefined, undefined, store);
+    const res = await post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Fix the failures.",
+      fixesTest: TEST_TURN,
+    });
+    expect(res.status).toBe(202);
+    expect(queue.enqueued[0]).toMatchObject({ message: "Fix the failures.", fixesTest: TEST_TURN });
+  });
+
+  it("409s a Fix it naming a test with nothing failed, or none at all, and admits nothing", async () => {
+    const queue = new InMemoryTurnQueue();
+    const store = new InMemoryEventStore();
+    await testThatFailed(store, 0);
+    const { app: hono } = app(queue, undefined, undefined, undefined, store);
+    for (const fixesTest of [TEST_TURN, UNKNOWN]) {
+      const res = await post(hono, `/sessions/${SESSION}/turns`, { message: "Fix.", fixesTest });
+      expect(res.status).toBe(409);
+    }
+    expect(queue.enqueued).toHaveLength(0);
+  });
+
+  it("400s a Fix it sent in plan mode or as /compact", async () => {
+    const queue = new InMemoryTurnQueue();
+    const store = new InMemoryEventStore();
+    await testThatFailed(store, 1);
+    const { app: hono } = app(queue, undefined, undefined, undefined, store);
+    for (const body of [
+      { message: "Fix.", fixesTest: TEST_TURN, plan: { intent: "propose" } },
+      { message: "/compact", fixesTest: TEST_TURN },
+    ]) {
+      const res = await post(hono, `/sessions/${SESSION}/turns`, body);
+      expect(res.status).toBe(400);
+    }
+    expect(queue.enqueued).toHaveLength(0);
+  });
+});
+
 describe("POST /sessions/:sessionId/turns/cancel", () => {
   it("stops a request that has not been claimed yet", async () => {
     const queue = new InMemoryTurnQueue();

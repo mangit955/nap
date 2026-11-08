@@ -259,6 +259,29 @@ describe("running a claimed request", () => {
     expect(runtime.turns[0]?.turnId).toBe(id);
   });
 
+  it("hands the runtime the app test a Fix it repairs, and nothing for an ordinary prompt", async () => {
+    const queue = new InMemoryTurnQueue();
+    const runtime = new RecordingRuntime();
+    start(queue, runtime);
+    const fixesTest = crypto.randomUUID();
+    await enqueueRequest(queue, {
+      sessionId: "session-a",
+      userId: "user-1",
+      kind: "turn",
+      message: "Fix the failures found while testing this app.",
+      fixesTest,
+      model: "openai/gpt-5-mini",
+      billsToUser: false,
+    });
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+    expect(runtime.turns[0]?.fixesTest).toBe(fixesTest);
+    runtime.complete();
+
+    await enqueueTurn(queue, { sessionId: "session-b" });
+    await vi.waitFor(() => expect(runtime.turns).toHaveLength(2));
+    expect(runtime.turns[1]).not.toHaveProperty("fixesTest");
+  });
+
   it("runs a resume under the request's own id too", async () => {
     // Same rule, different kind: a resume may continue a job and write events of its own, so it
     // needs to be as nameable from outside as a turn is.

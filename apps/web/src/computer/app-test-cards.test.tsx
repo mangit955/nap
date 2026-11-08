@@ -146,7 +146,8 @@ it("keeps a failed assertion as data until Fix it is clicked and labels unavaila
   expect(within(card).getByRole("button", { name: "Watch recording" })).toBeDisabled();
   expect(fix).not.toHaveBeenCalled();
   fireEvent.click(within(card).getByRole("button", { name: "Fix it" }));
-  expect(fix).toHaveBeenCalledWith(expect.stringContaining("The saved note appears"));
+  // The test goes with the words, so the job the repair opens is judged by this test's goal.
+  expect(fix).toHaveBeenCalledWith(expect.stringContaining("The saved note appears"), "t");
 });
 it("shows an honest empty assertion result and disables repair while another turn runs", () => {
   const view = render(<AppTestResult test={foldAppTests(result.slice(0, 1))[0]!} running />);
@@ -184,7 +185,7 @@ it("keeps generated repair instructions out of cards while retaining assertion d
         onTest={vi.fn()}
       />
       <AppTestResult
-        test={{ ...foldAppTests(result)[0]!, objective: instruction }}
+        test={{ ...foldAppTests(result)[0]!, goal: instruction }}
         running={false}
         onFix={vi.fn()}
       />

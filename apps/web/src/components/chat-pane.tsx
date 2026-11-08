@@ -502,7 +502,9 @@ export function LiveChatPane({
         onCancel={() => void cancel()}
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
-        onRetry={(message, attachments, plan) => void submit(message, model, attachments, plan)}
+        onRetry={(message, attachments, plan, fixesTest) =>
+          void submit(message, model, attachments, plan, fixesTest)
+        }
         // Approving and revising are messages too, through the same path, so a plan card's click
         // gets the composer's optimistic message, rate limit and refusal wording (ADR-0025).
         planActions={{

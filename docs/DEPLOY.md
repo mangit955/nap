@@ -763,3 +763,29 @@ and roll forward with compatible readers instead, as with any new event metadata
 The Render release script already deploys in this order, apart from step 3's swap, and the worker's
 pre-deploy command applies 0019 before new workers boot. See
 [ADR-0028](adr/0028-a-steer-joins-the-turn-and-the-row-decides-where-it-lands.md).
+
+## App test goal rollout
+
+Migration `0020_turn_request_fixes_test.sql` adds nullable `turn_requests.fixes_test`.
+Workers carry that marker into the runtime, which writes optional `user.message.fixesTest` and
+`job.started.goal` fields. Old strict event readers reject those fields. Old workers ignore the
+queue marker and would judge the next test against the repair prompt again.
+
+For a manual rollout:
+
+1. Apply migration 0020. Its nullable column leaves old requests readable.
+2. Stop and drain every old worker, then deploy the new workers.
+3. Deploy the reaper and API before accepting requests with `fixesTest`.
+4. Deploy the web after every backend reader is compatible. Reload existing browser tabs.
+   Old tabs neither send the marker nor understand the new event fields. They can omit repair
+   prompts and job cards until reloaded.
+
+The Render release already applies migrations and replaces workers before API admission, then
+replaces the reaper before publishing the web. Its API/reaper order differs from step 3. Keep
+requests carrying `fixesTest` paused until both deployments finish if clients other than the web
+can send them. Publishing the new web does not refresh tabs already open.
+
+Once either new field is durable, do not roll an event reader back to a version that rejects it.
+Stop new repair submissions and roll forward with compatible readers. Old logs remain readable,
+but already-contaminated test goals are not backfilled or recovered from prompt text. See
+[Fix it](computer-use.md#fix-it) for the structured repair path.
