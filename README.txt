@@ -1,0 +1,1 @@
+Before/after evidence for feat/snappy-stream-and-switch. Recorded 2026-11-08 on macOS (Darwin 27.0.0, arm64), Next dev server, local API with dummy credentials, Postgres 16 in Docker. before = c6e813d2 (main), after = 1f2c07e7 (branch).
