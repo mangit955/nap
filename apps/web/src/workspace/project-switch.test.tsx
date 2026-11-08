@@ -12,9 +12,10 @@
  * against our own keying, which holds whatever the router does.
  */
 
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PREVIEW_TITLE } from "../components/preview-pane.tsx";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 
@@ -58,35 +59,78 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 const PROJECTS = {
-  [PROJECT_A]: { name: "Alpha board", sessionId: SESSION_ID, file: "src/AlphaOnly.tsx" },
-  [PROJECT_B]: { name: "Beta notes", sessionId: OTHER_SESSION_ID, file: "src/BetaOnly.tsx" },
+  [PROJECT_A]: {
+    name: "Alpha board",
+    sessionId: SESSION_ID,
+    file: "src/AlphaOnly.tsx",
+    contents: "export const alpha = 1;\n",
+  },
+  [PROJECT_B]: {
+    name: "Beta notes",
+    sessionId: OTHER_SESSION_ID,
+    file: "src/BetaOnly.tsx",
+    contents: "export const beta = 2;\n",
+  },
 } as const;
+type Project = (typeof PROJECTS)[keyof typeof PROJECTS];
 
 let net: ReturnType<typeof sockets>;
-/** Held until a test opens it: the answer to A's file listing. */
-let lateFilesForA: ReturnType<typeof gate>;
+/** Held until a test opens it: every read for A asked while `holdAlpha` is set. */
+let lateForA: ReturnType<typeof gate>;
+let holdAlpha: boolean;
+/**
+ * Which of A's reads reached the server while held, and which had their answer handed back.
+ * Without the first, opening the gate could release nothing and the test would still pass;
+ * without the second, a held read that never resolved would look the same as one ignored.
+ */
+let heldForA: string[];
+let answeredForA: string[];
 
+/** Holds a read for A when the test asks for it, and records that it did. */
+async function maybeHold(project: Project, what: string): Promise<void> {
+  if (project.sessionId !== SESSION_ID || !holdAlpha) return;
+  heldForA.push(what);
+  await lateForA.wait;
+  answeredForA.push(what);
+}
+
+// The project record is addressed by project, the files by session — the same split the API
+// makes — so each is routed on the id its real endpoint carries.
 const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
-  const id = Object.keys(PROJECTS).find((key) => url.includes(key)) as
+  if (init?.method === "POST") return json({ opened: true }, 202);
+  const { pathname, searchParams } = new URL(url);
+
+  const bySession = Object.values(PROJECTS).find((project) =>
+    pathname.startsWith(`/sessions/${project.sessionId}/`),
+  );
+  if (bySession !== undefined && pathname.endsWith("/files")) {
+    await maybeHold(bySession, "listing");
+    return json({ ready: true, files: [bySession.file], truncated: false });
+  }
+  if (bySession !== undefined && pathname.endsWith("/file")) {
+    const path = searchParams.get("path");
+    if (path !== bySession.file) return json({ error: "not found" }, 404);
+    await maybeHold(bySession, "file");
+    return json({
+      path,
+      contents: bySession.contents,
+      truncated: false,
+      bytes: bySession.contents.length,
+    });
+  }
+
+  const id = Object.keys(PROJECTS).find((key) => pathname === `/projects/${key}`) as
     | keyof typeof PROJECTS
     | undefined;
   if (id === undefined) return json({ error: "not found" }, 404);
-  const project = PROJECTS[id];
-  if (init?.method === "POST") return json({ opened: true }, 202);
-  if (url.includes("/files")) {
-    if (id === PROJECT_A) await lateFilesForA.wait;
-    return json({ files: [project.file], ready: true });
-  }
-  if (url.endsWith(`/projects/${id}`))
-    return json({
-      projectId: id,
-      name: project.name,
-      status: "ready",
-      sandboxId: `sbx_${id.slice(0, 4)}`,
-      updatedAt: "2026-08-09T12:30:00.000Z",
-      sessionIds: [project.sessionId],
-    });
-  return json({ error: "not found" }, 404);
+  return json({
+    projectId: id,
+    name: PROJECTS[id].name,
+    status: "ready",
+    sandboxId: `sbx_${id.slice(0, 4)}`,
+    updatedAt: "2026-08-09T12:30:00.000Z",
+    sessionIds: [PROJECTS[id].sessionId],
+  });
 };
 
 function workspace(projectId: string) {
@@ -123,6 +167,8 @@ function expectNothingOfAlpha() {
   expect(within(main).queryByText("Alpha prompt")).toBeNull();
   expect(within(main).queryByText("Alpha reply")).toBeNull();
   expect(within(main).queryByText(/AlphaOnly/)).toBeNull();
+  expect(within(main).queryByRole("button", { name: /AlphaOnly\.tsx/ })).toBeNull();
+  expect(within(main).queryByRole("region", { name: "src/AlphaOnly.tsx (read-only)" })).toBeNull();
   expect(within(main).queryByText("Alpha board")).toBeNull();
   expect(within(main).queryByRole("button", { name: "Stop" })).toBeNull();
   expect(document.querySelector('iframe[src*="alpha"]')).toBeNull();
@@ -134,7 +180,10 @@ beforeEach(() => {
   sidebarMounts = 0;
   net = sockets();
   net.countGlobalToo(vi.stubGlobal);
-  lateFilesForA = gate();
+  lateForA = gate();
+  holdAlpha = false;
+  heldForA = [];
+  answeredForA = [];
 });
 
 describe("switching projects in place", () => {
@@ -143,6 +192,45 @@ describe("switching projects in place", () => {
     const alpha = await replayAlpha();
     expect(await screen.findByText("Alpha reply")).toBeVisible();
     expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
+    // A's preview is really up, so its absence after the switch is the switch's doing.
+    expect(await screen.findByTitle(PREVIEW_TITLE)).toHaveAttribute(
+      "src",
+      expect.stringContaining("alpha"),
+    );
+
+    // A's files really loaded, so their absence after the switch is the switch's doing too.
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    expect(
+      await within(screen.getByRole("region", { name: "Files" })).findByRole("button", {
+        name: "AlphaOnly.tsx",
+      }),
+    ).toBeVisible();
+
+    // Two reads for A left in the air: a refreshed listing, which a changed file asks for, and
+    // the contents of the file just opened. Both are on the wire before the switch.
+    holdAlpha = true;
+    await act(async () => {
+      alpha.deliver({
+        type: "event",
+        event: ev(
+          "file.changed",
+          { path: "src/AlphaOnly.tsx", changeType: "modified", diff: "+alpha\n" },
+          5,
+        ),
+      });
+    });
+    // Named "AlphaOnly.tsx changed" now, for anybody listening, hence the prefix match.
+    fireEvent.click(
+      within(screen.getByRole("region", { name: "Files" })).getByRole("button", {
+        name: /^AlphaOnly\.tsx/,
+      }),
+    );
+    await waitFor(() => expect([...heldForA].sort()).toEqual(["file", "listing"]));
+    expect(
+      within(screen.getByRole("region", { name: "src/AlphaOnly.tsx (read-only)" })).getByRole(
+        "status",
+      ),
+    ).toHaveTextContent("Loading file…");
 
     view.rerender(workspace(PROJECT_B));
 
@@ -172,13 +260,21 @@ describe("switching projects in place", () => {
     });
     expect(await screen.findByText("Beta prompt")).toBeVisible();
 
-    // A's file listing, asked for before the switch, answers after it.
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    const betaFiles = () => within(screen.getByRole("region", { name: "Files" }));
+    expect(await betaFiles().findByRole("button", { name: "BetaOnly.tsx" })).toBeVisible();
+    expectNothingOfAlpha();
+
+    // A's listing and A's file, asked for before the switch, answer after it.
     await act(async () => {
-      lateFilesForA.open();
+      lateForA.open();
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    expect([...answeredForA].sort()).toEqual(["file", "listing"]);
+
+    expect(betaFiles().getByRole("button", { name: "BetaOnly.tsx" })).toBeVisible();
     expectNothingOfAlpha();
     expect(net.opened.filter((socket) => !socket.closed)).toEqual([beta]);
   });
