@@ -248,6 +248,27 @@ describe("every item in a session's context menu", () => {
     expect(server.requests).toEqual([]);
   });
 
+  it("Move up and Move down send the shelf's new order", async () => {
+    const [top, middle, bottom] = ["Top", "Middle", "Bottom"].map((name, index) =>
+      row(name, { position: index }),
+    ) as [SessionSummary, SessionSummary, SessionSummary];
+    const server = await mount([top, middle, bottom]);
+    const order = (rows: SessionSummary[], revision: number) => ({
+      method: "POST",
+      path: "/sessions/order",
+      body: {
+        section: "active",
+        rows: rows.map((session) => ({ projectId: session.projectId, revision })),
+      },
+    });
+    choose("Middle", "Move up");
+    expect(await lastWrite(server)).toEqual(order([middle, top, bottom], 0));
+    choose("Top", "Move down");
+    // The first reorder moved every row's revision by one, and the second is checked against that.
+    await waitFor(() => expect(server.requests).toHaveLength(2));
+    expect(server.requests[1]).toEqual(order([middle, bottom, top], 1));
+  });
+
   it("Put away workspace sends the close", async () => {
     const session = row("Running");
     const server = await mount([session]);
@@ -329,6 +350,48 @@ describe("the context menu by keyboard", () => {
     fireEvent.keyDown(first, { key: "ArrowLeft" });
     expect(snooze).toHaveFocus();
     expect(snooze).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("the context menu by pointer", () => {
+  it("keeps a submenu open when its owner is clicked after the pointer opened it", async () => {
+    await mount([row("Hovered")]);
+    const menu = openMenu("Hovered");
+    const snooze = within(menu).getByRole("menuitem", { name: "Snooze" });
+    // React's pointer-enter is derived from pointerover, which is what a browser sends first.
+    fireEvent.pointerOver(snooze, { pointerType: "mouse" });
+    expect(within(menu).getByRole("menu", { name: "Snooze" })).toBeInTheDocument();
+    fireEvent.click(snooze);
+    expect(snooze).toHaveAttribute("aria-expanded", "true");
+    expect(within(menu).getByRole("menu", { name: "Snooze" })).toBeInTheDocument();
+  });
+
+  it("keeps a submenu open while a finger lifts off its item, so the tap chooses that item", async () => {
+    const session = row("Tapped");
+    const server = await mount([session]);
+    const menu = openMenu("Tapped");
+    const copy = within(menu).getByRole("menuitem", { name: "Copy" });
+    fireEvent.pointerOver(copy, { pointerType: "touch" });
+    fireEvent.click(copy);
+    const submenu = within(menu).getByRole("menu", { name: "Copy" });
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const branch = within(submenu).getByRole("menuitem", { name: "Branch" });
+    // A finger leaves every element as it lifts, before the click that the tap becomes.
+    fireEvent.pointerOver(branch, { pointerType: "touch" });
+    fireEvent.pointerOut(branch, { pointerType: "touch", relatedTarget: null });
+    expect(within(menu).getByRole("menu", { name: "Copy" })).toBeInTheDocument();
+    fireEvent.click(branch);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("nap/fix-header"));
+    expect(server.requests).toEqual([]);
+
+    // A mouse leaving is a real leave, and still shuts the submenu.
+    const reopened = openMenu("Tapped");
+    const owner = within(reopened).getByRole("menuitem", { name: "Copy" });
+    fireEvent.pointerOver(owner, { pointerType: "mouse" });
+    expect(within(reopened).getByRole("menu", { name: "Copy" })).toBeInTheDocument();
+    fireEvent.pointerOut(owner, { pointerType: "mouse", relatedTarget: document.body });
+    expect(within(reopened).queryByRole("menu", { name: "Copy" })).toBeNull();
   });
 });
 

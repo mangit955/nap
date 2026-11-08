@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { MenuItem, MenuItemId } from "./session-menu.ts";
+import { MENU_EDGE, placeSubmenu } from "./submenu-placement.ts";
 
 /**
  * A session's context menu, opened by right-click, the Context Menu key or Shift+F10.
@@ -46,10 +47,11 @@ export function SessionContextMenu({
   useLayoutEffect(() => {
     const element = menu.current;
     if (!element) return;
-    const rect = element.getBoundingClientRect();
+    // The layout size, not the drawn one: the menu grows in from 98%, and a box measured
+    // mid-animation is clamped as if it were smaller than it is about to be.
     setPosition({
-      x: Math.max(8, Math.min(at.x, window.innerWidth - rect.width - 8)),
-      y: Math.max(8, Math.min(at.y, window.innerHeight - rect.height - 8)),
+      x: Math.max(MENU_EDGE, Math.min(at.x, window.innerWidth - element.offsetWidth - MENU_EDGE)),
+      y: Math.max(MENU_EDGE, Math.min(at.y, window.innerHeight - element.offsetHeight - MENU_EDGE)),
     });
     element.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, [at]);
@@ -146,7 +148,11 @@ export function SessionContextMenu({
               role="none"
               className="relative"
               onPointerEnter={() => setSubmenu(item.id)}
-              onPointerLeave={() => setSubmenu(undefined)}
+              // A finger "leaves" everything as it lifts, before the click its tap becomes; shutting
+              // the submenu then would hand that click to whatever menu item lies under it.
+              onPointerLeave={(event) => {
+                if (event.pointerType !== "touch") setSubmenu(undefined);
+              }}
             >
               <button
                 type="button"
@@ -154,7 +160,9 @@ export function SessionContextMenu({
                 aria-haspopup="menu"
                 aria-expanded={submenu === item.id}
                 data-submenu={item.id}
-                onClick={() => setSubmenu(submenu === item.id ? undefined : item.id)}
+                // Opens rather than toggles: the pointer that clicks has already opened it on the
+                // way in, and a tap opens it on touch, so a toggle would shut it under the finger.
+                onClick={() => setSubmenu(item.id)}
                 className={ITEM}
               >
                 <span className="flex-1">{item.label}</span>
@@ -176,7 +184,11 @@ export function SessionContextMenu({
   );
 }
 
-/** A nested menu, drawn beside its parent item — or on the other side if that is off screen. */
+/**
+ * A nested menu, drawn where `placeSubmenu` says: beside its owner item, or below it where
+ * neither side has room. It stays a DOM child of the owner's wrapper wherever it is drawn, so
+ * moving onto it is never a pointer leave.
+ */
 function Submenu({
   label,
   items,
@@ -187,11 +199,18 @@ function Submenu({
   onSelect: (id: MenuItemId) => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
-  const [flip, setFlip] = useState(false);
+  const [offset, setOffset] = useState<{ left: number; top: number }>();
   useLayoutEffect(() => {
     const node = element.current;
-    if (!node) return;
-    setFlip(node.getBoundingClientRect().right > window.innerWidth - 8);
+    const owner = node?.parentElement;
+    if (!node || !owner) return;
+    setOffset(
+      placeSubmenu(
+        owner.getBoundingClientRect(),
+        { width: node.offsetWidth, height: node.offsetHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
     node.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   }, []);
   return (
@@ -199,7 +218,8 @@ function Submenu({
       ref={element}
       role="menu"
       aria-label={label}
-      className={`composer-surface nap-float absolute top-[-4px] z-50 w-56 rounded-[10px] p-1 ${flip ? "right-full" : "left-full"}`}
+      style={offset}
+      className={`composer-surface nap-float absolute z-50 w-56 rounded-[10px] p-1 ${offset ? "" : "top-[-4px] left-full"}`}
     >
       {items.map((item) => (
         <WithSeparator key={item.id} separator={item.separatorBefore}>

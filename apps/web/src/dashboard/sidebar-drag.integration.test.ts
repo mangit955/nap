@@ -88,6 +88,11 @@ class Page {
     }
     throw new Error(`Timed out waiting for ${expression}\n${this.errors.join("\n")}`);
   }
+  /** A finger down and up at one point, which Chrome turns into a tap and then a click. */
+  async tap(x: number, y: number) {
+    await this.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    await this.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
   mouse(type: "mouseMoved" | "mousePressed" | "mouseReleased", x: number, y: number) {
     return this.send("Input.dispatchMouseEvent", {
       type,
@@ -455,6 +460,11 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
       const nested = `document.querySelector('[role="menu"][aria-label="${owner === "copy" ? "Copy" : "Snooze"}"]')`;
       await page.waitFor(nested);
       const submenu = await rectOf(page, nested);
+      const ownerBox = await rectOf(page, parent);
+      // Beside its owner, risen to line up, and not dropped below it over the rest of the menu.
+      expect(submenu.y).toBeLessThan(ownerBox.y);
+      const middle = ownerBox.x + ownerBox.width / 2;
+      expect(submenu.x >= middle || submenu.x + submenu.width <= middle).toBe(true);
       const endX = submenu.x > start.x ? submenu.x + 10 : submenu.x + submenu.width - 10;
       const direction = Math.sign(endX - start.x);
       for (let x = start.x; direction * (endX - x) >= 0; x += direction) {
@@ -472,6 +482,113 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
     expect((await writes(page))[0]).toMatchObject({
       body: { change: { kind: "snooze", until: expect.any(String) } },
     });
+  });
+
+  it("keeps both submenus on a phone's screen, and their items work by touch", async () => {
+    // A phone is narrower than the menu and a submenu side by side, so neither side has room.
+    const phone = { width: 390, height: 844 };
+    const dark = { name: "prefers-color-scheme", value: "dark" };
+    await page.send("Emulation.setDeviceMetricsOverride", {
+      ...phone,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    await page.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+    await page.send("Emulation.setEmulatedMedia", {
+      features: [dark, { name: "hover", value: "none" }, { name: "pointer", value: "coarse" }],
+    });
+    try {
+      await page.evaluate(
+        "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      await page.evaluate(
+        `Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text) => { window.__copied = text; } } })`,
+      );
+      const onScreen = async (element: string) => {
+        const rect = await rectOf(page, element);
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(phone.width);
+        expect(rect.y).toBeGreaterThanOrEqual(0);
+        expect(rect.y + rect.height).toBeLessThanOrEqual(phone.height);
+      };
+      const parentOf = (owner: string) =>
+        `document.querySelector('[role="menuitem"][data-submenu="${owner}"]')`;
+      const nestedOf = (label: string) =>
+        `document.querySelector('[role="menu"][aria-label="${label}"]')`;
+
+      // The touch path: More actions, then the submenu's owner, then one of its items, each a tap.
+      for (const [owner, label, item] of [
+        ["copy", "Copy", "Branch"],
+        ["snooze", "Snooze", "In 1 hour"],
+      ] as const) {
+        const more = `document.querySelector('button[aria-label="More actions for Header polish"]')`;
+        await page.waitFor(more);
+        const button = centre(await rectOf(page, more));
+        await page.tap(button.x, button.y);
+        await page.waitFor(parentOf(owner));
+        // The menu grows in over 150ms; measuring before that ends measures a smaller box.
+        await pause(200);
+        const parent = centre(await rectOf(page, parentOf(owner)));
+        await page.tap(parent.x, parent.y);
+        await page.waitFor(nestedOf(label));
+        await pause(200);
+        await onScreen(nestedOf(label));
+        const target = `[...(${nestedOf(label)}).querySelectorAll('[role="menuitem"]')].find((button) => button.textContent.startsWith(${JSON.stringify(item)}))`;
+        await onScreen(target);
+        const end = centre(await rectOf(page, target));
+        await page.tap(end.x, end.y);
+        await page.waitFor(`!document.querySelector('[role="menu"]')`);
+        // The tap reached the submenu's item and not the menu item under it, which a submenu
+        // shut by the finger lifting would hand the click to.
+        if (owner === "copy") {
+          expect(await page.evaluate<string>("window.__copied")).toBe("nap/change-1");
+          expect(await writes(page)).toEqual([]);
+        }
+      }
+      const sent = await writes(page);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        body: { change: { kind: "snooze", until: expect.any(String) } },
+      });
+
+      // Right-clicked at the row's far edge, the menu sits mid-screen, with room on neither side.
+      // Header polish is snoozed by now, so this is the next row down.
+      for (const [owner, label] of [
+        ["copy", "Copy"],
+        ["snooze", "Snooze"],
+      ] as const) {
+        const row = await rectOf(page, rowOf("Search results"));
+        for (const type of ["mousePressed", "mouseReleased"]) {
+          await page.send("Input.dispatchMouseEvent", {
+            type,
+            x: row.x + row.width - 2,
+            y: row.y + row.height / 2,
+            button: "right",
+            buttons: type === "mousePressed" ? 2 : 0,
+            clickCount: 1,
+          });
+        }
+        await page.waitFor(parentOf(owner));
+        await pause(200);
+        await page.evaluate(
+          `(${parentOf(owner)}).focus(); (${parentOf(owner)}).dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))`,
+        );
+        await page.waitFor(nestedOf(label));
+        await pause(200);
+        await onScreen(nestedOf(label));
+        await page.evaluate(
+          `document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`,
+        );
+        expect(await page.evaluate<boolean>(`Boolean(${nestedOf(label)})`)).toBe(false);
+        await page.evaluate(
+          `document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`,
+        );
+        await page.waitFor(`!document.querySelector('[role="menu"]')`);
+      }
+    } finally {
+      await page.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+      await page.send("Emulation.setEmulatedMedia", { features: [dark] });
+    }
   });
 
   it("abandons a drag released in the main content outside the sidebar", async () => {
