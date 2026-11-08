@@ -101,6 +101,14 @@ export type LLMRequest = {
    * arrive twice.
    */
   onTextDelta?: ((delta: string) => void) | undefined;
+  /**
+   * The model has begun writing a tool call — before any of its arguments have arrived.
+   *
+   * A tool call's arguments stream as JSON, not as text, so a caller holding prose back to
+   * coalesce it would otherwise hear nothing more until the call returns. A `write_file` can
+   * spend tens of seconds there, with the sentence that introduced it unseen the whole time.
+   */
+  onToolCallStart?: (() => void) | undefined;
 };
 
 export type LLMTurnResult =

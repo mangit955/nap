@@ -15,7 +15,9 @@ import {
  * The two are kept apart all the way down: reasoning and prose are different things to a
  * reader, and a provider that crossed them would caption the answer as thinking.
  */
-type Delta = { event: "thinking" | "text"; text: string };
+type Delta =
+  | { event: "thinking" | "text"; text: string }
+  | { event: "streamEvent"; raw: Anthropic.MessageStreamEvent };
 
 /** A scripted call: what the stream emits along the way, and what it finally resolves to. */
 type Scripted = AnthropicMessage | Error | { deltas: Delta[]; message: AnthropicMessage | Error };
@@ -49,18 +51,20 @@ function stubClient(
 
         const deltas = isScript(next) ? next.deltas : [];
         const result = isScript(next) ? next.message : next;
-        const listeners = new Map<string, ((delta: string, snapshot: string) => void)[]>();
+        const listeners = new Map<string, ((first: never, snapshot: never) => void)[]>();
 
         return {
-          on(event: string, listener: (delta: string, snapshot: string) => void) {
+          on(event: string, listener: (first: never, snapshot: never) => void) {
             listeners.set(event, [...(listeners.get(event) ?? []), listener]);
           },
           finalMessage: async () => {
             for (const delta of deltas) {
-              // Second argument is the snapshot the real stream passes; present so a
-              // provider reading the wrong one is caught here rather than in production.
               for (const listener of listeners.get(delta.event) ?? []) {
-                listener(delta.text, `snapshot:${delta.text}`);
+                const call = listener as (first: unknown, snapshot: unknown) => void;
+                // Second argument is the snapshot the real stream passes; present so a
+                // provider reading the wrong one is caught here rather than in production.
+                if (delta.event === "streamEvent") call(delta.raw, message());
+                else call(delta.text, `snapshot:${delta.text}`);
               }
             }
             if (result instanceof Error) throw result;
@@ -856,6 +860,50 @@ describe("ClaudeProvider", () => {
       expect(result.type).toBe("message");
     });
 
+    it("says when a tool call starts, and only then", async () => {
+      // A tool call's arguments are JSON, not text, so without this a caller holding prose
+      // back to coalesce it hears nothing more until the whole response is over.
+      const client = stubClient([
+        {
+          deltas: [
+            { event: "streamEvent", raw: blockStart({ type: "text", text: "", citations: null }) },
+            { event: "text", text: "Let me build the board." },
+            {
+              event: "streamEvent",
+              raw: blockStart({
+                type: "tool_use",
+                id: "toolu_1",
+                name: "write_file",
+                input: {},
+                caller: { type: "direct" },
+              }),
+            },
+            {
+              event: "streamEvent",
+              raw: {
+                type: "content_block_delta",
+                index: 1,
+                delta: { type: "input_json_delta", partial_json: '{"path":' },
+              },
+            },
+          ],
+          message: message(),
+        },
+      ]);
+      const seen: string[] = [];
+
+      await provider(client)
+        .startTurn()
+        .complete(
+          request({
+            onTextDelta: () => seen.push("text"),
+            onToolCallStart: () => seen.push("tool"),
+          }),
+        );
+
+      expect(seen).toEqual(["text", "tool"]);
+    });
+
     it("keeps forwarding after a retry", async () => {
       // A retried attempt re-thinks from the start, so the reasoning arrives twice. Better a
       // repeated thought than a turn that goes quiet the moment the first attempt is dropped.
@@ -873,6 +921,12 @@ describe("ClaudeProvider", () => {
     });
   });
 });
+
+function blockStart(
+  block: Anthropic.RawContentBlockStartEvent["content_block"],
+): Anthropic.MessageStreamEvent {
+  return { type: "content_block_start", index: 0, content_block: block };
+}
 
 function usage(input: number, output: number): AnthropicMessage["usage"] {
   return {
