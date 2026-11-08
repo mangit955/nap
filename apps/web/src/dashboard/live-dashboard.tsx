@@ -78,13 +78,6 @@ function SignedInDashboard({
   const [draftSource, setDraftSource] = useState<DraftSource | null>(null);
   const [settingsRequest, setSettingsRequest] = useState(0);
   const details = useThreadDetails(`${user.id}:new-session`);
-  const [busyProjectId, setBusyProjectId] = useState<string | undefined>(undefined);
-
-  /** Runs one action against one project, with that card held still while it is in flight. */
-  const run = (projectId: string, action: (id: string) => Promise<unknown>) => {
-    setBusyProjectId(projectId);
-    void action(projectId).finally(() => setBusyProjectId(undefined));
-  };
 
   return (
     <>
@@ -122,11 +115,10 @@ function SignedInDashboard({
             email={user.isAnonymous ? undefined : (user.email ?? undefined)}
             avatarUrl={user.image ?? undefined}
             onRename={(id, name) => void rename(id, name)}
-            onDelete={(id) => run(id, remove)}
-            onClose={(id) => run(id, close)}
+            onDelete={(id) => void remove(id)}
+            onClose={(id) => void close(id)}
             error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
             loading={status === "loading"}
-            busyProjectId={navigation.busyProjectId ?? busyProjectId}
             recents={recentProjects(projects, projects.length)}
             onApiKey={() => setKeyPanelOpen(true)}
             keyHint={key.state?.configured === true ? key.state.hint : undefined}

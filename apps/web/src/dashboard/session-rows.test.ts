@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   compactTime,
   isUnread,
+  isWoke,
+  rangeBetween,
   recedes,
   rowStatus,
   SETTLED_PAGE,
   SETTLED_START,
+  seenChange,
   sessionSource,
   shelveSessions,
   snoozePresets,
@@ -101,31 +104,79 @@ describe("shelveSessions", () => {
 
 describe("rowStatus", () => {
   it("is working, with a start time, while a turn is queued or running", () => {
-    expect(rowStatus(session({ activity: "queued", requestedAt: at(3) }))).toEqual({
+    expect(rowStatus(session({ activity: "queued", requestedAt: at(3) }), NOW)).toEqual({
       kind: "working",
       since: at(3),
     });
-    expect(rowStatus(session({ activity: "working", requestedAt: at(1) }))?.kind).toBe("working");
+    expect(rowStatus(session({ activity: "working", requestedAt: at(1) }), NOW)?.kind).toBe(
+      "working",
+    );
   });
 
   it("is failed when the session needs attention", () => {
-    expect(rowStatus(session({ activity: "attention" }))?.kind).toBe("failed");
+    expect(rowStatus(session({ activity: "attention" }), NOW)?.kind).toBe("failed");
   });
 
   it("is done only while a finished turn has not been looked at", () => {
     const unseen = session({ activity: "completed", activityAt: at(5) }, { readAt: at(10) });
     const seen = session({ activity: "completed", activityAt: at(5) }, { readAt: at(1) });
 
-    expect(rowStatus(unseen)?.kind).toBe("done");
-    expect(rowStatus(seen)).toBeNull();
+    expect(rowStatus(unseen, NOW)?.kind).toBe("done");
+    expect(rowStatus(seen, NOW)).toBeNull();
   });
 
   it("is done when somebody marked the session unread", () => {
-    expect(rowStatus(session({}, { unread: true }))?.kind).toBe("done");
+    expect(rowStatus(session({}, { unread: true }), NOW)?.kind).toBe("done");
   });
 
   it("is nothing for an idle session somebody has read", () => {
-    expect(rowStatus(session())).toBeNull();
+    expect(rowStatus(session(), NOW)).toBeNull();
+  });
+});
+
+describe("Woke", () => {
+  it("is a snooze that has run out and has not been looked at since", () => {
+    const woke = session({}, { snoozedUntil: at(5), readAt: at(30) });
+    expect(isWoke(woke, NOW)).toBe(true);
+    expect(rowStatus(woke, NOW)?.kind).toBe("woke");
+    // Not yet woken, read since it woke, or never snoozed: none of these is Woke.
+    expect(isWoke(session({}, { snoozedUntil: at(-5) }), NOW)).toBe(false);
+    expect(isWoke(session({}, { snoozedUntil: at(5), readAt: at(1) }), NOW)).toBe(false);
+    expect(isWoke(session(), NOW)).toBe(false);
+  });
+
+  it("is not Woke once it has been settled, and gives way to work and failure", () => {
+    expect(isWoke(session({}, { snoozedUntil: at(5), doneAt: at(1) }), NOW)).toBe(false);
+    const failed = session({ activity: "attention" }, { snoozedUntil: at(5) });
+    expect(rowStatus(failed, NOW)?.kind).toBe("failed");
+  });
+
+  it("does not recede, so the eye finds a row that came back", () => {
+    expect(recedes({ kind: "woke" }, false)).toBe(false);
+  });
+});
+
+describe("seenChange", () => {
+  it("acknowledges the newest activity of an unread session", () => {
+    const unread = session({ activityAt: at(5) }, { readAt: at(10) });
+    expect(seenChange(unread, NOW)).toEqual({ kind: "read", at: at(5), unread: false });
+  });
+
+  it("acknowledges the wake as well, so a woken session stops saying Woke", () => {
+    const woke = session({ activityAt: at(60) }, { snoozedUntil: at(5), readAt: at(60) });
+    expect(seenChange(woke, NOW)).toEqual({ kind: "read", at: at(5), unread: false });
+  });
+
+  it("sends nothing for a session already read", () => {
+    expect(seenChange(session({ activityAt: at(5) }, { readAt: at(1) }), NOW)).toBeNull();
+  });
+});
+
+describe("rangeBetween", () => {
+  it("is every id from one end to the other, in list order, whichever end comes first", () => {
+    expect(rangeBetween(["a", "b", "c", "d"], "c", "a")).toEqual(["a", "b", "c"]);
+    expect(rangeBetween(["a", "b", "c", "d"], "b", "d")).toEqual(["b", "c", "d"]);
+    expect(rangeBetween(["a", "b"], "gone", "b")).toEqual(["b"]);
   });
 });
 

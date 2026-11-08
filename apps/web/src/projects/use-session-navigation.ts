@@ -6,7 +6,7 @@ import {
   type SessionList,
   SessionListSchema,
   type SessionNavigation,
-  type SessionReorder,
+  type SessionSection,
   type SessionSummary,
 } from "@nap/shared/session-navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,22 +14,40 @@ import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
+import { type PendingOp, withPending } from "./navigation-overlay.ts";
+
+/** One thing to do to the session list. A move between shelves is several, applied together. */
+export type NavigationStep =
+  | { kind: "change"; projectId: string; change: NavigationChange["change"] }
+  | { kind: "reorder"; section: SessionSection; projectIds: readonly string[] };
+
+export type ApplyOptions = {
+  /** What the undo notice says, and whether there is one. Omitted, nothing can be undone. */
+  label?: string | undefined;
+  /** Say nothing if the server refuses — for reads nobody asked for. */
+  quiet?: boolean | undefined;
+};
 
 type UndoAction = {
-  projectId: string;
-  revision: number;
-  navigation: SessionNavigation;
   label: string;
-};
-const labels = {
-  pin: "Pin updated",
-  done: "Done updated",
-  archive: "Archive updated",
-  snooze: "Snooze updated",
-  read: "Read state updated",
-  restore: "Previous state restored",
+  entries: readonly { projectId: string; navigation: SessionNavigation }[];
 };
 
+/** One action waiting for the server, and the group it belongs to. */
+type Entry = { op: PendingOp; group: Group };
+type Group = { failed: boolean; quiet: boolean };
+
+/**
+ * The session list, and every way of changing it.
+ *
+ * Every action is drawn at once and sent after: the rows this returns are the server's last
+ * answer with every action still on its way folded over it (`navigation-overlay.ts`). Writes go
+ * one at a time, in the order they were made, and each reads the revision the server last
+ * confirmed when it is *sent* — so two quick changes to one row carry consecutive revisions
+ * instead of the second colliding with the first. A refusal takes its action, and the rest of
+ * that action's group, out of the fold; the row goes back to where the server has it, and the
+ * error names it.
+ */
 export function useSessionNavigation({
   fetchJson = credentialedFetch,
   baseUrl = GITHUB_API_URL,
@@ -41,11 +59,21 @@ export function useSessionNavigation({
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [actionError, setError] = useState<string>();
   const [undoAction, setUndo] = useState<UndoAction>();
-  const [busyProjectId, setBusy] = useState<string>();
+  const confirmed = useRef<SessionSummary[]>([]);
+  const pending = useRef<Entry[]>([]);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  /** Moves on every reload and every settled write, so a reply from before either is dropped. */
   const generation = useRef(0);
-  const acting = useRef(false);
-  const rows = useRef(projects);
-  rows.current = projects;
+
+  const publish = useCallback(() => {
+    setProjects(
+      withPending(
+        confirmed.current,
+        pending.current.map((entry) => entry.op),
+      ),
+    );
+  }, []);
+
   const reload = useCallback(async () => {
     const version = ++generation.current;
     const nextRows: SessionSummary[] = [];
@@ -73,13 +101,15 @@ export function useSessionNavigation({
       }
       if (cursor) seen.add(cursor);
     } while (cursor);
-    setProjects(nextRows);
+    confirmed.current = nextRows;
+    publish();
     setStatus("ready");
-  }, [fetchJson, baseUrl]);
+  }, [fetchJson, baseUrl, publish]);
+
   useEffect(() => {
     void reload();
     const refresh = () => {
-      if (!document.hidden && !acting.current) void reload();
+      if (!document.hidden && pending.current.length === 0) void reload();
     };
     const timer = setInterval(refresh, 10000);
     window.addEventListener("focus", refresh);
@@ -95,142 +125,205 @@ export function useSessionNavigation({
       channel?.close();
     };
   }, [reload]);
-  const notify = () => {
-    if (typeof BroadcastChannel === "undefined") return;
-    const channel = new BroadcastChannel("nap-sessions");
-    channel.postMessage("changed");
-    channel.close();
-  };
-  const save = async (projectId: string, input: NavigationChange) => {
-    generation.current++;
-    const result = await githubRequest(
-      fetchJson,
-      `${baseUrl}/projects/${projectId}/navigation`,
-      NavigationSavedSchema,
-      {
-        method: "PATCH",
-        keepalive: true,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      },
-    );
-    if (!result.ok) {
-      if (input.change.kind !== "read") setError(result.error);
-    } else {
-      setProjects((current) =>
-        current.map((row) => (row.projectId === projectId ? { ...row, ...result.value } : row)),
-      );
-      notify();
-    }
-    await reload();
-    return result;
-  };
-  const change = async (projectId: string, change: NavigationChange["change"]) => {
-    const row = rows.current.find((item) => item.projectId === projectId);
-    if (!row || acting.current) return;
-    acting.current = true;
-    setBusy(projectId);
-    setError(undefined);
-    try {
-      const previous = row.navigation;
-      const result = await save(projectId, { revision: row.revision, change });
-      if (result.ok && ["pin", "done", "archive", "snooze"].includes(change.kind))
-        setUndo({
-          projectId,
-          revision: result.value.revision,
-          navigation: previous,
-          label: labels[change.kind],
-        });
-    } finally {
-      acting.current = false;
-      setBusy(undefined);
-    }
-  };
-  const undo = async () => {
-    if (!undoAction || acting.current) return;
-    acting.current = true;
-    setBusy(undoAction.projectId);
-    setError(undefined);
-    try {
-      const result = await save(undoAction.projectId, {
-        revision: undoAction.revision,
-        change: { kind: "restore", navigation: undoAction.navigation },
-      });
-      if (result.ok) setUndo(undefined);
-    } finally {
-      acting.current = false;
-      setBusy(undefined);
-    }
-  };
-  const reorder = async (input: SessionReorder) => {
-    if (acting.current) return;
-    acting.current = true;
-    setBusy(input.rows[0]?.projectId);
-    setError(undefined);
-    generation.current++;
-    try {
+
+  /** Sends one write and answers with the server's refusal, or nothing when it was saved. */
+  const send = useCallback(
+    async (op: PendingOp): Promise<string | undefined> => {
+      const json = { "content-type": "application/json" };
+      const current = (id: string) => confirmed.current.find((item) => item.projectId === id);
+      if (op.kind === "reorder") {
+        const rows = op.projectIds.map((projectId) => current(projectId));
+        if (rows.some((item) => item === undefined)) return "A session is no longer available.";
+        const result = await githubRequest(
+          fetchJson,
+          `${baseUrl}/sessions/order`,
+          z.object({ saved: z.literal(true) }),
+          {
+            method: "POST",
+            headers: json,
+            body: JSON.stringify({
+              section: op.section,
+              rows: rows.map((item) => ({
+                projectId: item?.projectId,
+                revision: item?.revision,
+              })),
+            }),
+          },
+        );
+        if (!result.ok) return result.error;
+        // The server moves each revision by one; knowing that saves waiting for a reload.
+        const moved = new Set(op.projectIds);
+        confirmed.current = withPending(confirmed.current, [op]).map((item) =>
+          moved.has(item.projectId) ? { ...item, revision: item.revision + 1 } : item,
+        );
+        return undefined;
+      }
+      const row = current(op.projectId);
+      if (!row) return "This session is no longer available.";
+      if (op.kind === "change") {
+        const result = await githubRequest(
+          fetchJson,
+          `${baseUrl}/projects/${op.projectId}/navigation`,
+          NavigationSavedSchema,
+          {
+            method: "PATCH",
+            keepalive: true,
+            headers: json,
+            body: JSON.stringify({ revision: row.revision, change: op.change }),
+          },
+        );
+        if (!result.ok) return result.error;
+        confirmed.current = confirmed.current.map((item) =>
+          item.projectId === op.projectId ? { ...item, ...result.value } : item,
+        );
+        return undefined;
+      }
+      const [method, suffix, body] =
+        op.kind === "rename"
+          ? ["PATCH", "", { name: op.name }]
+          : op.kind === "remove"
+            ? ["DELETE", "", undefined]
+            : ["POST", "/close", undefined];
       const result = await githubRequest(
         fetchJson,
-        `${baseUrl}/sessions/order`,
-        z.object({ saved: z.literal(true) }),
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
-        },
-      );
-      if (!result.ok) setError(result.error);
-      else notify();
-      await reload();
-    } finally {
-      acting.current = false;
-      setBusy(undefined);
-    }
-  };
-  const lifecycle = async (
-    id: string,
-    method: string,
-    suffix: string,
-    body?: unknown,
-  ): Promise<boolean> => {
-    if (acting.current) return false;
-    acting.current = true;
-    setBusy(id);
-    setError(undefined);
-    generation.current++;
-    try {
-      const result = await githubRequest(
-        fetchJson,
-        `${baseUrl}/projects/${id}${suffix}`,
+        `${baseUrl}/projects/${op.projectId}${suffix}`,
         z.object({}).passthrough(),
         {
           method,
-          headers: { "content-type": "application/json" },
+          headers: json,
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         },
       );
-      if (!result.ok) setError(result.error);
-      else notify();
-      await reload();
-      return result.ok;
-    } finally {
-      acting.current = false;
-      setBusy(undefined);
-    }
-  };
+      if (!result.ok) return result.error;
+      confirmed.current = withPending(confirmed.current, [op]);
+      return undefined;
+    },
+    [fetchJson, baseUrl],
+  );
+
+  /**
+   * Draws `ops` now and queues them. Resolves true once every one was saved, or false at the
+   * first refusal, which also drops the rest of the group unsent.
+   */
+  const enqueue = useCallback(
+    (ops: readonly PendingOp[], quiet: boolean): Promise<boolean> => {
+      if (!quiet) setError(undefined);
+      const group: Group = { failed: false, quiet };
+      const entries = ops.map((op) => ({ op, group }));
+      pending.current = [...pending.current, ...entries];
+      publish();
+      const done = entries.reduce<Promise<void>>(
+        (previous, entry) =>
+          previous.then(async () => {
+            if (!group.failed) {
+              const refusal = await send(entry.op);
+              if (refusal !== undefined) {
+                group.failed = true;
+                const { op } = entry;
+                const name =
+                  op.kind === "reorder"
+                    ? undefined
+                    : confirmed.current.find((item) => item.projectId === op.projectId)?.name;
+                if (!quiet) setError(name ? `“${name}”: ${refusal}` : refusal);
+              }
+            }
+            generation.current++;
+            pending.current = pending.current.filter((item) =>
+              group.failed ? item.group !== group : item !== entry,
+            );
+            publish();
+          }),
+        queue.current,
+      );
+      queue.current = done.then(() => {
+        if (pending.current.length > 0) return;
+        notify();
+        void reload();
+      });
+      return done.then(() => !group.failed);
+    },
+    [publish, reload, send],
+  );
+
+  const apply = useCallback(
+    async (steps: readonly NavigationStep[], options: ApplyOptions = {}): Promise<boolean> => {
+      const at = new Date().toISOString();
+      const before = withPending(
+        confirmed.current,
+        pending.current.map((entry) => entry.op),
+      );
+      const entries: UndoAction["entries"] = [
+        ...new Set(steps.flatMap((step) => (step.kind === "change" ? [step.projectId] : []))),
+      ].flatMap((projectId) => {
+        const navigation = before.find((item) => item.projectId === projectId)?.navigation;
+        return navigation ? [{ projectId, navigation }] : [];
+      });
+      const ops = steps.map((step): PendingOp => (step.kind === "change" ? { ...step, at } : step));
+      const saved = await enqueue(ops, options.quiet ?? false);
+      if (saved && options.label && entries.length > 0) setUndo({ label: options.label, entries });
+      return saved;
+    },
+    [enqueue],
+  );
+
+  const change = useCallback(
+    (projectId: string, next: NavigationChange["change"], options: ApplyOptions = {}) =>
+      apply([{ kind: "change", projectId, change: next }], {
+        label: undoLabel(next),
+        ...options,
+      }),
+    [apply],
+  );
+
+  const undo = useCallback(async () => {
+    if (!undoAction) return;
+    setUndo(undefined);
+    await apply(
+      undoAction.entries.map(({ projectId, navigation }) => ({
+        kind: "change",
+        projectId,
+        change: { kind: "restore", navigation },
+      })),
+    );
+  }, [apply, undoAction]);
+
   return {
     projects,
     status,
     actionError,
-    busyProjectId,
     undoAction,
+    apply,
     change,
     undo,
-    reorder,
     reload,
     dismissUndo: () => setUndo(undefined),
-    rename: (id: string, name: string) => lifecycle(id, "PATCH", "", { name }),
-    remove: (id: string) => lifecycle(id, "DELETE", ""),
-    close: (id: string) => lifecycle(id, "POST", "/close"),
+    rename: (projectId: string, name: string) =>
+      enqueue([{ kind: "rename", projectId, name }], false),
+    remove: (projectId: string) => enqueue([{ kind: "remove", projectId }], false),
+    close: (projectId: string) => enqueue([{ kind: "close", projectId }], false),
   };
+}
+
+/** Tells this user's other tabs the list changed, so they reload rather than wait for a poll. */
+function notify() {
+  if (typeof BroadcastChannel === "undefined") return;
+  const channel = new BroadcastChannel("nap-sessions");
+  channel.postMessage("changed");
+  channel.close();
+}
+
+/** What the undo notice says after one change, or nothing for a change not worth undoing. */
+function undoLabel(change: NavigationChange["change"]): string | undefined {
+  switch (change.kind) {
+    case "pin":
+      return change.pinned ? "Pinned" : "Unpinned";
+    case "done":
+      return change.value ? "Settled" : "Un-settled";
+    case "archive":
+      return change.value ? "Archived" : "Restored";
+    case "snooze":
+      return change.until === null ? "Woken" : "Snoozed";
+    default:
+      return undefined;
+  }
 }
