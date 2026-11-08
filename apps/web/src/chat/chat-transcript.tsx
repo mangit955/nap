@@ -49,12 +49,14 @@ type FailedTurn = Extract<TurnEnd, { outcome: "failed" }>;
 
 /**
  * Sends a failed turn's prompt again. The plan intent goes with it, so a plan mode turn retried is
- * still a plan mode turn rather than a build nobody approved.
+ * still a plan mode turn rather than a build nobody approved — and so does the app test a Fix it
+ * repairs, so its job is still judged by that test's goal rather than by the repair prompt.
  */
 export type RetryHandler = (
   message: string,
   attachments?: MediaAttachment[],
   plan?: PlanIntent,
+  fixesTest?: string,
 ) => void;
 
 export function ChatTranscript({
@@ -307,7 +309,17 @@ function Item({
 }) {
   switch (item.kind) {
     case "app-test":
-      return <AppTestResult test={item.test} running={busy} onFix={onRetry} />;
+      return (
+        <AppTestResult
+          test={item.test}
+          running={busy}
+          onFix={
+            onRetry === undefined
+              ? undefined
+              : (message, testTurnId) => onRetry(message, undefined, undefined, testTurnId)
+          }
+        />
+      );
     case "computer-frame":
       return <ScreenshotCard frame={item.frame} />;
     case "compaction":
@@ -628,11 +640,13 @@ function TurnFailure({
         <button
           type="button"
           onClick={() =>
-            item.retryPlan !== undefined
-              ? onRetry(message, item.retryAttachments, item.retryPlan)
-              : item.retryAttachments === undefined
-                ? onRetry(message)
-                : onRetry(message, item.retryAttachments)
+            item.retryFixesTest !== undefined
+              ? onRetry(message, item.retryAttachments, item.retryPlan, item.retryFixesTest)
+              : item.retryPlan !== undefined
+                ? onRetry(message, item.retryAttachments, item.retryPlan)
+                : item.retryAttachments === undefined
+                  ? onRetry(message)
+                  : onRetry(message, item.retryAttachments)
           }
           className={`mt-1.5 self-start rounded-chip border border-edge px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${insideCompaction ? "min-h-8" : ""}`}
         >

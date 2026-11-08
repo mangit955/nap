@@ -41,7 +41,7 @@ import type { ProjectComputer } from "./project-computer.ts";
 import { commitAll, currentSha } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import type { ProposedPlan } from "@nap/shared/agent-plan";
-import { appTestTarget } from "@nap/shared/app-testing";
+import { appTestTarget, failedAppTestGoal } from "@nap/shared/app-testing";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
@@ -188,6 +188,10 @@ type JobEntry = {
  */
 const STALE_APPROVAL =
   "That plan was no longer waiting for approval, so nothing was built. Approve the latest plan, or say what to build.";
+
+/** Why a Fix it changed nothing: the test it names is not one with a failure in this session. */
+const UNKNOWN_FAILED_TEST =
+  "There is no failed app test here to fix, so nothing was changed. Test the app again, then fix what it finds.";
 
 /** Git's own convention for a subject line, and what every log viewer is laid out for. */
 const COMMIT_SUBJECT_LIMIT = 72;
@@ -711,7 +715,7 @@ export class SingleAgentRuntime implements Runtime {
       if (!diff.ok || diff.value.exitCode !== 0)
         throw new Error("Could not read this job's source diff.");
       request.signal?.throwIfAborted();
-      const prompt = testPrompt({ objective: target.objective, diff: diff.value.stdout });
+      const prompt = testPrompt({ goal: target.goal, diff: diff.value.stdout });
       const ledger = new AppTestRun({
         now: () => Date.parse(this.#now()),
         emit: (entry) => emit("test.annotation", entry),
@@ -734,7 +738,7 @@ export class SingleAgentRuntime implements Runtime {
           started: {
             jobId: target.jobId,
             commitSha: target.commitSha,
-            objective: target.objective,
+            objective: target.goal,
           },
           desktop: this.#options.computer.coordinator.desktop,
           recordings: this.#options.computer.recordings,
@@ -969,6 +973,7 @@ export class SingleAgentRuntime implements Runtime {
         text: request.message,
         ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
         ...(request.plan === undefined ? {} : { plan: request.plan }),
+        ...(request.fixesTest === undefined ? {} : { fixesTest: request.fixesTest }),
       });
       await sink.drain();
 
@@ -984,6 +989,17 @@ export class SingleAgentRuntime implements Runtime {
         emit("turn.failed", { reason: "internal", message: STALE_APPROVAL });
         await sink.drain();
         return { ok: false, turnId, reason: "internal", message: STALE_APPROVAL };
+      }
+
+      // A Fix it is for the goal the failed test was judged against, looked up here rather than
+      // taken from the prompt, whose words a client wrote. Without this the job's objective — the
+      // repair instructions — would become the next test's goal, nesting deeper on each repair.
+      const goal =
+        request.fixesTest === undefined ? undefined : failedAppTestGoal(history, request.fixesTest);
+      if (request.fixesTest !== undefined && goal === undefined) {
+        emit("turn.failed", { reason: "internal", message: UNKNOWN_FAILED_TEST });
+        await sink.drain();
+        return { ok: false, turnId, reason: "internal", message: UNKNOWN_FAILED_TEST };
       }
 
       const sandboxId = await this.#acquire(session, request.signal);
@@ -1040,7 +1056,11 @@ export class SingleAgentRuntime implements Runtime {
       const objective = objectiveOf(approved === undefined ? request.message : approved.title);
       const plan =
         approved === undefined ? undefined : { title: approved.title, plan: approved.plan };
-      emit("job.started", { jobId, objective });
+      emit("job.started", {
+        jobId,
+        objective,
+        ...(goal === undefined || goal === objective ? {} : { goal }),
+      });
 
       // Before the preview, which is about to show whatever state the notice is explaining.
       for (const notice of sandboxId.value.notices) emit("system.notice", notice);

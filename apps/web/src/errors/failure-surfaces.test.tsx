@@ -64,6 +64,26 @@ describe("1 · sandbox failure", () => {
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(onRetry).toHaveBeenCalledWith("build me a todo list");
   });
+
+  it("sends a failed Fix it again as a Fix it, naming the same test", () => {
+    const onRetry = vi.fn();
+    const testTurn = "5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f";
+    nextSeq = 1;
+    render(
+      <ChatPane
+        events={[
+          ev("user.message", { text: "Fix the failures.", fixesTest: testTurn }),
+          ev("turn.started", { source: "user" }),
+          ev("turn.failed", { reason: "sandbox_unavailable", message: "E2B had no capacity" }),
+        ]}
+        onRetry={onRetry}
+      />,
+    );
+
+    // Without the test, the retry would open a job judged against the repair prompt.
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(onRetry).toHaveBeenCalledWith("Fix the failures.", undefined, undefined, testTurn);
+  });
 });
 
 describe("2 · agent failure", () => {

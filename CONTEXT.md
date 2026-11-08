@@ -720,6 +720,11 @@ built from that goal and the Job's diff. Assertions are declared before input an
 verdict after a new screenshot. The result does not change the Job's checkpoint. A failed
 assertion offers a separate repair the user may request; it never starts one itself.
 
+**Goal** — what an **App test** of a Job is judged against. Usually the Job's objective. A Job
+opened by **Fix it** has the repair prompt as its objective and the failed test's goal as its
+goal, copied from that test's `test.started` by the runtime. A goal is always something the person
+asked for, never a prompt that a repair generated.
+
 **Test recording** — a video of one App test, with annotations on the video’s timeline. It shows
 what was attempted and what was visible; it does not independently establish an assertion’s truth.
 An interrupted or missing recording leaves the test’s assertions available for review.

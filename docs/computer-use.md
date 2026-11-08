@@ -12,7 +12,13 @@ App tests offer source-reading tools and the image-gated computer. The executor 
 
 `AppTestRun` is the assertion ledger. Setup precedes test chapters. An assertion first records an ID, expectation and `untested` result. Computer input requires a pending expectation. A verdict must match that ID and expectation in the current chapter, follow input, and follow a newer stored screenshot. `test.annotation` carries the annotation and its time in milliseconds: on the recording's clock while one runs, otherwise elapsed since the test started. `test.completed` carries distinct assertion counts and whether execution completed or was interrupted. These sequence guards cannot establish whether a model's visual judgement is true; that is the benchmark's question.
 
-Cancellation preserves untested assertions and closes the test as interrupted. The janitor does the same after a lost worker, reading durable annotations and avoiding duplicate terminals on a later sweep. It does not requeue the test. A failing assertion never invokes a repair callback. The UI's explicit repair action belongs to the next UI ticket.
+Cancellation preserves untested assertions and closes the test as interrupted. The janitor does the same after a lost worker, reading durable annotations and avoiding duplicate terminals on a later sweep. It does not requeue the test. A failing assertion never invokes a repair callback.
+
+## Fix it
+
+**Fix it** sends an ordinary prompt to `POST /sessions/:sessionId/turns`, built in the browser from the test's goal and its failed expectations, plus `fixesTest`: the test's turn ID. Admission refuses it with a plan or `/compact`, and refuses a test that is missing, still running or failed nothing. The queue stores `fixesTest` beside the prompt. Under the lease, the runtime checks the test again and reads its goal from that test's `test.started`. It never takes the goal from the prompt. The job it opens keeps the repair prompt as its `objective` and writes that goal as `goal` on `job.started`.
+
+A test targets the newest job and is judged against that job's `goal`. Old logs have no `goal` on `job.started`, so the fold falls back to the objective. A test after Fix it is therefore judged against what the person first asked for, however many repairs come between. Before this, the retest read the repair prompt as its goal, and each further Fix it nested the previous instructions one level deeper (#194). `user.message` carries `fixesTest` too, so retrying a failed Fix it repairs the same test. `app-test-goal.test.ts` runs test, Fix it and retest twice through the real runtime and checks the goal each test is given.
 
 ## Try the local app
 

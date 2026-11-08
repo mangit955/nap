@@ -62,7 +62,7 @@ const FIRST_PROMPT = {
 };
 
 /** Every turn the pane asked for, so "the retry went through `submit`" is a countable thing. */
-let turns: { message: string; model?: string; plan?: unknown }[] = [];
+let turns: { message: string; model?: string; plan?: unknown; fixesTest?: string }[] = [];
 
 /** A server that answers the three requests this pane makes on mount, and accepts a turn. */
 const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
@@ -843,6 +843,8 @@ it("wires Fix it to a normal turn without repairing on a failed test event", asy
   fireEvent.click(screen.getByRole("button", { name: "Fix it" }));
   await waitFor(() => expect(turns).toHaveLength(1));
   expect(turns[0]?.message).toContain("The saved note appears");
+  // Named as data, so the job it opens is judged by this test's goal and not by the prompt.
+  expect(turns[0]?.fixesTest).toBe(testTurn);
 });
 
 it("shows app-test progress at the clicked card before any stream event arrives", async () => {

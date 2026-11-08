@@ -58,6 +58,8 @@ export type TurnSubmission = {
     attachments?: MediaAttachment[],
     /** Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. */
     plan?: PlanIntent,
+    /** The app test this prompt fixes, by turn id: what Fix it sends. */
+    fixesTest?: string,
   ) => Promise<boolean>;
   startTest: (jobId: string, model?: string) => Promise<boolean>;
   cancel: () => Promise<void>;
@@ -305,6 +307,7 @@ export function useTurnSubmission(options: {
           message: string;
           attachments?: MediaAttachment[] | undefined;
           plan?: PlanIntent | undefined;
+          fixesTest?: string | undefined;
         }
       | { kind: "test"; jobId: string },
     model?: string,
@@ -328,7 +331,9 @@ export function useTurnSubmission(options: {
       (turn !== undefined || observation?.active === true) &&
       (attachments?.length ?? 0) === 0 &&
       text !== "/compact" &&
-      intent.plan?.intent !== "approve";
+      intent.plan?.intent !== "approve" &&
+      // A Fix it opens a job of its own, judged by the test it names: never part of another turn.
+      intent.fixesTest === undefined;
     // The message's identity whichever way the server places it, chosen here so a retried POST is
     // the same message rather than a second one.
     const id = crypto.randomUUID();
@@ -361,7 +366,13 @@ export function useTurnSubmission(options: {
               ? { jobId: intent.jobId, model }
               : steer
                 ? { id, message: text, model, plan: intent.plan }
-                : { message: text, model, attachments, plan: intent.plan },
+                : {
+                    message: text,
+                    model,
+                    attachments,
+                    plan: intent.plan,
+                    fixesTest: intent.fixesTest,
+                  },
           ),
         },
       );
@@ -408,8 +419,8 @@ export function useTurnSubmission(options: {
     }
   };
 
-  const submit: TurnSubmission["submit"] = (message, model, attachments, plan) =>
-    admit({ kind: "message", message, attachments, plan }, model);
+  const submit: TurnSubmission["submit"] = (message, model, attachments, plan, fixesTest) =>
+    admit({ kind: "message", message, attachments, plan, fixesTest }, model);
   const startTest: TurnSubmission["startTest"] = (jobId, model) =>
     admit({ kind: "test", jobId }, model);
 
