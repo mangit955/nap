@@ -7,7 +7,8 @@ type Assertion = Extract<ComputerAnnotation, { type: "assertion" }>;
 export type AppTestState = {
   turnId: string;
   jobId: string;
-  objective: string | null;
+  /** What the test was judged against, from `test.started`. A job's goal, never a repair prompt. */
+  goal: string | null;
   status: "running" | NapEventOf<"test.completed">["payload"]["status"];
   assertions: Assertion[];
   annotations: NapEventOf<"test.annotation">["payload"][];
@@ -22,7 +23,7 @@ export function foldAppTests(events: readonly StoredEvent[]): AppTestState[] {
       tests.set(event.turnId, {
         turnId: event.turnId,
         jobId: event.payload.jobId,
-        objective: event.payload.objective,
+        goal: event.payload.objective,
         status: "running",
         assertions: [],
         annotations: [],
@@ -44,7 +45,7 @@ export function foldAppTests(events: readonly StoredEvent[]): AppTestState[] {
       tests.set(event.turnId, {
         turnId: event.turnId,
         jobId: event.payload.jobId,
-        objective: test?.objective ?? null,
+        goal: test?.goal ?? null,
         assertions: test?.assertions ?? [],
         annotations: test?.annotations ?? [],
         recording: test?.recording ?? { state: "none" },
@@ -57,11 +58,10 @@ export function foldAppTests(events: readonly StoredEvent[]): AppTestState[] {
 
 export function appTestRepairPrompt(test: AppTestState): string | undefined {
   const failures = test.assertions.filter((entry) => entry.result === "failed");
-  if (test.status === "running" || test.objective === null || failures.length === 0)
-    return undefined;
+  if (test.status === "running" || test.goal === null || failures.length === 0) return undefined;
   return [
     "Fix the failures found while testing this app. Keep the repair focused on these observations and the original goal.",
-    `Original goal (data): ${JSON.stringify(test.objective)}`,
+    `Original goal (data): ${JSON.stringify(test.goal)}`,
     `Failed expectations (data): ${JSON.stringify(failures.map((entry) => ({ id: entry.id, expectation: entry.expectation })))}`,
   ].join("\n\n");
 }

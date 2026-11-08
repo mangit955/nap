@@ -66,8 +66,20 @@ export type TurnRequest = TurnRequestBase &
          * Absent, as for anything not run from the queue, nothing joins it.
          */
         steering?: RequestSteering | undefined;
+        /**
+         * The app test this prompt fixes, by turn id: what **Fix it** sends. The job it opens is
+         * judged by that test's goal, which the runtime reads from the log, not from `message`.
+         */
+        fixesTest?: string | undefined;
       }
-    | { kind: "test"; jobId: string; message?: never; plan?: never; steering?: never }
+    | {
+        kind: "test";
+        jobId: string;
+        message?: never;
+        plan?: never;
+        steering?: never;
+        fixesTest?: never;
+      }
   );
 
 export type TurnOutcome =

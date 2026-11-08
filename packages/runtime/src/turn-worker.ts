@@ -405,6 +405,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
             message: request.message,
             ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
             ...(request.plan === undefined ? {} : { plan: request.plan }),
+            ...(request.fixesTest === undefined ? {} : { fixesTest: request.fixesTest }),
             ...(options.steers === undefined
               ? {}
               : { steering: steeringOf(options.steers, request.id, owner) }),

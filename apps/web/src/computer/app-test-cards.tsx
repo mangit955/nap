@@ -73,7 +73,8 @@ export function AppTestResult({
 }: {
   test: AppTestState;
   running: boolean;
-  onFix?: ((message: string) => void) | undefined;
+  /** Sends the repair prompt, naming this test so the job it opens keeps the test's goal. */
+  onFix?: ((message: string, testTurnId: string) => void) | undefined;
 }) {
   const watch = use(RecordingNavigation);
   const playable = test.status !== "running" && test.recording.state === "available" && !!watch;
@@ -123,7 +124,7 @@ export function AppTestResult({
             className="app-test-primary"
             disabled={running || !onFix || repair === undefined}
             onClick={() => {
-              if (repair !== undefined) onFix?.(repair);
+              if (repair !== undefined) onFix?.(repair, test.turnId);
             }}
           >
             Fix it

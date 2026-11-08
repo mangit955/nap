@@ -459,6 +459,11 @@ export const turnRequests = pgTable(
      * a small tagged union validated by `PlanIntentSchema` on the way out, like `attachments`.
      */
     plan: jsonb("plan").$type<PlanIntent>(),
+    /**
+     * The app test a **Fix it** prompt repairs, by its turn id. Null for every other request. No
+     * foreign key: a test is a turn, and turns are events rather than rows.
+     */
+    fixesTest: uuid("fixes_test"),
     /** Resolved at admission: which models somebody may name is a fact about who is asking. */
     model: text("model").notNull(),
     /**

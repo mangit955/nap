@@ -145,6 +145,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
       message: request.message,
       attachments: request.attachments ?? null,
       plan: request.plan ?? null,
+      fixesTest: request.fixesTest ?? null,
       model: request.model,
       billsToUser: request.billsToUser,
     });
@@ -309,6 +310,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
             ? {}
             : { attachments: MediaAttachmentsSchema.parse(leased.attachments) }),
           ...(leased.plan === null ? {} : { plan: PlanIntentSchema.parse(leased.plan) }),
+          ...(leased.fixesTest === null ? {} : { fixesTest: leased.fixesTest }),
           model: leased.model,
           billsToUser: leased.billsToUser,
         },

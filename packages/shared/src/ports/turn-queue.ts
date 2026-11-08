@@ -89,6 +89,11 @@ export type EnqueueTurnRequest = {
    * it is the asker's choice for this one turn, exactly like the prompt beside it.
    */
   plan?: PlanIntent | undefined;
+  /**
+   * The app test this prompt fixes, by its turn id: what **Fix it** sends. Carried as data, beside
+   * the prompt rather than inside it, because the job it opens takes its goal from that test.
+   */
+  fixesTest?: string | undefined;
   /** Resolved at admission, because which models somebody may name is the route's fact. */
   model: string;
   /**

@@ -239,6 +239,11 @@ type TurnOutcome =
        * ordinary one would build what nobody approved, so the intent goes back with the words.
        */
       retryPlan?: PlanIntent | undefined;
+      /**
+       * The app test the retried prompt fixes. A Fix it retried without it would open a job whose
+       * goal is the repair prompt, and the next test would be judged against that.
+       */
+      retryFixesTest?: string | undefined;
       /** A matching immediate compaction terminal, or the running compaction this failure ends. */
       compactionFailureKey?: number;
     };
@@ -797,6 +802,7 @@ export function buildTranscript(
           ...(compactionFailureKey === undefined ? {} : { compactionFailureKey }),
           ...(retry?.attachments === undefined ? {} : { retryAttachments: retry.attachments }),
           ...(retry?.plan === undefined ? {} : { retryPlan: retry.plan }),
+          ...(retry?.fixesTest === undefined ? {} : { retryFixesTest: retry.fixesTest }),
         };
         items.push(failure);
         if (retry?.plan?.intent === "approve") approvalRetries.push(failure);

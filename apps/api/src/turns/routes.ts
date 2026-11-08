@@ -1,5 +1,5 @@
 import { PlanIntentSchema } from "@nap/shared/agent-plan";
-import { appTestTarget } from "@nap/shared/app-testing";
+import { appTestTarget, failedAppTestGoal } from "@nap/shared/app-testing";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
 import { pendingPlan } from "@nap/shared/plan-mode";
@@ -143,6 +143,11 @@ const TurnBodySchema = z.object({
    * choice for this turn alone, so it travels with the prompt onto the queued request.
    */
   plan: PlanIntentSchema.optional(),
+  /**
+   * The app test this prompt fixes, by its turn id: what **Fix it** sends. The job the turn opens
+   * is judged by that test's goal, which the runtime reads from the log rather than from `message`.
+   */
+  fixesTest: z.uuid().optional(),
 });
 
 /**
@@ -241,6 +246,19 @@ export function registerTurnRoutes(
       return c.json({ error: body.error.issues.map((issue) => issue.message).join("; ") }, 400);
     }
 
+    // Checked here so a stale button is a refusal rather than a turn that fails; checked again
+    // under the lease, where the runtime reads the goal itself.
+    if (body.data.fixesTest !== undefined) {
+      if (body.data.plan !== undefined || body.data.message === "/compact")
+        return c.json({ error: "Send Fix it as an ordinary message." }, 400);
+      const goal = failedAppTestGoal(
+        await events.readFrom(found.value.sessionId, 0),
+        body.data.fixesTest,
+      );
+      if (goal === undefined)
+        return c.json({ error: "That app test has no failures left to fix." }, 409);
+    }
+
     if (body.data.message === "/compact") {
       if (body.data.attachments?.length)
         return c.json({ error: "Send /compact without attachments." }, 400);
@@ -312,6 +330,7 @@ export function registerTurnRoutes(
       message: body.data.message,
       ...(body.data.attachments === undefined ? {} : { attachments: body.data.attachments }),
       ...(body.data.plan === undefined ? {} : { plan: body.data.plan }),
+      ...(body.data.fixesTest === undefined ? {} : { fixesTest: body.data.fixesTest }),
       // Concrete by now. The resolver always returns a model rather than leaving a default to be
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.

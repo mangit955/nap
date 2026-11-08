@@ -200,6 +200,12 @@ export const NapEventSchema = z.discriminatedUnion("type", [
      * written before plan mode existed, and on any ordinary prompt since — which is the fact.
      */
     plan: PlanIntentSchema.optional(),
+    /**
+     * The app test whose failures this prompt asks to fix, by its turn id: what **Fix it** sends.
+     * Kept with the prompt so a retry of it repairs the same test. The job it opens takes its
+     * goal from that test (`job.started`), never from these words.
+     */
+    fixesTest: z.uuid().optional(),
   }),
   /**
    * A message somebody sent while a turn was running, admitted to join it rather than wait behind
@@ -391,8 +397,18 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    * `user.message`. The duplication is deliberate: it makes "what was asked" answerable from
    * the job events alone, without a reader having to work out which message belongs to which
    * job by counting turn boundaries — and a repair turn's `user.message` is not the objective.
+   *
+   * `goal` is what an app test of this job is judged against, written only when that differs
+   * from the objective: a job opened by **Fix it** has the repair instructions as its objective
+   * and the failed test's goal here, copied by the runtime from that test's `test.started`. So
+   * the goal is always words the person asked for, never a prompt an earlier repair generated.
+   * Absent in every log written before it existed, where the objective is the goal.
    */
-  event("job.started", { jobId: z.uuid(), objective: z.string().min(1) }),
+  event("job.started", {
+    jobId: z.uuid(),
+    objective: z.string().min(1),
+    goal: z.string().min(1).optional(),
+  }),
   /**
    * Verification is running against the commit a turn just produced. Carries nothing but the
    * job: what is being checked is whatever the project declares, discovered rather than
