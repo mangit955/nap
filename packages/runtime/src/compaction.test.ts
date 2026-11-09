@@ -128,6 +128,7 @@ function readingModel() {
             signal: _signal,
             onThinkingDelta: _thinking,
             onTextDelta: _text,
+            onToolCallStart: _tool,
             ...recorded
           } = request;
           requests.push(structuredClone(recorded));
@@ -259,7 +260,13 @@ it("puts a repair's job brief back in front of the model after compacting in its
       return {
         usage: () => ({ inputTokens: 0, outputTokens: 0 }),
         async complete(request) {
-          const { signal: _s, onThinkingDelta: _t, onTextDelta: _d, ...recorded } = request;
+          const {
+            signal: _s,
+            onThinkingDelta: _t,
+            onTextDelta: _d,
+            onToolCallStart: _c,
+            ...recorded
+          } = request;
           requests.push(structuredClone(recorded));
           const summarizing = request.purpose === "compaction";
           const read = repairing && !summarizing && reads++ < 4;

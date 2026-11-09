@@ -102,8 +102,6 @@ export const SessionRow = memo(function SessionRow({
   /** Handles a committed selection locally instead of following the project link. */
   onSelectProject?: ((projectId: string) => void) | undefined;
 }) {
-  const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(clickTimer.current), []);
   const link = useRef<HTMLAnchorElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
@@ -182,7 +180,12 @@ export const SessionRow = memo(function SessionRow({
     </span>
   );
 
-  // Double-click renames, as in T3. The link swallows the click that would otherwise navigate.
+  // Double-click renames, as in T3 — without holding the first click back to see whether a second
+  // follows. That wait was 300ms on every switch, to serve the rare rename. The first click goes
+  // at once; the second click of a double-click is swallowed, and the double-click renames the
+  // row the first one opened. That needs the row to outlive the navigation, which it does in the
+  // workspace, whose sidebar sits in the `/p` layout. Where the first click leaves the page or
+  // closes the drawer, rename is in the row's menu.
   const linkProps = {
     ref: link,
     href,
@@ -193,23 +196,22 @@ export const SessionRow = memo(function SessionRow({
       if (event.defaultPrevented) return;
       const modified =
         event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
-      if (!onRename || event.detail === 0 || modified) {
-        onOpen();
-        if (onSelectProject && !modified) {
-          event.preventDefault();
-          onSelectProject(session.projectId);
-        }
+      // A repeat of a click that already went: following it again would navigate twice.
+      if (!modified && event.detail > 1) {
+        event.preventDefault();
         return;
       }
-      event.preventDefault();
-      clearTimeout(clickTimer.current);
-      const anchor = event.currentTarget;
-      clickTimer.current = setTimeout(() => anchor.click(), 300);
+      onOpen();
+      // A modified click is the browser's — a new tab or window — and so is a row whose caller
+      // handles no selection. Anything else is selected here, without a document load.
+      if (onSelectProject && !modified) {
+        event.preventDefault();
+        onSelectProject(session.projectId);
+      }
     },
     onDoubleClick: (event: MouseEvent) => {
       if (!onRename) return;
       event.preventDefault();
-      clearTimeout(clickTimer.current);
       onRename();
     },
   };
