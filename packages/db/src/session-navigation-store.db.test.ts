@@ -316,6 +316,14 @@ describe("search", () => {
       literal.projectId,
     ]);
     expect((await store.search(owner, `${tag}_`)).results).toEqual([]);
+    // A trailing backslash is a character too; unescaped, it ends the pattern on an escape and
+    // Postgres refuses the whole statement.
+    const slashed = await createProjectSession(db, { userId: owner, name: `${tag} a\\b` });
+    expect((await store.search(owner, `${tag} a\\`)).results.map((r) => r.projectId)).toEqual([
+      slashed.projectId,
+    ]);
+    expect((await store.search(owner, "a\\")).results).toEqual(expect.any(Array));
+    expect((await store.search(owner, `${tag} a\\c`)).results).toEqual([]);
   });
 
   it("returns at most a page of sessions", async () => {

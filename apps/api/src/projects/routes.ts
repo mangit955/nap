@@ -28,6 +28,7 @@ import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
+import { TITLE_COOLDOWN_SECONDS } from "@nap/shared/ports/project-title-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
@@ -328,11 +329,22 @@ export function registerProjectRoutes(
         return c.json({ ...project.value, name: outcome.name });
       case "busy":
         return c.json({ error: "A title is already being written. Try again in a moment." }, 409);
-      case "kept":
+      case "cooldown":
         return c.json(
-          { error: KEPT_MESSAGE[outcome.reason] },
-          outcome.reason === "renamed" ? 409 : 502,
+          {
+            error: "A title was asked for moments ago. Try again in a few seconds.",
+            code: "title_cooldown",
+          },
+          429,
+          // The whole cooldown rather than what is left of it, which the claim does not say: a
+          // retry that waits this long is never refused for the same reason.
+          { "retry-after": String(TITLE_COOLDOWN_SECONDS) },
         );
+      case "kept":
+        // `renamed` carries a code: the person's own rename won, which the client takes quietly.
+        return outcome.reason === "renamed"
+          ? c.json({ error: KEPT_MESSAGE.renamed, code: "renamed" }, 409)
+          : c.json({ error: KEPT_MESSAGE[outcome.reason] }, 502);
     }
   });
 

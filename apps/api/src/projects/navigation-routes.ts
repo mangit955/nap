@@ -2,6 +2,8 @@ import type { SessionNavigationStore } from "@nap/shared/ports/session-navigatio
 import {
   AutoSettleSettingsSchema,
   NavigationChangeSchema,
+  SESSION_SEARCH_MAX,
+  SESSION_SEARCH_MIN,
   SessionReorderSchema,
   SessionSearchQuerySchema,
 } from "@nap/shared/session-navigation";
@@ -24,7 +26,11 @@ export function registerNavigationRoutes(
   });
   router.get("/sessions/search", async (c) => {
     const query = SessionSearchQuerySchema.safeParse(c.req.query("q") ?? "");
-    if (!query.success) return c.json({ error: "Search for 2 to 100 characters." }, 400);
+    if (!query.success)
+      return c.json(
+        { error: `Search for ${SESSION_SEARCH_MIN} to ${SESSION_SEARCH_MAX} characters.` },
+        400,
+      );
     c.header("cache-control", "no-store");
     return c.json(await deps.store.search(c.get("userId"), query.data));
   });

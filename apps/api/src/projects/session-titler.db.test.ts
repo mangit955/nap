@@ -58,8 +58,14 @@ function setup(provider: LLMProvider, access: TitleAccess = theirKey) {
   return { titler, events, bus };
 }
 
+/** A project named the way a first prompt names one: a seed, which a model title may replace. */
 async function project(name = "Habit Tracker") {
-  return createProjectSession(db, { userId: owner, name });
+  const created = await createProjectSession(db, { userId: owner });
+  await db
+    .update(projects)
+    .set({ name, nameSource: "seed" })
+    .where(eq(projects.id, created.projectId));
+  return created;
 }
 
 async function stored(projectId: string) {
@@ -114,6 +120,11 @@ describe("an automatic title", () => {
     ["a refusal", { refusal: true }, "refused"],
     ["an error", { error: { message: "rate limited", retryable: true } }, "failed"],
     ["too short an answer", { text: "Streaks" }, "invalid"],
+    [
+      "an answer cut off by the output cap",
+      { text: "Team Standup Streak", truncated: true },
+      "invalid",
+    ],
     ["a copy of the message", { text: "Build me a habit tracker" }, "invalid"],
     ["a provider that throws", "throws", "failed"],
   ])("keeps the seed, quietly, after %s", async (_name, response, reason) => {
@@ -265,6 +276,11 @@ describe("regenerate", () => {
     const prompt = JSON.stringify(provider.requests[0]?.messages);
     expect(prompt).toContain('previous title was \\"stuff\\"');
     expect(prompt).toContain(PROMPT);
+    // Asked again at once: refused by the cooldown, which is not a title being written.
+    expect(
+      await titler.title({ projectId: created.projectId, userId: owner, mode: "manual" }),
+    ).toEqual({ kind: "cooldown" });
+    expect(provider.requests).toHaveLength(1);
   });
 
   it("has nothing to title in a session with no messages, and says so", async () => {

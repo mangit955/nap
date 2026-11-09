@@ -722,6 +722,14 @@ export const repositoryJobs = pgTable(
     checkState: text("check_state").$type<RepositoryJob["checkState"]>().notNull(),
     reviewState: text("review_state").$type<RepositoryJob["reviewState"]>().notNull(),
     error: text("error"),
+    /**
+     * When the pull request merged, written once, on the job's change to `merged`: GitHub's own
+     * time when the integration has it. Not `updated_at`, which every refresh, comment and approve
+     * rewrites — a merge clock that moves would settle a session again after its owner took it
+     * back. A job created already merged, continuing a branch whose pull request had merged, has
+     * none: its work came after that merge. Rows from before this column are null too.
+     */
+    pullRequestMergedAt: timestamp("pull_request_merged_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // Which job is newest on a pull request. `updated_at` cannot say: refreshing an older job
     // bumps it, and the follow-up that superseded it would then lose to its own predecessor.

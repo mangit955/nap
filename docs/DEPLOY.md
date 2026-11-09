@@ -39,7 +39,25 @@ processes on it. What is different here, and why:
   Migration `0021` runs `create extension if not exists pg_trgm` for sidebar search. Render and
   Neon let the database owner create it (it is a trusted extension since Postgres 13); a role
   that cannot fails that release's migration before anything new takes traffic. It also builds
-  two partial indexes on `events`, during which appends wait.
+  two partial indexes on `events`, each reading the whole table, inside the one transaction
+  drizzle migrates in. That takes a SHARE lock on `events`: while they build, and until the
+  migration commits moments later, every event append waits, and reads carry on. Only then does
+  it take its brief locks on `users` (for a foreign key), `repository_jobs` and `projects`; the
+  `ALTER TABLE`s also stop reads (the sidebar, admission, the claim), which is why they come last.
+  `0022` alters `projects` again in the same transaction, just as briefly. An index on
+  `sessions(project_id)` is deliberately left to a later release's own migration: an append
+  updates `sessions` before it inserts into `events`, so building that index here, after the
+  `events` scans, deadlocks with any append waiting on them. One such cycle is left: a session
+  deleted during the scans holds `projects` while its cascade waits on `events`, and the migration
+  can then fail with `deadlock detected`. It rolls back whole, so run it again.
+- **The release that added the sidebar card's fields and model titles (`0021`, `0022`) is read
+  strictly by what it replaces.** Event payloads and the session list are strict schemas, so a
+  browser tab opened before the deploy, and an API or reaper pod not yet rolled, reject what the
+  new code writes: `turn.completed` carrying `diff`, the list's new fields, and the new
+  `project.renamed` event. Such a tab stops refreshing the sidebar and can show a finished turn as
+  still running; reload open tabs once the deploy is done. A rename served by an old API pod
+  during the rollout leaves `name_source` at `seed`, so that name can still be replaced by the
+  automatic title.
 - **One database URL serves both connections.** Render Postgres has no pooler in front of it, so
   `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` are the same internal connection string, and the
   database accepts no connections from outside Render.

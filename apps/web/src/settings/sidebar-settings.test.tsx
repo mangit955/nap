@@ -48,3 +48,36 @@ it("refuses a day count the server would refuse, and sends nothing", async () =>
   expect(days).toHaveValue(7);
   expect(writes).toEqual([]);
 });
+
+it("saves the days on Enter, and drops a refusal once a good count is typed", async () => {
+  const { fetchJson, writes } = server({ afterDays: 7, onMerge: false });
+  render(<SidebarSettings fetchJson={fetchJson} baseUrl="https://api.example" />);
+  const days = await screen.findByRole("spinbutton", { name: "Days without activity" });
+  fireEvent.change(days, { target: { value: "0" } });
+  fireEvent.blur(days);
+  expect(screen.getByRole("alert")).toBeInTheDocument();
+  // Back to what is saved: nothing to send, and nothing wrong any more.
+  fireEvent.change(days, { target: { value: "7" } });
+  fireEvent.keyDown(days, { key: "Enter" });
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.change(days, { target: { value: "21" } });
+  fireEvent.keyDown(days, { key: "Enter" });
+  await waitFor(() => expect(writes).toEqual([{ afterDays: 21, onMerge: false }]));
+});
+
+it("keeps both a typed day count and the checkbox click that took focus from it", async () => {
+  const { fetchJson, writes } = server({ afterDays: 7, onMerge: false });
+  render(<SidebarSettings fetchJson={fetchJson} baseUrl="https://api.example" />);
+  const days = await screen.findByRole("spinbutton", { name: "Days without activity" });
+  const merge = screen.getByRole("checkbox", { name: /pull request merges/ });
+  fireEvent.change(days, { target: { value: "14" } });
+  // Pressing the checkbox blurs the field first, which starts a save of its own.
+  fireEvent.blur(days);
+  fireEvent.click(merge);
+  await waitFor(() => expect(writes.at(-1)).toEqual({ afterDays: 14, onMerge: true }));
+  expect(writes).toEqual([
+    { afterDays: 14, onMerge: false },
+    { afterDays: 14, onMerge: true },
+  ]);
+  await waitFor(() => expect(merge).toBeChecked());
+});

@@ -12,7 +12,7 @@ import {
   AutoSettleSettingsSchema,
 } from "@nap/shared/session-navigation";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { authClient } from "../auth/client.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
@@ -49,7 +49,15 @@ export function SidebarSettings({
   const [saved, setSaved] = useState<AutoSettleSettings>();
   const [days, setDays] = useState(String(DEFAULT_DAYS));
   const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
+  /**
+   * What the controls last asked for, ahead of the server's answer, and the saves still on their
+   * way, one after another. Each save builds on the one before it rather than on an answer still to
+   * come, so nothing needs disabling while one is out: a blur that saves the days and the click
+   * that caused it both land, instead of the second being lost to a disabled checkbox or undoing
+   * the first.
+   */
+  const wanted = useRef<AutoSettleSettings | undefined>(undefined);
+  const queue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     let live = true;
@@ -64,17 +72,35 @@ export function SidebarSettings({
     };
   }, [fetchJson, url]);
 
-  async function save(next: AutoSettleSettings) {
-    setSaving(true);
+  function save(change: Partial<AutoSettleSettings>) {
+    const base = wanted.current ?? saved;
+    if (!base) return;
+    const next = { ...base, ...change };
+    wanted.current = next;
     setError(undefined);
-    const result = await githubRequest(fetchJson, url, AutoSettleSettingsSchema, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(next),
+    queue.current = queue.current.then(async () => {
+      const result = await githubRequest(fetchJson, url, AutoSettleSettingsSchema, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      if (result.ok) setSaved(result.value);
+      else setError(result.error);
+      // Settled with nothing behind it: the server's answer is what the controls show again.
+      if (wanted.current === next) wanted.current = undefined;
     });
-    setSaving(false);
-    if (!result.ok) return setError(result.error);
-    setSaved(result.value);
+  }
+
+  /** Saves the typed day count, or says why it cannot be saved — on blur, and on Enter. */
+  function commitDays(current: AutoSettleSettings) {
+    const value = parsedDays();
+    if (value === null) {
+      setDays(String(current.afterDays ?? DEFAULT_DAYS));
+      setError(`Choose between 1 and ${AUTO_SETTLE_MAX_DAYS} days.`);
+      return;
+    }
+    if (value !== (wanted.current ?? current).afterDays) save({ afterDays: value });
+    else setError(undefined);
   }
 
   /** The typed number, if it is one the server would take. */
@@ -107,11 +133,10 @@ export function SidebarSettings({
               <input
                 type="checkbox"
                 checked={afterOn}
-                disabled={saving}
                 onChange={(event) => {
                   const value = parsedDays() ?? DEFAULT_DAYS;
                   setDays(String(value));
-                  void save({ ...saved, afterDays: event.target.checked ? value : null });
+                  save({ afterDays: event.target.checked ? value : null });
                 }}
               />
               Settle sessions with no activity
@@ -128,17 +153,12 @@ export function SidebarSettings({
               max={AUTO_SETTLE_MAX_DAYS}
               aria-label="Days without activity"
               value={days}
-              disabled={!afterOn || saving}
+              disabled={!afterOn}
               onChange={(event) => setDays(event.target.value)}
-              onBlur={() => {
-                const value = parsedDays();
-                if (value === null) {
-                  setDays(String(saved.afterDays ?? DEFAULT_DAYS));
-                  setError(`Choose between 1 and ${AUTO_SETTLE_MAX_DAYS} days.`);
-                  return;
-                }
-                if (value !== saved.afterDays) void save({ ...saved, afterDays: value });
+              onKeyDown={(event) => {
+                if (event.key === "Enter") commitDays(saved);
               }}
+              onBlur={() => commitDays(saved)}
               className={`h-8 w-16 rounded-lg border border-edge bg-field px-2 text-ink ${FOCUS}`}
             />
             days
@@ -151,8 +171,7 @@ export function SidebarSettings({
               <input
                 type="checkbox"
                 checked={saved.onMerge}
-                disabled={saving}
-                onChange={(event) => void save({ ...saved, onMerge: event.target.checked })}
+                onChange={(event) => save({ onMerge: event.target.checked })}
               />
               Settle a session when its pull request merges
             </label>

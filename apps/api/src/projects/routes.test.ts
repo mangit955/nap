@@ -7,6 +7,7 @@ import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { BUNDLE_COMMAND, bundled } from "@nap/sandbox/testing/script-git";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
+import { TITLE_COOLDOWN_SECONDS } from "@nap/shared/ports/project-title-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
@@ -480,12 +481,27 @@ describe("POST /projects/:projectId/title", () => {
 
   it("says why the name was kept, and that it is unchanged", async () => {
     answering({ kind: "busy" });
-    expect((await regenerate()).status).toBe(409);
+    const busy = await regenerate();
+    expect(busy.status).toBe(409);
+    await expect(busy.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/already being written/),
+    });
+    // Asked for moments ago, with nothing in flight: not the same answer as one being written.
+    answering({ kind: "cooldown" });
+    const cooling = await regenerate();
+    expect(cooling.status).toBe(429);
+    // Like every 429 here: a code to branch on, and a wait a client or a proxy honours on its own.
+    expect(cooling.headers.get("retry-after")).toBe(String(TITLE_COOLDOWN_SECONDS));
+    await expect(cooling.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/moments ago/),
+      code: "title_cooldown",
+    });
     answering({ kind: "kept", reason: "renamed" });
     const renamed = await regenerate();
     expect(renamed.status).toBe(409);
     await expect(renamed.json()).resolves.toMatchObject({
       error: expect.stringMatching(/your name stays/),
+      code: "renamed",
     });
     answering({ kind: "kept", reason: "invalid" });
     const invalid = await regenerate();

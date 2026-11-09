@@ -100,11 +100,11 @@ it("lists what the server found, marks the match as text, and opens one from the
 it("shows nothing until the query is long enough, and closes when the box loses focus", async () => {
   const { search, box } = mount();
   fireEvent.focus(box);
-  fireEvent.change(box, { target: { value: "i" } });
+  fireEvent.change(box, { target: { value: "in" } });
   await act(() => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS));
   expect(search).not.toHaveBeenCalled();
   expect(screen.queryByRole("listbox")).toBeNull();
-  fireEvent.change(box, { target: { value: "in" } });
+  fireEvent.change(box, { target: { value: "inv" } });
   await act(() => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS));
   expect(screen.getByRole("listbox")).toBeInTheDocument();
   fireEvent.blur(box);

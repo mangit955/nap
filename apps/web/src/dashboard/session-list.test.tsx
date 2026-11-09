@@ -1,5 +1,5 @@
 import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { SessionList } from "./session-list.tsx";
 
@@ -193,4 +193,33 @@ it("shows working and failed states, and Done only until completion has been rea
     />,
   );
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("draws no clock on a queued card, and times a working one from its claim", async () => {
+  vi.useFakeTimers();
+  try {
+    const now = new Date("2026-11-09T12:00:00.000Z");
+    vi.setSystemTime(now);
+    const ago = (seconds: number) => new Date(now.getTime() - seconds * 1000).toISOString();
+    // Admitted ten minutes ago and claimed 42 seconds ago: the clock is the run, not the wait.
+    const work = {
+      ...row("Building"),
+      activity: "working" as const,
+      requestedAt: ago(600),
+      runStartedAt: ago(42),
+    };
+    const queued = { ...row("Waiting"), activity: "queued" as const, requestedAt: ago(300) };
+    render(<SessionList sessions={[work, queued]} query="" repository="" />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const slot = (label: string) =>
+      screen.getAllByRole("status").find((element) => element.textContent === label)?.parentElement
+        ?.textContent;
+    expect(slot("Queued")).toBe("Queued");
+    expect(slot("Working")).toBe("Working42s");
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(slot("Working")).toBe("Working45s");
+    expect(slot("Queued")).toBe("Queued");
+  } finally {
+    vi.useRealTimers();
+  }
 });

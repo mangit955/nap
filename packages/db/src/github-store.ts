@@ -333,12 +333,27 @@ export class PostgresGitHubStore implements GitHubStore {
     return rows.map(({ job }) => toJob(job));
   }
 
-  async updateJob(jobId: string, update: RepositoryJobUpdate): Promise<void> {
+  async updateJob(
+    jobId: string,
+    { pullRequestMergedAt, ...update }: RepositoryJobUpdate,
+  ): Promise<void> {
+    const reported =
+      pullRequestMergedAt !== undefined && Number.isFinite(Date.parse(pullRequestMergedAt))
+        ? new Date(pullRequestMergedAt).toISOString()
+        : null;
     await this.db
       .update(repositoryJobs)
       .set({
         ...update,
         updatedAt: update.updatedAt === undefined ? new Date() : new Date(update.updatedAt),
+        // Written on the change to merged and never again: `set` reads the row as it was.
+        ...(update.pullRequestState === "merged"
+          ? {
+              pullRequestMergedAt: sql`case when ${repositoryJobs.pullRequestState} = 'merged'
+                then ${repositoryJobs.pullRequestMergedAt}
+                else coalesce(${reported}::timestamptz, now()) end`,
+            }
+          : {}),
       })
       .where(eq(repositoryJobs.jobId, jobId));
   }

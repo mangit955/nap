@@ -21,6 +21,20 @@ describe("cleanTitle", () => {
     expect(cleanTitle("“Standup  streak   tracker”", context)).toBe("Standup streak tracker");
   });
 
+  it("takes the title out of the wrappers a cheap model puts around it", () => {
+    const bare = { messages: ["build me a habit tracker"], sourceName: null };
+    expect(cleanTitle('"Title: Habit Tracker App"', bare)).toBe("Habit Tracker App");
+    expect(cleanTitle("**Title:** Habit Tracker App", bare)).toBe("Habit Tracker App");
+    expect(cleanTitle("Here's a title:\nHabit Tracker App", bare)).toBe("Habit Tracker App");
+    expect(cleanTitle("Here's a title:\n\n  “Habit Tracker App”", bare)).toBe("Habit Tracker App");
+    // A label on a line of its own, the title under it.
+    expect(cleanTitle("**Title:**\nHabit Tracker App", bare)).toBe("Habit Tracker App");
+    expect(cleanTitle("Title:\n\n“Habit Tracker App”", bare)).toBe("Habit Tracker App");
+    // A preamble with nothing after it is no title at all.
+    expect(cleanTitle("Sure! Here's a title:", bare)).toBeNull();
+    expect(cleanTitle("**Title:**", bare)).toBeNull();
+  });
+
   it("refuses an answer outside T3's limits", () => {
     expect(cleanTitle("Streaks", context)).toBeNull();
     expect(cleanTitle("Standup streaks", context)).toBeNull();
@@ -51,7 +65,19 @@ describe("cleanTitle", () => {
   });
 });
 
+/** A UTF-16 surrogate without its other half, which a JSON request body cannot carry. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
 describe("titlePrompt", () => {
+  it("never cuts a character in half", () => {
+    // Every emoji is two UTF-16 units, so a cut by units at an odd count would split one.
+    const emoji = "😀".repeat(TITLE_REGENERATE_CHARACTERS);
+    expect(titlePrompt({ messages: [`x${emoji}`] })).not.toMatch(LONE_SURROGATE);
+    expect(
+      titlePrompt({ messages: [`xx${emoji}`, `xx${emoji}`, "y"], previousTitle: "Old name" }),
+    ).not.toMatch(LONE_SURROGATE);
+  });
+
   it("bounds what it carries, for a first title and a regenerated one", () => {
     const long = "x".repeat(TITLE_INITIAL_CHARACTERS * 3);
     const initial = titlePrompt({ messages: [long] });

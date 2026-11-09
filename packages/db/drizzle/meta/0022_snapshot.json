@@ -1324,6 +1324,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "pull_request_merged_at": {
+          "name": "pull_request_merged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",

@@ -6,7 +6,7 @@ import {
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { navigationServer } from "../testing/navigation-server.ts";
-import { useSessionNavigation } from "./use-session-navigation.ts";
+import { TITLING_RECHECK_MS, useSessionNavigation } from "./use-session-navigation.ts";
 
 const row = (name: string, extra: Partial<SessionSummary> = {}): SessionSummary => ({
   projectId: crypto.randomUUID(),
@@ -370,4 +370,104 @@ it("says why a regenerated title was not written, and stops dimming the row", as
   await act(async () => result.current.regenerateTitle(session.projectId));
   expect(result.current.actionError).toMatch(/name is unchanged/);
   expect(result.current.projects[0]).toMatchObject({ name: "Habit Tracker", titling: false });
+});
+
+it("keeps a regenerated title dimmed until the list is read again, and shows the name it got", async () => {
+  const session = row("Build me a habit tracker");
+  let reads = 0;
+  let answerRead: (response: Response) => void = () => {};
+  const fetchJson = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST" && url.endsWith(`/projects/${session.projectId}/title`))
+      return Response.json({ ...session, name: "Team Standup Streaks" });
+    // The first read answers; the one after the title waits until the test lets it go.
+    if (reads++ === 0) return Response.json({ sessions: [session], next: null });
+    return new Promise<Response>((resolve) => {
+      answerRead = resolve;
+    });
+  });
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson }));
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+  let done: Promise<void> | undefined;
+  await act(async () => {
+    done = result.current.regenerateTitle(session.projectId);
+  });
+  // The title has answered and the list is still being read: the new name, still dimmed, since
+  // the row is not settled until that read is over.
+  expect(result.current.projects[0]).toMatchObject({
+    name: "Team Standup Streaks",
+    titling: true,
+  });
+  // The read fails, and the name the server wrote is still what is shown.
+  await act(async () => {
+    answerRead(Response.json({ error: "Try again." }, { status: 500 }));
+    await done;
+  });
+  expect(result.current.projects[0]).toMatchObject({
+    name: "Team Standup Streaks",
+    titling: false,
+  });
+});
+
+it("stops dimming a row the person renames while its title is written, and keeps their name quietly", async () => {
+  let session = row("Habit Tracker");
+  let answerTitle: (response: Response) => void = () => {};
+  const fetchJson = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST" && url.endsWith("/title"))
+      return new Promise<Response>((resolve) => {
+        answerTitle = resolve;
+      });
+    if (init?.method === "PATCH") {
+      session = { ...session, name: "Mine" };
+      return Response.json(session);
+    }
+    return Response.json({ sessions: [session], next: null });
+  });
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson }));
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+  let done: Promise<void> | undefined;
+  act(() => {
+    done = result.current.regenerateTitle(session.projectId);
+  });
+  expect(result.current.projects[0]?.titling).toBe(true);
+  await act(async () => {
+    await result.current.rename(session.projectId, "Mine");
+  });
+  expect(result.current.projects[0]).toMatchObject({ name: "Mine", titling: false });
+  await act(async () => {
+    answerTitle(
+      Response.json(
+        {
+          error: "The session was renamed while the title was being written, so your name stays.",
+          code: "renamed",
+        },
+        { status: 409 },
+      ),
+    );
+    await done;
+  });
+  expect(result.current.actionError).toBeUndefined();
+  expect(result.current.projects[0]).toMatchObject({ name: "Mine", titling: false });
+});
+
+it("reads the list again every few seconds while the server is writing a title", async () => {
+  vi.useFakeTimers();
+  try {
+    const session = row("Habit Tracker");
+    let reads = 0;
+    const fetchJson = vi.fn(async () =>
+      Response.json({ sessions: [{ ...session, titling: reads++ < 3 }], next: null }),
+    );
+    renderHook(() => useSessionNavigation({ fetchJson }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(reads).toBe(1);
+    for (const expected of [2, 3, 4]) {
+      await act(() => vi.advanceTimersByTimeAsync(TITLING_RECHECK_MS));
+      expect(reads).toBe(expected);
+    }
+    // The fourth read said the title landed, so the rechecks stop (the ten-second poll is later).
+    await act(() => vi.advanceTimersByTimeAsync(TITLING_RECHECK_MS + 1000));
+    expect(reads).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
 });

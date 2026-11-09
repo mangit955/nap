@@ -12,6 +12,12 @@
  */
 export type TitleMode = "automatic" | "manual";
 
+/**
+ * How soon after one title request another may be made, so clicks cannot run up a bill. Here
+ * rather than beside the store's SQL because the route tells the person how long to wait.
+ */
+export const TITLE_COOLDOWN_SECONDS = 10;
+
 export type TitleClaim = {
   /** The claim's identity; the answer is applied only while the project still holds it. */
   generation: string;
@@ -25,9 +31,14 @@ export type TitleClaim = {
   sourceName: string | null;
 };
 
+/**
+ * Why a title could not be started: one is being written now, one was asked for moments ago, or
+ * this caller may not start one (not theirs, no session yet, or the automatic one was had).
+ */
+export type TitleRefusal = "in_flight" | "cooldown" | "refused";
+
 export interface ProjectTitleStore {
-  /** Null when this caller may not start a title now: not theirs, in flight, too soon, or done. */
-  claim(projectId: string, userId: string, mode: TitleMode): Promise<TitleClaim | null>;
+  claim(projectId: string, userId: string, mode: TitleMode): Promise<TitleClaim | TitleRefusal>;
   /** Writes the name as the model's, if the claim still stands. Answers whether it did. */
   apply(projectId: string, generation: string, name: string, mode: TitleMode): Promise<boolean>;
   /** Gives the claim back without a name, so the next request need not wait it out. */

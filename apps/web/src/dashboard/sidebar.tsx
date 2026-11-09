@@ -158,7 +158,8 @@ export function Sidebar({
             role="combobox"
             aria-label="Search sessions"
             aria-expanded={searchOpen && results.length > 0}
-            aria-controls={SEARCH_LISTBOX_ID}
+            // Only while the listbox exists: an id naming nothing is an invalid reference.
+            aria-controls={searchOpen && results.length > 0 ? SEARCH_LISTBOX_ID : undefined}
             aria-autocomplete="list"
             aria-activedescendant={
               searchOpen && activeResult >= 0 ? searchOptionId(activeResult) : undefined

@@ -70,12 +70,14 @@ export function useSessionSearch(
 
 /**
  * `text` cut into the pieces that match `query` and the pieces between, compared without regard to
- * case, for drawing as text and `<mark>` — never as HTML.
+ * case, for drawing as text and `<mark>` — never as HTML. A run of whitespace in the query matches
+ * any run in the text, since a snippet is drawn with its whitespace collapsed.
  */
 export function highlightSegments(text: string, query: string): { text: string; match: boolean }[] {
   const needle = query.trim();
   if (needle === "") return [{ text, match: false }];
-  const pattern = new RegExp(`(${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "giu");
+  const words = needle.split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`(${words.join("\\s+")})`, "giu");
   return text
     .split(pattern)
     .map((piece, index) => ({ text: piece, match: index % 2 === 1 }))

@@ -203,12 +203,28 @@ export function AppShell({
   useEffect(() => {
     setProjectRefreshKey(projectRevision);
   }, [projectRevision]);
-  // A model titled the session: the bar refetches above, and the sidebar is told to read its
-  // list again. The name itself is never taken from the event, which a replay could make stale.
-  const renamedSeq = log.events.findLast((event) => event.type === "project.renamed")?.seq;
+  // Something the sidebar's card shows changed in this session — a turn started or ended, or a
+  // model titled it — so every list is told to read again now rather than at its next poll. The
+  // card is never drawn from the event, which a replay could make stale. Only what arrives after
+  // the replay counts: the history was already in the list each of them read when it loaded.
+  const cardSeq = log.events.findLast(
+    (event) =>
+      event.type === "project.renamed" ||
+      event.type === "turn.started" ||
+      event.type === "turn.completed" ||
+      event.type === "turn.failed" ||
+      event.type === "job.completed",
+  )?.seq;
+  const announcedCardSeq = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (renamedSeq !== undefined) announceSessionsChanged();
-  }, [renamedSeq]);
+    if (!log.replayed) {
+      announcedCardSeq.current = undefined;
+      return;
+    }
+    const seen = announcedCardSeq.current;
+    announcedCardSeq.current = cardSeq ?? 0;
+    if (seen !== undefined && cardSeq !== undefined && cardSeq > seen) announceSessionsChanged();
+  }, [log.replayed, cardSeq]);
 
   const files = useProjectFiles({
     sessionId,

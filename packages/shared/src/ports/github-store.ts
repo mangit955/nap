@@ -28,7 +28,14 @@ export type ImportRepository = Pick<
 
 export type RepositoryJobUpdate = Partial<
   Omit<RepositoryJob, "jobId" | "projectId" | "sessionId" | "baseBranch" | "headBranch" | "baseSha">
->;
+> & {
+  /**
+   * GitHub's `merged_at`, when the update says the pull request merged. Recorded only on the job's
+   * change to `merged`, so refreshing a merged job never moves it (the store's own clock stands in
+   * when this is absent). Auto-settle reads it; nothing else does.
+   */
+  pullRequestMergedAt?: string | undefined;
+};
 
 export type GitHubDelivery = { id: string; event: string; payload: unknown };
 export type ClaimedGitHubDelivery = GitHubDelivery & { attempts: number };

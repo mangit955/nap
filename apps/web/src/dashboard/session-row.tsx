@@ -179,7 +179,7 @@ export const SessionRow = memo(function SessionRow({
           : isOpen
             ? "font-medium text-ink"
             : "font-normal text-sidebar-label group-hover:text-ink group-focus-within:text-ink"
-      } ${session.titling ? "animate-pulse opacity-50" : ""}`}
+      } ${session.titling ? "animate-pulse opacity-50 motion-reduce:animate-none" : ""}`}
       aria-busy={session.titling || undefined}
     >
       {session.name}

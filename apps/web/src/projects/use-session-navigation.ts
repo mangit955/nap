@@ -145,37 +145,53 @@ export function useSessionNavigation({
    * the server's own flag could arrive on the next read.
    */
   const [titlingIds, setTitlingIds] = useState<ReadonlySet<string>>(new Set());
+  const undim = useCallback((projectId: string) => {
+    setTitlingIds((current) => {
+      if (!current.has(projectId)) return current;
+      const next = new Set(current);
+      next.delete(projectId);
+      return next;
+    });
+  }, []);
   const regenerateTitle = useCallback(
     async (projectId: string) => {
-      const edit = (add: boolean) =>
-        setTitlingIds((current) => {
-          const next = new Set(current);
-          if (add) next.add(projectId);
-          else next.delete(projectId);
-          return next;
-        });
-      edit(true);
+      setTitlingIds((current) => new Set(current).add(projectId));
       const result = await githubRequest(
         fetchJson,
         `${baseUrl}/projects/${projectId}/title`,
         z.object({ name: z.string() }),
         { method: "POST" },
       );
-      edit(false);
-      if (!result.ok) setError(result.error);
+      if (result.ok) {
+        // The name the server wrote, drawn now: a read that fails below must not bring back the
+        // old one.
+        confirmed.current = confirmed.current.map((row) =>
+          row.projectId === projectId ? { ...row, name: result.value.name, titling: false } : row,
+        );
+        publish();
+      } else if (result.code !== "renamed") {
+        // A rename the person made meanwhile won, as they meant it to; that is not an error.
+        setError(result.error);
+      }
       // Either way the list is read again: the name, or the flag that a title is no longer due.
-      await reload();
+      // The row stays dimmed until that read is over, so it never shows the old name undimmed.
+      try {
+        await reload();
+      } finally {
+        undim(projectId);
+      }
       if (result.ok) announceSessionsChanged();
     },
-    [fetchJson, baseUrl, reload],
+    [fetchJson, baseUrl, reload, publish, undim],
   );
   // A title the server is writing on its own, after a first prompt, lands in seconds; read again
-  // soon rather than leave the name dimmed until the next ten-second poll.
+  // every few until it has, rather than leave the name dimmed until the next ten-second poll. The
+  // server's flag expires with its claim, so this cannot outlast that.
   const serverTitling = projects.some((row) => row.titling);
   useEffect(() => {
     if (!serverTitling) return;
-    const timer = setTimeout(() => void reload(), TITLING_RECHECK_MS);
-    return () => clearTimeout(timer);
+    const timer = setInterval(() => void reload(), TITLING_RECHECK_MS);
+    return () => clearInterval(timer);
   }, [serverTitling, reload]);
   const drawn = useMemo(
     () =>
@@ -376,7 +392,11 @@ export function useSessionNavigation({
     undo,
     reload,
     dismissUndo: () => setUndo(undefined),
-    rename: (projectId: string, name: string) => enqueue([{ kind: "rename", projectId, name }]),
+    rename: (projectId: string, name: string) => {
+      // The person's name wins over a title still being written, so the row stops saying one is.
+      undim(projectId);
+      return enqueue([{ kind: "rename", projectId, name }]);
+    },
     remove: (projectId: string) => enqueue([{ kind: "remove", projectId }]),
     close: (projectId: string) => enqueue([{ kind: "close", projectId }]),
     search,

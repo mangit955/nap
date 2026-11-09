@@ -85,7 +85,7 @@ export function titlePrompt(input: {
   previousTitle?: string;
 }): string {
   if (input.previousTitle === undefined) {
-    const message = (input.messages[0] ?? "").slice(0, TITLE_INITIAL_CHARACTERS);
+    const message = clip(input.messages[0] ?? "", TITLE_INITIAL_CHARACTERS);
     return `${INITIAL_TITLE_PROMPT}\n\nUser message:\n${message}`;
   }
   return `${regeneratePrompt(input.previousTitle)}\n\nUser messages:\n${boundedMessages(input.messages)}`;
@@ -94,10 +94,18 @@ export function titlePrompt(input: {
 /** The first message and as many of the latest as fit, each cut short, within the bound. */
 function boundedMessages(messages: readonly string[]): string {
   const share = Math.floor(TITLE_REGENERATE_CHARACTERS / Math.max(1, Math.min(messages.length, 4)));
-  return messages
-    .map((message) => message.slice(0, share))
-    .join("\n---\n")
-    .slice(0, TITLE_REGENERATE_CHARACTERS);
+  return clip(
+    messages.map((message) => clip(message, share)).join("\n---\n"),
+    TITLE_REGENERATE_CHARACTERS,
+  );
+}
+
+/**
+ * The first `length` characters, counted in code points: a cut in UTF-16 units can split an emoji
+ * and leave half of it, which a JSON request body cannot carry.
+ */
+function clip(text: string, length: number): string {
+  return Array.from(text).slice(0, length).join("");
 }
 
 /** Lowercase letters and digits only: what two strings have to share to be "the same words". */
@@ -105,28 +113,41 @@ function comparable(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
+/** Quotes, emphasis, a `Title:` label and trailing punctuation off one line, until none is left. */
+function tidy(line: string): string {
+  let title = line;
+  for (let previous = ""; title !== previous; ) {
+    previous = title;
+    title = title
+      .replace(/^["'“”‘’`*_]+|["'“”‘’`*_]+$/g, "")
+      .replace(/^title\s*:\s*/i, "")
+      .replace(/[\s.,;:!?…]+$/u, "")
+      .trim();
+  }
+  return title;
+}
+
 /**
  * The model's answer as a title, or null when it is not one and the current name should stay.
  *
- * Tidied first (the first line, without surrounding quotes, a `Title:` label or trailing
- * punctuation), then held to T3's rules: 3 to 8 words, fewer than 40 characters, not a copy or a
- * truncation of what the person wrote, and not the source name the card already shows.
+ * Tidied first, then held to T3's rules: 3 to 8 words, fewer than 40 characters, not a copy or a
+ * truncation of what the person wrote, and not the source name the card already shows. The tidying
+ * takes the first line, or the line after it when the first is a preamble ending in a colon ("Here's
+ * a title:") or a label alone (`**Title:**`), neither ever a title itself; then strips quotes,
+ * emphasis, a `Title:` label and trailing punctuation, over and over until none is left, because
+ * they come nested either way round (`"Title: …"`, `**Title:** …`).
  */
 export function cleanTitle(
   raw: string,
   context: { messages: readonly string[]; sourceName: string | null },
 ): string | null {
-  const firstLine =
-    raw
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line !== "") ?? "";
-  const title = firstLine
-    .replace(/^title\s*:\s*/i, "")
-    .replace(/^["'“”‘’`*_]+|["'“”‘’`*_]+$/g, "")
-    .replace(/[\s.,;:!?…]+$/u, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  const first = lines[0] ?? "";
+  const preamble = first.endsWith(":") || tidy(first) === "";
+  const title = tidy((preamble ? lines[1] : first) ?? "").replace(/\s+/g, " ");
 
   const words = title.split(" ").filter((word) => word !== "");
   if (words.length < TITLE_MIN_WORDS || words.length > TITLE_MAX_WORDS) return null;

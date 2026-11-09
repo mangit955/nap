@@ -20,8 +20,10 @@ export type TitleAccess = (
 
 export type TitleOutcome =
   | { kind: "titled"; name: string }
-  /** Another title is in flight, one was asked for moments ago, or the automatic one was had. */
+  /** Another title is in flight, or this one may not be started (the automatic one was had). */
   | { kind: "busy" }
+  /** A title was asked for moments ago; the next may be asked for once the cooldown passes. */
+  | { kind: "cooldown" }
   /** The name stays as it was; `reason` is for the caller and the log, never the person's chat. */
   | {
       kind: "kept";
@@ -78,7 +80,8 @@ export class SessionTitler implements SessionTitles {
       log.warn({ err: error }, "could not claim a session title");
       return { kind: "kept", reason: "failed" };
     }
-    if (claim === null) return { kind: "busy" };
+    if (claim === "cooldown") return { kind: "cooldown" };
+    if (typeof claim === "string") return { kind: "busy" };
     const { generation } = claim;
     const keep = async (reason: Extract<TitleOutcome, { kind: "kept" }>["reason"]) => {
       await store.release(projectId, generation).catch((error: unknown) => {
@@ -115,6 +118,8 @@ export class SessionTitler implements SessionTitles {
       log.info({ mode, model: access.model, ...result.usage }, "session title answered");
       if (result.type === "refusal") return await keep("refused");
       if (result.type === "error") return await keep("failed");
+      // Cut off by the output cap: whatever came back is the start of something, not a title.
+      if (result.truncated) return await keep("invalid");
 
       const name = cleanTitle(result.text, { messages, sourceName: claim.sourceName });
       if (name === null) return await keep("invalid");

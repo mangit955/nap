@@ -57,7 +57,7 @@ it("bounds and scopes search, and validates auto-settle settings before saving t
   });
   registerNavigationRoutes(app, { store, webOrigin: "https://nap.example" });
 
-  for (const q of ["", "a", " a ", "x".repeat(101)])
+  for (const q of ["", "a", " ab ", "x".repeat(101)])
     expect((await app.request(`/sessions/search?q=${encodeURIComponent(q)}`)).status).toBe(400);
   expect((await app.request("/sessions/search")).status).toBe(400);
   const found = await app.request(`/sessions/search?q=${encodeURIComponent("  50% off ")}`);

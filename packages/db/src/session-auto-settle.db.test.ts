@@ -3,10 +3,12 @@ import { eq, inArray } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { PostgresGitHubStore } from "./github-store.ts";
 import {
   githubInstallations,
   projectRepositories,
   projects,
+  repositoryFeedback,
   repositoryJobs,
   turnRequests,
   users,
@@ -17,12 +19,14 @@ import { PostgresSessionNavigationStore } from "./session-navigation-store.ts";
 let connection: postgres.Sql;
 let db: PostgresJsDatabase;
 let store: PostgresSessionNavigationStore;
+let github: PostgresGitHubStore;
 const people: string[] = [];
 
 beforeAll(async () => {
   connection = postgres(inject("postgresUrl"), { max: 3 });
   db = drizzle(connection);
   store = new PostgresSessionNavigationStore(db);
+  github = new PostgresGitHubStore(db, { claims: null });
 });
 afterAll(async () => {
   if (people.length) await db.delete(users).where(inArray(users.id, people));
@@ -67,6 +71,32 @@ async function navigation(projectId: string) {
   const [row] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!row) throw new Error("Missing project");
   return { ...row.navigation, revision: row.navigationRevision };
+}
+
+/** Another request in the session, finished `daysAgo` days ago. */
+async function worked(created: { sessionId: string }, userId: string, days: number) {
+  await db.insert(turnRequests).values({
+    id: randomUUID(),
+    sessionId: created.sessionId,
+    userId,
+    kind: "turn",
+    message: "More work",
+    model: "free",
+    state: "done",
+    createdAt: daysAgo(days),
+    startedAt: daysAgo(days),
+    finishedAt: daysAgo(days),
+  });
+}
+
+/** Writes navigation stamps directly, as an earlier action would have left them. */
+async function stamp(projectId: string, fields: Record<string, string | null>) {
+  const [row] = await db.select().from(projects).where(eq(projects.id, projectId));
+  if (!row) throw new Error("Missing project");
+  await db
+    .update(projects)
+    .set({ navigation: { ...row.navigation, ...fields } })
+    .where(eq(projects.id, projectId));
 }
 
 /** Settles everything due and answers whether this project was among it. */
@@ -202,6 +232,49 @@ describe("auto-settle after days without activity", () => {
     expect(await settles(quiet.projectId)).toBe(false);
   });
 
+  it("settles again a session a later turn reopened, once that has been quiet as long", async () => {
+    const owner = await person({ afterDays: 7, onMerge: false });
+    const quiet = await quietSession(owner, 30);
+    // Settled long ago, then a turn reopened it: the sidebar shows it active again.
+    await stamp(quiet.projectId, { doneAt: daysAgo(25).toISOString() });
+    await worked(quiet, owner, 10);
+    expect(await settles(quiet.projectId)).toBe(true);
+  });
+
+  it("settles a session a later turn brought back from the archive, as the sidebar shows it", async () => {
+    const owner = await person({ afterDays: 7, onMerge: false });
+    const quiet = await quietSession(owner, 30);
+    await stamp(quiet.projectId, { archivedAt: daysAgo(25).toISOString() });
+    await worked(quiet, owner, 10);
+    expect(await settles(quiet.projectId)).toBe(true);
+  });
+
+  it("counts a snooze ending as activity, so a woken session is not filed away unread", async () => {
+    const owner = await person({ afterDays: 7, onMerge: false });
+    const woke = await quietSession(owner, 30);
+    await stamp(woke.projectId, { snoozedUntil: new Date(Date.now() - 60_000).toISOString() });
+    expect(await settles(woke.projectId)).toBe(false);
+    expect((await navigation(woke.projectId)).snoozedUntil).not.toBeNull();
+    // Woke and then left as long as the rule says: that is quiet.
+    await stamp(woke.projectId, { snoozedUntil: daysAgo(8).toISOString() });
+    expect(await settles(woke.projectId)).toBe(true);
+  });
+
+  it("does not stamp the floor when a stale settle is overruled, since nothing was shown settled", async () => {
+    const owner = await person({ afterDays: 7, onMerge: false });
+    const quiet = await quietSession(owner, 30);
+    await stamp(quiet.projectId, { doneAt: daysAgo(25).toISOString() });
+    await worked(quiet, owner, 10);
+    // Shown active, because the turn came after the settle; snoozing it clears the old stamp.
+    const snoozed = await store.change(owner, quiet.projectId, {
+      revision: 0,
+      change: { kind: "snooze", until: new Date(Date.now() + 60_000).toISOString() },
+    });
+    expect(snoozed.kind).toBe("saved");
+    const [row] = await db.select().from(projects).where(eq(projects.id, quiet.projectId));
+    expect(row?.autoSettleFloor).toBeNull();
+  });
+
   it("settles no more than it is asked to in one tick", async () => {
     const owner = await person({ afterDays: 1, onMerge: false });
     for (let index = 0; index < 3; index++) await quietSession(owner, 30);
@@ -210,8 +283,13 @@ describe("auto-settle after days without activity", () => {
 });
 
 describe("auto-settle when the pull request merges", () => {
-  async function imported(userId: string, state: "open" | "merged", recordedDaysAgo: number) {
-    const created = await quietSession(userId, 5);
+  async function imported(
+    userId: string,
+    state: "open" | "merged",
+    recordedDaysAgo: number,
+    { quietDays = 5, inherited = false } = {},
+  ) {
+    const created = await quietSession(userId, quietDays);
     const installationId = 7_000_000_000 + Math.floor(Math.random() * 1_000_000_000);
     await db.insert(githubInstallations).values({
       installationId,
@@ -246,6 +324,8 @@ describe("auto-settle when the pull request merges", () => {
       checkState: "passed",
       reviewState: "unknown",
       updatedAt: daysAgo(recordedDaysAgo),
+      // A job that continues a merged branch starts out merged, with no merge of its own.
+      pullRequestMergedAt: state === "merged" && !inherited ? daysAgo(recordedDaysAgo) : null,
     });
     return { ...created, jobId };
   }
@@ -267,6 +347,54 @@ describe("auto-settle when the pull request merges", () => {
     expect(await settles(stale.projectId)).toBe(false);
     const off = await person({ afterDays: 30, onMerge: false });
     expect(await settles((await imported(off, "merged", 1)).projectId)).toBe(false);
+  });
+
+  it("does not settle again what its owner un-settled when the merged job is refreshed", async () => {
+    const owner = await person({ afterDays: null, onMerge: true });
+    const session = await imported(owner, "open", 1);
+    // The integration learns of the merge: the one transition the rule counts.
+    await github.updateJob(session.jobId, {
+      pullRequestState: "merged",
+      pullRequestMergedAt: new Date().toISOString(),
+    });
+    expect(await settles(session.projectId)).toBe(true);
+    const unsettled = await store.change(owner, session.projectId, {
+      revision: 1,
+      change: { kind: "done", value: false },
+    });
+    expect(unsettled.kind).toBe("saved");
+    // A comment on the merged pull request, an approve, a webhook redelivery: each refreshes
+    // the job and rewrites its `updated_at`, and none of them is a new merge.
+    await github.updateJob(session.jobId, { checkState: "passed" });
+    await github.updateJob(session.jobId, {
+      pullRequestState: "merged",
+      pullRequestMergedAt: new Date().toISOString(),
+    });
+    expect(await settles(session.projectId)).toBe(false);
+  });
+
+  it("does not count a merged state a job inherited from the one it continues", async () => {
+    const owner = await person({ afterDays: null, onMerge: true });
+    // A job created already merged, because it continues a branch whose pull request merged,
+    // and work done in it a day ago — after that merge.
+    const session = await imported(owner, "merged", 6, { quietDays: 6, inherited: true });
+    await worked(session, owner, 1);
+    await github.updateJob(session.jobId, { pullRequestState: "merged" });
+    expect(await settles(session.projectId)).toBe(false);
+  });
+
+  it("counts pull request feedback as activity for the days rule", async () => {
+    const owner = await person({ afterDays: 7, onMerge: false });
+    const session = await imported(owner, "open", 1, { quietDays: 30 });
+    await db.insert(repositoryFeedback).values({
+      id: randomUUID(),
+      projectId: session.projectId,
+      jobId: session.jobId,
+      kind: "comment",
+      summary: "Looks good",
+      createdAt: daysAgo(2),
+    });
+    expect(await settles(session.projectId)).toBe(false);
   });
 
   it("needs the integration's record, and settles nothing without one", async () => {

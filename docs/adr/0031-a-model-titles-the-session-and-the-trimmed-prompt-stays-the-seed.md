@@ -20,7 +20,7 @@ The seed stays because it is free, instant and never wrong about what was asked,
 
 ### D2: The project records where its name came from
 
-`projects.name_source` is `seed`, `model` or `user`. A rename through `PATCH /projects/:id` writes `user`. The first-prompt namer writes `seed`, and only over a name that is still `seed`. A model title writes `model`. Rows that existed before the column are marked `user`, since nothing can tell which of them somebody named by hand, and an old project being titled again is not worth that risk.
+`projects.name_source` is `seed`, `model` or `user`. A rename through `PATCH /projects/:id` writes `user`, and so does a name typed when creating the project (`POST /projects { name }`); a project created without one is a `seed`. The first-prompt namer writes `seed`, and only over a name that is still `seed`. A model title writes `model`. Rows that existed before the column are marked `user`, since nothing can tell which of them somebody named by hand, and an old project being titled again is not worth that risk. The exception is a row still called the placeholder, "Untitled project": nobody chose that, so it is marked `seed` and its first prompt still names it.
 
 ### D3: A generation is a token, and a rename always wins
 
@@ -28,25 +28,32 @@ Asking for a title stamps `projects.title_generation` with a fresh id in a condi
 
 Automatic titling is attempted at most once per project (`title_auto_attempted`, set by the claim). It is asked for when the project's first prompt is admitted, from both places that admit one: starting a session with a prompt, and the first turn on an unnamed project. The claim makes the two calls one. It runs in the API process, unawaited, while the first turn queues and runs.
 
+Two consequences of that, accepted:
+
+- **A process that dies mid-title spends the automatic attempt.** The claim sets `title_auto_attempted` before the model is asked, and API shutdown does not wait for titles. The seed stays, and the row stays dimmed until the claim expires (up to two minutes), after which Regenerate works.
+- **A session started from a GitHub repository with no prompt keeps the repository's name.** Its first prompt later finds a name that is not the placeholder, so nothing seeds or titles it. Follow-up: treat such a name as unnamed for the first prompt.
+
 ### D4: Paid for by whoever pays for the person's turns, on the cheap model
 
 The title call goes through the same `LLMProvider` and the same credential rule as a turn (`resolveTurnAccess`), so it bills the same account:
 
 - **No stored key (free tier):** `NAP_FREE_MODEL` on the deployment's account, as the turn is.
 - **An OpenRouter key:** `NAP_FREE_MODEL` on that person's key. It is the deployment's cheap model and is on the allowlist by the boot check.
-- **An Anthropic key:** it cannot reach an OpenAI model, so the title uses the model that key's turns default to (the first `anthropic/` entry on the allowlist). Nothing new is configured. The title runs on what the deployment already allows that key.
+- **An Anthropic key:** it cannot reach an OpenAI model, so the title uses the model that key's turns default to (the first `anthropic/` entry on the allowlist). Nothing new is configured. The title runs on what the deployment already allows that key. With no Claude model allowed, no title is written.
 
-A title request asks for no tools and at most 64 output tokens, and has `purpose: "title"`, which turns thinking off the way compaction does. The tokens it used are recorded on the `project.renamed` event it writes, beside the model, as `turn.completed` records a turn's.
+The rule is `resolveTitleAccess` in `apps/api/src/turns/model-access.ts`, beside `resolveTurnAccess`, and is table-tested there.
+
+A title request asks for no tools and at most 64 output tokens, and has `purpose: "title"`, which turns thinking off the way compaction does. The tokens a title that lands used are recorded on the `project.renamed` event it writes, beside the model, as `turn.completed` records a turn's. An answer that is refused, fails the checks in D5 or loses to a rename was still paid for; its tokens are only logged.
 
 **Expected cost per title, from list prices (not measured):** the prompt is about 450 tokens. The person's words are capped at 2,000 characters for an automatic title and 4,000 for a regenerated one, so input is at most about 1,000 to 1,500 tokens, and output is under 20. On `openai/gpt-5.6-luna` ($0.10 per million input tokens, $0.60 per million output) that is about **$0.0001 to $0.00016 per title**, or roughly 6,000 to 10,000 titles per dollar. On `claude-sonnet-5` through an Anthropic key ($2 / $10) it is about $0.002 to $0.003. OpenRouter reserves `max_tokens` against the balance before a call; at 64 tokens that reservation is negligible.
 
 ### D5: The model's answer is checked before it is used
 
-The answer is trimmed to its first line, and surrounding quotes, a `Title:` prefix and trailing punctuation are removed. It is used only if it has 3 to 8 words and fewer than 40 characters, is not a copy or truncation of the person's message, and is not the session's source name (the repository the card's first line already shows). Anything else keeps the current name. These are T3's editorial rules. T3 states them in its prompt and Nap also enforces them, because a model that ignores an instruction is ordinary.
+The answer is trimmed to its first line, and surrounding quotes, a `Title:` prefix and trailing punctuation are removed. It is used only if it has 3 to 8 words and fewer than 40 characters, is not a copy or truncation of the person's message, and is not the session's source name (the repository the card's first line already shows). Anything else keeps the current name. These are T3's editorial rules. T3 states them in its prompt and Nap also enforces them, because a model that ignores an instruction is ordinary. A line ending in a colon ("Here's a title:"), or holding only a label (`**Title:**`), is a preamble, and the line after it is taken instead; quotes, emphasis and the label are stripped until none is left. An answer cut off at the output cap is refused, whatever it says. Languages written without spaces (Chinese, Japanese, Thai) give one "word", so their titles never pass the 3-word rule and keep the seed.
 
 ### D6: Regenerate is the person asking, so it may replace their own name
 
-**Regenerate title** in the row's right-click menu calls `POST /projects/:id/title` and waits for the answer, bounded by the call's timeout. Unlike automatic titling it also runs over a `user` name, because the person asked for it, and the result is `model`. It is refused while a title is in flight and for ten seconds after the last request, so repeated clicks cannot run up the bill on a free-tier account. The row's title is dimmed while one is being written, whether the person asked for it or it is automatic (`titling` on the session summary).
+**Regenerate title** in the row's right-click menu calls `POST /projects/:id/title` and waits for the answer, bounded by the call's timeout. Unlike automatic titling it also runs over a `user` name, because the person asked for it, and the result is `model`. It is refused while a title is in flight and for ten seconds after the last request, and the two refusals say different things: a 409 for the one in flight, and a 429 with code `title_cooldown` and a `Retry-After` of the whole cooldown for the other. The cooldown is per project, not per account: it stops repeated clicks on one row, but somebody on the free tier with many projects can ask for one title per project every ten seconds, on the deployment's account. Follow-up: charge keyless manual titles to a per-user limiter. The row's title is dimmed while one is being written, whether the person asked for it or it is automatic (`titling` on the session summary).
 
 ### D7: The change travels on the existing paths
 

@@ -23,12 +23,15 @@ purpose: it is a persisted field and a wire value, the web maps it in one place
 **Auto-settle** — the reaper settling a session on its owner's behalf: after a number of days
 with nothing happening in it, or when its pull request merges after its last turn. Both rules are
 the owner's settings and off until turned on; a pinned, snoozed, archived or busy session is never
-auto-settled. Taking a session back out of Settled stamps `auto_settle_floor`, and nothing at or
-before that moment can settle it again — so un-settling sticks until new work arrives.
+auto-settled, and a snooze that has ended counts as activity, so a session that woke is not filed
+away before anybody saw it. The merge counted is the moment the integration recorded the pull
+request merged (`pull_request_merged_at`), not the job's last refresh. Taking a session back out of
+Settled stamps `auto_settle_floor`, and nothing at or before that moment can settle it again — so
+un-settling sticks until new work arrives.
 
 **Name source** — where a project's name came from: `seed` (the first prompt trimmed by
 `titleFromPrompt`, written at once), `model` (a title a model wrote afterwards, or on **Regenerate
-title**), or `user` (typed by the person). Nothing automatic ever replaces a `user` name, and a
+title**), or `user` (typed by the person, by renaming it or when creating the project). Nothing automatic ever replaces a `user` name, and a
 rename always wins over a title still being written. See docs/adr/0031.
 
 **Woke** — a snooze that has run out on a session nobody has looked at since. It comes back to the

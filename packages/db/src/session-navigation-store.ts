@@ -16,7 +16,7 @@ import {
   SessionSummarySchema,
   sessionSection,
 } from "@nap/shared/session-navigation";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
 import { TITLE_CLAIM_EXPIRY } from "./postgres-project-title-store.ts";
@@ -177,7 +177,13 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
       const revision = project.navigationRevision + 1;
       // Taking a session out of Settled, however it is done — Un-settle, a snooze, a drag, an Undo
       // — is the owner overruling the auto-settle rules for everything that has happened so far.
-      const unsettled = project.navigation.doneAt !== null && navigation.doneAt === null;
+      // Settled as the sidebar draws it (`sessionSection`): a stamp older than the newest request
+      // was already overruled by that request, and clearing it overrules nothing.
+      const before = project.navigation.doneAt;
+      const unsettled =
+        before !== null &&
+        navigation.doneAt === null &&
+        Date.parse(before) >= (await this.#lastRequested(tx, projectId));
       await tx
         .update(projects)
         .set({
@@ -188,6 +194,22 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
         .where(eq(projects.id, projectId));
       return { kind: "saved", navigation, revision };
     });
+  }
+
+  /** When the project's newest request was admitted or claimed, as epoch ms; 0 for none. */
+  async #lastRequested(tx: Pick<PostgresJsDatabase, "select">, projectId: string): Promise<number> {
+    const [newest] = await tx
+      .select({
+        at: sql<number>`extract(epoch from greatest(${turnRequests.createdAt}, ${turnRequests.startedAt})) * 1000`.mapWith(
+          Number,
+        ),
+      })
+      .from(turnRequests)
+      .innerJoin(sessions, eq(sessions.id, turnRequests.sessionId))
+      .where(eq(sessions.projectId, projectId))
+      .orderBy(desc(turnRequests.createdAt), desc(turnRequests.id))
+      .limit(1);
+    return newest?.at ?? 0;
   }
 
   async reorder(
@@ -355,15 +377,19 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
    * are all in its `where`, so running it again settles nothing it already settled.
    *
    * - Only owners with a `navigation_settings` row, and only the rules they turned on.
-   * - Never pinned, archived, snoozed, already settled, or busy. Busy is a request queued or
+   * - Never pinned, snoozed, or busy, and never archived or already settled as the sidebar draws
+   *   it (`sessionSection`): a stamp older than the newest request no longer counts. Busy is a request queued or
    *   leased in any of the project's sessions — the rule a manual settle answers `busy` with, so
    *   the reaper cannot settle what its owner could not. A turn admitted just after this commits
    *   reopens the session anyway, as it would after a manual settle.
    * - Never on activity at or before `auto_settle_floor`, which this stamps and which an owner
    *   un-settling stamps, so neither the rule nor the owner is overruled by the same history.
-   * - The merge rule needs the GitHub integration's own record of the pull request's state, and
-   *   counts a merge only if it was recorded after the session's last request: a merged pull
-   *   request followed by more work is not a reason to settle that work.
+   * - A snooze that has ended counts as activity, for both rules: the session comes back saying
+   *   *Woke*, and filing it away on the next tick would mean nobody ever saw that.
+   * - The merge rule needs the GitHub integration's own record of when the pull request merged
+   *   (`pull_request_merged_at`, written once), and counts it only if it came after the session's
+   *   last request: a merged pull request followed by more work is not a reason to settle that
+   *   work.
    */
   async autoSettle(limit = AUTO_SETTLE_BATCH): Promise<string[]> {
     const rows = await this.db.execute(sql`
@@ -382,19 +408,22 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
           select max(created_at) as at from repository_feedback where project_id = p.id
         ) fb on true
         left join lateral (
-          select pull_request_state, updated_at from repository_jobs
+          select pull_request_state, pull_request_merged_at as merged_at from repository_jobs
           where project_id = p.id order by created_at desc, job_id desc limit 1
         ) j on true
         cross join lateral (
-          select greatest(p.created_at, w.touched, fb.at) as quiet_since,
+          select greatest(w.touched, (p.navigation->>'snoozedUntil')::timestamptz) as active_at,
+            coalesce(w.requested, '-infinity'::timestamptz) as requested,
             coalesce(p.auto_settle_floor, '-infinity'::timestamptz) as floor
+        ) a
+        cross join lateral (
+          select greatest(p.created_at, a.active_at, fb.at) as quiet_since, a.floor
         ) q
         where (ns.auto_settle_after_days is not null or ns.auto_settle_on_merge)
           and coalesce((p.navigation->>'pinned')::boolean, false) = false
-          and p.navigation->>'archivedAt' is null
+          and coalesce((p.navigation->>'archivedAt')::timestamptz < a.requested, true)
           and coalesce((p.navigation->>'snoozedUntil')::timestamptz <= now(), true)
-          and (p.navigation->>'doneAt' is null
-            or (p.navigation->>'doneAt')::timestamptz < coalesce(w.requested, '-infinity'::timestamptz))
+          and coalesce((p.navigation->>'doneAt')::timestamptz < a.requested, true)
           and not exists (
             select 1 from turn_requests busy join sessions ss on ss.id = busy.session_id
             where ss.project_id = p.id and busy.state in ('queued', 'leased')
@@ -405,8 +434,8 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
               and q.quiet_since > q.floor)
             or (ns.auto_settle_on_merge
               and j.pull_request_state = 'merged'
-              and j.updated_at > coalesce(w.touched, '-infinity'::timestamptz)
-              and j.updated_at > q.floor)
+              and j.merged_at > coalesce(a.active_at, '-infinity'::timestamptz)
+              and j.merged_at > q.floor)
           )
         order by p.id
         limit ${limit}

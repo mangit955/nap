@@ -39,7 +39,7 @@ describe("useSessionSearch", () => {
   it("sends nothing below the minimum or without a way to search", async () => {
     const { search, calls } = controlledSearch();
     const { result, rerender } = renderHook(({ q, s }) => useSessionSearch(q, s), {
-      initialProps: { q: "a", s: search as SearchSessions | undefined },
+      initialProps: { q: "ab", s: search as SearchSessions | undefined },
     });
     await act(() => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS * 2));
     expect(result.current).toEqual({ status: "idle" });
@@ -108,6 +108,14 @@ describe("highlightSegments", () => {
       { text: "<b>", match: false },
       { text: "bold", match: true },
       { text: "</b>", match: false },
+    ]);
+  });
+
+  it("matches a query's spaces against the snippet's, however many either has", () => {
+    // The server matched "blue  button" with its two spaces; the snippet is drawn with one.
+    expect(highlightSegments("make the blue button", "blue \t button")).toEqual([
+      { text: "make the ", match: false },
+      { text: "blue button", match: true },
     ]);
   });
 });

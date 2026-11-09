@@ -84,7 +84,7 @@ import { createMetrics, type Metrics } from "./metrics.ts";
 import type { CreatedProject } from "./projects/routes.ts";
 import { SessionTitler } from "./projects/session-titler.ts";
 import type { ProviderSignInRunner } from "./providers/sign-in.ts";
-import { resolveTurnAccess } from "./turns/model-access.ts";
+import { resolveTitleAccess } from "./turns/model-access.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
 /**
@@ -482,11 +482,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
     return { platform: stored.platform, apiKey: opened.value };
   };
 
-  /**
-   * Session titles, paid for as this person's turns are: the deployment's cheap model on their
-   * key, or on the deployment's for the free tier. An Anthropic key reaches no OpenAI model, so it
-   * gets what its turns default to. `resolveTurnAccess` decides, so the rule is the turn's own.
-   */
+  /** Session titles, paid for as this person's turns are: `resolveTitleAccess` decides. */
   const titler =
     deps.titles === undefined
       ? undefined
@@ -495,17 +491,12 @@ export function composeNap(deps: NapDeps): ComposedNap {
           provider: deps.provider,
           events: deps.events,
           bus: deps.bus,
-          access: async (userId) => {
-            const key = await openCallerKey(userId);
-            const access = resolveTurnAccess({
-              requested: key?.platform === "anthropic" ? undefined : config.NAP_FREE_MODEL,
-              key,
+          access: async (userId) =>
+            resolveTitleAccess({
+              key: await openCallerKey(userId),
               allowed: config.NAP_ALLOWED_MODELS,
               freeModel: config.NAP_FREE_MODEL,
-              defaultModel: config.NAP_MODEL,
-            });
-            return access.ok ? { model: access.model, credentials: access.credentials } : null;
-          },
+            }),
         });
 
   // Built for every role, and served by whichever one serves. A worker's copy counts nothing

@@ -65,11 +65,12 @@ export const SessionListSchema = z.object({
 export type SessionList = z.infer<typeof SessionListSchema>;
 
 /**
- * The bounds of a sidebar search. Two characters is the shortest query a trigram index can answer
- * without reading every message; a hundred is longer than anything typed into a search box; twenty
- * results is more than the listbox shows without scrolling.
+ * The bounds of a sidebar search. Three characters is the shortest query the trigram index can
+ * answer by lookup: pg_trgm takes no trigram from a shorter one inside `%…%`, so it would scan the
+ * whole index, every user's messages. A hundred is longer than anything typed into a search box;
+ * twenty results is more than the listbox shows without scrolling.
  */
-export const SESSION_SEARCH_MIN = 2;
+export const SESSION_SEARCH_MIN = 3;
 export const SESSION_SEARCH_MAX = 100;
 export const SESSION_SEARCH_LIMIT = 20;
 export const SessionSearchQuerySchema = z
