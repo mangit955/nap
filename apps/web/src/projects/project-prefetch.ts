@@ -14,9 +14,17 @@
  * real requests.
  */
 
-import { credentialedFetch } from "../api/credentialed-fetch.ts";
-
 type Fetch = (url: string) => Promise<Response>;
+
+/**
+ * The early request's transport: the cookie, and nothing else.
+ *
+ * Not `credentialedFetch`, whose 401 sends the browser to "your session expired" — right for a
+ * request made on behalf of a session somebody confirmed, wrong for one made before anybody
+ * knew. An anonymous visitor opening a project would otherwise be redirected by a request that
+ * was only ever a guess, before the session check that owns where they go had answered.
+ */
+const speculativeFetch: Fetch = (url) => fetch(url, { credentials: "include" });
 
 /** Long enough for a slow session check, short enough that no record outlives the open it was for. */
 const FRESH_FOR_MS = 15_000;
@@ -30,7 +38,7 @@ export function prefetchProject(
   projectId: string,
   options: { baseUrl?: string; fetchJson?: Fetch; now?: () => number } = {},
 ): void {
-  const { baseUrl = DEFAULT_BASE_URL, fetchJson = credentialedFetch, now = Date.now } = options;
+  const { baseUrl = DEFAULT_BASE_URL, fetchJson = speculativeFetch, now = Date.now } = options;
   const url = `${baseUrl}/projects/${projectId}`;
   if (early !== undefined && early.url === url && now() - early.at < FRESH_FOR_MS) return;
 

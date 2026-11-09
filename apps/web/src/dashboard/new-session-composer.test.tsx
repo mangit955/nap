@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, expect, it, vi } from "vitest";
+import { peekStartedPrompt } from "../chat/started-prompt.ts";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import * as draftNavigation from "../projects/use-draft-navigation.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
@@ -515,6 +516,87 @@ it("starts a template with its task and model once, without browser first-prompt
     prompt: { message: "Build a calendar" },
   });
   expect(sessionStorage.getItem("nap.first-prompt")).toBeNull();
+  // What the workspace shows before its log arrives: the prompt the server admitted, named by the
+  // request it admitted it as — for display, never to be sent again.
+  expect(peekStartedPrompt("00000000-0000-4000-8000-000000000002")).toMatchObject({
+    projectId: "00000000-0000-4000-8000-000000000002",
+    sessionId: "00000000-0000-4000-8000-000000000003",
+    requestId: "00000000-0000-4000-8000-000000000004",
+    text: "Build a calendar",
+  });
+});
+
+it("hands the workspace a started prompt's media and model, as it was sent", async () => {
+  const draft = await seedDraft();
+  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json({
+      projectId: "00000000-0000-4000-8000-000000000002",
+      sessionId: "00000000-0000-4000-8000-000000000003",
+      requestId: "00000000-0000-4000-8000-000000000004",
+    }),
+  );
+  render(
+    <NewSessionComposer
+      ownerId={draft.ownerId}
+      models={[]}
+      modelsLoading={false}
+      onAddKey={vi.fn()}
+      fetchJson={fetchJson}
+    />,
+  );
+  const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toHaveValue("Fix the header"));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(push).toHaveBeenCalledOnce());
+
+  const sent = JSON.parse(String(fetchJson.mock.calls[0]?.[1]?.body)) as {
+    prompt: { message: string; model?: string; attachments?: unknown };
+  };
+  expect(peekStartedPrompt("00000000-0000-4000-8000-000000000002")).toEqual({
+    projectId: "00000000-0000-4000-8000-000000000002",
+    sessionId: "00000000-0000-4000-8000-000000000003",
+    requestId: "00000000-0000-4000-8000-000000000004",
+    text: sent.prompt.message,
+    model: sent.prompt.model,
+    attachments: sent.prompt.attachments,
+  });
+  expect(sent.prompt.attachments).toHaveLength(1);
+});
+
+it("opens the project even when the browser will not hold the started prompt", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+    this: Storage,
+    key: string,
+    value: string,
+  ) {
+    if (key === "nap.started-prompt") throw new DOMException("quota", "QuotaExceededError");
+    setItem.call(this, key, value);
+  });
+  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json({
+      projectId: "00000000-0000-4000-8000-000000000002",
+      sessionId: "00000000-0000-4000-8000-000000000003",
+      requestId: "00000000-0000-4000-8000-000000000004",
+    }),
+  );
+  render(
+    <NewSessionComposer
+      ownerId="00000000-0000-4000-8000-000000000001"
+      models={[]}
+      modelsLoading={false}
+      onAddKey={vi.fn()}
+      fetchJson={fetchJson}
+    />,
+  );
+  const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toBeEnabled());
+  fireEvent.change(box, { target: { value: "Build a calendar" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(push).toHaveBeenCalledWith("/p/00000000-0000-4000-8000-000000000002"));
+  expect(sessionStorage.getItem("nap.started-prompt")).toBeNull();
 });
 
 it("recovers a lost start response with the identical saved request after remount", async () => {

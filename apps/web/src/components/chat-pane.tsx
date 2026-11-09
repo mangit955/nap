@@ -22,6 +22,7 @@ import { ChatTranscript, type RetryHandler } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
 import { type FirstPrompt, peekFirstPrompt } from "../chat/first-prompt.ts";
 import { modelInUse } from "../chat/model-picker.tsx";
+import { peekStartedPrompt, takeStartedPrompt } from "../chat/started-prompt.ts";
 import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
@@ -418,6 +419,23 @@ export function LiveChatPane({
 }) {
   const { events, replayed } = log;
   const injected = fetchJson === undefined ? {} : { fetchJson };
+  /**
+   * The prompt the dashboard started this project with, already admitted as its first request.
+   *
+   * Peeked while rendering, which may happen twice, and taken once in an effect. The submission
+   * hook adopts it as a request it had sent itself, so it is drawn at once and retired by that
+   * request's identity — its `user.message`, or its end without one — and is never sent again.
+   * Its session is known from the dashboard's receipt before the project record says so, which
+   * is what lets the bubble be drawn while that record is still on its way.
+   */
+  const [started] = useState(() =>
+    projectId === undefined ? undefined : peekStartedPrompt(projectId),
+  );
+  useEffect(() => {
+    if (projectId !== undefined) takeStartedPrompt(projectId);
+  }, [projectId]);
+  // Belongs to the project this pane was first drawn for, and to no other it is handed later.
+  const handedOver = started?.projectId === projectId ? started : undefined;
   const {
     submit,
     startTest,
@@ -433,10 +451,11 @@ export function LiveChatPane({
     openedAt,
     error,
   } = useTurnSubmission({
-    sessionId,
+    sessionId: sessionId ?? handedOver?.sessionId,
     events,
     connectionStatus: log.status,
     replayed,
+    accepted: handedOver,
     ...injected,
   });
   const reportActivity = useEffectEvent((activity: TurnActivity) => onActivity?.(activity));
@@ -450,7 +469,7 @@ export function LiveChatPane({
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
-  const [model, setModel] = useState<string | undefined>(undefined);
+  const [model, setModel] = useState<string | undefined>(() => handedOver?.model);
   const [firstPrompt, setFirstPrompt] = useState<FirstPrompt>();
   /**
    * The front page's prompt, shown from the first frame, before there is a session to send it to.
@@ -461,7 +480,10 @@ export function LiveChatPane({
    * does for any message.
    */
   const [early, setEarly] = useState(() =>
-    projectId === undefined ? undefined : peekFirstPrompt(projectId)?.text,
+    // A started prompt is the one on its way: the front page's would be a second bubble.
+    projectId === undefined || handedOver !== undefined
+      ? undefined
+      : peekFirstPrompt(projectId)?.text,
   );
 
   // Through the same submission path as the input, so the front page's first message is an

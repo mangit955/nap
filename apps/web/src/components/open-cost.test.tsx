@@ -15,7 +15,7 @@
  */
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { Profiler } from "react";
 import { beforeEach, expect, it } from "vitest";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
@@ -96,7 +96,11 @@ async function open(writes: number) {
   const duringReplay = commits - before;
 
   await act(async () => net.latest.deliver({ type: "ready" }));
-  expect(await screen.findByText("Your habit tracker is ready.")).toBeVisible();
+  expect(
+    await within(screen.getByRole("region", { name: "Conversation" })).findByText(
+      "Your habit tracker is ready.",
+    ),
+  ).toBeVisible();
   await waitFor(() => expect(listings).toHaveLength(1));
   await quiet();
   view.unmount();

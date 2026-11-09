@@ -15,7 +15,7 @@
  * a workspace opens *one* connection, since the socket is a countable thing here.
  */
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
@@ -114,7 +114,11 @@ describe("opening a put-away project", () => {
       });
     });
     // Live events are committed a frame later, in a batch, so these wait for it.
-    expect(await screen.findByText("Compacting context")).toBeVisible();
+    expect(
+      await within(screen.getByRole("region", { name: "Conversation" })).findByText(
+        "Compacting context",
+      ),
+    ).toBeVisible();
     expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
     await act(async () => {
       net.latest.deliver({
@@ -135,7 +139,11 @@ describe("opening a put-away project", () => {
         ),
       });
     });
-    expect(await screen.findByText(/^Context compacted/)).toBeVisible();
+    expect(
+      await within(screen.getByRole("region", { name: "Conversation" })).findByText(
+        /^Context compacted/,
+      ),
+    ).toBeVisible();
     expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
     expect(frame).toHaveAttribute("src", "https://5173-existing.e2b.app");
   });

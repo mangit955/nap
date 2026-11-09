@@ -17,13 +17,14 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { MediaAttachment } from "@nap/shared/media";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { StrictMode } from "react";
+import { type ReactNode, StrictMode, useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../../api/src/app.ts";
 import { createLogger } from "../../../api/src/logger.ts";
 import { resolveTurnAccess } from "../../../api/src/turns/model-access.ts";
 import { stashFirstPrompt } from "../chat/first-prompt.ts";
 import { jobView } from "../chat/job-summary.ts";
+import { handOffStartedPrompt, peekStartedPrompt } from "../chat/started-prompt.ts";
 import type { SessionLog } from "../hooks/use-session-log.ts";
 import { ev, OTHER_SESSION_ID, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
@@ -570,7 +571,11 @@ describe("LiveChatPane", () => {
     );
 
     expect(screen.getByRole("status", { name: /loading this conversation/i })).toBeInTheDocument();
-    expect(screen.queryByText("build me a todo list")).toBeNull();
+    expect(
+      within(screen.getByRole("region", { name: "Conversation" })).queryByText(
+        "build me a todo list",
+      ),
+    ).toBeNull();
   });
 
   it("shows the front page's prompt at once, and only ever once", async () => {
@@ -1053,6 +1058,153 @@ it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
     expect(admitted).toEqual([{ ok: true, model: "anthropic/claude-sonnet-5", credentials: key }]);
   },
 );
+
+describe("LiveChatPane showing a prompt the dashboard already started", () => {
+  // The dashboard's composer starts a project with its prompt already admitted as the first
+  // queued request (`POST /sessions/start`), then opens the workspace. The workspace has nothing
+  // of it until the log is replayed; these are about the bubble it draws meanwhile.
+  const REQUEST = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
+  const OTHER_REQUEST = "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e";
+  const OTHER_PROJECT = "4e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
+  const TEXT = "Build a habit tracker";
+
+  const handOff = (projectId = PROJECT_ID) =>
+    handOffStartedPrompt({ projectId, sessionId: SESSION_ID, requestId: REQUEST, text: TEXT });
+
+  /** The fake server, recording every POST, with the started request in the state a test sets. */
+  function server(state: "queued" | "running" | "done" | "failed" | "orphaned" = "queued") {
+    const posts: string[] = [];
+    const fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (init?.method === "POST") posts.push(url);
+      if (url.endsWith(`/sessions/${SESSION_ID}/turns/${REQUEST}`))
+        return Response.json({ id: REQUEST, state });
+      return fetchJson(url, init);
+    };
+    return { posts, fetch };
+  }
+
+  /** The project record is still on its way: no session, and so no log asked for. */
+  const arriving: SessionLog = { ...failedTurn(), events: [], lastSeq: 0, replayed: false };
+  const replayed = (events: SessionLog["events"]): SessionLog => ({
+    ...arriving,
+    events,
+    lastSeq: events.length,
+    replayed: true,
+    jobs: jobView(events),
+  });
+  const logged = (turnId: string) => [
+    ev("user.message", { text: TEXT }, 1, { turnId }),
+    ev("turn.started", { source: "user" }, 2, { turnId }),
+  ];
+  const pane = (
+    sessionId: string | undefined,
+    log: SessionLog,
+    fetch: (url: string, init?: RequestInit) => Promise<Response>,
+    projectId = PROJECT_ID,
+  ) => <LiveChatPane projectId={projectId} sessionId={sessionId} log={log} fetchJson={fetch} />;
+  const conversation = () => within(screen.getByRole("region", { name: "Conversation" }));
+  const bubbles = () => conversation().queryAllByText(TEXT);
+  /** Calls `onPaint` in every commit it is part of, after the DOM is written, before effects. */
+  function Painted({ onPaint }: { onPaint: () => void }) {
+    useLayoutEffect(() => {
+      onPaint();
+    });
+    return null;
+  }
+
+  it("shows it before the project or its log has arrived, once, and never sends it", async () => {
+    handOff();
+    const net = server();
+
+    const view = render(pane(undefined, arriving, net.fetch));
+    expect(bubbles()).toHaveLength(1);
+    expect(screen.queryByRole("status", { name: /loading this conversation/i })).toBeNull();
+    // Taken: coming back to the project later must not draw it again.
+    expect(peekStartedPrompt(PROJECT_ID)).toBeUndefined();
+
+    // The project record arrives; the log is still being replayed.
+    view.rerender(pane(SESSION_ID, arriving, net.fetch));
+    await act(async () => {});
+    expect(bubbles()).toHaveLength(1);
+
+    // The replay brings the request's own prompt, which takes the bubble's place.
+    view.rerender(pane(SESSION_ID, replayed(logged(REQUEST)), net.fetch));
+    expect(bubbles()).toHaveLength(1);
+    await act(async () => {});
+    expect(bubbles()).toHaveLength(1);
+    // It was admitted by the dashboard; sending it from here would queue the same turn twice.
+    expect(net.posts.filter((url) => url.includes("/turns"))).toEqual([]);
+  });
+
+  it("is never drawn twice when the first replay already has the prompt", async () => {
+    handOff();
+    const net = server();
+
+    // What each commit put in the document, read before any effect of that commit runs: `act`
+    // flushes effects before a test can look, so a bubble drawn twice for one frame would
+    // otherwise be invisible here and visible in a browser.
+    const painted: number[] = [];
+    const probed = (node: ReactNode) => (
+      <>
+        {node}
+        <Painted onPaint={() => painted.push(bubbles().length)} />
+      </>
+    );
+
+    const view = render(probed(pane(undefined, arriving, net.fetch)));
+    expect(bubbles()).toHaveLength(1);
+    view.rerender(probed(pane(SESSION_ID, replayed(logged(REQUEST)), net.fetch)));
+    await act(async () => {});
+    expect(bubbles()).toHaveLength(1);
+    expect(painted).toEqual([1, 1]);
+    expect(net.posts.filter((url) => url.includes("/turns"))).toEqual([]);
+  });
+
+  it("is not retired by a different request that happens to say the same thing", async () => {
+    handOff();
+    const net = server();
+
+    render(pane(SESSION_ID, replayed(logged(OTHER_REQUEST)), net.fetch));
+    await act(async () => {});
+    // The log's copy belongs to another turn, so the started prompt is still on its way.
+    expect(bubbles()).toHaveLength(2);
+  });
+
+  it.each(["failed", "orphaned"] as const)(
+    "is retired when its request ends %s without ever writing a prompt",
+    async (state) => {
+      // A queued request cancelled before it started has no event at all: only its own status
+      // says it is over, and without that the bubble would wait forever.
+      handOff();
+      const net = server(state);
+
+      render(pane(SESSION_ID, replayed([]), net.fetch));
+      expect(bubbles()).toHaveLength(1);
+      await waitFor(() => expect(bubbles()).toHaveLength(0), { timeout: 3000 });
+      expect(net.posts.filter((url) => url.includes("/turns"))).toEqual([]);
+    },
+  );
+
+  it("ignores one started for another project, and leaves it for that project", async () => {
+    handOff(OTHER_PROJECT);
+    const net = server();
+
+    render(pane(undefined, arriving, net.fetch));
+    await act(async () => {});
+    expect(bubbles()).toHaveLength(0);
+    expect(screen.getByRole("status", { name: /loading this conversation/i })).toBeInTheDocument();
+    expect(peekStartedPrompt(OTHER_PROJECT)).toMatchObject({ text: TEXT });
+  });
+
+  it("is the only early bubble, even beside a front-page prompt nobody has sent", async () => {
+    handOff();
+    stashFirstPrompt(PROJECT_ID, { text: "An unsent front-page prompt" });
+
+    render(pane(undefined, arriving, server().fetch));
+    expect(bubbles()).toHaveLength(1);
+    expect(conversation().queryByText("An unsent front-page prompt")).toBeNull();
+  });
+});
 
 describe("LiveChatPane computer recovery", () => {
   afterEach(() => vi.restoreAllMocks());

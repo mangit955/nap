@@ -77,7 +77,11 @@ describe("ChatPane", () => {
     // A new project's first prompt is on screen before its log has even been asked for.
     render(<ChatPane events={[]} loading pending="Build a habit tracker" />);
 
-    expect(screen.getByText("Build a habit tracker")).toBeVisible();
+    expect(
+      within(screen.getByRole("region", { name: "Conversation" })).getByText(
+        "Build a habit tracker",
+      ),
+    ).toBeVisible();
     expect(screen.queryByRole("status", { name: /loading this conversation/i })).toBeNull();
   });
 

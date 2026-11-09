@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetPrefetchedProject, prefetchProject, readProject } from "./project-prefetch.ts";
 
 const BASE = "http://api.test";
@@ -16,6 +16,7 @@ function server(status = 200) {
 }
 
 beforeEach(() => forgetPrefetchedProject());
+afterEach(() => vi.unstubAllGlobals());
 
 describe("reading a project that was asked for early", () => {
   it("uses the early answer, once, without asking again", async () => {
@@ -86,6 +87,30 @@ describe("reading a project that was asked for early", () => {
 
     await readProject(URL_, late.fetchJson, () => now);
 
+    expect(late.asked).toEqual([URL_]);
+  });
+});
+
+describe("the early request's own transport", () => {
+  it("carries the cookie, and a refusal never moves the page", async () => {
+    // An anonymous visitor opening a project: the API rightly refuses the early request, and
+    // that refusal must stay a hint. Sending the browser to "your session expired" here would
+    // decide where the visitor goes before the session check that owns that decision answers.
+    const sent: (RequestInit | undefined)[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+      sent.push(init);
+      return new Response("{}", { status: 401 });
+    });
+    const assign = vi.fn();
+    vi.stubGlobal("location", { pathname: `/p/${PROJECT}`, assign });
+
+    prefetchProject(PROJECT, { baseUrl: BASE });
+    const late = server();
+    const response = await readProject(URL_, late.fetchJson);
+
+    expect(sent).toEqual([{ credentials: "include" }]);
+    expect(assign).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
     expect(late.asked).toEqual([URL_]);
   });
 });

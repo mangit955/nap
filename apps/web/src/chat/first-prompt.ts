@@ -101,7 +101,7 @@ function parse(raw: string): ({ projectId: string } & FirstPrompt) | undefined {
 }
 
 /** Absent during server rendering, and in a browser that has disabled storage entirely. */
-function defaultStorage(): PromptStorage | undefined {
+export function defaultStorage(): PromptStorage | undefined {
   try {
     return typeof window === "undefined" ? undefined : window.sessionStorage;
   } catch {
