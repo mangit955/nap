@@ -68,6 +68,7 @@ export function loadgenConfig(users: number): NapConfig {
     NAP_SANDBOX_TTL_MINUTES: 30,
     // Far longer than any run, so the reaper never takes a sandbox away mid-journey.
     NAP_REAP_IDLE_MINUTES: 29,
+    NAP_VIEWER_KEEP_WARM_MINUTES: 60,
     NAP_REAP_INTERVAL_SECONDS: 600,
     // Nothing here kills a worker, so the janitor has nothing to find; long enough that a ramp
     // never pays for the query.

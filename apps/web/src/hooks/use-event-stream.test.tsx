@@ -44,6 +44,7 @@ function renderWith(net: ReturnType<typeof sockets>, sessionId: string | undefin
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("connecting", () => {
@@ -243,6 +244,36 @@ describe("heartbeat", () => {
   it("answers a ping, or the server hangs up", () => {
     // The server closes a connection that has sent nothing for its timeout window. Without
     // this reply the stream dies every two and a half minutes and reconnects forever.
+    const net = sockets();
+    render(net);
+
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "ping" });
+    });
+
+    expect(net.latest.frames[0]).toEqual({ type: "pong" });
+  });
+
+  it("says somebody is looking, beside the pong, while the page is visible", () => {
+    // What keeps the sandbox from being reaped out from under someone reading their code or
+    // clicking round the preview, which writes nothing else the server could see.
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const net = sockets();
+    render(net);
+
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "ping" });
+    });
+
+    expect(net.latest.frames).toEqual([{ type: "pong" }, { type: "viewing" }]);
+  });
+
+  it("only answers the heartbeat while the page is hidden", () => {
+    // A background tab is still connected, and must stay so, but nobody is looking at it: a
+    // forgotten tab must not keep paying for a sandbox.
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     const net = sockets();
     render(net);
 

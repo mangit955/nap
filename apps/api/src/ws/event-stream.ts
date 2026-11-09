@@ -57,6 +57,8 @@ export type EventStreamOptions = {
   usageCacheSplit?: boolean;
   socket: StreamSocket;
   heartbeat?: HeartbeatOptions;
+  /** The client says somebody is looking. Throttling and recording it are the caller's. */
+  onViewing?: () => void;
 };
 
 export type EventStream = {
@@ -165,6 +167,7 @@ export function openEventStream(options: EventStreamOptions): EventStream {
       const frame = parseClientFrame(raw);
       // Advisory, not fatal: a client bug should cost it an error frame, not its transcript.
       if (!frame.ok) send({ type: "error", message: frame.error.message });
+      else if (frame.value.type === "viewing") options.onViewing?.();
     },
   };
 }

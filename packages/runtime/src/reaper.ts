@@ -16,6 +16,22 @@
  * seconds longer while the project is restored from the snapshot this just took. Holding a
  * lock across a teardown, on the other hand, means a wedged sweep can block turns.
  *
+ * **A project somebody is looking at is kept warm, for a while.** Reading code or clicking round
+ * the preview writes no event, so the activity clock alone used to reap a sandbox out from under
+ * the person using it, and their next message paid a restore. A visible tab signals instead (see
+ * `ProjectSandboxStore.recordViewer`), and a project whose viewer signalled inside the idle limit
+ * is spared — and has its provider deadline pushed back, because the provider's timer runs from
+ * the last turn and kills what the sweep spared just the same. Two things bound that:
+ *
+ * - A viewer is judged by the idle limit like anything else, so a tab that went hidden, closed or
+ *   lost its network stops counting once it has been silent that long.
+ * - **Viewing alone keeps a sandbox at most `viewers.capMs` past its last real activity.** A
+ *   visible tab nobody is sitting at signals forever, and the cap is what keeps that a bounded
+ *   bill rather than an open one.
+ *
+ * Viewing is activity, not occupancy: it never makes a project *busy*, which still means a lease
+ * and nothing else, so close and delete ask exactly what they asked before.
+ *
  * One project's failure never stops the sweep. The whole point is that a sandbox nobody
  * released keeps costing money, and the project that failed is exactly the one most likely to
  * fail again next time.
@@ -34,7 +50,7 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
-import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxErrorCode, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import { putProjectAway } from "./close-project.ts";
 import { type ReconcileResult, reconcileCapacity } from "./reconcile-capacity.ts";
@@ -59,6 +75,8 @@ export type SweepResult = {
   reaped: string[];
   /** Projects left alone because a turn was running. */
   skipped: string[];
+  /** Projects spared because somebody is looking at them, with their provider deadline pushed back. */
+  keptWarm: string[];
   /**
    * Projects whose sandbox was already gone, so there was nothing to snapshot and the
    * reference was simply dropped. Not a failure and not a success — worth its own count,
@@ -88,6 +106,20 @@ export type SweepOptions = {
    * Injected all the same — which store that is, is the composition's business.
    */
   isBusy: (project: IdleProject) => Promise<boolean>;
+  /**
+   * What a project's viewer is worth. Required rather than optional, because a composition that
+   * forgot it would type-check and quietly reap everybody who is looking at their app.
+   */
+  viewers: {
+    /** The longest viewing alone keeps a sandbox after the project's last real activity. */
+    capMs: number;
+    /**
+     * How far ahead to push the provider's deadline for a project kept warm. The sandbox's own
+     * lifetime: it must outlast the idle limit, so a viewer leaving is caught by the sweep, which
+     * snapshots, rather than by the provider's timer, which does not.
+     */
+    keepAliveMs: number;
+  };
   /** Injected so a test can place "an hour ago" exactly rather than waiting for one. */
   now?: () => number;
   /**
@@ -111,11 +143,41 @@ export type SweepOptions = {
 export async function sweepIdleProjects(options: SweepOptions): Promise<SweepResult> {
   const now = options.now ?? Date.now;
   const cutoff = new Date(now() - options.idleMs).toISOString();
+  const capCutoff = new Date(now() - options.viewers.capMs).toISOString();
 
-  const result: SweepResult = { reaped: [], skipped: [], abandoned: [], failed: [] };
+  const result: SweepResult = {
+    reaped: [],
+    skipped: [],
+    keptWarm: [],
+    abandoned: [],
+    failed: [],
+  };
   const candidates = await options.projects.idleSince(cutoff);
 
   for (const project of candidates) {
+    // Before the busy check, which a viewed project does not need: keeping warm only ever
+    // lengthens a deadline, so doing it to a project with a turn in flight changes nothing.
+    if (heldByViewer(project, cutoff, capCutoff)) {
+      const kept = await options.sandbox.resume(project.sandboxId, {
+        keepAliveMs: options.viewers.keepAliveMs,
+      });
+      if (kept.ok) {
+        result.keptWarm.push(project.projectId);
+        continue;
+      }
+      // Anything but "it is gone" says nothing about the sandbox, and somebody is looking at it:
+      // left for the next tick rather than destroyed over one failed request.
+      if (!SANDBOX_GONE.has(kept.error.code)) {
+        result.failed.push({
+          projectId: project.projectId,
+          reason: "keep_warm_failed",
+          message: kept.error.message,
+        });
+        continue;
+      }
+      // Gone: released below like any other sandbox the provider reclaimed first.
+    }
+
     if (await options.isBusy(project)) {
       result.skipped.push(project.projectId);
       continue;
@@ -161,4 +223,17 @@ export async function sweepIdleProjects(options: SweepOptions): Promise<SweepRes
   }
 
   return result;
+}
+
+/** What a resume answers for a sandbox that no longer exists, rather than one it could not reach. */
+const SANDBOX_GONE: ReadonlySet<SandboxErrorCode> = new Set(["not_found", "destroyed"]);
+
+/**
+ * Whether a viewer, and only a viewer, is what keeps this project from being idle.
+ *
+ * ISO strings compare as instants because both sides are `toISOString()`, UTC to the millisecond.
+ */
+function heldByViewer(project: IdleProject, cutoff: string, capCutoff: string): boolean {
+  if (project.viewedAt === null || project.viewedAt < cutoff) return false;
+  return project.lastActiveAt >= capCutoff;
 }

@@ -449,6 +449,46 @@ describe("frames from the client", () => {
 
     expect(socket.sent).toEqual([]);
   });
+
+  it("hands a viewing signal to whoever records it, and says nothing back", async () => {
+    // The socket already proved who is on the other end; this only says they are looking.
+    const viewed = vi.fn();
+    const socket = new FakeSocket();
+    const stream = openEventStream({
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      sessionId: SESSION,
+      afterSeq: 0,
+      socket,
+      onViewing: viewed,
+    });
+    await stream.ready;
+    socket.clear();
+
+    stream.onMessage('{"type":"viewing"}');
+
+    expect(viewed).toHaveBeenCalledOnce();
+    expect(socket.sent).toEqual([]);
+  });
+
+  it("does not take a pong for a viewer", async () => {
+    // A hidden tab still answers the heartbeat, which is exactly why the socket being open
+    // cannot be what keeps a sandbox warm.
+    const viewed = vi.fn();
+    const stream = openEventStream({
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      sessionId: SESSION,
+      afterSeq: 0,
+      socket: new FakeSocket(),
+      onViewing: viewed,
+    });
+    await stream.ready;
+
+    stream.onMessage('{"type":"pong"}');
+
+    expect(viewed).not.toHaveBeenCalled();
+  });
 });
 
 describe("close", () => {

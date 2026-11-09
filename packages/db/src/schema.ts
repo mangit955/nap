@@ -286,6 +286,12 @@ export const projects = pgTable(
     /** Null until a sandbox has been created for this project. §5 marks both optional. */
     sandboxId: text("sandbox_id"),
     snapshotKey: text("snapshot_key"),
+    /**
+     * When a visible tab last said somebody was looking at this project. Written by
+     * `PostgresProjectSandboxStore.recordViewer`, at most once a minute, and never moves
+     * `updated_at`: that is the activity clock the idle sweep's viewer cap is measured from.
+     */
+    viewedAt: timestamp("viewed_at", { withTimezone: true }),
     createdAt,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

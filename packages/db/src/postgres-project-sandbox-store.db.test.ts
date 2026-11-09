@@ -95,6 +95,7 @@ describe("idleSince", () => {
       sandboxId: expect.stringMatching(/^sb-/),
       sessionIds: [sessionId],
       lastActiveAt: HOUR_AGO.toISOString(),
+      viewedAt: null,
     });
   });
 
@@ -191,5 +192,123 @@ describe("releaseSandbox", () => {
 
   it("throws for a project that does not exist", async () => {
     await expect(store.releaseSandbox(randomUUID(), "sb", "k")).rejects.toThrow(/unknown project/);
+  });
+});
+
+/** The project's own timestamps, read past the schema so the assertion is about the column. */
+async function viewing(projectId: string): Promise<{ viewedAt: Date | null; updatedAt: Date }> {
+  const [row] = await sql<{ viewed_at: string | null; updated_at: string }[]>`
+    select viewed_at, updated_at from projects where id = ${projectId}`;
+  if (row === undefined) throw new Error(`no project ${projectId}`);
+  return {
+    viewedAt: row.viewed_at === null ? null : new Date(row.viewed_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+/** Places the last viewer signal `seconds` ago, so the throttle can be crossed without a wait. */
+async function viewedSecondsAgo(projectId: string, seconds: number): Promise<void> {
+  await sql`update projects set viewed_at = now() - make_interval(secs => ${seconds})
+    where id = ${projectId}`;
+}
+
+describe("recordViewer", () => {
+  it("is reported by idleSince without making the project any less idle", async () => {
+    // Viewing is evidence somebody is looking, and the sweep decides what that is worth. It must
+    // not reach `updated_at` or the event log: those are the clock the hard cap is measured
+    // from, and a viewer moving them would let one forgotten tab keep a sandbox forever.
+    const projectId = await seedProject();
+    const sessionId = await seedSession(projectId);
+    await seedEvent(sessionId, HOUR_AGO);
+
+    await store.recordViewer(sessionId);
+
+    const found = (await store.idleSince(CUTOFF)).find((p) => p.projectId === projectId);
+    expect(found).toBeDefined();
+    expect(found?.lastActiveAt).toBe(HOUR_AGO.toISOString());
+    expect(Date.parse(found?.viewedAt ?? "")).toBeGreaterThan(Date.now() - 60_000);
+    expect((await viewing(projectId)).updatedAt.toISOString()).toBe(HOUR_AGO.toISOString());
+  });
+
+  it("reports null for a project nobody has viewed", async () => {
+    const projectId = await seedProject();
+    await seedEvent(await seedSession(projectId), HOUR_AGO);
+
+    const found = (await store.idleSince(CUTOFF)).find((p) => p.projectId === projectId);
+
+    expect(found?.viewedAt).toBeNull();
+  });
+
+  it("writes at most once a minute per project, however many signals arrive", async () => {
+    // Every open tab on every pod sends one; the row is shared, so the throttle has to be in the
+    // statement rather than in any one process's memory.
+    const projectId = await seedProject();
+    const sessionId = await seedSession(projectId);
+    await viewedSecondsAgo(projectId, 30);
+    const before = (await viewing(projectId)).viewedAt;
+
+    await store.recordViewer(sessionId);
+    // A second tab, on another of the project's sessions.
+    await store.recordViewer(await seedSession(projectId));
+
+    expect((await viewing(projectId)).viewedAt).toEqual(before);
+  });
+
+  it("writes again once the last signal is more than a minute old", async () => {
+    const projectId = await seedProject();
+    const sessionId = await seedSession(projectId);
+    await viewedSecondsAgo(projectId, 90);
+    const before = (await viewing(projectId)).viewedAt?.getTime() ?? 0;
+
+    await store.recordViewer(sessionId);
+
+    expect((await viewing(projectId)).viewedAt?.getTime()).toBeGreaterThan(before + 60_000);
+  });
+
+  it("counts a signal any pod received", async () => {
+    // Two processes, two pools: the socket is on one API pod and the sweep on the reaper. Pod
+    // memory would have made this a per-replica fact that the one process deciding never sees.
+    const podA = postgres(inject("postgresUrl"), { max: 1 });
+    const reaper = postgres(inject("postgresUrl"), { max: 1 });
+    try {
+      const projectId = await seedProject();
+      const sessionId = await seedSession(projectId);
+      await seedEvent(sessionId, HOUR_AGO);
+
+      await new PostgresProjectSandboxStore(drizzle(podA)).recordViewer(sessionId);
+      const seen = await new PostgresProjectSandboxStore(drizzle(reaper)).idleSince(CUTOFF);
+
+      expect(seen.find((p) => p.projectId === projectId)?.viewedAt).not.toBeNull();
+    } finally {
+      await podA.end();
+      await reaper.end();
+    }
+  });
+
+  it("keeps warm only the project the signalling session belongs to", async () => {
+    // A signal that reached past its own project would let one viewer keep every sandbox in the
+    // deployment billed.
+    const watched = await seedProject();
+    const other = await seedProject();
+    await seedSession(other);
+
+    await store.recordViewer(await seedSession(watched));
+
+    expect((await viewing(watched)).viewedAt).not.toBeNull();
+    expect((await viewing(other)).viewedAt).toBeNull();
+  });
+
+  it("writes nothing for a project that holds no sandbox", async () => {
+    // Nothing to keep warm, and the dashboard of put-away projects is most of what people open.
+    const projectId = await seedProject({ sandboxId: null });
+    const sessionId = await seedSession(projectId);
+
+    await store.recordViewer(sessionId);
+
+    expect((await viewing(projectId)).viewedAt).toBeNull();
+  });
+
+  it("ignores a session that does not exist", async () => {
+    await expect(store.recordViewer(randomUUID())).resolves.toBeUndefined();
   });
 });

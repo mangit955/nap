@@ -11,6 +11,10 @@ import { registerNavigationRoutes } from "./projects/navigation-routes.ts";
 import { getLogger, type Logger, withLogContext } from "@nap/shared/logging";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
+import {
+  type ProjectSandboxStore,
+  VIEWER_SIGNAL_INTERVAL_MS,
+} from "@nap/shared/ports/project-sandbox-store";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import { VERSION } from "@nap/shared/version";
 import { type Context, Hono } from "hono";
@@ -39,6 +43,7 @@ import { type ProviderRouteDeps, registerProviderRoutes } from "./providers/rout
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
+import { viewerSignal } from "./ws/viewer-signal.ts";
 
 /**
  * Turning a request into a WebSocket is the one thing that cannot happen here: it needs a
@@ -125,6 +130,12 @@ export type AppDeps = {
      * `/ws` takes the cookie alone and the route that issues tickets does not exist.
      */
     tickets?: StreamTickets;
+    /**
+     * Where a socket's "somebody is looking" goes, which is what keeps the idle sweep off a
+     * project in use. Only ever reached through an authorized socket, so it authorizes nothing
+     * itself. Absent, viewing frames are accepted and dropped: the sweep then sees turns alone.
+     */
+    viewers?: Pick<ProjectSandboxStore, "recordViewer">;
   };
   /**
    * Reading a project's files needs a session's sandbox, which means a `SessionStore` — and
@@ -331,6 +342,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
     if (!owned.ok) return c.json({ error: owned.error.message }, owned.error.status);
 
     const { sessionId, afterSeq, repairOwnership, usageCacheSplit } = query.value;
+    const { viewers } = deps.stream;
     let stream: ReturnType<typeof openEventStream> | undefined;
     // Counted here rather than inside `openEventStream`, because the gauge is about the socket
     // rather than about the replay: a stream that fails to start still holds a connection, and
@@ -353,6 +365,16 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
           usageCacheSplit,
           socket: ws,
           ...(deps.stream.heartbeat === undefined ? {} : { heartbeat: deps.stream.heartbeat }),
+          ...(viewers === undefined
+            ? {}
+            : {
+                onViewing: viewerSignal({
+                  record: () => viewers.recordViewer(sessionId),
+                  intervalMs: VIEWER_SIGNAL_INTERVAL_MS,
+                  onError: (error) =>
+                    deps.logger.warn({ err: error, sessionId }, "could not record a viewer"),
+                }),
+              }),
         });
       },
       onMessage: (event) => stream?.onMessage(event.data),

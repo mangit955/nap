@@ -13,6 +13,10 @@
  * counter; one that never replies is closed after the heartbeat timeout, reconnects, and does
  * it again forever. The reply is the difference between a live stream and a loop.
  *
+ * **Beside the pong, it says whether anybody is looking** — only while the page is visible, which
+ * a pong cannot say because a background tab answers the heartbeat too. That is what keeps the
+ * server's idle sweep from reaping the sandbox of someone reading their code or using the preview.
+ *
  * The socket is created through an injected factory so the reconnect curve can be tested in
  * milliseconds against a fake, with no network anywhere near the suite.
  */
@@ -174,6 +178,8 @@ export function useEventStream(options: EventStreamOptions): EventStream {
 
         if (frame.type === "ping") {
           current.send(JSON.stringify({ type: "pong" }));
+          if (document.visibilityState === "visible")
+            current.send(JSON.stringify({ type: "viewing" }));
           return;
         }
         // The log has been delivered in full — everything the server had when this connection
@@ -184,9 +190,9 @@ export function useEventStream(options: EventStreamOptions): EventStream {
           setReplayed(true);
           return;
         }
-        // An `error` frame is the server rejecting something this client sent. Nothing here
-        // sends anything but pongs, so there is nothing to retry — dropping it keeps a server
-        // complaint from tearing down a working stream.
+        // An `error` frame is the server rejecting something this client sent — a pong, or a
+        // `viewing` an older server does not know yet. Neither is worth a retry, and dropping it
+        // keeps a server complaint from tearing down a working stream.
         if (frame.type !== "event") return;
 
         const event = frame.event;

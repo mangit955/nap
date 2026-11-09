@@ -106,6 +106,7 @@ const CONFIG: NapDeps["config"] = {
   // Long enough that neither sweep runs during the test: this is about the queue, and a reaper
   // taking the sandbox away mid-turn would be a different test failing.
   NAP_REAP_IDLE_MINUTES: 60,
+  NAP_VIEWER_KEEP_WARM_MINUTES: 120,
   NAP_REAP_INTERVAL_SECONDS: 3600,
   NAP_JANITOR_INTERVAL_SECONDS: 3600,
   NAP_WORKER_CONCURRENCY: 2,
