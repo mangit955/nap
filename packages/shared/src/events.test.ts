@@ -372,7 +372,12 @@ const CASES = [
       ...ENVELOPE,
       type: "turn.completed",
       payload: {
-        usage: { inputTokens: 1200, outputTokens: 340 },
+        usage: {
+          inputTokens: 31_200,
+          outputTokens: 340,
+          cacheWriteTokens: 1_800,
+          cacheReadTokens: 28_000,
+        },
         durationMs: 8_400,
         commitSha: "a1b2c3d",
       },
@@ -758,6 +763,50 @@ describe.each(CASES)("$type", ({ type, valid, malformed, issuePath }) => {
     // to catch. Nothing in an event payload may rely on `undefined` surviving.
     const roundTripped = NapEventSchema.parse(JSON.parse(JSON.stringify(valid)));
     expect(roundTripped).toStrictEqual(valid);
+  });
+});
+
+describe("usage's cache split", () => {
+  const completed = (usage: unknown) => ({
+    ...ENVELOPE,
+    type: "turn.completed",
+    payload: { usage, durationMs: 1, commitSha: null },
+  });
+
+  it("reads usage written before the cache fields existed exactly as it was written", () => {
+    // Replay parses the rows it finds. A default here would put a zero into every old event
+    // that nobody measured; absent already means "nothing cached".
+    const old = completed({ inputTokens: 40_000, outputTokens: 900 });
+
+    expect(NapEventSchema.parse(old)).toStrictEqual(old);
+  });
+
+  it("carries the split through every payload that reports usage", () => {
+    const usage = { inputTokens: 30, outputTokens: 2, cacheWriteTokens: 5, cacheReadTokens: 20 };
+    const events = [
+      completed(usage),
+      {
+        ...ENVELOPE,
+        type: "subagent.completed",
+        payload: { subagentId: "helper-1", outcome: "completed", summary: "", toolCalls: 0, usage },
+      },
+      {
+        ...ENVELOPE,
+        type: "compaction.failed",
+        payload: { id: ENVELOPE.turnId, message: "no", cancelled: false, usage },
+      },
+    ];
+    for (const event of events)
+      expect(NapEventSchema.parse(JSON.parse(JSON.stringify(event)))).toStrictEqual(event);
+  });
+
+  it("refuses cached input larger than the input it is part of", () => {
+    const result = NapEventSchema.safeParse(
+      completed({ inputTokens: 10, outputTokens: 0, cacheReadTokens: 11 }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["payload", "usage", "inputTokens"]);
   });
 });
 

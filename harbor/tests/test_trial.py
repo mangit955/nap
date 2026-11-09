@@ -108,6 +108,27 @@ class TestContextFromReport:
             "cost_usd": 0.0042,
         }
 
+    def test_carries_the_cache_reads_harbor_counts_inside_the_input(self):
+        """Harbor's input count includes cache, as the report's does; its cache count is reads."""
+        context = context_from_report(
+            {
+                "metrics": {
+                    "tokens": {
+                        "inputTokens": 30_300,
+                        "outputTokens": 300,
+                        "cacheWriteTokens": 2_000,
+                        "cacheReadTokens": 28_000,
+                    },
+                }
+            }
+        )
+
+        assert context == {
+            "n_input_tokens": 30_300,
+            "n_cache_tokens": 28_000,
+            "n_output_tokens": 300,
+        }
+
     def test_leaves_an_absent_figure_absent_rather_than_reporting_zero(self):
         """A run whose turns never completed has no token usage; zero would be a measurement."""
         context = context_from_report({"metrics": {"toolCalls": 4, "turns": {}}})

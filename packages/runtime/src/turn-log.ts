@@ -192,6 +192,14 @@ function detail(event: NapEvent): Record<string, unknown> {
         durationMs: event.payload.durationMs,
         inputTokens: event.payload.usage.inputTokens,
         outputTokens: event.payload.usage.outputTokens,
+        // Parts of `inputTokens`, present only when the provider said: how much of the prompt
+        // came from the cache is what explains a cheap long turn or an expensive short one.
+        ...(event.payload.usage.cacheWriteTokens === undefined
+          ? {}
+          : { cacheWriteTokens: event.payload.usage.cacheWriteTokens }),
+        ...(event.payload.usage.cacheReadTokens === undefined
+          ? {}
+          : { cacheReadTokens: event.payload.usage.cacheReadTokens }),
         commitSha: event.payload.commitSha,
         ...(event.payload.awaiting === undefined ? {} : { awaiting: event.payload.awaiting }),
       };

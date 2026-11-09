@@ -18,6 +18,7 @@
  */
 
 import type {
+  BilledWeights,
   LLMProvider,
   LLMRequest,
   LLMToolCall,
@@ -25,6 +26,7 @@ import type {
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import { addUsage } from "@nap/shared/usage";
 
 /** One response, with every field optional so a script writes only what it means. */
 export type LoopingResponse = {
@@ -57,8 +59,13 @@ export interface CountingLLMProvider extends LLMProvider {
 /**
  * @param script The responses one turn hands out, in call order. Its last entry should be a
  *   plain answer with no tool calls, because it is what a long turn will keep receiving.
+ * @param options.billedWeights What every turn's usage is charged at. Absent leaves them off the
+ *   turn, which the agent reads as the fallback, as it would from a provider that knew no model.
  */
-export function loopingLLMProvider(script: readonly LoopingResponse[]): CountingLLMProvider {
+export function loopingLLMProvider(
+  script: readonly LoopingResponse[],
+  options: { billedWeights?: BilledWeights } = {},
+): CountingLLMProvider {
   if (script.length === 0) {
     throw new RangeError("loopingLLMProvider needs at least one response to hand out");
   }
@@ -92,10 +99,7 @@ export function loopingLLMProvider(script: readonly LoopingResponse[]): Counting
           const spent = response.usage ?? NO_USAGE;
           totals.inputTokens += spent.inputTokens;
           totals.outputTokens += spent.outputTokens;
-          usage = {
-            inputTokens: usage.inputTokens + spent.inputTokens,
-            outputTokens: usage.outputTokens + spent.outputTokens,
-          };
+          usage = addUsage(usage, spent);
 
           return {
             type: "message",
@@ -105,6 +109,7 @@ export function loopingLLMProvider(script: readonly LoopingResponse[]): Counting
           };
         },
         usage: () => usage,
+        ...(options.billedWeights === undefined ? {} : { billedWeights: options.billedWeights }),
       };
     },
   };

@@ -7,11 +7,6 @@ import type {
   NativeCompaction,
 } from "./ports/llm-provider.ts";
 
-export const TokenUsageSchema = z.strictObject({
-  inputTokens: z.int().nonnegative(),
-  outputTokens: z.int().nonnegative(),
-});
-
 const ObservationBlockSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("text"), text: z.string() }),
   z.strictObject({

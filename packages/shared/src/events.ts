@@ -30,11 +30,12 @@ import { MediaAttachmentsSchema } from "./media.ts";
 
 import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
-import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
+import { CompactionResultSchema } from "./compaction.ts";
 import { ComputerAnnotationSchema } from "./computer.ts";
 import { DiffStatSchema } from "./git-protocol.ts";
 import { NameSourceSchema } from "./session-title.ts";
 import { TestRecordingStateSchema } from "./test-recording.ts";
+import { TokenUsageSchema } from "./usage.ts";
 
 /**
  * Every tool the agent has ever been able to call, and the only names `tool.call` accepts.
@@ -367,10 +368,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
      * or a Fusion sidekick given up on (ADR-0030).
      */
     usageIncomplete: z.literal(true).optional(),
-    usage: z.strictObject({
-      inputTokens: z.int().nonnegative(),
-      outputTokens: z.int().nonnegative(),
-    }),
+    usage: TokenUsageSchema,
     durationMs: z.int().nonnegative(),
     /** `null` when the turn changed no files, so there was nothing to commit. */
     commitSha: z.string().min(1).nullable(),

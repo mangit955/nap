@@ -124,6 +124,30 @@ describe("deriveRunMetrics — what the log can supply", () => {
     expect(metrics.turnDurationMs).toBe(5_000);
   });
 
+  it("sums the cache split across turns, and leaves it off runs that never reported one", () => {
+    const cached = event("turn.completed", {
+      usage: { inputTokens: 30_000, outputTokens: 100, cacheReadTokens: 28_000 },
+      durationMs: 1,
+      commitSha: null,
+    });
+    const writing = event("turn.completed", {
+      usage: { inputTokens: 5_000, outputTokens: 10, cacheWriteTokens: 4_000 },
+      durationMs: 1,
+      commitSha: null,
+    });
+
+    expect(deriveRunMetrics([cached, writing, completed(500, 50, 1)]).tokens).toStrictEqual({
+      inputTokens: 35_500,
+      outputTokens: 160,
+      cacheWriteTokens: 4_000,
+      cacheReadTokens: 28_000,
+    });
+    expect(deriveRunMetrics([completed(500, 50, 1)]).tokens).toStrictEqual({
+      inputTokens: 500,
+      outputTokens: 50,
+    });
+  });
+
   it("ignores the events it has nothing to say about", () => {
     // A stream carries chat, thinking, command output and preview announcements too. None
     // of them are trajectory figures, and none of them may perturb one.

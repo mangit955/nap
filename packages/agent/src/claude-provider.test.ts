@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIConnectionError, APIError, BadRequestError, RateLimitError } from "@anthropic-ai/sdk";
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor, FALLBACK_BILLED_WEIGHTS } from "@nap/shared/usage";
 import { describe, expect, it, vi } from "vitest";
 import {
   type AnthropicClient,
@@ -8,6 +9,7 @@ import {
   ClaudeProvider,
   MAX_ATTEMPTS,
   toModelId,
+  toTokenUsage,
 } from "./claude-provider.ts";
 
 /**
@@ -173,10 +175,11 @@ describe("ClaudeProvider", () => {
       expect(first.usage()).toEqual({ inputTokens: 350, outputTokens: 50 });
     });
 
-    it("counts cached input tokens, which the API reports separately from input_tokens", async () => {
+    it("counts cached input as input, and says how much of it was cached and how", async () => {
       // `input_tokens` is the uncached remainder only. Ignoring the cache fields would
-      // under-report a cached turn's real input by most of its size, and the budget in
-      // docs/PLAN.md §4 is built on these numbers.
+      // under-report a cached turn's real input by most of its size; folding them in without
+      // saying so would make the budget charge a cache read at the full input price, which
+      // is what ended turns around their thirteenth step.
       const client = stubClient([
         message({
           usage: {
@@ -189,9 +192,86 @@ describe("ClaudeProvider", () => {
       ]);
 
       const turn = provider(client).startTurn();
+      const result = await turn.complete(request());
+
+      const expected = {
+        inputTokens: 3_210,
+        outputTokens: 5,
+        cacheWriteTokens: 200,
+        cacheReadTokens: 3_000,
+      };
+      expect(result.usage).toStrictEqual(expected);
+      expect(turn.usage()).toStrictEqual(expected);
+    });
+
+    it("keeps the cache split when it adds a turn's calls together", async () => {
+      const cached = (read: number, write: number) =>
+        ({
+          input_tokens: 5,
+          output_tokens: 1,
+          cache_creation_input_tokens: write,
+          cache_read_input_tokens: read,
+        }) as AnthropicMessage["usage"];
+      const client = stubClient([
+        message({ usage: cached(0, 4_000) }),
+        message({ usage: cached(4_000, 300) }),
+      ]);
+
+      const turn = provider(client).startTurn();
+      await turn.complete(request());
       await turn.complete(request());
 
-      expect(turn.usage()).toEqual({ inputTokens: 3_210, outputTokens: 5 });
+      expect(turn.usage()).toStrictEqual({
+        inputTokens: 8_310,
+        outputTokens: 2,
+        cacheWriteTokens: 4_300,
+        cacheReadTokens: 4_000,
+      });
+    });
+
+    it("reads null cache counts, as OpenRouter sends for a model that caches nothing, as none", async () => {
+      const client = stubClient([message()]);
+      const turn = provider(client).startTurn();
+
+      const result = await turn.complete(request());
+
+      expect(result.usage).toStrictEqual({ inputTokens: 10, outputTokens: 4 });
+    });
+
+    it("never turns a usage block with fields missing into NaN", () => {
+      // A route that omits a field entirely, rather than sending null, would otherwise make
+      // `undefined + 0` a NaN that every later total inherits — and a NaN budget never trips.
+      const partial = { output_tokens: 3 } as unknown as AnthropicMessage["usage"];
+
+      expect(toTokenUsage(partial)).toStrictEqual({ inputTokens: 0, outputTokens: 3 });
+      expect(toTokenUsage(undefined)).toStrictEqual({ inputTokens: 0, outputTokens: 0 });
+    });
+
+    it("hands each turn the billed weights of the model it resolved to", () => {
+      // The budget charges a turn's usage by these, and only the provider knows which model a
+      // turn ended up on: the configured default, a caller's override, or a bare Anthropic id.
+      const claude = new ClaudeProvider({
+        client: stubClient([]),
+        createClient: () => stubClient([]),
+      });
+      const opus = billedWeightsFor("anthropic/claude-opus-5");
+
+      expect(claude.startTurn().billedWeights).toBe(billedWeightsFor("openai/gpt-5.6-luna"));
+      expect(claude.startTurn().billedWeights?.output).toBe(6);
+      expect(claude.startTurn({ model: "anthropic/claude-opus-5" }).billedWeights).toBe(opus);
+      expect(
+        claude.startTurn({
+          model: "anthropic/claude-opus-5",
+          credentials: { platform: "anthropic", apiKey: "sk-ant-test" },
+        }).billedWeights,
+      ).toBe(opus);
+      expect(
+        new ClaudeProvider({ client: stubClient([]), model: "claude-opus-5" }).startTurn()
+          .billedWeights,
+      ).toBe(opus);
+      expect(claude.startTurn({ model: "vendor/unpriced" }).billedWeights).toBe(
+        FALLBACK_BILLED_WEIGHTS,
+      );
     });
 
     it("still counts a call that ended in an error", async () => {

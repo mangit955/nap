@@ -168,6 +168,23 @@ describe("formatEvent", () => {
     expect(line).toContain("9e107d9d");
   });
 
+  it("says how much of a turn's input the cache served, when it served any", () => {
+    const line = formatEvent(
+      event("turn.completed", {
+        usage: {
+          inputTokens: 31_000,
+          outputTokens: 90,
+          cacheWriteTokens: 2_000,
+          cacheReadTokens: 28_000,
+        },
+        durationMs: 4_300,
+        commitSha: null,
+      }),
+    );
+
+    expect(line).toContain("31000 in (28000 from cache) / 90 out");
+  });
+
   it("says so plainly when a turn committed nothing", () => {
     const line = formatEvent(
       event("turn.completed", {

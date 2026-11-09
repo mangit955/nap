@@ -19,10 +19,11 @@
  *  - **A refusal never touches `content`.** Safety classifiers can decline before the
  *    model writes anything, so the array is empty and `content[0].text` would throw. The
  *    branch returns before it can.
- *  - **Cached input counts as input.** The API reports `input_tokens` as the *uncached
- *    remainder*; the cache-read and cache-write counts sit in their own fields. Summing
- *    all three is what makes the number mean "what this call actually cost us", which is
- *    what a budget needs.
+ *  - **Cached input counts as input, and says so.** The API reports `input_tokens` as the
+ *    *uncached remainder*; the cache-read and cache-write counts sit in their own fields.
+ *    Summing all three is what makes `inputTokens` the size of the prompt; keeping the two
+ *    cached parts beside it is what lets the budget charge a cache read at a tenth of the
+ *    price rather than at face value.
  *
  * The SDK is reached through a narrow injected `AnthropicClient` rather than by calling
  * the class directly, so every mapping and every failure path can be driven by a stub
@@ -31,6 +32,7 @@
 
 import Anthropic, { APIConnectionError, APIError, RateLimitError } from "@anthropic-ai/sdk";
 import type {
+  BilledWeights,
   LLMContentBlock,
   LLMMessage,
   LLMObservationBlock,
@@ -43,9 +45,10 @@ import type {
   ModelCredentials,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import { addUsage, billedWeightsFor, tokenUsage } from "@nap/shared/usage";
 import { z } from "zod";
 import { toDirectAnthropicModel } from "./anthropic.ts";
-import { createOpenRouterClient } from "./openrouter.ts";
+import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
 
 /** The assembled response. Named locally so tests do not reach into the SDK's namespace. */
 export type AnthropicMessage = Anthropic.Message;
@@ -246,16 +249,19 @@ export function describeError(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-/** Total input, including the parts the API bills separately because they were cached. */
+/**
+ * Total input, including the parts the API bills separately because they were cached, with
+ * those parts kept apart. OpenRouter sends `null` for a model that caches nothing, and the
+ * shared constructor reads that, or a field missing outright, as zero.
+ */
 export function toTokenUsage(usage: AnthropicMessage["usage"] | undefined): TokenUsage {
   if (usage === undefined) return NO_USAGE;
-  return {
-    inputTokens:
-      usage.input_tokens +
-      (usage.cache_creation_input_tokens ?? 0) +
-      (usage.cache_read_input_tokens ?? 0),
-    outputTokens: usage.output_tokens,
-  };
+  return tokenUsage({
+    uncached: usage.input_tokens,
+    cacheWrite: usage.cache_creation_input_tokens,
+    cacheRead: usage.cache_read_input_tokens,
+    output: usage.output_tokens,
+  });
 }
 
 /**
@@ -469,10 +475,15 @@ export class ClaudeProvider implements LLMProvider {
           // three layers away.
           toModelId(options.model, options.credentials?.platform);
 
-    return new ClaudeTurn(this.#clientFor(options.credentials), this.#sleep, {
-      ...this.#config,
-      model,
-    });
+    // Looked up by the codebase's spelling of the model, which is the one the table is keyed by:
+    // a bare id is Anthropic's, as everywhere else here.
+    const weights = billedWeightsFor(toOpenRouterModel(options.model ?? this.#config.model));
+    return new ClaudeTurn(
+      this.#clientFor(options.credentials),
+      this.#sleep,
+      { ...this.#config, model },
+      weights,
+    );
   }
 
   /**
@@ -530,12 +541,20 @@ class ClaudeTurn implements LLMTurn {
   readonly #client: AnthropicClient;
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #config: ModelConfig;
+  /** An own property rather than a getter, so a wrapper spreading this turn keeps it. */
+  readonly billedWeights: BilledWeights;
   #usage: TokenUsage = NO_USAGE;
 
-  constructor(client: AnthropicClient, sleep: (ms: number) => Promise<void>, config: ModelConfig) {
+  constructor(
+    client: AnthropicClient,
+    sleep: (ms: number) => Promise<void>,
+    config: ModelConfig,
+    billedWeights: BilledWeights,
+  ) {
     this.#client = client;
     this.#sleep = sleep;
     this.#config = config;
+    this.billedWeights = billedWeights;
   }
 
   async complete(request: LLMRequest): Promise<LLMTurnResult> {
@@ -589,10 +608,7 @@ class ClaudeTurn implements LLMTurn {
   }
 
   #record(result: LLMTurnResult): LLMTurnResult {
-    this.#usage = {
-      inputTokens: this.#usage.inputTokens + result.usage.inputTokens,
-      outputTokens: this.#usage.outputTokens + result.usage.outputTokens,
-    };
+    this.#usage = addUsage(this.#usage, result.usage);
     return result;
   }
 }

@@ -2,7 +2,9 @@
 
 **Status:** Accepted — 2026-08-24. Amended by [ADR-0024](0024-the-cached-prefix-is-never-rewritten.md):
 every *finished* turn is now stale, the most recent one included, so that history a cached
-request already sent is never rewritten. `verbatimTurns` now defaults to zero.
+request already sent is never rewritten. `verbatimTurns` now defaults to zero. Amended by
+[ADR-0031](0031-the-turn-budget-is-denominated-in-what-is-billed.md): the turn budget is now
+charged at billed weight, and the 400,000 figure below no longer stands.
 
 ## Context
 

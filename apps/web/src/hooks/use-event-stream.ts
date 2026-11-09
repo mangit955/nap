@@ -155,7 +155,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
 
     const open = (ticket: string | undefined): void => {
       const query = ticket === undefined ? "" : `&ticket=${encodeURIComponent(ticket)}`;
-      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1${query}`;
+      const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1&usageCacheSplit=1${query}`;
       const current = createSocketRef.current(url);
       socket = current;
 

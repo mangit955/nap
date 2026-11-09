@@ -151,6 +151,7 @@ function holdingWhenAsked(inner: LLMProvider): LLMProvider {
       const turn = inner.startTurn(options);
       return {
         usage: () => turn.usage(),
+        ...(turn.billedWeights === undefined ? {} : { billedWeights: turn.billedWeights }),
         complete: (request) =>
           JSON.stringify(request.messages).includes(HOLD_UNTIL_CANCELLED)
             ? new Promise((_resolve, reject) => {
