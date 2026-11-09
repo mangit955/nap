@@ -997,6 +997,7 @@ class Turn {
         },
         durationMs: this.#clock() - this.#startedAt,
         commitSha: finalized?.commitSha ?? null,
+        ...(finalized?.diff ? { diff: finalized.diff } : {}),
         ...(this.#awaiting === undefined ? {} : { awaiting: this.#awaiting }),
       },
     });

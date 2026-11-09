@@ -94,20 +94,23 @@ function time(iso: string | null): number {
 
 /** What the right end of a row's first line says, when it says anything but a time. */
 export type RowStatus =
+  | { kind: "queued" }
   | { kind: "working"; since: string | null }
   | { kind: "failed" }
   | { kind: "woke" }
   | { kind: "done" };
 
 /**
- * Whether the reader has seen the newest thing that happened here. An explicit "mark unread"
- * wins over the watermark, exactly as T3's rewound visit time does.
+ * Whether the reader has seen the newest finished turn here. An explicit "mark unread" wins over
+ * the watermark, exactly as T3's rewound visit time does. Compared with when the turn finished,
+ * not `activityAt`: pull request feedback moves that without anything having finished, and has a
+ * count of its own on the card.
  */
 export function isUnread(session: SessionSummary): boolean {
   const { unread, readAt } = session.navigation;
   if (unread) return true;
-  if (session.activityAt === null) return false;
-  return readAt === null || time(session.activityAt) > time(readAt);
+  if (session.turnFinishedAt === null) return false;
+  return readAt === null || time(session.turnFinishedAt) > time(readAt);
 }
 
 /**
@@ -124,14 +127,15 @@ export function isWoke(session: SessionSummary, now: number): boolean {
 }
 
 /**
- * T3's status slot. Queued counts as working, as T3's `preparing` and `queued` do: from where
- * the reader sits both mean "Nap has this". Woke outranks Done, as in T3, because it is the
- * reader's own reminder. `Done` is a finished turn nobody has looked at yet; once read, the slot
- * goes back to a plain time, because a row that says Done forever says nothing.
+ * T3's status slot. Queued says so and carries no clock: nothing has started, and a timer counting
+ * from the request would be counting the queue. Working counts from the claim. Woke outranks Done,
+ * as in T3, because it is the reader's own reminder. `Done` is a finished turn nobody has looked
+ * at yet; once read, the slot goes back to a plain time, because a row that says Done forever says
+ * nothing.
  */
 export function rowStatus(session: SessionSummary, now: number): RowStatus | null {
-  if (session.activity === "working" || session.activity === "queued")
-    return { kind: "working", since: session.requestedAt };
+  if (session.activity === "queued") return { kind: "queued" };
+  if (session.activity === "working") return { kind: "working", since: session.runStartedAt };
   if (session.activity === "attention") return { kind: "failed" };
   if (isWoke(session, now)) return { kind: "woke" };
   return isUnread(session) ? { kind: "done" } : null;
@@ -148,14 +152,33 @@ export function seenChange(
 ): Extract<NavigationChange["change"], { kind: "read" }> | null {
   const woke = isWoke(session, now);
   if (!woke && !isUnread(session)) return null;
-  const candidates = [session.activityAt, woke ? session.navigation.snoozedUntil : null].filter(
-    (value): value is string => value !== null,
-  );
+  const candidates = [
+    session.activityAt,
+    session.turnFinishedAt,
+    woke ? session.navigation.snoozedUntil : null,
+  ].filter((value): value is string => value !== null);
   const at = candidates.reduce<string | null>(
     (latest, value) => (latest === null || time(value) > time(latest) ? value : latest),
     null,
   );
   return { kind: "read", at, unread: false };
+}
+
+/**
+ * The model at the end of the card's third line: the name without its vendor or its `:free` tier,
+ * since the line has room for a dozen characters and the vendor is the least of them.
+ */
+export function modelLabel(model: string | null): string | null {
+  if (model === null) return null;
+  return model.slice(model.lastIndexOf("/") + 1).replace(/:free$/, "");
+}
+
+/** `+412` and `−88`, with thousands shortened — T3's diff badge. The minus is U+2212. */
+export function diffLabel(diff: SessionSummary["diff"]): { added: string; removed: string } | null {
+  if (diff === null) return null;
+  const short = (count: number) =>
+    count >= 1000 ? `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k` : String(count);
+  return { added: `+${short(diff.added)}`, removed: `\u2212${short(diff.removed)}` };
 }
 
 /** Every id from `anchor` to `target` inclusive, in list order — a Shift-click's selection. */
@@ -174,7 +197,7 @@ export function rangeBetween(order: readonly string[], anchor: string, target: s
  */
 export function recedes(status: RowStatus | null, isOpen: boolean): boolean {
   if (isOpen) return false;
-  return status === null || status.kind === "working";
+  return status === null || status.kind === "working" || status.kind === "queued";
 }
 
 export type SessionSource = { key: string; label: string; owner: string | null };

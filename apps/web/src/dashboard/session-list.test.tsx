@@ -20,6 +20,10 @@ const row = (name: string): SessionSummary => ({
   branch: "nap/header",
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
 });
 it("shows truthful activity, preserves the selected row through filtering, and offers keyboard reorder", () => {
   const a = row("Fix header");
@@ -168,12 +172,17 @@ it("shows working and failed states, and Done only until completion has been rea
     ...row("Building"),
     activity: "working" as const,
     requestedAt: new Date().toISOString(),
+    runStartedAt: new Date().toISOString(),
   };
+  const queued = { ...row("Waiting"), activity: "queued" as const };
   const failed = { ...row("Broken"), activity: "attention" as const };
-  const done = { ...row("Finished"), activityAt: new Date().toISOString() };
-  const view = render(<SessionList sessions={[work, failed, done]} query="" repository="" />);
+  const finished = new Date().toISOString();
+  const done = { ...row("Finished"), activityAt: finished, turnFinishedAt: finished };
+  const view = render(
+    <SessionList sessions={[work, queued, failed, done]} query="" repository="" />,
+  );
   expect(screen.getAllByRole("status").map((element) => element.textContent)).toEqual(
-    expect.arrayContaining(["Working", "Failed", "Done"]),
+    expect.arrayContaining(["Working", "Queued", "Failed", "Done"]),
   );
   view.rerender(
     <SessionList

@@ -6,9 +6,11 @@ import { SquarePen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
+import { useSessionSearch } from "../projects/use-session-search.ts";
 import { ConnectionsIcon, ProvidersIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { DraftRows } from "./draft-rows.tsx";
 import { preloadDrag, SessionList } from "./session-list.tsx";
+import { SEARCH_LISTBOX_ID, SessionSearchResults, searchOptionId } from "./session-search.tsx";
 import { SourceFilter } from "./source-filter.tsx";
 
 export function Sidebar({
@@ -53,6 +55,14 @@ export function Sidebar({
   loading?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [activeResult, setActiveResult] = useState(-1);
+  const searchState = useSessionSearch(query, navigation?.search);
+  const results = searchState.status === "ready" ? searchState.results : [];
+  const searchOpen = searchFocused && searchState.status !== "idle";
+  // A new answer is a new list; whatever was highlighted in the old one means nothing in it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on each new answer only.
+  useEffect(() => setActiveResult(-1), [searchState]);
   const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     const refresh = () => {
@@ -121,6 +131,10 @@ export function Sidebar({
       branch: null,
       pullRequest: null,
       pendingFeedback: 0,
+      runStartedAt: null,
+      turnFinishedAt: null,
+      diff: null,
+      model: null,
     }));
   return (
     <nav
@@ -140,16 +154,50 @@ export function Sidebar({
             <SearchIcon />
           </span>
           <input
+            role="combobox"
             aria-label="Search sessions"
+            aria-expanded={searchOpen && results.length > 0}
+            aria-controls={SEARCH_LISTBOX_ID}
+            aria-autocomplete="list"
+            aria-activedescendant={
+              searchOpen && activeResult >= 0 ? searchOptionId(activeResult) : undefined
+            }
             placeholder="Search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             onKeyDown={(event) => {
               if (event.key === "Escape") setQuery("");
+              if (!searchOpen || results.length === 0) return;
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const last = results.length - 1;
+                // Wraps at both ends; from nothing highlighted, Down is the first and Up the last.
+                setActiveResult((index) =>
+                  event.key === "ArrowDown"
+                    ? index >= last
+                      ? 0
+                      : index + 1
+                    : index <= 0
+                      ? last
+                      : index - 1,
+                );
+              } else if (event.key === "Enter" && activeResult >= 0) {
+                event.preventDefault();
+                document.getElementById(searchOptionId(activeResult))?.click();
+              }
             }}
             className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted"
           />
         </label>
+        {searchOpen && (
+          <SessionSearchResults
+            state={searchState}
+            activeIndex={activeResult}
+            onSelect={onSelectProject}
+          />
+        )}
         <SourceFilter sessions={sessions} value={repository} onChange={setRepository} />
         <button
           type="button"

@@ -253,6 +253,26 @@ describe("unknown computer completion", () => {
   });
 });
 
+describe("turn.completed — what the commit changed", () => {
+  it("records the commit's line counts when the caller counted them, and nothing when it did not", async () => {
+    const counted = { added: 412, removed: 88 };
+    for (const [diff, expected] of [
+      [counted, counted],
+      [null, undefined],
+    ] as const) {
+      const { agent } = service([[{ text: "done", toolCalls: [] }]]);
+      await agent.runTurn(request({ finalize: async () => ({ commitSha: "abc1234", diff }) }));
+      const completed = recorder.events.filter((event) => event.type === "turn.completed").at(-1);
+      if (completed?.type !== "turn.completed") throw new Error("the turn did not complete");
+      expect(completed.payload).toEqual(
+        expected === undefined
+          ? expect.not.objectContaining({ diff: expect.anything() })
+          : expect.objectContaining({ diff: expected }),
+      );
+    }
+  });
+});
+
 describe("the model a turn runs on", () => {
   it("starts the provider's turn on the model the request named", async () => {
     // The route validates it against an allowlist and the runtime carries it here. Without

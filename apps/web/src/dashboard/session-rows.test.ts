@@ -2,8 +2,10 @@ import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navig
 import { describe, expect, it } from "vitest";
 import {
   compactTime,
+  diffLabel,
   isUnread,
   isWoke,
+  modelLabel,
   rangeBetween,
   recedes,
   rowStatus,
@@ -43,6 +45,10 @@ function session(
     branch: null,
     pullRequest: null,
     pendingFeedback: 0,
+    runStartedAt: null,
+    turnFinishedAt: null,
+    diff: null,
+    model: null,
     ...over,
   };
   return row;
@@ -103,14 +109,20 @@ describe("shelveSessions", () => {
 });
 
 describe("rowStatus", () => {
-  it("is working, with a start time, while a turn is queued or running", () => {
+  it("is queued, with no clock, while a turn waits to be claimed", () => {
     expect(rowStatus(session({ activity: "queued", requestedAt: at(3) }), NOW)).toEqual({
-      kind: "working",
-      since: at(3),
+      kind: "queued",
     });
-    expect(rowStatus(session({ activity: "working", requestedAt: at(1) }), NOW)?.kind).toBe(
-      "working",
-    );
+  });
+
+  it("is working from when the run was claimed, not from when it was asked for", () => {
+    const running = session({ activity: "working", requestedAt: at(1), runStartedAt: at(2) });
+    expect(rowStatus(running, NOW)).toEqual({ kind: "working", since: at(2) });
+    // An API older than the field: still Working, with no clock rather than a wrong one.
+    expect(rowStatus(session({ activity: "working", requestedAt: at(1) }), NOW)).toEqual({
+      kind: "working",
+      since: null,
+    });
   });
 
   it("is failed when the session needs attention", () => {
@@ -118,11 +130,17 @@ describe("rowStatus", () => {
   });
 
   it("is done only while a finished turn has not been looked at", () => {
-    const unseen = session({ activity: "completed", activityAt: at(5) }, { readAt: at(10) });
-    const seen = session({ activity: "completed", activityAt: at(5) }, { readAt: at(1) });
+    const finished = { activity: "completed" as const, activityAt: at(5), turnFinishedAt: at(5) };
+    expect(rowStatus(session(finished, { readAt: at(10) }), NOW)?.kind).toBe("done");
+    expect(rowStatus(session(finished, { readAt: at(1) }), NOW)).toBeNull();
+  });
 
-    expect(rowStatus(unseen, NOW)?.kind).toBe("done");
-    expect(rowStatus(seen, NOW)).toBeNull();
+  it("is not done because pull request feedback arrived, which finishes nothing", () => {
+    const feedback = session(
+      { activity: "completed", activityAt: at(1), turnFinishedAt: at(30), pendingFeedback: 1 },
+      { readAt: at(10) },
+    );
+    expect(rowStatus(feedback, NOW)).toBeNull();
   });
 
   it("is done when somebody marked the session unread", () => {
@@ -158,8 +176,8 @@ describe("Woke", () => {
 
 describe("seenChange", () => {
   it("acknowledges the newest activity of an unread session", () => {
-    const unread = session({ activityAt: at(5) }, { readAt: at(10) });
-    expect(seenChange(unread, NOW)).toEqual({ kind: "read", at: at(5), unread: false });
+    const unread = session({ activityAt: at(4), turnFinishedAt: at(5) }, { readAt: at(10) });
+    expect(seenChange(unread, NOW)).toEqual({ kind: "read", at: at(4), unread: false });
   });
 
   it("acknowledges the wake as well, so a woken session stops saying Woke", () => {
@@ -168,7 +186,9 @@ describe("seenChange", () => {
   });
 
   it("sends nothing for a session already read", () => {
-    expect(seenChange(session({ activityAt: at(5) }, { readAt: at(1) }), NOW)).toBeNull();
+    expect(
+      seenChange(session({ activityAt: at(5), turnFinishedAt: at(5) }, { readAt: at(1) }), NOW),
+    ).toBeNull();
   });
 });
 
@@ -181,11 +201,24 @@ describe("rangeBetween", () => {
 });
 
 describe("isUnread", () => {
-  it("compares the newest activity with the read watermark", () => {
-    expect(isUnread(session({ activityAt: at(5) }))).toBe(true);
-    expect(isUnread(session({ activityAt: at(5) }, { readAt: at(1) }))).toBe(false);
+  it("compares the newest finished turn with the read watermark", () => {
+    expect(isUnread(session({ turnFinishedAt: at(5) }))).toBe(true);
+    expect(isUnread(session({ turnFinishedAt: at(5) }, { readAt: at(1) }))).toBe(false);
+    expect(isUnread(session({ activityAt: at(5) }))).toBe(false);
     expect(isUnread(session({}, { unread: true }))).toBe(true);
     expect(isUnread(session())).toBe(false);
+  });
+});
+
+describe("the card's third line", () => {
+  it("names the model without its vendor, and the line counts as T3 does", () => {
+    expect(modelLabel("openai/gpt-5.6-luna")).toBe("gpt-5.6-luna");
+    expect(modelLabel("openai/gpt-oss-120b:free")).toBe("gpt-oss-120b");
+    expect(modelLabel("claude-sonnet-5")).toBe("claude-sonnet-5");
+    expect(modelLabel(null)).toBeNull();
+    expect(diffLabel({ added: 412, removed: 88 })).toEqual({ added: "+412", removed: "−88" });
+    expect(diffLabel({ added: 12_400, removed: 0 })).toEqual({ added: "+12.4k", removed: "−0" });
+    expect(diffLabel(null)).toBeNull();
   });
 });
 
@@ -193,6 +226,7 @@ describe("recedes", () => {
   it("dims what needs nothing from the reader, and never the open session", () => {
     expect(recedes(null, false)).toBe(true);
     expect(recedes({ kind: "working", since: at(1) }, false)).toBe(true);
+    expect(recedes({ kind: "queued" }, false)).toBe(true);
     expect(recedes({ kind: "done" }, false)).toBe(false);
     expect(recedes({ kind: "failed" }, false)).toBe(false);
     expect(recedes(null, true)).toBe(false);

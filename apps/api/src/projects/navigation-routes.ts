@@ -1,5 +1,10 @@
 import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
-import { NavigationChangeSchema, SessionReorderSchema } from "@nap/shared/session-navigation";
+import {
+  AutoSettleSettingsSchema,
+  NavigationChangeSchema,
+  SessionReorderSchema,
+  SessionSearchQuerySchema,
+} from "@nap/shared/session-navigation";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
@@ -16,6 +21,24 @@ export function registerNavigationRoutes(
     if (!after.success) return c.json({ error: "Invalid session cursor." }, 400);
     c.header("cache-control", "no-store");
     return c.json(await deps.store.list(c.get("userId"), after.data));
+  });
+  router.get("/sessions/search", async (c) => {
+    const query = SessionSearchQuerySchema.safeParse(c.req.query("q") ?? "");
+    if (!query.success) return c.json({ error: "Search for 2 to 100 characters." }, 400);
+    c.header("cache-control", "no-store");
+    return c.json(await deps.store.search(c.get("userId"), query.data));
+  });
+  router.get("/sessions/auto-settle", async (c) => {
+    c.header("cache-control", "no-store");
+    return c.json(await deps.store.autoSettleSettings(c.get("userId")));
+  });
+  router.put("/sessions/auto-settle", async (c) => {
+    if (c.req.header("origin") !== deps.webOrigin)
+      return c.json({ error: "Untrusted request origin." }, 403);
+    const input = AutoSettleSettingsSchema.safeParse(await c.req.json().catch(() => null));
+    if (!input.success) return c.json({ error: "Invalid auto-settle settings." }, 400);
+    await deps.store.saveAutoSettleSettings(c.get("userId"), input.data);
+    return c.json(input.data);
   });
   router.patch("/projects/:projectId/navigation", async (c) => {
     if (c.req.header("origin") !== deps.webOrigin)

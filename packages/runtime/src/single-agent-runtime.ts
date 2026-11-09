@@ -43,6 +43,7 @@ import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import type { ProposedPlan } from "@nap/shared/agent-plan";
 import { appTestTarget, failedAppTestGoal } from "@nap/shared/app-testing";
 import type { JobOutcome, NapEvent, NapEventOf, PromptSource } from "@nap/shared/events";
+import type { DiffStat } from "@nap/shared/git-protocol";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
@@ -1971,12 +1972,15 @@ export class SingleAgentRuntime implements Runtime {
    * same thing: `null` means the turn changed nothing, and reporting a successful turn that
    * silently lost its changes is the worse of the two lies.
    */
-  async #commit(sandboxId: string, message: string): Promise<{ commitSha: string | null }> {
+  async #commit(
+    sandboxId: string,
+    message: string,
+  ): Promise<{ commitSha: string | null; diff: DiffStat | null }> {
     const committed = await commitAll(this.#options.sandbox, sandboxId, commitMessage(message));
     if (!committed.ok) {
       throw new Error(`could not commit the turn's changes: ${committed.error.message}`);
     }
-    return { commitSha: committed.value.sha };
+    return { commitSha: committed.value.sha, diff: committed.value.diff };
   }
 }
 

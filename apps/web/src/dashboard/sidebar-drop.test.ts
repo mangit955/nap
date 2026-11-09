@@ -32,6 +32,10 @@ const session = (
   branch: null,
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
   ...extra,
 });
 

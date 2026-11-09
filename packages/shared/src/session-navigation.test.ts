@@ -23,6 +23,10 @@ const item = (): SessionSummary => ({
   branch: null,
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
 });
 it("separates organization from execution and wakes snoozes without running work", () => {
   const session = item();

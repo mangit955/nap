@@ -38,6 +38,10 @@ const row = (
     branch: counter % 2 ? `nap/change-${counter}` : null,
     pullRequest: null,
     pendingFeedback: 0,
+    runStartedAt: null,
+    turnFinishedAt: null,
+    diff: null,
+    model: null,
     ...extra,
   };
 };

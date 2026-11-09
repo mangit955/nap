@@ -23,6 +23,10 @@ const session = (
   branch: "nap/header",
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
   ...extra,
 });
 const everything = { navigate: true, rename: true, putAway: true, remove: true };
@@ -65,7 +69,10 @@ it("offers T3's grouping for an idle session in the inbox", () => {
 
 it("turns each toggle the other way for a pinned, settled, snoozed or unread session", () => {
   const pinned = sessionMenuItems({
-    session: session({ pinned: true }, { activityAt: NOW.toISOString() }),
+    session: session(
+      { pinned: true },
+      { activityAt: NOW.toISOString(), turnFinishedAt: NOW.toISOString() },
+    ),
     now: NOW,
     can: everything,
     filteringBySource: true,

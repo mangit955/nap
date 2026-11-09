@@ -6,6 +6,7 @@ import {
   type SessionList,
   SessionListSchema,
   type SessionNavigation,
+  SessionSearchSchema,
   type SessionSection,
   type SessionSummary,
 } from "@nap/shared/session-navigation";
@@ -15,6 +16,7 @@ import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import { type PendingOp, withPending } from "./navigation-overlay.ts";
+import type { SearchSessions } from "./use-session-search.ts";
 
 /** One thing to do to the session list. A move between shelves is several, applied together. */
 export type NavigationStep =
@@ -105,6 +107,18 @@ export function useSessionNavigation({
     publish();
     setStatus("ready");
   }, [fetchJson, baseUrl, publish]);
+
+  /** One search of the caller's sessions; `signal` lets the next keystroke drop this one. */
+  const search: SearchSessions = useCallback(
+    (query, signal) =>
+      githubRequest(
+        fetchJson,
+        `${baseUrl}/sessions/search?q=${encodeURIComponent(query)}`,
+        SessionSearchSchema,
+        { signal },
+      ),
+    [fetchJson, baseUrl],
+  );
 
   useEffect(() => {
     void reload();
@@ -320,6 +334,7 @@ export function useSessionNavigation({
     rename: (projectId: string, name: string) => enqueue([{ kind: "rename", projectId, name }]),
     remove: (projectId: string) => enqueue([{ kind: "remove", projectId }]),
     close: (projectId: string) => enqueue([{ kind: "close", projectId }]),
+    search,
   };
 }
 

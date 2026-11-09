@@ -324,7 +324,16 @@ export function SessionList({
         {
           kind: "change",
           projectId: row.projectId,
-          change: { kind: "read", at: row.activityAt, unread },
+          // The later of the two, so marking read covers the finished turn that made it Done.
+          change: {
+            kind: "read",
+            at:
+              row.turnFinishedAt !== null &&
+              (row.activityAt === null || row.turnFinishedAt > row.activityAt)
+                ? row.turnFinishedAt
+                : row.activityAt,
+            unread,
+          },
         },
       ]);
     },

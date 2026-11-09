@@ -36,6 +36,10 @@ processes on it. What is different here, and why:
 - **Migrations run as the worker's pre-deploy command**, once per release and before the new API
   takes traffic, not at boot. The API repeats the idempotent migration as a safeguard for manual
   deploys. The release script deploys the worker first, so its schema is ready before it boots.
+  Migration `0021` runs `create extension if not exists pg_trgm` for sidebar search. Render and
+  Neon let the database owner create it (it is a trusted extension since Postgres 13); a role
+  that cannot fails that release's migration before anything new takes traffic. It also builds
+  two partial indexes on `events`, during which appends wait.
 - **One database URL serves both connections.** Render Postgres has no pooler in front of it, so
   `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` are the same internal connection string, and the
   database accepts no connections from outside Render.

@@ -32,6 +32,7 @@ import { z } from "zod";
 import { CheckOutcomeSchema } from "./check-outcome.ts";
 import { CompactionResultSchema, TokenUsageSchema } from "./compaction.ts";
 import { ComputerAnnotationSchema } from "./computer.ts";
+import { DiffStatSchema } from "./git-protocol.ts";
 import { TestRecordingStateSchema } from "./test-recording.ts";
 
 /**
@@ -372,6 +373,12 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     durationMs: z.int().nonnegative(),
     /** `null` when the turn changed no files, so there was nothing to commit. */
     commitSha: z.string().min(1).nullable(),
+    /**
+     * Lines that commit added and removed, counted as it was made. Absent when nothing was
+     * committed, when git's count could not be read, and on every turn written before it was
+     * recorded — all three of which the sidebar shows as no count rather than as zero.
+     */
+    diff: DiffStatSchema.optional(),
     /**
      * Present when the turn ended waiting on the person rather than finished: a plan mode turn
      * that proposed a plan. Optional, because every turn written before it ended without one.

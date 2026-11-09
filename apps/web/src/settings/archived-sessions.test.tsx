@@ -21,6 +21,10 @@ it("lists only archived sessions and restores through navigation", () => {
     branch: null,
     pullRequest: null,
     pendingFeedback: 0,
+    runStartedAt: null,
+    turnFinishedAt: null,
+    diff: null,
+    model: null,
   };
   const live = {
     ...archived,

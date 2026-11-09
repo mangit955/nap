@@ -150,7 +150,7 @@ describe("the dashboard sidebar", () => {
         project({ projectId: "other", name: "Portfolio" }),
       ],
     });
-    fireEvent.change(screen.getByRole("textbox", { name: "Search sessions" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Search sessions" }), {
       target: { value: "portfolio" },
     });
     expect(screen.getByRole("link", { name: /Portfolio/ })).toBeInTheDocument();
@@ -259,7 +259,7 @@ describe("the dashboard sidebar", () => {
 
 it("shows search immediately and filters Scratch through the searchable source picker", () => {
   show();
-  expect(screen.getByRole("textbox", { name: "Search sessions" })).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "Search sessions" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Sessions" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Filter by source" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Search sources" }), {

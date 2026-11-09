@@ -8,6 +8,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleDashed,
+  Clock,
   Ellipsis,
   FolderGit2,
   GitPullRequest,
@@ -28,6 +29,8 @@ import {
 import { NapMark } from "../brand/nap-mark.tsx";
 import {
   compactTime,
+  diffLabel,
+  modelLabel,
   type RowStatus,
   recedes,
   rowStatus,
@@ -126,7 +129,7 @@ export const SessionRow = memo(function SessionRow({
   const woke = status?.kind === "woke";
   const source = sessionSource(session.repository);
   const quiet = recedes(status, isOpen);
-  const working = status?.kind === "working";
+  const working = status?.kind === "working" || status?.kind === "queued";
   const variant = shelf === "pinned" || shelf === "active" ? "card" : "slim";
   const section = sessionSection(session, now);
   const snoozed = section === "snoozed";
@@ -339,6 +342,7 @@ export const SessionRow = memo(function SessionRow({
         {session.pendingFeedback > 0 && (
           <span className="shrink-0 text-ink-2">{session.pendingFeedback} feedback</span>
         )}
+        <CardFacts session={session} />
       </span>
     </>
   );
@@ -432,6 +436,13 @@ function StatusSlot({
   now: number;
 }) {
   if (status === null) return <span>{compactTime(timestamp, now)}</span>;
+  if (status.kind === "queued")
+    return (
+      <span className="inline-flex items-center gap-1 font-medium text-info">
+        <Clock aria-hidden className="size-4 shrink-0" />
+        <span role="status">Queued</span>
+      </span>
+    );
   if (status.kind === "working")
     return (
       <span className="inline-flex items-center gap-1 font-medium text-info">
@@ -459,6 +470,30 @@ function StatusSlot({
       <CircleCheck aria-hidden className="size-4 shrink-0" />
       <span role="status">Done</span>
     </span>
+  );
+}
+
+/**
+ * The end of the card's third line: what the newest committed turn changed, and the model the
+ * newest turn ran on. Each is left out rather than guessed when the API did not say.
+ */
+function CardFacts({ session }: { session: SessionSummary }) {
+  const diff = diffLabel(session.diff);
+  const model = modelLabel(session.model);
+  return (
+    <>
+      {diff && (
+        <span className="shrink-0 tabular-nums" title="Lines changed by the latest commit">
+          <span className="text-success">{diff.added}</span>{" "}
+          <span className="text-danger">{diff.removed}</span>
+        </span>
+      )}
+      {model && (
+        <span className="max-w-24 shrink-0 truncate text-muted/70" title={session.model ?? ""}>
+          {model}
+        </span>
+      )}
+    </>
   );
 }
 

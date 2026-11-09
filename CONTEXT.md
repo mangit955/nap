@@ -20,6 +20,12 @@ purpose: it is a persisted field and a wire value, the web maps it in one place
 (`shelveSessions`), and renaming it would migrate stored rows to change no behaviour. Not a
 **Verdict** and not a closed **Job** — a session can be settled with its checks red.
 
+**Auto-settle** — the reaper settling a session on its owner's behalf: after a number of days
+with nothing happening in it, or when its pull request merges after its last turn. Both rules are
+the owner's settings and off until turned on; a pinned, snoozed, archived or busy session is never
+auto-settled. Taking a session back out of Settled stamps `auto_settle_floor`, and nothing at or
+before that moment can settle it again — so un-settling sticks until new work arrives.
+
 **Woke** — a snooze that has run out on a session nobody has looked at since. It comes back to the
 inbox saying *Woke* until it is opened or dismissed, which moves the read watermark past the
 wake. Only ever drawn, never stored: it is `snoozedUntil` in the past and `readAt` before it.

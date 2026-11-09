@@ -255,6 +255,14 @@ export const projects = pgTable(
       unread: false,
     }),
     navigationRevision: integer("navigation_revision").notNull().default(0),
+    /**
+     * Work at or before this moment can no longer auto-settle the session (see
+     * `navigationSettings`). Stamped by the reaper when it settles one, and by the owner taking a
+     * session back out of Settled — so a session somebody un-settled stays where they put it until
+     * something new happens in it, instead of being settled again on the next tick. Null until
+     * either has happened.
+     */
+    autoSettleFloor: timestamp("auto_settle_floor", { withTimezone: true }),
     /** Changes with every lease grant, so a completed turn still invalidates prior input grants. */
     computerRevision: uuid("computer_revision").notNull().defaultRandom(),
     status: projectStatus("status").notNull().default("creating"),
@@ -266,6 +274,21 @@ export const projects = pgTable(
   },
   (t) => [unique("projects_user_id_slug_unique").on(t.userId, t.slug)],
 );
+
+/**
+ * One row per person who has turned on an auto-settle rule; no row is both rules off, which is the
+ * default. A table of its own rather than columns on `users`, which the auth library maps.
+ */
+export const navigationSettings = pgTable("navigation_settings", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Settle a session after this many days with nothing happening in it. Null is off. */
+  autoSettleAfterDays: integer("auto_settle_after_days"),
+  /** Settle a session when its pull request merges after its last turn. */
+  autoSettleOnMerge: boolean("auto_settle_on_merge").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const sessions = pgTable("sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -308,7 +331,21 @@ export const events = pgTable(
     payload: jsonb("payload").$type<NapEvent["payload"]>().notNull(),
     createdAt,
   },
-  (t) => [unique("events_session_id_seq_unique").on(t.sessionId, t.seq)],
+  (t) => [
+    unique("events_session_id_seq_unique").on(t.sessionId, t.seq),
+    // The session sidebar reads, per project, the newest of these three: when a turn last ended
+    // and what its commit changed. Partial, so it holds a few rows per turn rather than every
+    // streamed token, and the read is an index probe rather than a walk through the whole log.
+    index("events_session_terminal")
+      .on(t.sessionId, t.createdAt, t.seq)
+      .where(sql`${t.type} in ('turn.completed', 'turn.failed', 'job.completed')`),
+    // Sidebar search over the person's own words. A trigram index, because the search is a
+    // substring match (`ilike '%…%'`), which no b-tree can answer; partial for the reason above.
+    // Needs `pg_trgm`, which the migration that adds this index creates.
+    index("events_message_text_trgm")
+      .using("gin", sql`(${t.payload} ->> 'text') gin_trgm_ops`)
+      .where(sql`${t.type} in ('user.message', 'steer.received')`),
+  ],
 );
 
 /**

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DiffStatSchema } from "./git-protocol.ts";
 import { ProjectSummarySchema } from "./projects-protocol.ts";
 
 export const NavigationSchema = z.object({
@@ -19,7 +20,30 @@ export const SessionSummarySchema = ProjectSummarySchema.extend({
   revision: z.number().int().nonnegative(),
   activity: z.enum(["ready", "queued", "working", "completed", "attention"]),
   activityAt: z.iso.datetime().nullable(),
+  /**
+   * The newest request's admission or claim, whichever is later. What a settle is compared with
+   * (`sessionSection`) and what the inbox sorts by; it is not a run's start, because a queued
+   * request has one and has not started.
+   */
   requestedAt: z.iso.datetime().nullable(),
+  /**
+   * When the request running now was claimed and began — the card's *Working 1:42* counts from
+   * here. Null unless something is running: a queued turn is drawn as queued, with no timer.
+   *
+   * The four card fields below each default to null, so a browser newer than the API it talks to
+   * draws a card without them rather than failing to parse the whole list.
+   */
+  runStartedAt: z.iso.datetime().nullable().default(null),
+  /**
+   * When the newest turn or job ended, however it ended. *Done* (an unread completion) is this
+   * against the read watermark; `activityAt` would not do, because pull request feedback moves it
+   * without anything having finished.
+   */
+  turnFinishedAt: z.iso.datetime().nullable().default(null),
+  /** Lines the newest turn that committed added and removed, counted when it committed. */
+  diff: DiffStatSchema.nullable().default(null),
+  /** The model the newest turn ran on, as the request named it. */
+  model: z.string().nullable().default(null),
   repository: z.string().nullable(),
   branch: z.string().nullable(),
   pullRequest: z
@@ -37,6 +61,58 @@ export const SessionListSchema = z.object({
   next: z.uuid().nullable(),
 });
 export type SessionList = z.infer<typeof SessionListSchema>;
+
+/**
+ * The bounds of a sidebar search. Two characters is the shortest query a trigram index can answer
+ * without reading every message; a hundred is longer than anything typed into a search box; twenty
+ * results is more than the listbox shows without scrolling.
+ */
+export const SESSION_SEARCH_MIN = 2;
+export const SESSION_SEARCH_MAX = 100;
+export const SESSION_SEARCH_LIMIT = 20;
+export const SessionSearchQuerySchema = z
+  .string()
+  .trim()
+  .min(SESSION_SEARCH_MIN)
+  .max(SESSION_SEARCH_MAX);
+
+/**
+ * One session a search found: by its name, or by one of the person's own messages, with the part
+ * of the message around the match. `cutStart` and `cutEnd` say whether the snippet was taken from
+ * the middle of a longer message, so the listbox can draw an ellipsis without guessing.
+ */
+export const SessionSearchResultSchema = z.object({
+  projectId: z.uuid(),
+  name: z.string(),
+  match: z.discriminatedUnion("in", [
+    z.object({ in: z.literal("name") }),
+    z.object({
+      in: z.literal("message"),
+      snippet: z.string(),
+      cutStart: z.boolean(),
+      cutEnd: z.boolean(),
+      at: z.iso.datetime(),
+    }),
+  ]),
+});
+export type SessionSearchResult = z.infer<typeof SessionSearchResultSchema>;
+export const SessionSearchSchema = z.object({ results: z.array(SessionSearchResultSchema) });
+export type SessionSearch = z.infer<typeof SessionSearchSchema>;
+
+/**
+ * When the reaper settles a session on its owner's behalf. Both rules are off until the owner
+ * turns them on, and neither ever touches a pinned or busy session.
+ *
+ * `afterDays` settles a session nothing has happened in for that many days; `onMerge` settles one
+ * whose pull request merged after its last turn.
+ */
+export const AUTO_SETTLE_MAX_DAYS = 365;
+export const AutoSettleSettingsSchema = z.object({
+  afterDays: z.int().min(1).max(AUTO_SETTLE_MAX_DAYS).nullable(),
+  onMerge: z.boolean(),
+});
+export type AutoSettleSettings = z.infer<typeof AutoSettleSettingsSchema>;
+export const AUTO_SETTLE_OFF: AutoSettleSettings = { afterDays: null, onMerge: false };
 
 export const NavigationChangeSchema = z.object({
   revision: z.number().int().nonnegative(),

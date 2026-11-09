@@ -51,6 +51,10 @@ const portfolio: SessionSummary = {
   branch: null,
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
 };
 
 /** The mobile drawer open on one session, with that session's context menu open over it. */
