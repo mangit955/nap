@@ -70,6 +70,20 @@ export function takeFirstPrompt(
   };
 }
 
+/**
+ * What `takeFirstPrompt` would return, left where it is. For drawing the prompt before it can be
+ * sent: sending stays a take, so this can be read any number of times without risking a second turn.
+ */
+export function peekFirstPrompt(
+  projectId: string,
+  storage: PromptStorage | undefined = defaultStorage(),
+): FirstPrompt | undefined {
+  const raw = storage?.getItem(PROJECT_KEY);
+  if (raw === null || raw === undefined) return undefined;
+  const stash = parse(raw);
+  return stash === undefined || stash.projectId !== projectId ? undefined : { text: stash.text };
+}
+
 function parse(raw: string): ({ projectId: string } & FirstPrompt) | undefined {
   try {
     const parsed = z

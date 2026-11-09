@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type PromptStorage, stashFirstPrompt, takeFirstPrompt } from "./first-prompt.ts";
+import {
+  type PromptStorage,
+  peekFirstPrompt,
+  stashFirstPrompt,
+  takeFirstPrompt,
+} from "./first-prompt.ts";
 
 function storage(): PromptStorage & { entries: Map<string, string> } {
   const entries = new Map<string, string>();
@@ -80,5 +85,26 @@ describe("the first turn of a new project", () => {
     );
 
     expect(takeFirstPrompt("project-1", store)).toEqual({ text: "hello" });
+  });
+});
+
+describe("looking at the first turn before it can be sent", () => {
+  it("shows the prompt and leaves it to be sent", () => {
+    const store = storage();
+    stashFirstPrompt("project-1", { text: "build me a scraper", model: "m" }, store);
+
+    expect(peekFirstPrompt("project-1", store)).toEqual({ text: "build me a scraper" });
+    expect(peekFirstPrompt("project-1", store)).toEqual({ text: "build me a scraper" });
+    // Looking is not sending: the take that sends it still finds all of it.
+    expect(takeFirstPrompt("project-1", store)).toEqual({ text: "build me a scraper", model: "m" });
+  });
+
+  it("shows nothing of another project's prompt, or of one that is unreadable", () => {
+    const store = storage();
+    stashFirstPrompt("project-1", { text: "build me a scraper" }, store);
+    expect(peekFirstPrompt("project-2", store)).toBeUndefined();
+
+    store.entries.set("nap.first-prompt", "{not json");
+    expect(peekFirstPrompt("project-1", store)).toBeUndefined();
   });
 });

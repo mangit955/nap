@@ -16,7 +16,7 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import type { MediaAttachment } from "@nap/shared/media";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../../api/src/app.ts";
@@ -555,6 +555,65 @@ describe("LiveChatPane", () => {
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("");
     expect(screen.queryByRole("button", { name: "Remove pasted.png" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove flow.webm" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the skeleton over a replay a dropped connection left half-delivered", () => {
+    // The stream commits what it had when a socket drops mid-replay, so events can be here
+    // before the log is: the pane waits for the rest rather than drawing the first part of it.
+    const partial = failedTurn();
+    render(
+      <LiveChatPane
+        sessionId={SESSION_ID}
+        log={{ ...partial, events: partial.events.slice(0, 1), lastSeq: 1, replayed: false }}
+        fetchJson={fetchJson}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /loading this conversation/i })).toBeInTheDocument();
+    expect(screen.queryByText("build me a todo list")).toBeNull();
+  });
+
+  it("shows the front page's prompt at once, and only ever once", async () => {
+    // The project's record and its log are each a round trip away, and the prompt that created
+    // it is already in this tab. Waiting for both before showing it was a blank pane for the one
+    // message the user just typed.
+    stashFirstPrompt(PROJECT_ID, { text: "Build a habit tracker" });
+    const REQUEST = "e7a1c2d3-4b5a-4c6d-8e9f-0a1b2c3d4e5f";
+    const arriving: SessionLog = { ...failedTurn(), events: [], lastSeq: 0, replayed: false };
+    const bubbles = () =>
+      within(screen.getByRole("region", { name: "Conversation" })).queryAllByText(
+        "Build a habit tracker",
+      );
+    const pane = (sessionId: string | undefined, log: SessionLog) => (
+      <LiveChatPane projectId={PROJECT_ID} sessionId={sessionId} log={log} fetchJson={fetchJson} />
+    );
+
+    const view = render(pane(undefined, arriving));
+    expect(bubbles()).toHaveLength(1);
+    expect(screen.queryByRole("status", { name: /loading this conversation/i })).toBeNull();
+
+    // The session arrives and the prompt is sent: the same bubble, not a second one.
+    view.rerender(pane(SESSION_ID, arriving));
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(bubbles()).toHaveLength(1);
+
+    // The log's own copy replaces it.
+    const logged = [
+      ev("user.message", { text: "Build a habit tracker" }, 1, { turnId: REQUEST }),
+      ev("turn.started", { source: "user" }, 2, { turnId: REQUEST }),
+    ];
+    view.rerender(
+      pane(SESSION_ID, {
+        ...arriving,
+        events: logged,
+        lastSeq: 2,
+        replayed: true,
+        jobs: jobView(logged),
+      }),
+    );
+    await act(async () => {});
+    expect(bubbles()).toHaveLength(1);
+    expect(turns).toHaveLength(1);
   });
 
   it("sends an accepted first dashboard media prompt once across effects and remounts", async () => {

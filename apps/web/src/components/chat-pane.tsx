@@ -20,7 +20,7 @@ import type { PlanActions } from "../chat/agent-cards.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript, type RetryHandler } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
-import type { FirstPrompt } from "../chat/first-prompt.ts";
+import { type FirstPrompt, peekFirstPrompt } from "../chat/first-prompt.ts";
 import { modelInUse } from "../chat/model-picker.tsx";
 import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
@@ -85,11 +85,13 @@ export function ChatPane({
   active?: boolean;
   events: readonly StoredEvent[];
   /**
-   * The log has not arrived yet, which is *not* the same as there being none.
+   * The log has not arrived in full yet, which is *not* the same as there being none.
    *
    * Without it this pane greets a project with forty turns in it by inviting the user to
    * describe an app — the empty state is the honest answer to "no events" and the wrong answer
-   * to "no events yet", and nothing in a list of events distinguishes the two.
+   * to "no events yet", and nothing in a list of events distinguishes the two. It holds the
+   * skeleton over a log that has partly arrived too: drawing a replay as it lands painted the
+   * transcript a piece at a time, with the scroll position chasing it.
    */
   loading?: boolean;
   pending?: string | undefined;
@@ -202,7 +204,7 @@ export function ChatPane({
             className="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden focus-visible:outline-accent"
             style={{ paddingBottom: composerHeight, scrollPaddingBottom: composerHeight }}
           >
-            {empty && loading ? (
+            {loading && pending === undefined && pendingSteer === undefined ? (
               <TranscriptSkeleton />
             ) : empty ? (
               <EmptyState />
@@ -450,6 +452,17 @@ export function LiveChatPane({
   // send, and a retry has to go out on the same model the user picked.
   const [model, setModel] = useState<string | undefined>(undefined);
   const [firstPrompt, setFirstPrompt] = useState<FirstPrompt>();
+  /**
+   * The front page's prompt, shown from the first frame, before there is a session to send it to.
+   *
+   * Read without taking it — sending it is still `useFirstPrompt`'s, once — and cleared in the
+   * same batch as the send that sets the submission's own pending message, so the two are never
+   * on screen together. From there the submission hook replaces it with the log's copy as it
+   * does for any message.
+   */
+  const [early, setEarly] = useState(() =>
+    projectId === undefined ? undefined : peekFirstPrompt(projectId)?.text,
+  );
 
   // Through the same submission path as the input, so the front page's first message is an
   // ordinary turn — same optimistic message, same rate limit, same refusal wording.
@@ -460,6 +473,7 @@ export function LiveChatPane({
       // The dashboard's selected model is part of its first prompt. Put it in the workspace
       // state before sending, so the composer stays truthful for the turns that follow.
       if (firstModel !== undefined) setModel(firstModel);
+      setEarly(undefined);
       setFirstPrompt({ text: message, model: firstModel, attachments });
       void submit(message, firstModel, attachments).then((accepted) => {
         if (accepted) setFirstPrompt(undefined);
@@ -477,8 +491,8 @@ export function LiveChatPane({
         events={events}
         // Nothing has been asked for yet when there is no session: the project record is still on
         // its way, so the log this pane will show has not even been subscribed to.
-        loading={sessionId === undefined || (!replayed && events.length === 0)}
-        pending={pending}
+        loading={sessionId === undefined || !replayed}
+        pending={pending ?? early}
         pendingSteer={pendingSteer}
         pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}
