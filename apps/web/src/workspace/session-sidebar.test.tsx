@@ -1,6 +1,6 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { NavigationSchema } from "@nap/shared/session-navigation";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 
@@ -91,9 +91,10 @@ function server(deleteStatus: number) {
 }
 
 async function remove(name: string) {
-  fireEvent.click(await screen.findByRole("button", { name: `Session actions for ${name}` }));
-  fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
-  fireEvent.click(screen.getByRole("button", { name: "Delete session" }));
+  fireEvent.contextMenu(await screen.findByRole("link", { name: new RegExp(name) }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+  const dialog = screen.getByRole("dialog", { name: "Delete session?" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 }
 
 describe("deleting workspace sessions", () => {
@@ -112,22 +113,69 @@ describe("deleting workspace sessions", () => {
     await remove("Current app");
     expect(await screen.findByRole("alert")).toHaveTextContent("a turn is running in this project");
     expect(navigate).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("button", { name: "Session actions for Current app" }),
-    ).toBeInTheDocument();
+    // Drawn gone at once, and drawn back once the server refused.
+    expect(screen.getByRole("link", { name: /Current app/ })).toBeInTheDocument();
   });
 
   it("keeps the active workspace when a different project is deleted", async () => {
     const api = server(200);
     render(<SessionSidebar projectId={PROJECT_ID} />);
     await remove("Other app");
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Session actions for Other app" })).toBeNull(),
-    );
-    expect(api.deleted).toEqual([`/projects/${OTHER_PROJECT}`]);
+    await waitFor(() => expect(screen.queryByRole("link", { name: /Other app/ })).toBeNull());
+    await waitFor(() => expect(api.deleted).toEqual([`/projects/${OTHER_PROJECT}`]));
     expect(navigate).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("button", { name: "Session actions for Current app" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Current app/ })).toBeInTheDocument();
+  });
+});
+
+describe("opening a session", () => {
+  it("acknowledges a Woke session's wake as well as its activity, so it stops saying Woke", async () => {
+    const earlier = new Date(Date.now() - 60 * 60_000).toISOString();
+    const snoozedUntil = new Date(Date.now() - 5 * 60_000).toISOString();
+    const patches: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path === "/sessions")
+          return Response.json({
+            sessions: [
+              {
+                projectId: PROJECT_ID,
+                name: "Current app",
+                status: "ready",
+                sandboxId: null,
+                updatedAt: earlier,
+                createdAt: earlier,
+                sessionIds: [SESSION_ID],
+                navigation: NavigationSchema.parse({ snoozedUntil, readAt: earlier }),
+                revision: 3,
+                activity: "completed",
+                activityAt: earlier,
+                requestedAt: earlier,
+                repository: null,
+                branch: null,
+                pullRequest: null,
+                pendingFeedback: 0,
+              },
+            ],
+            next: null,
+          });
+        if (init?.method === "PATCH") {
+          patches.push(JSON.parse(String(init.body)));
+          return Response.json({
+            navigation: NavigationSchema.parse({ snoozedUntil, readAt: snoozedUntil }),
+            revision: 4,
+          });
+        }
+        return Response.json({ configured: false });
+      }),
+    );
+    render(<SessionSidebar projectId={PROJECT_ID} />);
+    await waitFor(() =>
+      expect(patches).toEqual([
+        { revision: 3, change: { kind: "read", at: snoozedUntil, unread: false } },
+      ]),
+    );
   });
 });

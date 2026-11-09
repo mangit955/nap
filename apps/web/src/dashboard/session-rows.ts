@@ -12,7 +12,11 @@
  * `Sidebar.logic.ts`'s status and recede rules, and `threadSort.ts`'s shelf orders.
  */
 
-import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
+import {
+  type NavigationChange,
+  type SessionSummary,
+  sessionSection,
+} from "@nap/shared/session-navigation";
 import { relativeTime } from "./relative-time.ts";
 
 /** Where a row sits. *Settled* is the API's `done`; an archived session is on no shelf. */
@@ -92,6 +96,7 @@ function time(iso: string | null): number {
 export type RowStatus =
   | { kind: "working"; since: string | null }
   | { kind: "failed" }
+  | { kind: "woke" }
   | { kind: "done" };
 
 /**
@@ -106,16 +111,60 @@ export function isUnread(session: SessionSummary): boolean {
 }
 
 /**
- * T3's status slot. Queued counts as working, as T3's `preparing` and `queued` do: from where
- * the reader sits both mean "Nap has this". `Done` is a finished turn nobody has looked at yet;
- * once read, the slot goes back to a plain time, because a row that says Done forever says
- * nothing.
+ * A snooze that ran out, on a session nobody has looked at since — T3's *Woke*. Only a row back
+ * in the inbox can be Woke: one settled or archived after its snooze ended has been dealt with.
+ * Looking at it moves the read watermark past the wake (`seenChange`), which is what ends it.
  */
-export function rowStatus(session: SessionSummary): RowStatus | null {
+export function isWoke(session: SessionSummary, now: number): boolean {
+  const { snoozedUntil, readAt } = session.navigation;
+  if (snoozedUntil === null || time(snoozedUntil) > now) return false;
+  const section = sessionSection(session, now);
+  if (section !== "pinned" && section !== "active") return false;
+  return readAt === null || time(readAt) < time(snoozedUntil);
+}
+
+/**
+ * T3's status slot. Queued counts as working, as T3's `preparing` and `queued` do: from where
+ * the reader sits both mean "Nap has this". Woke outranks Done, as in T3, because it is the
+ * reader's own reminder. `Done` is a finished turn nobody has looked at yet; once read, the slot
+ * goes back to a plain time, because a row that says Done forever says nothing.
+ */
+export function rowStatus(session: SessionSummary, now: number): RowStatus | null {
   if (session.activity === "working" || session.activity === "queued")
     return { kind: "working", since: session.requestedAt };
   if (session.activity === "attention") return { kind: "failed" };
+  if (isWoke(session, now)) return { kind: "woke" };
   return isUnread(session) ? { kind: "done" } : null;
+}
+
+/**
+ * What to tell the server once somebody has looked at a session, or nothing when there is
+ * nothing new. The watermark moves to the newest thing they saw — the latest activity, or the
+ * wake itself for a Woke row, whose snooze ended after anything else happened.
+ */
+export function seenChange(
+  session: SessionSummary,
+  now: number,
+): Extract<NavigationChange["change"], { kind: "read" }> | null {
+  const woke = isWoke(session, now);
+  if (!woke && !isUnread(session)) return null;
+  const candidates = [session.activityAt, woke ? session.navigation.snoozedUntil : null].filter(
+    (value): value is string => value !== null,
+  );
+  const at = candidates.reduce<string | null>(
+    (latest, value) => (latest === null || time(value) > time(latest) ? value : latest),
+    null,
+  );
+  return { kind: "read", at, unread: false };
+}
+
+/** Every id from `anchor` to `target` inclusive, in list order — a Shift-click's selection. */
+export function rangeBetween(order: readonly string[], anchor: string, target: string): string[] {
+  const from = order.indexOf(anchor);
+  const to = order.indexOf(target);
+  if (to < 0) return [];
+  if (from < 0) return [target];
+  return order.slice(Math.min(from, to), Math.max(from, to) + 1);
 }
 
 /**

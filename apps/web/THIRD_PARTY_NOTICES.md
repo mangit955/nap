@@ -44,6 +44,12 @@ rows, and the git action labels (`src/workspace/thread-details.tsx`,
 `src/workspace/right-panel.css`) — follows T3 Code at commit
 `d53873b6a4799e87afd63c8d288ef0089f5a3748`.
 
+The session sidebar — its shelves, status slot and recede rules, its card and slim rows, its
+context menu's grouping, snooze presets, Woke, the drop rules for dragging between shelves, and
+its keyboard shortcuts (`src/dashboard/session-rows.ts`, `src/dashboard/session-row.tsx`,
+`src/dashboard/session-menu.ts`, `src/dashboard/sidebar-drop.ts`, `src/dashboard/sidebar-keys.ts`)
+— follows T3 Code at commit `51273020db3245f4ec29514a419d29b5dcb012dc`.
+
 The chat adaptations below use the earlier reference commit.
 
 Source: <https://github.com/pingdotgg/t3code>, at commit

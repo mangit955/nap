@@ -75,18 +75,21 @@ it("DATA-02: a newer request removes an archived row from archive presentation",
 
 it("DATA-03: the selected settled row retains its inverse hover action outside a collapsed shelf", () => {
   const settled = row("Selected settled", { doneAt: at(-10) });
-  const change = vi.fn();
+  const apply = vi.fn(async () => true);
   render(
     createElement(SessionList, {
       sessions: [settled],
       activeProjectId: settled.projectId,
       query: "",
       repository: "",
-      onChange: change,
+      onApply: apply,
     }),
   );
   fireEvent.click(screen.getByRole("button", { name: "Un-settle Selected settled" }));
-  expect(change).toHaveBeenCalledWith(settled.projectId, { kind: "done", value: false });
+  expect(apply).toHaveBeenCalledWith(
+    [{ kind: "change", projectId: settled.projectId, change: { kind: "done", value: false } }],
+    { label: "Un-settled" },
+  );
 });
 
 it("DATA-Q1: background draft reads must not re-enable saves after clearOwner", async () => {
@@ -180,24 +183,23 @@ it.each(["settled", "snoozed"] as const)(
         ? { doneAt: at(-10) }
         : { snoozedUntil: new Date(Date.now() + 120000).toISOString() },
     );
-    const reorder = vi.fn();
+    const apply = vi.fn(async () => true);
     const props = {
       sessions: [first, next],
       query: "",
       repository: "",
-      onChange: vi.fn(),
-      onReorder: reorder,
+      onApply: apply,
     };
     const view = render(<SessionList {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Session actions for First" }));
-    fireEvent.click(screen.getByRole("button", { name: "Move down" }));
-    expect(reorder).toHaveBeenCalledExactlyOnceWith({
-      section: shelf === "settled" ? "done" : "snoozed",
-      rows: [
-        { projectId: next.projectId, revision: 0 },
-        { projectId: first.projectId, revision: 0 },
-      ],
-    });
+    fireEvent.contextMenu(screen.getByRole("link", { name: /First/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move down" }));
+    expect(apply).toHaveBeenCalledExactlyOnceWith([
+      {
+        kind: "reorder",
+        section: shelf === "settled" ? "done" : "snoozed",
+        projectIds: [next.projectId, first.projectId],
+      },
+    ]);
     // The server's order mutation stores these positions; reload may return rows in any order.
     view.rerender(
       <SessionList
@@ -274,14 +276,14 @@ it.each([
           ),
         ]
       : [selected];
-  const change = vi.fn();
+  const apply = vi.fn(async () => true);
   render(
     <SessionList
       sessions={sessions}
       activeProjectId={selected.projectId}
       query={reason === "query" ? "unmatched" : ""}
       repository={reason === "source" ? "another/repo" : ""}
-      onChange={change}
+      onApply={apply}
     />,
   );
   const current = screen.getByRole("list", { name: "Current session" });
@@ -290,8 +292,15 @@ it.each([
       name: `${shelf === "settled" ? "Un-settle" : "Wake"} Selected`,
     }),
   );
-  expect(change).toHaveBeenCalledExactlyOnceWith(
-    selected.projectId,
-    shelf === "settled" ? { kind: "done", value: false } : { kind: "snooze", until: null },
+  expect(apply).toHaveBeenCalledExactlyOnceWith(
+    [
+      {
+        kind: "change",
+        projectId: selected.projectId,
+        change:
+          shelf === "settled" ? { kind: "done", value: false } : { kind: "snooze", until: null },
+      },
+    ],
+    { label: shelf === "settled" ? "Un-settled" : "Woken" },
   );
 });
