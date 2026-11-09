@@ -1,9 +1,9 @@
 import type { NapEvent, NapEventType } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { useFileContent, useProjectFiles } from "./use-project-files.ts";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { LISTING_DEBOUNCE_MS, useFileContent, useProjectFiles } from "./use-project-files.ts";
 
 /**
  * `.test.tsx` even with barely any JSX in it: `renderHook` needs a DOM, and the filename is
@@ -53,7 +53,7 @@ describe("useProjectFiles", () => {
     const { fetchJson } = fetcher({ [`/sessions/${SESSION}/files`]: LISTING });
 
     const { result } = renderHook(() =>
-      useProjectFiles({ sessionId: SESSION, events: [], fetchJson }),
+      useProjectFiles({ sessionId: SESSION, events: [], replayed: true, fetchJson }),
     );
 
     await waitFor(() => expect(result.current.status).toBe("ready"));
@@ -66,7 +66,7 @@ describe("useProjectFiles", () => {
     const { fetchJson, calls } = fetcher({});
 
     const { result } = renderHook(() =>
-      useProjectFiles({ sessionId: undefined, events: [], fetchJson }),
+      useProjectFiles({ sessionId: undefined, events: [], replayed: true, fetchJson }),
     );
 
     await waitFor(() => expect(result.current.status).toBe("idle"));
@@ -77,7 +77,8 @@ describe("useProjectFiles", () => {
     const { fetchJson, calls } = fetcher({ [`/sessions/${SESSION}/files`]: LISTING });
 
     const { rerender } = renderHook(
-      (events: StoredEvent[]) => useProjectFiles({ sessionId: SESSION, events, fetchJson }),
+      (events: StoredEvent[]) =>
+        useProjectFiles({ sessionId: SESSION, events, replayed: true, fetchJson }),
       { initialProps: [] as StoredEvent[] },
     );
 
@@ -93,7 +94,8 @@ describe("useProjectFiles", () => {
     const { fetchJson, calls } = fetcher({ [`/sessions/${SESSION}/files`]: LISTING });
 
     const { rerender } = renderHook(
-      (events: StoredEvent[]) => useProjectFiles({ sessionId: SESSION, events, fetchJson }),
+      (events: StoredEvent[]) =>
+        useProjectFiles({ sessionId: SESSION, events, replayed: true, fetchJson }),
       { initialProps: [] as StoredEvent[] },
     );
 
@@ -110,7 +112,8 @@ describe("useProjectFiles", () => {
     const { fetchJson, calls } = fetcher({ [`/sessions/${SESSION}/files`]: LISTING });
 
     const { rerender } = renderHook(
-      (events: StoredEvent[]) => useProjectFiles({ sessionId: SESSION, events, fetchJson }),
+      (events: StoredEvent[]) =>
+        useProjectFiles({ sessionId: SESSION, events, replayed: true, fetchJson }),
       { initialProps: [] as StoredEvent[] },
     );
 
@@ -134,7 +137,8 @@ describe("useProjectFiles", () => {
     const { fetchJson, calls } = fetcher({ [`/sessions/${SESSION}/files`]: LISTING });
 
     const { rerender } = renderHook(
-      (events: StoredEvent[]) => useProjectFiles({ sessionId: SESSION, events, fetchJson }),
+      (events: StoredEvent[]) =>
+        useProjectFiles({ sessionId: SESSION, events, replayed: true, fetchJson }),
       { initialProps: [] as StoredEvent[] },
     );
 
@@ -150,7 +154,7 @@ describe("useProjectFiles", () => {
     const { fetchJson } = fetcher({});
 
     const { result } = renderHook(() =>
-      useProjectFiles({ sessionId: SESSION, events: [], fetchJson }),
+      useProjectFiles({ sessionId: SESSION, events: [], replayed: true, fetchJson }),
     );
 
     await waitFor(() => expect(result.current.status).toBe("error"));
@@ -161,7 +165,7 @@ describe("useProjectFiles", () => {
     const { fetchJson } = fetcher({ [`/sessions/${SESSION}/files`]: { files: "everything" } });
 
     const { result } = renderHook(() =>
-      useProjectFiles({ sessionId: SESSION, events: [], fetchJson }),
+      useProjectFiles({ sessionId: SESSION, events: [], replayed: true, fetchJson }),
     );
 
     await waitFor(() => expect(result.current.status).toBe("error"));
@@ -434,5 +438,160 @@ describe("useFileContent", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(result.current.file?.path).toBe("src/App.tsx");
+  });
+});
+
+describe("useProjectFiles, while the log is busy", () => {
+  /*
+   * Every listing is a walk of the sandbox's filesystem. One per `file.changed` meant a replay
+   * of a long session fired one per write it had ever made, and a turn writing twenty files
+   * fired twenty — each flipping the tree to "loading" on its way.
+   */
+  const OTHER = "1c8f9f2e-4d3b-4e6c-8f7a-2b3c4d5e6f70";
+
+  /** A server whose answers the test hands out one at a time, in whatever order it likes. */
+  function heldServer() {
+    const requests: {
+      url: string;
+      signal: AbortSignal | undefined;
+      answer: (files: string[]) => void;
+    }[] = [];
+    const fetchJson = (url: string, init?: RequestInit): Promise<Response> =>
+      new Promise((resolve) => {
+        requests.push({
+          url,
+          signal: init?.signal ?? undefined,
+          answer: (files) =>
+            resolve(
+              new Response(JSON.stringify({ ready: true, files, truncated: false }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+            ),
+        });
+      });
+    return { fetchJson, requests };
+  }
+
+  type Props = { sessionId: string; events: StoredEvent[]; replayed: boolean };
+
+  function mount(fetchJson: (url: string, init?: RequestInit) => Promise<Response>, props: Props) {
+    return renderHook((current: Props) => useProjectFiles({ ...current, fetchJson }), {
+      initialProps: props,
+    });
+  }
+
+  const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+  const wait = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("lists nothing until the log has replayed, then lists once", async () => {
+    vi.useFakeTimers();
+    const server = heldServer();
+    const history = [fileChanged("a.ts"), fileChanged("b.ts"), fileChanged("c.ts")];
+
+    const { rerender, result } = mount(server.fetchJson, {
+      sessionId: SESSION,
+      events: [],
+      replayed: false,
+    });
+    rerender({ sessionId: SESSION, events: history, replayed: false });
+    await wait(LISTING_DEBOUNCE_MS * 2);
+    expect(server.requests).toHaveLength(0);
+    expect(result.current.status).toBe("loading");
+
+    rerender({ sessionId: SESSION, events: history, replayed: true });
+    await settle();
+
+    // At once, not after the debounce: this is the listing somebody opening the project waits on.
+    expect(server.requests).toHaveLength(1);
+    await wait(LISTING_DEBOUNCE_MS * 2);
+    expect(server.requests).toHaveLength(1);
+  });
+
+  it("lists once for a burst of changes, and keeps the previous list meanwhile", async () => {
+    vi.useFakeTimers();
+    const server = heldServer();
+    let events: StoredEvent[] = [];
+    const { rerender, result } = mount(server.fetchJson, {
+      sessionId: SESSION,
+      events,
+      replayed: true,
+    });
+    await settle();
+    await act(async () => server.requests[0]?.answer(["index.html"]));
+    expect(result.current.status).toBe("ready");
+
+    for (let i = 0; i < 8; i++) {
+      events = [...events, fileChanged(`src/${i}.ts`)];
+      rerender({ sessionId: SESSION, events, replayed: true });
+      await wait(50);
+    }
+    await wait(LISTING_DEBOUNCE_MS);
+
+    expect(server.requests).toHaveLength(2);
+    // The refresh is in the air, and the tree still shows what it had rather than "loading".
+    expect(result.current.status).toBe("ready");
+    expect(result.current.listing?.files).toEqual(["index.html"]);
+
+    await act(async () => server.requests[1]?.answer(["index.html", "src/0.ts"]));
+    expect(result.current.listing?.files).toEqual(["index.html", "src/0.ts"]);
+  });
+
+  it("never lets an older answer replace a newer one", async () => {
+    vi.useFakeTimers();
+    const server = heldServer();
+    let events: StoredEvent[] = [];
+    const { rerender, result } = mount(server.fetchJson, {
+      sessionId: SESSION,
+      events,
+      replayed: true,
+    });
+    await settle();
+    await act(async () => server.requests[0]?.answer(["first"]));
+
+    events = [...events, fileChanged("older.ts")];
+    rerender({ sessionId: SESSION, events, replayed: true });
+    await wait(LISTING_DEBOUNCE_MS);
+    events = [...events, fileChanged("newer.ts")];
+    rerender({ sessionId: SESSION, events, replayed: true });
+    await wait(LISTING_DEBOUNCE_MS);
+    expect(server.requests).toHaveLength(3);
+
+    await act(async () => server.requests[2]?.answer(["newer"]));
+    await act(async () => server.requests[1]?.answer(["older"]));
+
+    expect(result.current.listing?.files).toEqual(["newer"]);
+  });
+
+  it("carries nothing of one session into the next", async () => {
+    vi.useFakeTimers();
+    const server = heldServer();
+    let events: StoredEvent[] = [];
+    const { rerender, result } = mount(server.fetchJson, {
+      sessionId: SESSION,
+      events,
+      replayed: true,
+    });
+    await settle();
+    await act(async () => server.requests[0]?.answer(["a's file"]));
+    events = [...events, fileChanged("in-flight.ts")];
+    rerender({ sessionId: SESSION, events, replayed: true });
+    await wait(LISTING_DEBOUNCE_MS);
+    // One of A's listings is in the air; another is waiting out its debounce.
+    events = [...events, fileChanged("scheduled.ts")];
+    rerender({ sessionId: SESSION, events, replayed: true });
+
+    rerender({ sessionId: OTHER, events: [], replayed: false });
+    expect(server.requests[1]?.signal?.aborted).toBe(true);
+    await act(async () => server.requests[1]?.answer(["a's late answer"]));
+    await wait(LISTING_DEBOUNCE_MS * 2);
+
+    expect(server.requests).toHaveLength(2);
+    expect(result.current.listing).toBeUndefined();
+    expect(result.current.status).toBe("loading");
   });
 });

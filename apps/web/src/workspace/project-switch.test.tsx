@@ -16,6 +16,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_TITLE } from "../components/preview-pane.tsx";
+import { LISTING_DEBOUNCE_MS } from "../files/use-project-files.ts";
+import { LIVE_BATCH_MS } from "../hooks/use-event-stream.ts";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 
@@ -85,6 +87,8 @@ let holdAlpha: boolean;
  */
 let heldForA: string[];
 let answeredForA: string[];
+/** The session of every listing asked for, in order. */
+let listings: string[];
 
 /** Holds a read for A when the test asks for it, and records that it did. */
 async function maybeHold(project: Project, what: string): Promise<void> {
@@ -104,6 +108,7 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
     pathname.startsWith(`/sessions/${project.sessionId}/`),
   );
   if (bySession !== undefined && pathname.endsWith("/files")) {
+    listings.push(bySession.sessionId);
     await maybeHold(bySession, "listing");
     return json({ ready: true, files: [bySession.file], truncated: false });
   }
@@ -184,6 +189,7 @@ beforeEach(() => {
   holdAlpha = false;
   heldForA = [];
   answeredForA = [];
+  listings = [];
 });
 
 describe("switching projects in place", () => {
@@ -277,6 +283,67 @@ describe("switching projects in place", () => {
     expect(betaFiles().getByRole("button", { name: "BetaOnly.tsx" })).toBeVisible();
     expectNothingOfAlpha();
     expect(net.opened.filter((socket) => !socket.closed)).toEqual([beta]);
+  });
+
+  it("leaves nothing of the last project waiting to land: no buffered frame, no timer, no listing", async () => {
+    // What batching added is state that waits: a replay held until `ready`, live frames held for
+    // a frame, a listing held for its debounce. Every one of them belongs to A's mount, and a
+    // switch in the middle of all three must take them with it.
+    const view = render(workspace(PROJECT_A));
+    const alpha = await replayAlpha();
+    expect(await screen.findByText("Alpha reply")).toBeVisible();
+    await waitFor(() => expect(listings).toEqual([SESSION_ID]));
+
+    await act(async () => {
+      alpha.deliver({
+        type: "event",
+        event: ev("agent.message", { text: "Alpha late reply" }, 5),
+      });
+      alpha.deliver({
+        type: "event",
+        event: ev(
+          "file.changed",
+          { path: "src/AlphaOnly.tsx", changeType: "modified", diff: "" },
+          6,
+        ),
+      });
+    });
+    view.rerender(workspace(PROJECT_B));
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+    const beta = net.latest;
+    await act(async () => {
+      beta.open();
+      // Half a replay, then a frame for the wrong session: neither may be drawn yet, or ever.
+      const scope = { sessionId: OTHER_SESSION_ID, turnId: BETA_TURN };
+      beta.deliver({ type: "event", event: ev("user.message", { text: "Beta prompt" }, 1, scope) });
+      alpha.deliver({ type: "event", event: ev("agent.message", { text: "Alpha after" }, 7) });
+    });
+    expect(screen.queryByText("Beta prompt")).toBeNull();
+    await act(async () => {
+      // Finished, so a running turn on screen could only be A's.
+      const scope = { sessionId: OTHER_SESSION_ID, turnId: BETA_TURN };
+      beta.deliver({ type: "event", event: ev("turn.started", { source: "user" }, 2, scope) });
+      beta.deliver({
+        type: "event",
+        event: ev(
+          "turn.completed",
+          { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 10, commitSha: null },
+          3,
+          scope,
+        ),
+      });
+      beta.deliver({ type: "ready" });
+    });
+    expect(await screen.findByText("Beta prompt")).toBeVisible();
+
+    // Past every batch and every debounce A had scheduled.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, LISTING_DEBOUNCE_MS + LIVE_BATCH_MS * 4));
+    });
+    expect(screen.queryByText("Alpha late reply")).toBeNull();
+    expect(screen.queryByText("Alpha after")).toBeNull();
+    expectNothingOfAlpha();
+    expect(listings).toEqual([SESSION_ID, OTHER_SESSION_ID]);
   });
 
   it("keeps the sidebar mounted across the switch", async () => {
