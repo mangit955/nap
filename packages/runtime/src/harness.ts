@@ -261,7 +261,8 @@ function detail(event: NapEvent): string {
       return "";
     case "turn.completed": {
       const { usage, durationMs, commitSha, awaiting } = event.payload;
-      return `${usage.inputTokens} in / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}${awaiting === undefined ? "" : `, awaiting ${awaiting.replace("_", " ")}`}`;
+      const read = usage.cacheReadTokens ?? 0;
+      return `${usage.inputTokens} in${read > 0 ? ` (${read} from cache)` : ""} / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}${awaiting === undefined ? "" : `, awaiting ${awaiting.replace("_", " ")}`}`;
     }
     case "turn.failed":
       return `${event.payload.reason}: ${oneLine(event.payload.message)}`;

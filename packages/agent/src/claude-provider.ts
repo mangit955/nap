@@ -19,10 +19,11 @@
  *  - **A refusal never touches `content`.** Safety classifiers can decline before the
  *    model writes anything, so the array is empty and `content[0].text` would throw. The
  *    branch returns before it can.
- *  - **Cached input counts as input.** The API reports `input_tokens` as the *uncached
- *    remainder*; the cache-read and cache-write counts sit in their own fields. Summing
- *    all three is what makes the number mean "what this call actually cost us", which is
- *    what a budget needs.
+ *  - **Cached input counts as input, and says so.** The API reports `input_tokens` as the
+ *    *uncached remainder*; the cache-read and cache-write counts sit in their own fields.
+ *    Summing all three is what makes `inputTokens` the size of the prompt; keeping the two
+ *    cached parts beside it is what lets the budget charge a cache read at a tenth of the
+ *    price rather than at face value.
  *
  * The SDK is reached through a narrow injected `AnthropicClient` rather than by calling
  * the class directly, so every mapping and every failure path can be driven by a stub
@@ -43,6 +44,7 @@ import type {
   ModelCredentials,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import { addUsage, tokenUsage } from "@nap/shared/usage";
 import { z } from "zod";
 import { toDirectAnthropicModel } from "./anthropic.ts";
 import { createOpenRouterClient } from "./openrouter.ts";
@@ -246,16 +248,19 @@ export function describeError(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-/** Total input, including the parts the API bills separately because they were cached. */
+/**
+ * Total input, including the parts the API bills separately because they were cached, with
+ * those parts kept apart. OpenRouter sends `null` for a model that caches nothing, and the
+ * shared constructor reads that, or a field missing outright, as zero.
+ */
 export function toTokenUsage(usage: AnthropicMessage["usage"] | undefined): TokenUsage {
   if (usage === undefined) return NO_USAGE;
-  return {
-    inputTokens:
-      usage.input_tokens +
-      (usage.cache_creation_input_tokens ?? 0) +
-      (usage.cache_read_input_tokens ?? 0),
-    outputTokens: usage.output_tokens,
-  };
+  return tokenUsage({
+    uncached: usage.input_tokens,
+    cacheWrite: usage.cache_creation_input_tokens,
+    cacheRead: usage.cache_read_input_tokens,
+    output: usage.output_tokens,
+  });
 }
 
 /**
@@ -589,10 +594,7 @@ class ClaudeTurn implements LLMTurn {
   }
 
   #record(result: LLMTurnResult): LLMTurnResult {
-    this.#usage = {
-      inputTokens: this.#usage.inputTokens + result.usage.inputTokens,
-      outputTokens: this.#usage.outputTokens + result.usage.outputTokens,
-    };
+    this.#usage = addUsage(this.#usage, result.usage);
     return result;
   }
 }

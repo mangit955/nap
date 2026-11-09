@@ -52,6 +52,16 @@ describe("loopingLLMProvider", () => {
     expect(text).toEqual(["b"]);
   });
 
+  it("keeps a scripted cache split in the turn's usage", async () => {
+    const provider = loopingLLMProvider([
+      { text: "a", usage: { inputTokens: 100, outputTokens: 1, cacheReadTokens: 80 } },
+    ]);
+    const turn = provider.startTurn();
+    await turn.complete(request);
+    await turn.complete(request);
+    expect(turn.usage()).toStrictEqual({ inputTokens: 200, outputTokens: 2, cacheReadTokens: 160 });
+  });
+
   it("accumulates the turn's usage across its calls", async () => {
     const provider = loopingLLMProvider([
       { text: "a", usage: { inputTokens: 100, outputTokens: 10 } },

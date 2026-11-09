@@ -120,9 +120,10 @@ export function Verification() {
 
       <P>
         Long tasks also compact their working conversation between completed tool batches, before
-        the next model call. The agent considers estimated or reported context, room for the next
-        response, and remaining turn spending. The summary costs tokens from that same budget;
-        compaction never resets what the task has already spent.
+        the next model call. The agent considers estimated or reported context and room for the next
+        response; how much of the task&rsquo;s budget is left is not a reason to compact. The
+        summary costs tokens from that same budget; compaction never resets what the task has
+        already spent.
       </P>
       <P>
         You can request this with <Code>/compact</Code> or the Context control above the composer. A

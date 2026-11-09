@@ -8,6 +8,7 @@ import {
 import type { NapEvent, NapEventOf } from "@nap/shared/events";
 import type { BuiltContext } from "@nap/shared/ports/context-engine";
 import type { TokenUsage } from "@nap/shared/ports/llm-provider";
+import { addUsage } from "@nap/shared/usage";
 import type { CompactionHistoryFile } from "./compaction-history.ts";
 
 /** Called only while the runtime owns the session lease, between complete tool batches. */
@@ -105,10 +106,7 @@ export function contextCompactor(options: {
           }),
           ...(request.signal === undefined ? {} : { signal: request.signal }),
         });
-        usage = {
-          inputTokens: (usage?.inputTokens ?? 0) + result.usage.inputTokens,
-          outputTokens: (usage?.outputTokens ?? 0) + result.usage.outputTokens,
-        };
+        usage = addUsage(usage ?? { inputTokens: 0, outputTokens: 0 }, result.usage);
         if (result.type !== "message")
           throw new Error(
             result.type === "error"

@@ -14,6 +14,7 @@ import type {
   LLMTurn,
   LLMTurnResult,
 } from "@nap/shared/ports/llm-provider";
+import { billedTokens } from "@nap/shared/usage";
 import { beforeEach, describe, expect, it } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import {
@@ -158,9 +159,11 @@ function stalled(onRequest: (sent: LLMRequest) => void = () => {}): LLMTurn {
 const HEADROOM = 8_192;
 /** The context budget an automatic compaction is tested under; a fifth of it exceeds HEADROOM. */
 const CONTEXT_BUDGET = 50_000;
-/** What one summary request is estimated to cost, input and output. */
-const SUMMARY_COST =
-  estimateContextTokens(SUMMARY_REQUEST) + (SUMMARY_REQUEST.maxOutputTokens ?? 0);
+/** What one summary request is estimated to cost, input and output, at what each is billed. */
+const SUMMARY_COST = billedTokens({
+  inputTokens: estimateContextTokens(SUMMARY_REQUEST),
+  outputTokens: SUMMARY_REQUEST.maxOutputTokens ?? 0,
+});
 
 /** A normal turn that compacts automatically before its first step, as a long session's does. */
 function automatic(compactContext: CompactContext): AgentTurnRequest {
@@ -425,7 +428,7 @@ describe("a sidekick that fails leaves the work to the lead", () => {
   it("goes straight to the lead when the budget could not also cover the lead repeating it", async () => {
     // Enough for one summary request (100 out plus a small input), not for two.
     const { agent, provider } = run([[{ text: "the lead's summary" }]], {
-      budget: { maxTokens: 180 },
+      budget: { maxTokens: Math.floor(SUMMARY_COST * 1.5) },
     });
 
     await agent.runTurn(compact().sent);
@@ -460,7 +463,15 @@ describe("an automatic compaction inside a turn", () => {
       // The sidekick would succeed: a short budget is the only reason it is not asked.
       const { agent, provider } = run(
         [[{ text: "the lead's summary" }, { text: "done" }], [{ text: "the sidekick's summary" }]],
-        { budget: { maxTokens: SUMMARY_COST * 2 + 4_096 + next + HEADROOM + slack } },
+        {
+          budget: {
+            maxTokens:
+              SUMMARY_COST * 2 +
+              4_096 +
+              billedTokens({ inputTokens: next, outputTokens: HEADROOM }) +
+              slack,
+          },
+        },
       );
       const { compactContext, summaries } = compaction();
 
@@ -478,9 +489,9 @@ describe("an automatic compaction inside a turn", () => {
 describe("the sidekick spends the turn's budget", () => {
   it("counts every sidekick token against the turn's ceiling", async () => {
     const { agent } = run(
-      [[], [{ text: "a summary", usage: { inputTokens: 900, outputTokens: 0 } }]],
+      [[], [{ text: "a summary", usage: { inputTokens: 9_000, outputTokens: 0 } }]],
       {
-        budget: { maxTokens: 1_000 },
+        budget: { maxTokens: 10_000 },
       },
     );
 
@@ -489,14 +500,16 @@ describe("the sidekick spends the turn's budget", () => {
 
     events = [];
     const over = run(
-      [[], [{ text: "a summary", usage: { inputTokens: 1_001, outputTokens: 0 } }]],
-      { budget: { maxTokens: 1_000 } },
+      [[], [{ text: "a summary", usage: { inputTokens: 10_001, outputTokens: 0 } }]],
+      { budget: { maxTokens: 10_000 } },
     );
     await over.agent.runTurn(compact().sent);
     // A manual compaction that overran fails as the compaction it was, naming the ceiling.
     expect(payloads("turn.completed")).toEqual([]);
     expect(payloads("turn.failed")).toEqual([
-      expect.objectContaining({ message: "token budget exceeded: 1001 tokens spent, limit 1000" }),
+      expect.objectContaining({
+        message: "token budget exceeded: 10001 billed tokens spent, limit 10000",
+      }),
     ]);
   });
 
@@ -505,16 +518,18 @@ describe("the sidekick spends the turn's budget", () => {
     const { agent } = run(
       [
         [{ text: "the lead's summary" }],
-        [{ refusal: true, usage: { inputTokens: 1_001, outputTokens: 0 } }],
+        [{ refusal: true, usage: { inputTokens: 10_001, outputTokens: 0 } }],
       ],
-      { budget: { maxTokens: 1_000 } },
+      { budget: { maxTokens: 10_000 } },
     );
 
     await agent.runTurn(compact().sent);
 
     expect(payloads("turn.completed")).toEqual([]);
     expect(payloads("turn.failed")).toEqual([
-      expect.objectContaining({ message: "token budget exceeded: 1001 tokens spent, limit 1000" }),
+      expect.objectContaining({
+        message: "token budget exceeded: 10001 billed tokens spent, limit 10000",
+      }),
     ]);
   });
 

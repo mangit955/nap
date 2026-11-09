@@ -204,9 +204,9 @@ it("does not fall back to another delivery when Codex rejects the native method"
   expect(methods).toEqual(["thread/compact/start"]);
 });
 
-it("includes Claude cached input in reported compaction spend", async () => {
+function claudeReporting(usage: Record<string, unknown>) {
   let notify: (message: unknown) => void = () => {};
-  const compact = claudeCompaction({
+  return claudeCompaction({
     sessionId: "s",
     subscribe(listener) {
       notify = listener;
@@ -219,24 +219,41 @@ it("includes Claude cached input in reported compaction spend", async () => {
         session_id: "s",
         compact_metadata: { pre_tokens: 4000 },
       });
-      notify({
-        type: "result",
-        subtype: "success",
-        session_id: "s",
-        usage: {
-          input_tokens: 2,
-          cache_creation_input_tokens: 100,
-          cache_read_input_tokens: 1000,
-          output_tokens: 40,
-        },
-      });
+      notify({ type: "result", subtype: "success", session_id: "s", usage });
     },
     async interrupt() {},
   });
-  expect(await compact({ trustedInstructions: "", untrustedContext: "" })).toMatchObject({
-    usage: { inputTokens: 1102, outputTokens: 40 },
-    afterTokens: null,
+}
+
+it("includes Claude cached input in reported compaction spend, and keeps it apart", async () => {
+  const compact = claudeReporting({
+    input_tokens: 2,
+    cache_creation_input_tokens: 100,
+    cache_read_input_tokens: 1000,
+    output_tokens: 40,
   });
+  const result = await compact({ trustedInstructions: "", untrustedContext: "" });
+  expect(result.usage).toStrictEqual({
+    inputTokens: 1102,
+    outputTokens: 40,
+    cacheWriteTokens: 100,
+    cacheReadTokens: 1000,
+  });
+  expect(result.afterTokens).toBeNull();
+});
+
+it("reads null Claude cache counts as none rather than discarding the whole result", async () => {
+  // The same wire shape the API route sends for a model that caches nothing. A schema that
+  // only tolerated an absent field would refuse the result message and leave the compaction
+  // waiting for a completion it had already been sent.
+  const compact = claudeReporting({
+    input_tokens: 7,
+    cache_creation_input_tokens: null,
+    cache_read_input_tokens: null,
+    output_tokens: 3,
+  });
+  const result = await compact({ trustedInstructions: "", untrustedContext: "" });
+  expect(result.usage).toStrictEqual({ inputTokens: 7, outputTokens: 3 });
 });
 
 it("accounts Codex token updates once, with cached input already included in inputTokens", async () => {

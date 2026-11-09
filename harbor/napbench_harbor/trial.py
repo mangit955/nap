@@ -115,6 +115,11 @@ def context_from_report(report: dict | None) -> dict:
     context: dict = {}
     if "inputTokens" in tokens:
         context["n_input_tokens"] = tokens["inputTokens"]
+    # Harbor counts its input "including cache", which is what `inputTokens` already is, and
+    # its cache count beside it. Reads, not writes: a write is a premium on input, not a saving.
+    # Absent on a report from before the split, and then absent here too.
+    if "cacheReadTokens" in tokens:
+        context["n_cache_tokens"] = tokens["cacheReadTokens"]
     if "outputTokens" in tokens:
         context["n_output_tokens"] = tokens["outputTokens"]
     if "usd" in estimated:

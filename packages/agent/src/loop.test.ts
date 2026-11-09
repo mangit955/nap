@@ -1283,7 +1283,7 @@ describe("steering", () => {
     const { agent } = run(
       [
         [
-          { text: "Done.", usage: { inputTokens: 49_990, outputTokens: 5 } },
+          { text: "Done.", usage: { inputTokens: 49_990, outputTokens: 1 } },
           { text: "Switched to Postgres." },
         ],
       ],
@@ -1340,7 +1340,7 @@ describe("steering", () => {
         [
           {
             toolCalls: [call("read_file", { path: APP }, "a")],
-            usage: { inputTokens: 49_990, outputTokens: 5 },
+            usage: { inputTokens: 49_990, outputTokens: 1 },
           },
           { text: "unused" },
         ],

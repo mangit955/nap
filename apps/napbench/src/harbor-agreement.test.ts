@@ -64,7 +64,7 @@ describe("the report fields the Python agent reads back", () => {
         commands: 0,
         filesChanged: 1,
         turns: { started: 1, completed: 1, failed: 0, cancelled: 0 },
-        tokens: { inputTokens: 10, outputTokens: 2 },
+        tokens: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 8 },
         estimatedCost: { usd: 0.01, model: "m", priceTableVersion: "1" },
       },
     });

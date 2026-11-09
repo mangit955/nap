@@ -49,6 +49,28 @@ describe("ScriptedLLMProvider", () => {
     });
   });
 
+  it("keeps a scripted cache split when it adds a turn's calls together", async () => {
+    // The fake is what every agent-loop test spends through, so dropping the split here would
+    // make a cached turn look uncached to the budget in exactly the tests meant to prove it.
+    const provider = new ScriptedLLMProvider([
+      [
+        { text: "one", usage: { inputTokens: 100, outputTokens: 1, cacheWriteTokens: 90 } },
+        { text: "two", usage: { inputTokens: 120, outputTokens: 1, cacheReadTokens: 90 } },
+      ],
+    ]);
+
+    const turn = provider.startTurn();
+    await turn.complete(request());
+    await turn.complete(request());
+
+    expect(turn.usage()).toStrictEqual({
+      inputTokens: 220,
+      outputTokens: 2,
+      cacheWriteTokens: 90,
+      cacheReadTokens: 90,
+    });
+  });
+
   it("accumulates usage within a turn and starts the next turn at zero", async () => {
     const provider = new ScriptedLLMProvider([
       [

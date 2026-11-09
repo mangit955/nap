@@ -1,5 +1,6 @@
 /** Adapted from T3 Code e3b35d1b2440. See THIRD_PARTY_NOTICES.md for its MIT notice. */
 import type { LLMTurn, NativeCompaction, TokenUsage } from "@nap/shared/ports/llm-provider";
+import { addUsage, tokenUsage } from "@nap/shared/usage";
 import { z } from "zod";
 
 /** Providers use this same gate for normal turns and compaction on one native session. */
@@ -130,10 +131,8 @@ export function codexCompaction(transport: CodexCompactionTransport): NativeComp
                   inputTokens: current.inputTokens - total.inputTokens,
                   outputTokens: current.outputTokens - total.outputTokens,
                 };
-          usage = {
-            inputTokens: (usage?.inputTokens ?? 0) + delta.inputTokens,
-            outputTokens: (usage?.outputTokens ?? 0) + delta.outputTokens,
-          };
+          // Codex reports no cache split, so its input is charged as uncached.
+          usage = addUsage(usage ?? { inputTokens: 0, outputTokens: 0 }, delta);
         }
         total = current;
       }
@@ -230,11 +229,14 @@ export type ClaudeCompactionTransport = {
   send(prompt: string, signal?: AbortSignal): Promise<void>;
   interrupt(): Promise<void>;
 };
+// Nullish, not optional: a model that caches nothing reports `null` here, and a message that
+// fails to parse is ignored — which, for the result message, leaves the compaction waiting for
+// a completion it was already sent.
 const Usage = z.object({
   input_tokens: z.number().nonnegative(),
   output_tokens: z.number().nonnegative(),
-  cache_creation_input_tokens: z.number().nonnegative().optional(),
-  cache_read_input_tokens: z.number().nonnegative().optional(),
+  cache_creation_input_tokens: z.number().nonnegative().nullish(),
+  cache_read_input_tokens: z.number().nonnegative().nullish(),
 });
 const ClaudeMessage = z.object({
   type: z.string(),
@@ -287,13 +289,12 @@ export function claudeCompaction(transport: ClaudeCompactionTransport): NativeCo
           return;
         }
         if (message.usage !== undefined)
-          usage = {
-            inputTokens:
-              message.usage.input_tokens +
-              (message.usage.cache_creation_input_tokens ?? 0) +
-              (message.usage.cache_read_input_tokens ?? 0),
-            outputTokens: message.usage.output_tokens,
-          };
+          usage = tokenUsage({
+            uncached: message.usage.input_tokens,
+            cacheWrite: message.usage.cache_creation_input_tokens,
+            cacheRead: message.usage.cache_read_input_tokens,
+            output: message.usage.output_tokens,
+          });
         resolve();
       }
     });

@@ -12,10 +12,9 @@
  * why absent beats inferred throughout NapBench.
  */
 
+import type { TokenUsage } from "@nap/shared/ports/llm-provider";
+import { billedTokens } from "@nap/shared/usage";
 import { z } from "zod";
-// Type-only, so the two modules can name each other without a runtime cycle: tokens are
-// counted in `metrics.ts` and priced here, and one schema defines the shape for both.
-import type { TokenUsage } from "./metrics.ts";
 
 /**
  * Bumped whenever the table below changes at all, and recorded in every estimate.
@@ -31,8 +30,11 @@ import type { TokenUsage } from "./metrics.ts";
  * resolved to exactly one table, which is the property somebody reading an archived report a
  * year from now actually needs. Tying it to rates alone would leave two different tables
  * sharing a name, and no way to tell from the report which one produced the figure.
+ *
+ * The cache multipliers count as part of the table: 2026-11-09 is the version that began
+ * pricing cached input below the input rate, with the rates themselves unchanged.
  */
-export const PRICE_TABLE_VERSION = "2026-08-17";
+export const PRICE_TABLE_VERSION = "2026-11-09";
 
 export const ModelPriceSchema = z.strictObject({
   inputPerMTokUsd: z.number().nonnegative(),
@@ -83,9 +85,14 @@ export type CostEstimate = z.infer<typeof CostEstimateSchema>;
  * Prices a token count, or returns undefined when it cannot be priced honestly.
  *
  * Two ways to get nothing back, and both are the point: no model was recorded, or the model
- * is not in the table. Cache reads are not modelled either — the provider reports them and
- * the event log does not carry them, so a cached turn is over-estimated. Stated here because
- * a number that is quietly wrong in one direction is worse than one nobody trusts.
+ * is not in the table.
+ *
+ * Cached input is priced at what the cache bills it — a read at a tenth of the input rate, a
+ * write at a quarter more — by the same `BILLED_WEIGHTS` the turn budget charges by, so the
+ * budget and the estimate cannot disagree about a cache read. Those multipliers are
+ * Anthropic's; an OpenAI model through OpenRouter does not surcharge a write, so its cached
+ * turn is over-estimated by a little. Usage from before the split carries no cache fields and
+ * prices exactly as it always did, all of it at the input rate.
  */
 export function estimateCost(
   model: string | undefined,
@@ -100,8 +107,11 @@ export function estimateCost(
   const price = (MODEL_PRICES as Record<string, ModelPrice>)[model];
   if (price === undefined) return undefined;
 
+  // Input in uncached-token equivalents. Output is left out of it and priced from the table,
+  // which knows each model's own output rate where the budget's weight is one ratio for all.
+  const input = billedTokens({ ...usage, outputTokens: 0 });
   const usd =
-    (usage.inputTokens / 1_000_000) * price.inputPerMTokUsd +
+    (input / 1_000_000) * price.inputPerMTokUsd +
     (usage.outputTokens / 1_000_000) * price.outputPerMTokUsd;
 
   return {

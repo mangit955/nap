@@ -16,9 +16,21 @@
  * no reset to forget, and two turns in flight at once cannot corrupt each other.
  */
 
+/**
+ * What one call, or a turn's worth of calls, consumed.
+ *
+ * `inputTokens` is the whole prompt, cached or not; the two cache fields are parts of it, and
+ * absent means none. A turn's budget is charged by what each part is billed at, so a provider
+ * that can tell cached input apart must say so — see `@nap/shared/usage`, which is also the
+ * only place usage should be built, added up or priced.
+ */
 export type TokenUsage = {
   inputTokens: number;
   outputTokens: number;
+  /** Of `inputTokens`, the part written to the prompt cache. */
+  cacheWriteTokens?: number;
+  /** Of `inputTokens`, the part read from the prompt cache. */
+  cacheReadTokens?: number;
 };
 
 /**

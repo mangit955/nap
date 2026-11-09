@@ -1,6 +1,8 @@
 import { expectTypeOf } from "vitest";
+import type { z } from "zod";
 import type { NapEvent, NapEventType, ToolName } from "../events.ts";
 import type { Result } from "../result.ts";
+import type { TokenUsageSchema } from "../usage.ts";
 import type { AgentService, AgentTurnRequest } from "./agent-service.ts";
 import type { BuiltContext, ContextEngine, ContextRequest } from "./context-engine.ts";
 import type { EventBus, Unsubscribe } from "./event-bus.ts";
@@ -159,7 +161,17 @@ expectTypeOf(contextStub).toExtend<ContextEngine>();
 expectTypeOf<LLMProvider["startTurn"]>().returns.toEqualTypeOf<LLMTurn>();
 expectTypeOf<LLMTurn["complete"]>().returns.resolves.toEqualTypeOf<LLMTurnResult>();
 expectTypeOf<LLMTurn["usage"]>().returns.toEqualTypeOf<TokenUsage>();
-expectTypeOf<TokenUsage>().toEqualTypeOf<{ inputTokens: number; outputTokens: number }>();
+// The cache fields are optional and may not be spelled \`undefined\`: an absent key and a key
+// holding \`undefined\` are different things to a \`jsonb\` column, and only one survives it.
+expectTypeOf<TokenUsage>().toEqualTypeOf<{
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+}>();
+// What the event schema accepts is what the port carries, so a parsed event's usage can be
+// handed to anything that takes the port's.
+expectTypeOf<z.output<typeof TokenUsageSchema>>().toExtend<TokenUsage>();
 
 // A refusal is an expected outcome with its own branch, not an exception and not
 // something a caller can reach by indexing into content.

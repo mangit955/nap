@@ -3,7 +3,8 @@
 Nap supports `/compact` and the Context control on its existing Anthropic API and OpenRouter
 routes. Automatic compaction runs in the active model/tool loop as well as at the start of a
 turn. It uses the configured input budget, provider window when supplied, response headroom,
-reported input with estimated growth, and remaining turn spending. T3's Claude prompt-cache
+and reported input with estimated growth. What is left of the turn's budget is not a trigger
+([ADR-0031](adr/0031-the-turn-budget-is-denominated-in-what-is-billed.md)). T3's Claude prompt-cache
 expiry rules are not used for these routes.
 
 Current API/OpenRouter handles do not report a provider window. Their guard uses the configured
@@ -115,7 +116,7 @@ has no retry action. A verification turn retains the user request it was repairi
 its media, rather than offering the synthesized check details or an intervening manual command.
 
 Summaries are bounded, tool-free calls through the same provider handle, model and credentials.
-Their steps and cache-inclusive tokens count against the ongoing turn. Refusal, truncated or
+Their steps and tokens, at billed weight, count against the ongoing turn. Refusal, truncated or
 empty output, failed calls and cancellation retain the old checkpoint. Cancellation cannot let a
 late summary replace it. An interrupted native operation requires native session recovery.
 There is no token refund. The context popup distinguishes estimates from provider reports;

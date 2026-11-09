@@ -26,6 +26,7 @@ import type {
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import { addUsage } from "@nap/shared/usage";
 
 /**
  * One scripted response. Every field is optional and zero-valued, so a test writes only
@@ -168,10 +169,7 @@ class ScriptedTurnHandle implements RecordingLLMTurn {
     for (const delta of response.streamedText ?? []) request.onTextDelta?.(delta);
 
     const result = toResult(response);
-    this.#usage = {
-      inputTokens: this.#usage.inputTokens + result.usage.inputTokens,
-      outputTokens: this.#usage.outputTokens + result.usage.outputTokens,
-    };
+    this.#usage = addUsage(this.#usage, result.usage);
     return result;
   }
 

@@ -66,6 +66,19 @@ describe("a report", () => {
     if (parsed.ok) expect(parsed.value).toEqual(report);
   });
 
+  it("carries a run's cache split, and still reads a report written before it existed", () => {
+    // The fixture above has no cache fields, as every report archived before them does.
+    const cached: BenchReport = {
+      ...report,
+      metrics: {
+        ...report.metrics,
+        tokens: { inputTokens: 1_000, outputTokens: 200, cacheReadTokens: 800 },
+      },
+    };
+    const parsed = parseBenchReport(JSON.parse(serialiseBenchReport(cached)));
+    expect(parsed.ok && parsed.value).toStrictEqual(cached);
+  });
+
   it("keeps the run id and the session id apart", () => {
     // The word "run" collides: a NapBench run contains a Nap session, which contains
     // turns. A report carrying one id called "id" would make that ambiguous forever.

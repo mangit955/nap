@@ -80,7 +80,7 @@ it("manual compaction persists a boundary, retains early instructions and surviv
     [
       {
         text: "Summary deliberately omits the early constraint",
-        usage: { inputTokens: 1200, outputTokens: 80 },
+        usage: { inputTokens: 1200, outputTokens: 80, cacheReadTokens: 1000 },
       },
     ],
   ]);
@@ -96,8 +96,12 @@ it("manual compaction persists a boundary, retains early instructions and surviv
   expect(compacted.filter((e) => e.type === "job.started")).toHaveLength(1);
   const completion = compacted.findLast((e) => e.type === "turn.completed");
   expect(completion?.payload).toMatchObject({
-    usage: { inputTokens: 1200, outputTokens: 80 },
+    usage: { inputTokens: 1200, outputTokens: 80, cacheReadTokens: 1000 },
     commitSha: null,
+  });
+  // The summary's cache split survives into the compaction's own record of what it cost.
+  expect(compacted.findLast((e) => e.type === "compaction.completed")?.payload).toMatchObject({
+    usage: { inputTokens: 1200, outputTokens: 80, cacheReadTokens: 1000 },
   });
 
   const next = new ScriptedLLMProvider([[{ text: "new answer" }]]);

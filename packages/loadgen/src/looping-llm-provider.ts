@@ -25,6 +25,7 @@ import type {
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import { addUsage } from "@nap/shared/usage";
 
 /** One response, with every field optional so a script writes only what it means. */
 export type LoopingResponse = {
@@ -92,10 +93,7 @@ export function loopingLLMProvider(script: readonly LoopingResponse[]): Counting
           const spent = response.usage ?? NO_USAGE;
           totals.inputTokens += spent.inputTokens;
           totals.outputTokens += spent.outputTokens;
-          usage = {
-            inputTokens: usage.inputTokens + spent.inputTokens,
-            outputTokens: usage.outputTokens + spent.outputTokens,
-          };
+          usage = addUsage(usage, spent);
 
           return {
             type: "message",

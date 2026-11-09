@@ -21,13 +21,10 @@
  */
 
 import type { NapEvent, ToolName } from "@nap/shared/events";
+import type { TokenUsage } from "@nap/shared/ports/llm-provider";
+import { addUsage, TokenUsageSchema } from "@nap/shared/usage";
 import { z } from "zod";
 import { CostEstimateSchema, estimateCost } from "./pricing.ts";
-
-export const TokenUsageSchema = z.strictObject({
-  inputTokens: z.int().nonnegative(),
-  outputTokens: z.int().nonnegative(),
-});
 
 /**
  * How the turns inside a run ended. A run is one or more turns; see `CONTEXT.md`.
@@ -91,7 +88,6 @@ export const RunMetricsSchema = z.strictObject({
   retries: z.int().nonnegative().optional(),
 });
 
-export type TokenUsage = z.infer<typeof TokenUsageSchema>;
 export type RunMetrics = z.infer<typeof RunMetricsSchema>;
 
 /**
@@ -152,10 +148,7 @@ export function deriveRunMetrics(
         break;
       case "turn.completed":
         turns.completed++;
-        usage = {
-          inputTokens: (usage?.inputTokens ?? 0) + event.payload.usage.inputTokens,
-          outputTokens: (usage?.outputTokens ?? 0) + event.payload.usage.outputTokens,
-        };
+        usage = addUsage(usage ?? { inputTokens: 0, outputTokens: 0 }, event.payload.usage);
         turnDurationMs = (turnDurationMs ?? 0) + event.payload.durationMs;
         break;
       case "turn.failed":

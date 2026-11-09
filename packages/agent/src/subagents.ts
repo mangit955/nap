@@ -9,8 +9,9 @@
  * Four rules keep a helper from being a second, unaccountable turn (ADR-0020):
  *
  *  - **It spends the turn's budget.** Every token is recorded against the parent's
- *    `TurnBudget`. Estimated input and capped output must fit its share; actual usage is
- *    checked before acting on a response, leaving room for the parent to use the answer.
+ *    `TurnBudget`, at what it is billed. Estimated input and capped output must fit its share;
+ *    actual usage is checked before acting on a response, leaving room for the parent to use
+ *    the answer.
  *  - **It lives inside the turn.** It shares the turn's cancellation, and a background helper
  *    nobody collected is cancelled when the turn ends — nothing runs on after the lease.
  *  - **Its traffic stays out of the log.** Its tool calls would replay into the parent's
@@ -31,6 +32,7 @@ import type {
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import { addUsage, billedTokens, outputTokensFor } from "@nap/shared/usage";
 import { CANCELLED, stopAware } from "./cancellation.ts";
 import { DirectoryRules } from "./hooks/directory-rules.ts";
 import type { TurnBudget } from "./safety/budget.ts";
@@ -72,9 +74,9 @@ type Helper = { report: Promise<ToolOutcome>; controller: AbortController; colle
 export class SubagentPool implements SubagentRunner {
   readonly #options: SubagentPoolOptions;
   readonly #helpers = new Map<string, Helper>();
-  readonly #usage = { inputTokens: 0, outputTokens: 0 };
+  #usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   #usageIncomplete = false;
-  /** Unspent tokens promised to helpers, unavailable to other helpers or parent requests. */
+  /** Unspent billed tokens promised to helpers, unavailable to other helpers or parent requests. */
   #reserved = 0;
   #started = 0;
 
@@ -128,7 +130,7 @@ export class SubagentPool implements SubagentRunner {
     return this.#usageIncomplete;
   }
 
-  /** The parent and new helpers may spend only tokens not already promised. */
+  /** The parent and new helpers may spend only billed tokens not already promised. */
   availableTokens(): number {
     return Math.max(0, this.#options.budget.remaining().tokens - this.#reserved);
   }
@@ -159,7 +161,9 @@ export class SubagentPool implements SubagentRunner {
       },
     });
 
-    const usage = { inputTokens: 0, outputTokens: 0 };
+    // One object for the whole run, added to in place: `finish` reports it and `#converse` checks
+    // it, and both must see every request's spend.
+    const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
     let toolCalls = 0;
     const finish = (outcome: SubagentOutcome, report: string): ToolOutcome => {
       this.#emit(emit, {
@@ -192,13 +196,11 @@ export class SubagentPool implements SubagentRunner {
     let reserved = allowance;
     this.#reserved += allowance;
     const recordUsage = (spent: TokenUsage) => {
-      usage.inputTokens += spent.inputTokens;
-      usage.outputTokens += spent.outputTokens;
-      this.#usage.inputTokens += spent.inputTokens;
-      this.#usage.outputTokens += spent.outputTokens;
+      Object.assign(usage, addUsage(usage, spent));
+      this.#usage = addUsage(this.#usage, spent);
       options.budget.recordUsage(spent);
       // Actual spend is already removed by TurnBudget; only the unused promise stays held.
-      const consumed = Math.min(reserved, spent.inputTokens + spent.outputTokens);
+      const consumed = Math.min(reserved, billedTokens(spent));
       reserved -= consumed;
       this.#reserved -= consumed;
     };
@@ -257,7 +259,7 @@ export class SubagentPool implements SubagentRunner {
 
     for (let step = 1; step <= steps; step += 1) {
       if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
-      if (usage.inputTokens + usage.outputTokens >= allowance || !options.budget.check().ok)
+      if (billedTokens(usage) >= allowance || !options.budget.check().ok)
         return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
       if (step === steps)
         appendText(
@@ -265,7 +267,7 @@ export class SubagentPool implements SubagentRunner {
           "This is your last request. Reply with your report now, from what you have found.",
         );
 
-      const remaining = allowance - usage.inputTokens - usage.outputTokens;
+      const remaining = allowance - billedTokens(usage);
       const available = Math.min(
         remaining,
         options.budget.remaining().tokens - this.#reserved + remaining,
@@ -275,7 +277,9 @@ export class SubagentPool implements SubagentRunner {
         messages,
         tools,
       });
-      const maxOutputTokens = Math.floor(available - input);
+      // The input priced uncached, the most it can cost short of a cache write; what is left
+      // pays for output at the output rate.
+      const maxOutputTokens = outputTokensFor(available - input);
       if (maxOutputTokens < 1)
         return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
       let completed: LLMTurnResult | typeof CANCELLED;
@@ -303,7 +307,7 @@ export class SubagentPool implements SubagentRunner {
       recordUsage(result.usage);
 
       if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
-      if (usage.inputTokens + usage.outputTokens > allowance || !options.budget.check().ok)
+      if (billedTokens(usage) > allowance || !options.budget.check().ok)
         return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
       if (result.type === "refusal") return finish("failed", "The model declined this task.");
       if (result.type === "error") return finish("failed", result.message);

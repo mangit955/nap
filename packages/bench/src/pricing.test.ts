@@ -14,6 +14,28 @@ describe("estimateCost", () => {
     );
   });
 
+  it("prices cached input at what the cache bills it, not at the full input rate", () => {
+    // A million tokens of prompt, nine tenths of it read from the cache and a tenth written to
+    // it. Before the split this whole million was priced as uncached input.
+    const price = MODEL_PRICES["anthropic/claude-opus-5"];
+    const estimate = estimateCost("anthropic/claude-opus-5", {
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cacheReadTokens: 900_000,
+      cacheWriteTokens: 100_000,
+    });
+
+    expect(estimate?.usd).toBeCloseTo(price.inputPerMTokUsd * (0.9 * 0.1 + 0.1 * 1.25), 5);
+  });
+
+  it("prices usage from before the split exactly as it always did", () => {
+    const price = MODEL_PRICES["anthropic/claude-opus-5"];
+
+    expect(estimateCost("anthropic/claude-opus-5", MILLION)?.usd).toBe(
+      price.inputPerMTokUsd + price.outputPerMTokUsd,
+    );
+  });
+
   it("keeps a cheap turn from rounding away to zero", () => {
     // A debug-model turn costs thousandths of a cent. Rounded to the cent it would be free,
     // and a suite of them would report as free too.
