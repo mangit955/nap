@@ -113,7 +113,8 @@ describe("opening a put-away project", () => {
         ),
       });
     });
-    expect(screen.getByText("Compacting context")).toBeVisible();
+    // Live events are committed a frame later, in a batch, so these wait for it.
+    expect(await screen.findByText("Compacting context")).toBeVisible();
     expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
     await act(async () => {
       net.latest.deliver({
@@ -134,7 +135,7 @@ describe("opening a put-away project", () => {
         ),
       });
     });
-    expect(screen.getByText(/^Context compacted/)).toBeVisible();
+    expect(await screen.findByText(/^Context compacted/)).toBeVisible();
     expect(screen.getByTitle(PREVIEW_TITLE)).toBe(frame);
     expect(frame).toHaveAttribute("src", "https://5173-existing.e2b.app");
   });

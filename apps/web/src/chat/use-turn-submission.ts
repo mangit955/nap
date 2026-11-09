@@ -33,7 +33,7 @@ import {
   TurnAcceptanceSchema,
   TurnRequestStatusSchema,
 } from "@nap/shared/ports/turn-queue";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { requestFailureCopy } from "../errors/failure-copy.ts";
@@ -439,18 +439,24 @@ export function useTurnSubmission(options: {
   };
 
   const observation = activity?.sessionId === sessionId ? activity : undefined;
-  const turn = inFlightTurn(
-    events.filter((event) => event.sessionId === sessionId),
-    observation?.idleThroughSeq,
-  );
-  const testIsRunning =
-    turn !== undefined &&
-    events.some(
-      (event) =>
-        event.sessionId === sessionId &&
-        event.turnId === turn.turnId &&
-        event.type === "test.started",
+  // Both read the whole log, and this hook renders for reasons that are not the log — a pending
+  // message, a status change — so they are kept until the log or the boundary moves.
+  const idleBoundary = observation?.idleThroughSeq;
+  const { turn, testIsRunning } = useMemo(() => {
+    const turn = inFlightTurn(
+      events.filter((event) => event.sessionId === sessionId),
+      idleBoundary,
     );
+    const testIsRunning =
+      turn !== undefined &&
+      events.some(
+        (event) =>
+          event.sessionId === sessionId &&
+          event.turnId === turn.turnId &&
+          event.type === "test.started",
+      );
+    return { turn, testIsRunning };
+  }, [events, sessionId, idleBoundary]);
 
   return {
     submit,

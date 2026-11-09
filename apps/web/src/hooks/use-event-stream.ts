@@ -13,6 +13,14 @@
  * counter; one that never replies is closed after the heartbeat timeout, reconnects, and does
  * it again forever. The reply is the difference between a live stream and a loop.
  *
+ * **Events are committed in batches, never one per frame.** The server sends a frame per stored
+ * event, and every commit re-runs each derivation of the whole log above this hook — so a commit
+ * per frame made opening a session of N events cost N² work, and painted the transcript a piece
+ * at a time. A connection's replay is held until the server's `ready` and committed in one go;
+ * after that, live events are gathered for `LIVE_BATCH_MS` and committed together. What is
+ * *accepted* is still decided frame by frame, on `seq`, exactly as before: batching changes when
+ * an event is drawn, never whether or in what order.
+ *
  * The socket is created through an injected factory so the reconnect curve can be tested in
  * milliseconds against a fake, with no network anywhere near the suite.
  */
@@ -39,6 +47,13 @@ export type CreateSocket = (url: string) => StreamSocket;
  * and a session here is one browser tab; leaving it out keeps the delays assertable to the
  * millisecond. Adding it later means taking a random source as an option.
  */
+/**
+ * How long live events gather before they are committed — about one frame, so a burst of command
+ * output costs one render per frame rather than one per line. A timer rather than
+ * `requestAnimationFrame`, which a background tab stops calling: the turn's state would then stop
+ * advancing in every hook that reads it, not merely stop being painted.
+ */
+export const LIVE_BATCH_MS = 16;
 export const BACKOFF = { initialMs: 500, maxMs: 10_000, factor: 2 } as const;
 
 export type StreamStatus = "idle" | "connecting" | "open" | "reconnecting";
@@ -136,6 +151,24 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     let delayMs: number = BACKOFF.initialMs;
     let abandoned = false;
 
+    // Accepted, in order, and not yet committed. Local to this effect, so a session switch or an
+    // unmount drops it along with the socket — nothing of one session can land in the next.
+    let accepted: StoredEvent[] = [];
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
+    // Whether the current connection is still replaying. Each connection replays what it missed
+    // and then says `ready`, a reconnect included, so this is per socket rather than per session.
+    let replaying = true;
+
+    const flush = (): void => {
+      if (flushTimer !== undefined) clearTimeout(flushTimer);
+      flushTimer = undefined;
+      if (accepted.length === 0) return;
+      const batch = accepted;
+      accepted = [];
+      setEvents((previous) => previous.concat(batch));
+      setLastSeq(batch[batch.length - 1]?.seq ?? 0);
+    };
+
     const connect = (): void => {
       if (abandoned) return;
 
@@ -158,6 +191,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       const url = `${baseUrl}/ws?sessionId=${encodeURIComponent(sessionId)}&seq=${lastSeqRef.current}&repairOwnership=1${query}`;
       const current = createSocketRef.current(url);
       socket = current;
+      replaying = true;
 
       current.addEventListener("open", () => {
         if (abandoned) return;
@@ -180,7 +214,12 @@ export function useEventStream(options: EventStreamOptions): EventStream {
         // opened. It is the only way to tell a conversation that is still arriving from one
         // that does not exist, which is the difference between a placeholder and an invitation
         // to type the first message.
+        //
+        // Also the end of this connection's replay, so it is where the replay is committed —
+        // in the same batch as `replayed`, so nothing ever draws a log that is half there.
         if (frame.type === "ready") {
+          replaying = false;
+          flush();
           setReplayed(true);
           return;
         }
@@ -194,12 +233,15 @@ export function useEventStream(options: EventStreamOptions): EventStream {
         if (event.seq <= lastSeqRef.current) return;
 
         lastSeqRef.current = event.seq;
-        setLastSeq(event.seq);
-        setEvents((previous) => [...previous, event]);
+        accepted.push(event);
+        if (!replaying && flushTimer === undefined) flushTimer = setTimeout(flush, LIVE_BATCH_MS);
       });
 
       current.addEventListener("close", () => {
         if (abandoned) return;
+        // What arrived before the drop was accepted, and the reconnect resumes after it, so it
+        // must not wait on a `ready` that this socket will never send.
+        flush();
         setStatus("reconnecting");
         retryTimer = setTimeout(connect, delayMs);
         delayMs = Math.min(delayMs * BACKOFF.factor, BACKOFF.maxMs);
@@ -218,6 +260,8 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       // outlives it reopens a socket nobody is listening to, once per navigation.
       abandoned = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
+      if (flushTimer !== undefined) clearTimeout(flushTimer);
+      accepted = [];
       socket?.close();
     };
   }, [sessionId, baseUrl]);

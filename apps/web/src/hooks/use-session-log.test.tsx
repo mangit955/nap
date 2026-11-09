@@ -32,10 +32,14 @@ function open(net: ReturnType<typeof sockets>, props: { sessionId?: string | und
   );
 }
 
-/** Frames arriving from the server, flushed the way React flushes a real message. */
+/**
+ * A replay arriving from the server and ending the way the server ends one, with `ready` —
+ * which is when the stream commits it.
+ */
 function deliver(net: ReturnType<typeof sockets>, ...events: ReturnType<typeof ev>[]) {
   act(() => {
     for (const event of events) net.latest.deliver({ type: "event", event });
+    net.latest.deliver({ type: "ready" });
   });
 }
 
