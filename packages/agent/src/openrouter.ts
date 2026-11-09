@@ -52,10 +52,6 @@ export type OpenRouterClientOptions = {
  * always spelled a model. Anything *already* carrying a vendor namespace is passed through
  * untouched — `openai/gpt-5.6-luna` must not become `anthropic/openai/gpt-5.6-luna`, which is
  * a 404 several steps away from the configuration that caused it.
- *
- * Note the separator: OpenRouter namespaces with a slash where Bedrock uses a dot, so an id
- * carrying Bedrock's `anthropic.` prefix is *not* namespaced as far as this is concerned. It
- * belongs to the other transport, and surfacing that as a 404 beats hiding it.
  */
 export function toOpenRouterModel(model: string): string {
   return model.includes(NAMESPACE_SEPARATOR) ? model : `${MODEL_PREFIX}${model}`;

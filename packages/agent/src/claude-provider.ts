@@ -275,8 +275,8 @@ export function toTokenUsage(usage: AnthropicMessage["usage"] | undefined): Toke
  *
  * **Explicit markers rather than the top-level `cache_control` the SDK also accepts.** The
  * automatic one places the breakpoint for you and is simpler, but it exists only on the
- * first-party API — Bedrock ignores it, and reaching the models through an AWS account is a
- * transport this repo deliberately supports. Per-block markers work on every platform.
+ * first-party API, and the route this project uses is OpenRouter's translating proxy, where the
+ * per-block markers are what was measured to be accepted.
  *
  * The 5-minute default is deliberate: a turn's steps are seconds apart, and a 5-minute write
  * costs 1.25× against a read's 0.1×, so it pays for itself on the second call. The one-hour TTL

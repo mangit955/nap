@@ -123,6 +123,7 @@ describe("parseNapBenchArgs", () => {
   it("refuses an effort level and a platform it does not know", () => {
     expect(rejected("--effort=maximum", "todo-crud")).toMatch(/effort must be one of/);
     expect(rejected("--platform=openai", "todo-crud")).toMatch(/platform must be one of/);
+    expect(rejected("--platform=bedrock", "todo-crud")).toMatch(/platform must be one of/);
   });
 });
 

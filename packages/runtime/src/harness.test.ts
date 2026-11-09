@@ -109,13 +109,13 @@ describe("parseHarnessArgs", () => {
     expect(parsed("--real", "hi").model).toBe("openai/gpt-5.6-luna");
   });
 
-  it("can still target Anthropic or Bedrock directly", () => {
+  it("can still target Anthropic directly", () => {
     expect(parsed("--real", "--platform=anthropic", "hi").platform).toBe("anthropic");
-    expect(parsed("--real", "--platform=bedrock", "hi").platform).toBe("bedrock");
   });
 
   it("refuses a platform it has no client for", () => {
     expect(rejected("--platform=azure", "hi")).toMatch(/platform must be one of/);
+    expect(rejected("--platform=bedrock", "hi")).toMatch(/platform must be one of/);
   });
 
   it("refuses an unknown flag rather than ignoring it", () => {
