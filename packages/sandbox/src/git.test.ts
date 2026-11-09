@@ -42,14 +42,44 @@ describe("commitAll", () => {
 
     const result = await commitAll(manager, sandboxId, "Add login form");
 
-    expect(result).toEqual({ ok: true, value: { committed: true, sha: SHA } });
+    expect(result).toEqual({
+      ok: true,
+      value: { committed: true, sha: SHA, diff: { added: 3, removed: 1 } },
+    });
     const commands = gitCommands(manager, sandboxId);
     expect(commands).toHaveLength(1);
     const [script = ""] = commands;
-    const steps = ["git add --all", "git diff --quiet --cached", "commit --message=", "rev-parse"];
+    const steps = [
+      "git add --all",
+      "git diff --quiet --cached",
+      "commit --message=",
+      "show --shortstat",
+      "rev-parse",
+    ];
     const positions = steps.map((step) => script.indexOf(step));
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it("reads the commit's line counts from git's own summary, and says nothing it was not told", async () => {
+    const cases: [string, { added: number; removed: number } | null][] = [
+      [" 2 files changed, 412 insertions(+), 88 deletions(-)", { added: 412, removed: 88 }],
+      [" 1 file changed, 1 insertion(+)", { added: 1, removed: 0 }],
+      [" 1 file changed, 1 deletion(-)", { added: 0, removed: 1 }],
+      // A binary file or a mode change: a commit, but no lines either way.
+      [" 1 file changed", { added: 0, removed: 0 }],
+      // No summary at all is unknown, not zero: a card showing +0 −0 would be a wrong fact.
+      ["", null],
+    ];
+    for (const [summary, diff] of cases) {
+      const manager = new InMemorySandboxManager().script(COMMIT_COMMAND, {
+        exitCode: 0,
+        stdout: `[main 9e107d9] Nap turn\n${summary}\n${SHA}\n`,
+      });
+      const { sandboxId } = await gitSandbox(manager);
+      const result = await commitAll(manager, sandboxId, "msg");
+      expect(result).toEqual({ ok: true, value: { committed: true, sha: SHA, diff } });
+    }
   });
 
   it("runs in the project directory", async () => {
@@ -68,7 +98,7 @@ describe("commitAll", () => {
 
     const result = await commitAll(manager, sandboxId, "nothing changed");
 
-    expect(result).toEqual({ ok: true, value: { committed: false, sha: null } });
+    expect(result).toEqual({ ok: true, value: { committed: false, sha: null, diff: null } });
   });
 
   it("passes a hostile message to git as one literal argument", async () => {
@@ -82,7 +112,7 @@ describe("commitAll", () => {
     const quoted = script.slice(script.indexOf("--message=") + "--message=".length);
     const argument = execFileSync(
       "sh",
-      ["-c", `printf %s ${quoted.slice(0, quoted.indexOf(" && git rev-parse"))}`],
+      ["-c", `printf %s ${quoted.slice(0, quoted.indexOf(" && git show"))}`],
       { encoding: "utf8" },
     );
     expect(argument).toBe(hostile);

@@ -87,6 +87,9 @@ export function slowLLMProvider(inner: LLMProvider, options: SlowOptions = {}): 
           return await underlying.complete(request);
         },
         usage: () => underlying.usage(),
+        ...(underlying.billedWeights === undefined
+          ? {}
+          : { billedWeights: underlying.billedWeights }),
       };
 
       return turn;

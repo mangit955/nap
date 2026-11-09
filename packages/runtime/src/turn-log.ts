@@ -192,6 +192,14 @@ function detail(event: NapEvent): Record<string, unknown> {
         durationMs: event.payload.durationMs,
         inputTokens: event.payload.usage.inputTokens,
         outputTokens: event.payload.usage.outputTokens,
+        // Parts of `inputTokens`, present only when the provider said: how much of the prompt
+        // came from the cache is what explains a cheap long turn or an expensive short one.
+        ...(event.payload.usage.cacheWriteTokens === undefined
+          ? {}
+          : { cacheWriteTokens: event.payload.usage.cacheWriteTokens }),
+        ...(event.payload.usage.cacheReadTokens === undefined
+          ? {}
+          : { cacheReadTokens: event.payload.usage.cacheReadTokens }),
         commitSha: event.payload.commitSha,
         ...(event.payload.awaiting === undefined ? {} : { awaiting: event.payload.awaiting }),
       };
@@ -203,6 +211,15 @@ function detail(event: NapEvent): Record<string, unknown> {
 
     case "system.notice":
       return { noticeLevel: event.payload.level };
+
+    // The name is the person's project, so it stays out of the log like any other content.
+    case "project.renamed":
+      return {
+        nameSource: event.payload.source,
+        model: event.payload.model,
+        inputTokens: event.payload.usage.inputTokens,
+        outputTokens: event.payload.usage.outputTokens,
+      };
 
     case "job.started":
       // The objective is the user's own prose, and the rule above applies to it as much as to

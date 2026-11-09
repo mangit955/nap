@@ -150,6 +150,16 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     type: "system.notice",
     payload: { level: "warning", text: "restored from a snapshot" },
   }),
+  "project.renamed": stored({
+    ...base(13),
+    type: "project.renamed",
+    payload: {
+      name: "Standup streak tracker",
+      source: "model",
+      model: "openai/gpt-5.6-luna",
+      usage: { inputTokens: 900, outputTokens: 6 },
+    },
+  }),
   "job.started": stored({
     ...base(14),
     type: "job.started",
@@ -298,6 +308,25 @@ describe("eventLogLine", () => {
       outputTokens: 1340,
       commitSha: "a1b2c3d",
     });
+  });
+
+  it("carries how much of a turn's input came from the cache, when it says", () => {
+    const event = ONE_OF_EACH["turn.completed"];
+    if (event.type !== "turn.completed") throw new Error("fixture is not a completed turn");
+    const cached = {
+      ...event,
+      payload: {
+        ...event.payload,
+        usage: { ...event.payload.usage, cacheWriteTokens: 480, cacheReadTokens: 11_000 },
+      },
+    };
+
+    expect(eventLogLine(cached).fields).toMatchObject({
+      cacheWriteTokens: 480,
+      cacheReadTokens: 11_000,
+    });
+    // An old event says nothing about the cache, and its line does not invent a zero.
+    expect(eventLogLine(event).fields).not.toHaveProperty("cacheReadTokens");
   });
 
   it("carries why a turn failed", () => {

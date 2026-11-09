@@ -1,3 +1,4 @@
+import { TokenUsageSchema } from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { claudeCompaction, codexCompaction, NativeSessionLifecycle } from "./native-compaction.ts";
 
@@ -204,9 +205,9 @@ it("does not fall back to another delivery when Codex rejects the native method"
   expect(methods).toEqual(["thread/compact/start"]);
 });
 
-it("includes Claude cached input in reported compaction spend", async () => {
+function claudeReporting(usage: Record<string, unknown>) {
   let notify: (message: unknown) => void = () => {};
-  const compact = claudeCompaction({
+  return claudeCompaction({
     sessionId: "s",
     subscribe(listener) {
       notify = listener;
@@ -219,29 +220,47 @@ it("includes Claude cached input in reported compaction spend", async () => {
         session_id: "s",
         compact_metadata: { pre_tokens: 4000 },
       });
-      notify({
-        type: "result",
-        subtype: "success",
-        session_id: "s",
-        usage: {
-          input_tokens: 2,
-          cache_creation_input_tokens: 100,
-          cache_read_input_tokens: 1000,
-          output_tokens: 40,
-        },
-      });
+      notify({ type: "result", subtype: "success", session_id: "s", usage });
     },
     async interrupt() {},
   });
-  expect(await compact({ trustedInstructions: "", untrustedContext: "" })).toMatchObject({
-    usage: { inputTokens: 1102, outputTokens: 40 },
-    afterTokens: null,
+}
+
+it("includes Claude cached input in reported compaction spend, and keeps it apart", async () => {
+  const compact = claudeReporting({
+    input_tokens: 2,
+    cache_creation_input_tokens: 100,
+    cache_read_input_tokens: 1000,
+    output_tokens: 40,
   });
+  const result = await compact({ trustedInstructions: "", untrustedContext: "" });
+  expect(result.usage).toStrictEqual({
+    inputTokens: 1102,
+    outputTokens: 40,
+    cacheWriteTokens: 100,
+    cacheReadTokens: 1000,
+  });
+  expect(result.afterTokens).toBeNull();
 });
 
-it("accounts Codex token updates once, with cached input already included in inputTokens", async () => {
+it("reads null Claude cache counts as none rather than discarding the whole result", async () => {
+  // The same wire shape the API route sends for a model that caches nothing. A schema that
+  // only tolerated an absent field would refuse the result message and leave the compaction
+  // waiting for a completion it had already been sent.
+  const compact = claudeReporting({
+    input_tokens: 7,
+    cache_creation_input_tokens: null,
+    cache_read_input_tokens: null,
+    output_tokens: 3,
+  });
+  const result = await compact({ trustedInstructions: "", untrustedContext: "" });
+  expect(result.usage).toStrictEqual({ inputTokens: 7, outputTokens: 3 });
+});
+
+/** A Codex native compaction that hears `updates`, in order, between starting and finishing. */
+function codexReporting(updates: readonly unknown[]) {
   let notify: (message: unknown) => void = () => {};
-  const compact = codexCompaction({
+  return codexCompaction({
     sessionId: "s",
     subscribe(listener) {
       notify = listener;
@@ -251,30 +270,7 @@ it("accounts Codex token updates once, with cached input already included in inp
     async request(method) {
       if (method !== "thread/compact/start") return;
       notify({ method: "turn/started", params: { threadId: "s", turn: { id: "t" } } });
-      const update = {
-        method: "thread/tokenUsage/updated",
-        params: {
-          threadId: "s",
-          turnId: "t",
-          tokenUsage: {
-            total: { inputTokens: 12000, outputTokens: 500 },
-            last: { inputTokens: 2000, cachedInputTokens: 1500, outputTokens: 100 },
-          },
-        },
-      };
-      notify(update);
-      notify(update);
-      notify({ ...update, params: { ...update.params, threadId: "other" } });
-      notify({
-        ...update,
-        params: {
-          ...update.params,
-          tokenUsage: {
-            total: { inputTokens: 12300, outputTokens: 520 },
-            last: { inputTokens: 300, outputTokens: 20 },
-          },
-        },
-      });
+      for (const update of updates) notify(update);
       notify({
         method: "item/completed",
         params: { threadId: "s", turnId: "t", item: { type: "contextCompaction" } },
@@ -285,8 +281,94 @@ it("accounts Codex token updates once, with cached input already included in inp
       });
     },
   });
+}
+
+type Breakdown = {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  cacheWriteInputTokens?: number;
+};
+
+function tokenUpdate(total: Breakdown, last: Breakdown, threadId = "s") {
+  return {
+    method: "thread/tokenUsage/updated",
+    params: { threadId, turnId: "t", tokenUsage: { total, last } },
+  };
+}
+
+it("accounts Codex token updates once, keeping the cached input it reports apart", async () => {
+  // Codex's input totals include its cached input, as the Messages API's do not: the cached part
+  // is a part of `inputTokens`, so it is carried as one and the input total is left alone.
+  const update = tokenUpdate(
+    { inputTokens: 12000, cachedInputTokens: 9000, outputTokens: 500 },
+    { inputTokens: 2000, cachedInputTokens: 1500, outputTokens: 100 },
+  );
+  const compact = codexReporting([
+    update,
+    update,
+    tokenUpdate(update.params.tokenUsage.total, update.params.tokenUsage.last, "other"),
+    tokenUpdate(
+      { inputTokens: 12300, cachedInputTokens: 9200, outputTokens: 520 },
+      { inputTokens: 300, cachedInputTokens: 200, outputTokens: 20 },
+    ),
+  ]);
   expect(await compact({ trustedInstructions: "", untrustedContext: "" })).toMatchObject({
-    usage: { inputTokens: 2300, outputTokens: 120 },
+    usage: { inputTokens: 2300, outputTokens: 120, cacheReadTokens: 1700 },
     afterTokens: null,
   });
+});
+
+it("carries Codex cache writes as their own part of the input", async () => {
+  const compact = codexReporting([
+    tokenUpdate(
+      { inputTokens: 5000, cachedInputTokens: 3000, cacheWriteInputTokens: 1000, outputTokens: 40 },
+      { inputTokens: 5000, cachedInputTokens: 3000, cacheWriteInputTokens: 1000, outputTokens: 40 },
+    ),
+    tokenUpdate(
+      { inputTokens: 6000, cachedInputTokens: 3800, cacheWriteInputTokens: 1100, outputTokens: 50 },
+      { inputTokens: 1000, cachedInputTokens: 800, cacheWriteInputTokens: 100, outputTokens: 10 },
+    ),
+  ]);
+  const { usage } = await compact({ trustedInstructions: "", untrustedContext: "" });
+  expect(usage).toStrictEqual({
+    inputTokens: 6000,
+    outputTokens: 50,
+    cacheReadTokens: 3800,
+    cacheWriteTokens: 1100,
+  });
+});
+
+it("starts again from the last response when any Codex total goes backwards", async () => {
+  // A total that shrank is a new baseline — a reconnected session, say — and differencing against
+  // the old one would produce negative usage. The reported last response is what this one cost.
+  const compact = codexReporting([
+    tokenUpdate(
+      { inputTokens: 9000, cachedInputTokens: 8000, outputTokens: 300 },
+      { inputTokens: 1000, cachedInputTokens: 500, outputTokens: 30 },
+    ),
+    // Only the cached part went backwards.
+    tokenUpdate(
+      { inputTokens: 9500, cachedInputTokens: 100, outputTokens: 310 },
+      { inputTokens: 400, cachedInputTokens: 100, outputTokens: 10 },
+    ),
+  ]);
+  const { usage } = await compact({ trustedInstructions: "", untrustedContext: "" });
+  expect(usage).toStrictEqual({ inputTokens: 1400, outputTokens: 40, cacheReadTokens: 600 });
+});
+
+it("charges a Codex that reports no cache fields as uncached, and never splits more than the input", async () => {
+  const compact = codexReporting([
+    tokenUpdate({ inputTokens: 700, outputTokens: 7 }, { inputTokens: 700, outputTokens: 7 }),
+    // Cached parts larger than the input they belong to are clamped to it.
+    tokenUpdate(
+      { inputTokens: 800, cachedInputTokens: 900, cacheWriteInputTokens: 50, outputTokens: 8 },
+      { inputTokens: 100, cachedInputTokens: 900, cacheWriteInputTokens: 50, outputTokens: 1 },
+    ),
+  ]);
+  const { usage } = await compact({ trustedInstructions: "", untrustedContext: "" });
+  // The second total's cached part (clamped to its 800 input) grew by 800 against an input that
+  // grew by 100, so the delta's cached part is clamped to that 100.
+  expect(usage).toStrictEqual({ inputTokens: 800, outputTokens: 8, cacheReadTokens: 100 });
+  expect(TokenUsageSchema.safeParse(usage).success).toBe(true);
 });

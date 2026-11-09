@@ -5,10 +5,10 @@
  * identical tiles and the workspace bar say nothing at all. The prompt is right there when the
  * first turn starts, and the useful part of it is almost always the first few words.
  *
- * **This is deliberately arithmetic on a string and not a model call.** A name is a convenience;
- * paying for a round trip and adding a failure path to project creation to get a slightly nicer
- * one is a bad trade, and the whole derivation is one function — so a model-named version could
- * replace it later without anything else moving.
+ * **This is deliberately arithmetic on a string and not a model call**, and it stays that way: it
+ * is the instant *seed*. A model's title replaces it afterwards if one arrives and passes its
+ * checks (`session-title.ts`, docs/adr/0031), so creating a project still waits on nothing and
+ * gains no failure path, and every failure of the model leaves this name in place.
  *
  * It lives in `shared` because both ends need it: the API names the project on the first turn,
  * and the sentinel below has to mean the same thing to whatever *creates* a project and whatever

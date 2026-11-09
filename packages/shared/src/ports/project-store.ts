@@ -78,8 +78,18 @@ export interface ProjectStore {
    * The name is stored as given. Whatever validates its length is the boundary that accepted it
    * from a stranger, which is the route — a store that also enforced a limit would be a second
    * rule to keep in step with the first.
+   *
+   * `source` says whose name it is (docs/adr/0031). A `user` rename is the person's and also
+   * cancels any title being written, so a rename that lands mid-generation wins. A `seed` is the
+   * first prompt trimmed, and is written only over a name that is still a seed: false then means
+   * somebody, or a model, already named it.
    */
-  rename(projectId: string, userId: string, name: string): Promise<boolean>;
+  rename(
+    projectId: string,
+    userId: string,
+    name: string,
+    source?: "user" | "seed",
+  ): Promise<boolean>;
 
   /**
    * Removes the project and everything the database hangs off it — sessions, events, snapshot

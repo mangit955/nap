@@ -16,7 +16,8 @@
  */
 
 import type { TurnFailureReason } from "@nap/shared/events";
-import type { TokenUsage } from "@nap/shared/ports/llm-provider";
+import type { BilledWeights, LLMTurn, TokenUsage } from "@nap/shared/ports/llm-provider";
+import { billedTokens, FALLBACK_BILLED_WEIGHTS } from "@nap/shared/usage";
 
 /**
  * Round trips through the model in one turn.
@@ -28,12 +29,31 @@ import type { TokenUsage } from "@nap/shared/ports/llm-provider";
 export const DEFAULT_MAX_STEPS = 40;
 
 /**
- * Tokens across the whole turn, input and output.
+ * Billed tokens across the whole turn: every request's input and output, each charged at what
+ * its model bills it at (`MODEL_BILLED_WEIGHTS` in `@nap/shared/usage`), in units of one uncached
+ * input token. So it is a ceiling on money — this many times the model's input price — rather
+ * than on how much text went past.
  *
  * Several times the context budget rather than equal to it: the context engine caps what one
  * request may carry, and a turn is many requests. This is the ceiling on their sum.
+ *
+ * Sized so the step limit is what stops ordinary work. A turn that re-reads a 30k-token
+ * context from the cache, grows it a step at a time and writes a little each step spends about
+ * half of this in `DEFAULT_MAX_STEPS` round trips; the same turn with its cache missing on
+ * every request runs out near the middle of them, and one writing 16k tokens a step sooner
+ * still. `budget.test.ts` pins all three. It was 400k when every token counted the same, and
+ * that stopped the cached turn at its eleventh step.
  */
-export const DEFAULT_MAX_TOKENS = 400_000;
+export const DEFAULT_MAX_TOKENS = 1_000_000;
+
+/**
+ * What a turn's usage is charged at: the weights its provider gave it, or the fallback, which
+ * charges at least what any known model would. The model is the provider's to resolve, so nothing
+ * here reads a model name.
+ */
+export function weightsOf(turn: LLMTurn): BilledWeights {
+  return turn.billedWeights ?? FALLBACK_BILLED_WEIGHTS;
+}
 
 /** Exactly the `turn.failed` payload, so the caller has nothing left to construct. */
 export type TurnFailure = {
@@ -73,24 +93,30 @@ export class TurnBudget {
   }
 
   /**
-   * Adds what one call cost.
+   * Adds what one call cost, at what it was billed.
    *
-   * Takes the whole usage rather than a total so no call site gets to decide which half
-   * counts — the provider already folds cached input into `inputTokens`, and a budget built
-   * on the unsummed number would be wrong by most of the prompt.
+   * Takes the whole usage rather than a total so no call site gets to decide which part
+   * counts. A turn re-sends its conversation on every round trip and most of it comes back
+   * from the cache at a tenth of the price; charging that at face value is what used to end
+   * turns a third of the way to their step limit.
+   *
+   * The weights are those of the model that produced the usage — the `billedWeights` of the turn
+   * it came from — since one turn's calls can run on several models: a fallback, a helper, the
+   * sidekick.
    */
-  recordUsage(usage: TokenUsage): void {
-    this.#tokens += usage.inputTokens + usage.outputTokens;
+  recordUsage(usage: TokenUsage, weights: BilledWeights): void {
+    this.#tokens += billedTokens(usage, weights);
   }
 
+  /** Whole tokens: the weights make the running total fractional, and nobody reads a fraction. */
   spent(): { steps: number; tokens: number } {
-    return { steps: this.#steps, tokens: this.#tokens };
+    return { steps: this.#steps, tokens: Math.round(this.#tokens) };
   }
 
   remaining(): { steps: number; tokens: number } {
     return {
       steps: Math.max(0, this.#maxSteps - this.#steps),
-      tokens: Math.max(0, this.#maxTokens - this.#tokens),
+      tokens: Math.max(0, Math.floor(this.#maxTokens - this.#tokens)),
     };
   }
 
@@ -103,7 +129,7 @@ export class TurnBudget {
     }
     if (this.#tokens > this.#maxTokens) {
       return exceeded(
-        `token budget exceeded: ${this.#tokens} tokens spent, limit ${this.#maxTokens}`,
+        `token budget exceeded: ${Math.round(this.#tokens)} billed tokens spent, limit ${this.#maxTokens}`,
       );
     }
     return { ok: true };

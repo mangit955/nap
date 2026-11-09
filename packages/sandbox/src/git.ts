@@ -12,6 +12,7 @@
  * stays small enough for a second implementation to be worth writing.
  */
 
+import type { DiffStat } from "@nap/shared/git-protocol";
 import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 import { shellQuote } from "@nap/shared/shell";
@@ -23,6 +24,12 @@ export type CommitResult = {
   committed: boolean;
   /** The new commit, or null when nothing was committed. */
   sha: string | null;
+  /**
+   * Lines the commit added and removed, as git counted them. Null when nothing was committed, or
+   * when git's summary was not in the output — unknown is not zero, and a card that showed
+   * `+0 −0` for a commit nobody counted would be stating a wrong fact.
+   */
+  diff: DiffStat | null;
 };
 
 export type GitOptions = {
@@ -103,6 +110,11 @@ const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
  * Staging and committing are joined with `&&` so either failing fails the script, and the sha is
  * read only after the commit, on the last line, where nothing git printed before it can shadow it.
  *
+ * `git show --shortstat --format= HEAD` prints the one summary line git writes for a commit
+ * (" 2 files changed, 412 insertions(+), 88 deletions(-)"), between the commit and the sha, so a
+ * turn's line counts are recorded the moment it commits rather than recomputed by anything that
+ * later wants them. `show` rather than `diff HEAD^`, because the first commit has no parent.
+ *
  * Spelled `--all`, `--quiet --cached`, `--verify` and `--message=` on purpose. Fakes answer commands
  * by pattern, and tests across the repo still hold patterns for the four commands this replaced —
  * `/git rev-parse HEAD/` most of all, which also answers `currentSha`. Different spellings mean
@@ -112,7 +124,8 @@ export function commitScript(message: string): string {
   return (
     "git add --all && " +
     `if git diff --quiet --cached; then echo ${shellQuote(NOTHING_TO_COMMIT)}; ` +
-    `else git ${IDENTITY} commit --message=${shellQuote(message)} && git rev-parse --verify HEAD; fi`
+    `else git ${IDENTITY} commit --message=${shellQuote(message)} && ` +
+    `git show --shortstat --format= HEAD && git rev-parse --verify HEAD; fi`
   );
 }
 
@@ -133,9 +146,12 @@ export async function commitAll(
   const committed = await git(manager, sandboxId, commitScript(message), options);
   if (!committed.ok) return committed;
 
-  const last = committed.value.trimEnd().split("\n").at(-1)?.trim() ?? "";
-  if (last === NOTHING_TO_COMMIT) return { ok: true, value: { committed: false, sha: null } };
-  if (OBJECT_ID.test(last)) return { ok: true, value: { committed: true, sha: last } };
+  const lines = committed.value.trimEnd().split("\n");
+  const last = lines.at(-1)?.trim() ?? "";
+  if (last === NOTHING_TO_COMMIT)
+    return { ok: true, value: { committed: false, sha: null, diff: null } };
+  if (OBJECT_ID.test(last))
+    return { ok: true, value: { committed: true, sha: last, diff: readShortstat(lines) } };
   return {
     ok: false,
     error: {
@@ -143,6 +159,14 @@ export async function commitAll(
       message: `the commit finished without saying what it committed: ${JSON.stringify(last)}`,
     },
   };
+}
+
+/** The counts in git's `--shortstat` line, or null when no such line was printed. */
+function readShortstat(lines: readonly string[]): DiffStat | null {
+  const summary = lines.find((line) => /^\s*\d+ files? changed/.test(line));
+  if (summary === undefined) return null;
+  const count = (pattern: RegExp) => Number(summary.match(pattern)?.[1] ?? 0);
+  return { added: count(/(\d+) insertions?\(\+\)/), removed: count(/(\d+) deletions?\(-\)/) };
 }
 
 /** The commit currently checked out. A repository with no commits is an error, not "". */

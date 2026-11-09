@@ -90,3 +90,42 @@ it("refuses a guest's repository start with the code that asks it to sign in", a
   expect(SignInRequiredSchema.safeParse(await response.json()).success).toBe(true);
   expect(store.start).not.toHaveBeenCalled();
 });
+
+it("writes the seed at once and asks for a model's title only after the session exists", async () => {
+  const result = { projectId: randomUUID(), sessionId: randomUUID(), requestId: randomUUID() };
+  const userId = randomUUID();
+  const store: SessionStartStore = {
+    find: vi.fn(async () => null),
+    start: vi.fn(async () => ({ kind: "created" as const, ...result })),
+  };
+  // A title that never answers: the start must not wait on it.
+  const titles = { title: vi.fn(() => new Promise<never>(() => {})) };
+  const app = new Hono<{ Variables: AuthVariables }>();
+  app.use("*", async (c, next) => {
+    c.set("userId", userId);
+    c.set("isAnonymous", false);
+    await next();
+  });
+  registerSessionStartRoutes(app, {
+    store,
+    projects: new InMemoryProjectStore(),
+    webOrigin: "https://nap.example",
+    admission: { allowedModels: ["free"], freeModel: "free", defaultModel: "free" },
+    titles,
+  });
+  const start = (prompt: { message: string }) =>
+    app.request("/sessions/start", {
+      method: "POST",
+      headers: { origin: "https://nap.example", "content-type": "application/json" },
+      body: JSON.stringify({ operationId: randomUUID(), source: { kind: "template" }, prompt }),
+    });
+
+  expect((await start({ message: "build me a habit tracker for my team" })).status).toBe(201);
+  expect(store.start).toHaveBeenCalledWith(expect.objectContaining({ name: "Habit Tracker" }));
+  expect(titles.title).toHaveBeenCalledExactlyOnceWith({
+    projectId: result.projectId,
+    userId,
+    mode: "automatic",
+    message: "build me a habit tracker for my team",
+  });
+});

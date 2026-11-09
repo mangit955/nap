@@ -210,6 +210,15 @@ const CASES = [
     payload: { level: "warning", text: "Could not restore your last snapshot." },
   },
   {
+    type: "project.renamed",
+    payload: {
+      name: "Standup streak tracker",
+      source: "model",
+      model: "openai/gpt-5.6-luna",
+      usage: { inputTokens: 900, outputTokens: 6 },
+    },
+  },
+  {
     type: "plan.updated",
     payload: { toolCallId: "p1", items: [{ content: "Add the list", status: "pending" }] },
   },
@@ -397,6 +406,28 @@ describe("messages", () => {
       );
 
       expect(items.map((i) => i.kind)).toEqual(["thinking", "preview", "message"]);
+    });
+  });
+
+  describe("when the session is named in the middle of one", () => {
+    // A model's title lands whenever the model answers, outside any turn, so its line can fall
+    // between two pieces of one passage — and, like the preview's, it is no reason to split it.
+    const renamed = () =>
+      ev("project.renamed", {
+        name: "Standup streak tracker",
+        source: "model",
+        model: "openai/gpt-5.6-luna",
+        usage: { inputTokens: 900, outputTokens: 6 },
+      });
+
+    it.each(["agent.message", "agent.thinking"] as const)("keeps %s whole", (type) => {
+      const items = fold(ev(type, { text: "Hel" }), renamed(), ev(type, { text: "lo" }));
+
+      expect(items.map((i) => i.kind)).toEqual([
+        type === "agent.message" ? "message" : "thinking",
+        "notice",
+      ]);
+      expect(items[0]).toMatchObject({ text: "Hello" });
     });
   });
 

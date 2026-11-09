@@ -16,10 +16,18 @@
  * no reset to forget, and two turns in flight at once cannot corrupt each other.
  */
 
-export type TokenUsage = {
-  inputTokens: number;
-  outputTokens: number;
-};
+import type { BilledWeights, TokenUsage } from "../usage.ts";
+
+/**
+ * What one call, or a turn's worth of calls, consumed.
+ *
+ * `inputTokens` is the whole prompt, cached or not; the two cache fields are parts of it, and
+ * absent means none. A turn's budget is charged by what each part is billed at, so a provider
+ * that can tell cached input apart must say so — see `@nap/shared/usage`, which owns the schema
+ * this type is inferred from and is the only place usage should be built, added up or priced.
+ * Re-exported so every port consumer keeps importing it from here.
+ */
+export type { BilledWeights, TokenUsage };
 
 /**
  * One piece of a message.
@@ -72,7 +80,12 @@ export type LLMToolDefinition = {
 };
 
 export type LLMRequest = {
-  purpose?: "compaction";
+  /**
+   * A short, tool-free request outside the agent's own loop: a compaction summary, or a session
+   * title (docs/adr/0031). Both are asked for without thinking, which a summary does not need and
+   * a five-word title should not pay for.
+   */
+  purpose?: "compaction" | "title";
   maxOutputTokens?: number;
   systemPrompt: string;
   messages: LLMMessage[];
@@ -187,6 +200,14 @@ export interface LLMTurn {
    */
   compact?: NativeCompaction;
   contextWindowTokens?: number;
+  /**
+   * What each kind of token this turn's model uses is billed at, relative to its uncached input:
+   * the weights the turn budget charges this turn's usage by. Provider policy, like the window
+   * above — the provider knows which model the turn resolved to, and nothing above it should
+   * reason about model names to find out. Absent means `FALLBACK_BILLED_WEIGHTS`, which charges
+   * at least as much as any known model.
+   */
+  billedWeights?: BilledWeights;
 
   complete(request: LLMRequest): Promise<LLMTurnResult>;
   /** Total complete() usage, including summaries. Native compact() reports usage separately. */

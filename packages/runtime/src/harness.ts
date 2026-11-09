@@ -261,12 +261,15 @@ function detail(event: NapEvent): string {
       return "";
     case "turn.completed": {
       const { usage, durationMs, commitSha, awaiting } = event.payload;
-      return `${usage.inputTokens} in / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}${awaiting === undefined ? "" : `, awaiting ${awaiting.replace("_", " ")}`}`;
+      const read = usage.cacheReadTokens ?? 0;
+      return `${usage.inputTokens} in${read > 0 ? ` (${read} from cache)` : ""} / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}${awaiting === undefined ? "" : `, awaiting ${awaiting.replace("_", " ")}`}`;
     }
     case "turn.failed":
       return `${event.payload.reason}: ${oneLine(event.payload.message)}`;
     case "system.notice":
       return `${event.payload.level}: ${oneLine(event.payload.text)}`;
+    case "project.renamed":
+      return `named ${JSON.stringify(event.payload.name)} by ${event.payload.model}`;
     case "turn.started":
       // The user's turns are the ones you asked for, so only a repair is worth a word.
       return event.payload.source === "verification" ? "prompted by verification" : "";

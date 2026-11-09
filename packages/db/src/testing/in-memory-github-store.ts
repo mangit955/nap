@@ -198,7 +198,11 @@ export class InMemoryGitHubStore implements GitHubStore {
     );
   }
 
-  async updateJob(jobId: string, update: RepositoryJobUpdate): Promise<void> {
+  async updateJob(
+    jobId: string,
+    // Only auto-settle reads the merge time, and it runs against Postgres alone.
+    { pullRequestMergedAt: _mergedAt, ...update }: RepositoryJobUpdate,
+  ): Promise<void> {
     const job = this.jobRows.get(jobId);
     if (job !== undefined)
       this.jobRows.set(jobId, {

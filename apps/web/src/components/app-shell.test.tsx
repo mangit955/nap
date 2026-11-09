@@ -148,6 +148,60 @@ describe("AppShell", () => {
     expect(screen.queryByRole("dialog", { name: "Test recording viewer" })).not.toBeInTheDocument();
   });
 
+  it("tells the session lists to read again when a turn starts or ends, or the session is named, after the replay", async () => {
+    const announced = vi.spyOn(BroadcastChannel.prototype, "postMessage");
+    const changes = () => announced.mock.calls.filter(([message]) => message === "changed").length;
+    const net = sockets();
+    render(
+      <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />,
+    );
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    const renamed = (seq: number) =>
+      ev(
+        "project.renamed",
+        {
+          name: "Standup streak tracker",
+          source: "model",
+          model: "openai/gpt-5.6-luna",
+          usage: { inputTokens: 900, outputTokens: 6 },
+        },
+        seq,
+      );
+    await act(async () => {
+      net.latest.open();
+      // History: every list already read what it says when it loaded.
+      net.latest.deliver({ type: "event", event: renamed(1) });
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "turn.completed",
+          { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 5, commitSha: null },
+          2,
+        ),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(changes()).toBe(0);
+
+    await act(async () =>
+      net.latest.deliver({ type: "event", event: ev("turn.started", { source: "user" }, 3) }),
+    );
+    await waitFor(() => expect(changes()).toBe(1));
+    await act(async () =>
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "turn.completed",
+          { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 5, commitSha: null },
+          4,
+        ),
+      }),
+    );
+    await waitFor(() => expect(changes()).toBe(2));
+    await act(async () => net.latest.deliver({ type: "event", event: renamed(5) }));
+    await waitFor(() => expect(changes()).toBe(3));
+  });
+
   it("opens thread details through the header, waits for replay, and refreshes after preview readiness", async () => {
     const net = sockets();
     let ready = false;

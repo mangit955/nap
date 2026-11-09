@@ -23,6 +23,11 @@ const session = (
   branch: "nap/header",
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
+  titling: false,
   ...extra,
 });
 const everything = { navigate: true, rename: true, putAway: true, remove: true };
@@ -65,7 +70,10 @@ it("offers T3's grouping for an idle session in the inbox", () => {
 
 it("turns each toggle the other way for a pinned, settled, snoozed or unread session", () => {
   const pinned = sessionMenuItems({
-    session: session({ pinned: true }, { activityAt: NOW.toISOString() }),
+    session: session(
+      { pinned: true },
+      { activityAt: NOW.toISOString(), turnFinishedAt: NOW.toISOString() },
+    ),
     now: NOW,
     can: everything,
     filteringBySource: true,
@@ -122,4 +130,19 @@ it("offers only what the page can do, and no branch to copy when there is none",
   });
   expect(ids(items)).toEqual(["filter-source", "copy", "copy-link"]);
   expect(items[0]?.label).toBe("Filter by Scratch");
+});
+
+it("offers Regenerate title where a page can ask, and not while one is being written", () => {
+  const offered = (titling: boolean, regenerateTitle: boolean) =>
+    ids(
+      sessionMenuItems({
+        session: session({}, { titling }),
+        now: NOW,
+        can: { ...everything, regenerateTitle },
+        filteringBySource: false,
+      }),
+    ).includes("regenerate-title");
+  expect(offered(false, true)).toBe(true);
+  expect(offered(true, true)).toBe(false);
+  expect(offered(false, false)).toBe(false);
 });

@@ -8,9 +8,10 @@ import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-lim
 import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
+import type { SessionTitles } from "../projects/session-titler.ts";
 import { TurnRegistry } from "./registry.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
@@ -39,6 +40,7 @@ function app(
   projects = unnamedProject(),
   store = new InMemoryEventStore(),
   cancels?: Pick<CancelChannel, "announce">,
+  titles?: SessionTitles,
 ) {
   return {
     projects,
@@ -55,6 +57,7 @@ function app(
         queue,
         registry,
         ...(cancels === undefined ? {} : { cancels }),
+        titles,
         projects,
         allowedModels: ALLOWED,
         // Somebody who brought their own key, which is what most of these tests are about —
@@ -1007,6 +1010,45 @@ describe("naming a project after its first prompt", () => {
 
     expect(response.status).toBe(202);
     expect(queue.enqueued).toHaveLength(1);
+  });
+
+  it("asks for a model's title after the seed lands, and never over a name somebody chose", async () => {
+    const titles = { title: vi.fn(async () => ({ kind: "busy" as const })) };
+    const seeded = unnamedProject();
+    const { app: hono } = app(
+      new InMemoryTurnQueue(),
+      new TurnRegistry(),
+      silent(),
+      seeded,
+      undefined,
+      undefined,
+      titles,
+    );
+    await post(hono, `/sessions/${SESSION}/turns`, { message: "Build a small to-do app for me." });
+    expect(titles.title).toHaveBeenCalledExactlyOnceWith({
+      projectId: "project-1",
+      userId: FAKE_OWNER,
+      mode: "automatic",
+      message: "Build a small to-do app for me.",
+    });
+    expect(seeded.nameSources.get("project-1")).toBe("seed");
+
+    titles.title.mockClear();
+    const chosen = unnamedProject();
+    // The person renamed it to the placeholder's own words; it is theirs, so no seed and no title.
+    await chosen.rename("project-1", FAKE_OWNER, UNTITLED_PROJECT);
+    const { app: named } = app(
+      new InMemoryTurnQueue(),
+      new TurnRegistry(),
+      silent(),
+      chosen,
+      undefined,
+      undefined,
+      titles,
+    );
+    await post(named, `/sessions/${SESSION}/turns`, { message: "a timer" });
+    expect(titles.title).not.toHaveBeenCalled();
+    expect((await chosen.get("project-1", FAKE_OWNER))?.name).toBe(UNTITLED_PROJECT);
   });
 
   it("does not name a project when the turn was refused", async () => {

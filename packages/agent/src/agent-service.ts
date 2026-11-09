@@ -41,6 +41,12 @@ import type {
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
+import {
+  addUsage,
+  billedTokens,
+  FALLBACK_BILLED_WEIGHTS,
+  outputTokensFor,
+} from "@nap/shared/usage";
 import { CANCELLED, pause, stopAware } from "./cancellation.ts";
 import { DeltaStream, type Schedule } from "./delta-stream.ts";
 import { DirectoryRules } from "./hooks/directory-rules.ts";
@@ -48,7 +54,7 @@ import type { TurnHook } from "./hooks/hook.ts";
 import { PlanMode } from "./hooks/plan-mode.ts";
 import { PlanTracking } from "./hooks/plan-tracking.ts";
 import { Steering } from "./hooks/steering.ts";
-import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
+import { TurnBudget, type TurnBudgetOptions, weightsOf } from "./safety/budget.ts";
 import { appendText, SubagentPool } from "./subagents.ts";
 import type { ToolDefinition } from "./tools/definitions.ts";
 import { runsConcurrently } from "./tools/definitions.ts";
@@ -184,7 +190,7 @@ class Turn {
   #reportedInput: number | undefined;
   #inputEstimate = 0;
   #nativeContext = false;
-  #nativeUsage = { inputTokens: 0, outputTokens: 0 };
+  #nativeUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   #usageIncomplete = false;
   /** Set when the batch that ended the turn was waiting on the person, as a proposal is. */
   #awaiting: "plan_approval" | undefined;
@@ -310,6 +316,8 @@ class Turn {
           "budget_exceeded",
           "The context is full. Compaction could not make enough room while preserving your instructions.",
         );
+      // The input priced as if none of it came from the cache: what the request costs when the
+      // cache has expired, which is the case this check is for.
       if (
         this.#request.context.budgetTokens !== undefined &&
         input > (this.#helpers?.availableTokens() ?? this.#budget.remaining().tokens)
@@ -355,7 +363,10 @@ class Turn {
       const maxOutputTokens =
         this.#helpers === undefined
           ? undefined
-          : Math.floor(this.#helpers.availableTokens() - this.#estimate());
+          : outputTokensFor(
+              this.#helpers.availableTokens() - this.#estimate(),
+              weightsOf(this.#turn),
+            );
       if (maxOutputTokens !== undefined && maxOutputTokens < 1)
         return this.#fail(
           "budget_exceeded",
@@ -373,8 +384,11 @@ class Turn {
       // streams with it: closed, or on a cancelled turn abandoned, so no window is left armed
       // to write into a turn that has already ended.
       const messages = [...this.#messages];
+      // Held so the usage is charged at the weights of the model that produced it, whatever
+      // `#turn` is by the time it is recorded.
+      const turn = this.#turn;
       const completed = await stopAware(
-        this.#turn.complete({
+        turn.complete({
           systemPrompt: this.#request.context.systemPrompt,
           messages,
           tools: this.#tools,
@@ -404,7 +418,7 @@ class Turn {
         return this.#fail("cancelled", "The turn was cancelled.");
       }
       const result = completed;
-      this.#budget.recordUsage(result.usage);
+      this.#budget.recordUsage(result.usage, weightsOf(turn));
       this.#reportedInput = result.usage.inputTokens > 0 ? result.usage.inputTokens : undefined;
       this.#inputEstimate = estimateContextTokens({
         systemPrompt: this.#request.context.systemPrompt,
@@ -629,7 +643,9 @@ class Turn {
    * Every reason a summary is not the sidekick's is decided here, before anything is awaited, so a
    * turn with no sidekick sends the lead its request exactly as it did before Fusion.
    *
-   * `spare` is what the budget holds beyond the compaction's own reserve. The sidekick is tried
+   * `size` is the request's tokens, which a window must hold; `request` is its input and output,
+   * which the budget must cover at whichever model's weights would bill them. `spare` is what the
+   * budget holds beyond the compaction's own reserve, in billed tokens. The sidekick is tried
    * only when that pays for its attempt and for the lead repeating it, and, when the turn goes on
    * after the summary, for the lead's next request as well: the context at its current size, which
    * a compaction only shrinks, plus the output headroom the loop allows a request. A failed
@@ -640,11 +656,26 @@ class Turn {
    * A request the sidekick's window cannot hold is not a failure, only not the sidekick's. A
    * provider that cannot open the sidekick's conversation is one, and the lead writes the rest.
    */
-  #sidekickFor(cost: number, spare: number, continues: boolean): LLMTurn | undefined {
+  #sidekickFor(
+    size: number,
+    request: TokenUsage,
+    spare: number,
+    continues: boolean,
+  ): LLMTurn | undefined {
     const model = this.#sidekickFailed ? undefined : this.#sidekick();
     if (model === undefined) return undefined;
-    const next = continues ? this.#estimate() + this.#headroom() : 0;
-    if (cost * 2 + next > spare) return undefined;
+    const lead = weightsOf(this.#turn);
+    const next = continues
+      ? billedTokens({ inputTokens: this.#estimate(), outputTokens: this.#headroom() }, lead)
+      : 0;
+    // The attempt at the sidekick's own weights once its conversation is open, and before then at
+    // the fallback, which is at least what any known model charges: opening a conversation the
+    // turn cannot afford is what this check exists to avoid.
+    const attempt = billedTokens(
+      request,
+      this.#sidekickTurn === undefined ? FALLBACK_BILLED_WEIGHTS : weightsOf(this.#sidekickTurn),
+    );
+    if (attempt + billedTokens(request, lead) + next > spare) return undefined;
     if (this.#sidekickTurn === undefined) {
       try {
         this.#sidekickTurn = this.#options.provider.startTurn({ model });
@@ -655,7 +686,7 @@ class Turn {
       this.#turns.push(this.#sidekickTurn);
     }
     const held = this.#sidekickTurn.contextWindowTokens ?? Number.POSITIVE_INFINITY;
-    return cost > held ? undefined : this.#sidekickTurn;
+    return size > held ? undefined : this.#sidekickTurn;
   }
 
   /**
@@ -698,7 +729,7 @@ class Turn {
       this.#sidekickFailed = true;
       return {};
     }
-    this.#budget.recordUsage(completed.usage);
+    this.#budget.recordUsage(completed.usage, weightsOf(sidekick));
     if (!isUsableSummary(completed)) {
       this.#sidekickFailed = true;
       return { wasted: completed.usage };
@@ -765,24 +796,25 @@ class Turn {
         windowTokens: this.#turn.contextWindowTokens ?? null,
       },
     });
-    const available = this.#budget.remaining();
     const headroom = this.#headroom();
     const windowPressure =
       this.#turn.contextWindowTokens !== undefined &&
       input + headroom >= this.#turn.contextWindowTokens;
-    const repeatedCost =
-      input >= 24_000 && input * Math.min(3, available.steps) > available.tokens / 2;
+    // Only the context's size, never what is left of the budget. A budget running low is not
+    // a context that is full: re-reading a settled conversation from the cache is the cheapest
+    // request a turn makes, and compacting it costs a blocking, uncached summary and then a
+    // cold cache — more than the reads it was meant to save. A turn spending too much is the
+    // budget's to stop, and it does.
     const pressure =
       input + headroom >= ceiling ||
       windowPressure ||
-      repeatedCost ||
       (this.#request.context.needsCompaction && this.#budget.spent().steps === 0);
     if (
       pressure &&
       (input >= ceiling ||
         windowPressure ||
         this.#budget.spent().steps - this.#lastCompactionStep >= 3) &&
-      available.steps > 1
+      this.#budget.remaining().steps > 1
     ) {
       const result = await this.#compact("automatic");
       if (!result.ok && this.#turn.compact !== undefined) return result.message;
@@ -801,37 +833,42 @@ class Turn {
       const remaining = this.#budget.remaining();
       const availableTokens = this.#helpers?.availableTokens() ?? remaining.tokens;
       const reserve = trigger === "automatic" ? 4_096 : 0;
-      const cost = estimate + (request.maxOutputTokens ?? 4_096);
+      const outputTokens = request.maxOutputTokens ?? 4_096;
+      // Two different numbers: how big the request is, which a window must hold, and what it
+      // costs, which the budget must cover. A summary request is never a cache hit — its prompt
+      // is not the conversation's — so its input is priced uncached.
+      const size = estimate + outputTokens;
+      const priced = { inputTokens: estimate, outputTokens };
+      const cost = billedTokens(priced, weightsOf(this.#turn));
       if (remaining.steps <= (trigger === "automatic" ? 1 : 0) || cost + reserve > availableTokens)
         throw new Error("Not enough turn budget remains for compaction and continuation.");
-      if (cost > (this.#turn.contextWindowTokens ?? Number.POSITIVE_INFINITY))
+      if (size > (this.#turn.contextWindowTokens ?? Number.POSITIVE_INFINITY))
         throw new Error("The compaction request exceeds this model's context window.");
       // One step per summary, whichever model writes it, so Fusion moves no step ceiling.
       this.#budget.recordStep();
       // A manual compaction ends its turn; an automatic one is followed by the lead's next step.
-      const sidekick = this.#sidekickFor(cost, availableTokens - reserve, trigger === "automatic");
+      const sidekick = this.#sidekickFor(
+        size,
+        priced,
+        availableTokens - reserve,
+        trigger === "automatic",
+      );
       let wasted: TokenUsage | undefined;
       if (sidekick !== undefined) {
         const attempt = await this.#summarizeOnSidekick(sidekick, request);
         if (attempt.summary !== undefined) return attempt.summary;
         wasted = attempt.wasted;
       }
-      const result = await stopAware(this.#turn.complete(request), this.#request.signal);
+      const lead = this.#turn;
+      const result = await stopAware(lead.complete(request), this.#request.signal);
       if (result === CANCELLED) throw new Error("Compaction cancelled.");
       if (result.type === "message") this.#delivered(request.messages);
-      this.#budget.recordUsage(result.usage);
+      this.#budget.recordUsage(result.usage, weightsOf(lead));
       // The compaction reports what it cost, the sidekick's failed attempt included.
-      return wasted === undefined
-        ? result
-        : {
-            ...result,
-            usage: {
-              inputTokens: result.usage.inputTokens + wasted.inputTokens,
-              outputTokens: result.usage.outputTokens + wasted.outputTokens,
-            },
-          };
+      return wasted === undefined ? result : { ...result, usage: addUsage(result.usage, wasted) };
     };
     const native = this.#turn.compact;
+    const nativeWeights = weightsOf(this.#turn);
     const result = await this.#request.compactContext({
       messages: this.#messages,
       tools: this.#tools,
@@ -863,14 +900,16 @@ class Turn {
                 });
               } catch (error) {
                 // No refund for a native command whose outcome/cost was not delivered.
-                this.#budget.recordUsage({ inputTokens: reserve, outputTokens: 0 });
+                this.#budget.recordUsage({ inputTokens: reserve, outputTokens: 0 }, nativeWeights);
                 throw error;
               }
-              this.#budget.recordUsage(result.usage ?? { inputTokens: reserve, outputTokens: 0 });
-              if (result.usage !== null) {
-                this.#nativeUsage.inputTokens += result.usage.inputTokens;
-                this.#nativeUsage.outputTokens += result.usage.outputTokens;
-              } else this.#usageIncomplete = true;
+              this.#budget.recordUsage(
+                result.usage ?? { inputTokens: reserve, outputTokens: 0 },
+                nativeWeights,
+              );
+              if (result.usage !== null)
+                this.#nativeUsage = addUsage(this.#nativeUsage, result.usage);
+              else this.#usageIncomplete = true;
               return result;
             },
     });
@@ -1003,6 +1042,7 @@ class Turn {
     const finalized =
       this.#awaiting === undefined ? await this.#request.finalize?.() : { commitSha: null };
     const helpers = this.#helpers?.usage() ?? { inputTokens: 0, outputTokens: 0 };
+    const usage = addUsage(addUsage(this.#modelUsage(), this.#nativeUsage), helpers);
 
     this.#emit({
       type: "turn.completed",
@@ -1010,28 +1050,21 @@ class Turn {
         ...(this.#usageIncomplete || this.#helpers?.usageIncomplete()
           ? { usageIncomplete: true as const }
           : {}),
-        usage: {
-          inputTokens:
-            this.#modelUsage().inputTokens + this.#nativeUsage.inputTokens + helpers.inputTokens,
-          outputTokens:
-            this.#modelUsage().outputTokens + this.#nativeUsage.outputTokens + helpers.outputTokens,
-        },
+        usage,
         durationMs: this.#clock() - this.#startedAt,
         commitSha: finalized?.commitSha ?? null,
+        ...(finalized?.diff ? { diff: finalized.diff } : {}),
         ...(this.#awaiting === undefined ? {} : { awaiting: this.#awaiting }),
       },
     });
   }
 
   /** Every model this turn ran on, since a fallback is billed as well as the model it replaced. */
-  #modelUsage(): { inputTokens: number; outputTokens: number } {
-    return this.#turns.reduce(
-      (sum, turn) => ({
-        inputTokens: sum.inputTokens + turn.usage().inputTokens,
-        outputTokens: sum.outputTokens + turn.usage().outputTokens,
-      }),
-      { inputTokens: 0, outputTokens: 0 },
-    );
+  #modelUsage(): TokenUsage {
+    return this.#turns.reduce<TokenUsage>((sum, turn) => addUsage(sum, turn.usage()), {
+      inputTokens: 0,
+      outputTokens: 0,
+    });
   }
 
   #cancelled(): boolean {

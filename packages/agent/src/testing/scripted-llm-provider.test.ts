@@ -1,4 +1,5 @@
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor } from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { ScriptedLLMProvider } from "./scripted-llm-provider.ts";
 
@@ -46,6 +47,28 @@ describe("ScriptedLLMProvider", () => {
       message: "overloaded",
       retryable: true,
       usage: { inputTokens: 0, outputTokens: 0 },
+    });
+  });
+
+  it("keeps a scripted cache split when it adds a turn's calls together", async () => {
+    // The fake is what every agent-loop test spends through, so dropping the split here would
+    // make a cached turn look uncached to the budget in exactly the tests meant to prove it.
+    const provider = new ScriptedLLMProvider([
+      [
+        { text: "one", usage: { inputTokens: 100, outputTokens: 1, cacheWriteTokens: 90 } },
+        { text: "two", usage: { inputTokens: 120, outputTokens: 1, cacheReadTokens: 90 } },
+      ],
+    ]);
+
+    const turn = provider.startTurn();
+    await turn.complete(request());
+    await turn.complete(request());
+
+    expect(turn.usage()).toStrictEqual({
+      inputTokens: 220,
+      outputTokens: 2,
+      cacheWriteTokens: 90,
+      cacheReadTokens: 90,
     });
   });
 
@@ -117,5 +140,20 @@ describe("ScriptedLLMProvider", () => {
     provider.startTurn();
 
     expect(() => provider.startTurn()).toThrow(/turn/i);
+  });
+});
+
+describe("ScriptedLLMProvider billed weights", () => {
+  it("gives each turn the weights a test resolves from its options, and none by default", () => {
+    const provider = new ScriptedLLMProvider([[], [], []], {
+      billedWeights: (options) =>
+        options.model === undefined ? undefined : billedWeightsFor(options.model),
+    });
+
+    expect(provider.startTurn({ model: "anthropic/claude-opus-5" }).billedWeights).toBe(
+      billedWeightsFor("anthropic/claude-opus-5"),
+    );
+    expect(provider.startTurn()).not.toHaveProperty("billedWeights");
+    expect(new ScriptedLLMProvider([[]]).startTurn()).not.toHaveProperty("billedWeights");
   });
 });

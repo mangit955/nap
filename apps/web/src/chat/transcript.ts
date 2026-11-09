@@ -282,6 +282,8 @@ export function buildTranscript(
   const tests = new Map(foldAppTests(events).map((test) => [test.turnId, test]));
   const repairs = repairTurns(events);
   const items: TranscriptItem[] = [];
+  /** Lines that land between two pieces of a passage without breaking it: see `continued`. */
+  const asides = new Set<TranscriptItem>();
   /**
    * Steers, read across the whole log first: a steer is written by two processes, so its events can
    * land in either order, and where it is drawn depends on what became of it rather than on which
@@ -515,7 +517,7 @@ export function buildTranscript(
         // keyed to the `seq` it opened with. Only ever joined to the *agent's* own prose —
         // a step in between means the model said two things, and folding across one would
         // attribute the second half to before the tool ran.
-        const open = continued(items);
+        const open = continued(items, asides);
         if (open?.kind === "message" && open.from === "agent") open.text += event.payload.text;
         else items.push({ kind: "message", key, from: "agent", text: event.payload.text });
         break;
@@ -527,7 +529,7 @@ export function buildTranscript(
         // the passage keeps the `seq` it opened with, because that key is what React renders
         // it under: keyed to the newest event instead, the element would remount on every
         // frame the model is thinking and restart the reveal of every word already on screen.
-        const open = continued(items);
+        const open = continued(items, asides);
         if (open?.kind === "thinking") open.text += event.payload.text;
         else items.push({ kind: "thinking", key, text: event.payload.text });
         break;
@@ -720,6 +722,19 @@ export function buildTranscript(
         items.push({ kind: "notice", key, level: event.payload.level, text: event.payload.text });
         break;
 
+      // The platform again, not the agent: a quiet line saying what the session is now called.
+      case "project.renamed": {
+        const notice: TranscriptItem = {
+          kind: "notice",
+          key,
+          level: "info",
+          text: `Named this session “${event.payload.name}”.`,
+        };
+        asides.add(notice);
+        items.push(notice);
+        break;
+      }
+
       case "turn.started":
         if (event.payload.source === "verification" && !retryByTurn.has(event.turnId)) {
           retryByTurn.set(event.turnId, lastUserRequest);
@@ -857,14 +872,19 @@ export function buildTranscript(
 
 /**
  * The item a streamed piece of prose would continue: the last one, looking past the preview's
- * announcement. A new sandbox's `preview.ready` is written whenever its dev server answers, which
- * can be halfway through a sentence, and a line about the app is no reason to break what the agent
- * was saying in two. The line stays where it landed, after the passage it interrupted.
+ * announcement and past `asides` (the line naming the session). A new sandbox's `preview.ready` is
+ * written whenever its dev server answers, and a model's title whenever the model answers, either
+ * of which can be halfway through a sentence; a line about the app or its name is no reason to
+ * break what the agent was saying in two. The line stays where it landed, after the passage it
+ * interrupted.
  */
-function continued(items: readonly TranscriptItem[]): TranscriptItem | undefined {
+function continued(
+  items: readonly TranscriptItem[],
+  asides: ReadonlySet<TranscriptItem>,
+): TranscriptItem | undefined {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
-    if (item?.kind !== "preview") return item;
+    if (item !== undefined && item.kind !== "preview" && !asides.has(item)) return item;
   }
   return undefined;
 }

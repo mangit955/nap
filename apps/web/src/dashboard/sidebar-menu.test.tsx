@@ -47,6 +47,11 @@ const row = (
   branch: "nap/fix-header",
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
+  titling: false,
   ...extra,
 });
 
@@ -205,7 +210,7 @@ describe("every item in a session's context menu", () => {
 
   it("Mark unread and Mark read send the read state", async () => {
     const read = row("Read one", { readAt: ago(1) });
-    const unread = row("Unread one", {}, { activityAt: ago(30) });
+    const unread = row("Unread one", {}, { activityAt: ago(30), turnFinishedAt: ago(30) });
     const server = await mount([read, unread]);
     choose("Read one", "Mark unread");
     expect(await lastWrite(server)).toEqual(

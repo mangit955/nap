@@ -1,5 +1,6 @@
 /** Adapted from T3 Code e3b35d1b2440. See THIRD_PARTY_NOTICES.md for its MIT notice. */
 import type { LLMTurn, NativeCompaction, TokenUsage } from "@nap/shared/ports/llm-provider";
+import { addUsage, tokenUsage } from "@nap/shared/usage";
 import { z } from "zod";
 
 /** Providers use this same gate for normal turns and compaction on one native session. */
@@ -26,6 +27,7 @@ export class NativeSessionLifecycle {
       ...(turn.contextWindowTokens === undefined
         ? {}
         : { contextWindowTokens: turn.contextWindowTokens }),
+      ...(turn.billedWeights === undefined ? {} : { billedWeights: turn.billedWeights }),
     };
   }
 
@@ -52,6 +54,49 @@ export type CodexCompactionTransport = {
   interrupt(turnId: string): Promise<void>;
 };
 
+/**
+ * One of Codex's usage breakdowns, as its app-server protocol sends it on `total` and `last`
+ * (`TokenUsageBreakdown`). `cachedInputTokens` and `cacheWriteInputTokens` are parts of
+ * `inputTokens`, as the Responses API counts them; optional because a server from before either
+ * existed sends neither, and that reads as nothing cached.
+ */
+const CodexBreakdown = z.object({
+  inputTokens: z.int().nonnegative(),
+  outputTokens: z.int().nonnegative(),
+  cachedInputTokens: z.int().nonnegative().optional(),
+  cacheWriteInputTokens: z.int().nonnegative().optional(),
+});
+
+/** A breakdown as usage, its cached parts clamped so together they never exceed the input. */
+function codexUsage(breakdown: z.infer<typeof CodexBreakdown>): TokenUsage {
+  return splitInput(
+    breakdown.inputTokens,
+    breakdown.cachedInputTokens ?? 0,
+    breakdown.cacheWriteInputTokens ?? 0,
+    breakdown.outputTokens,
+  );
+}
+
+function splitInput(input: number, read: number, write: number, output: number): TokenUsage {
+  const cacheRead = Math.min(read, input);
+  const cacheWrite = Math.min(write, input - cacheRead);
+  return tokenUsage({ uncached: input - cacheRead - cacheWrite, cacheRead, cacheWrite, output });
+}
+
+/**
+ * What one cumulative total adds to the one before it, field by field — or nothing when any
+ * field went backwards, which means the totals started again rather than that usage was negative.
+ */
+function grownBy(current: TokenUsage, previous: TokenUsage): TokenUsage | undefined {
+  const delta = (field: keyof TokenUsage) => (current[field] ?? 0) - (previous[field] ?? 0);
+  const input = delta("inputTokens");
+  const read = delta("cacheReadTokens");
+  const write = delta("cacheWriteTokens");
+  const output = delta("outputTokens");
+  if (input < 0 || read < 0 || write < 0 || output < 0) return undefined;
+  return splitInput(input, read, write, output);
+}
+
 const CodexNotification = z.object({
   method: z.string(),
   params: z.object({
@@ -59,15 +104,7 @@ const CodexNotification = z.object({
     turnId: z.string().optional(),
     turn: z.object({ id: z.string(), status: z.string().optional() }).optional(),
     item: z.object({ type: z.string() }).optional(),
-    tokenUsage: z
-      .object({
-        total: z.object({
-          inputTokens: z.int().nonnegative(),
-          outputTokens: z.int().nonnegative(),
-        }),
-        last: z.object({ inputTokens: z.int().nonnegative(), outputTokens: z.int().nonnegative() }),
-      })
-      .optional(),
+    tokenUsage: z.object({ total: CodexBreakdown, last: CodexBreakdown }).optional(),
   }),
 });
 
@@ -117,23 +154,15 @@ export function codexCompaction(transport: CodexCompactionTransport): NativeComp
         return;
       }
       if (method === "thread/tokenUsage/updated" && params.tokenUsage !== undefined) {
-        const current = params.tokenUsage.total;
+        const current = codexUsage(params.tokenUsage.total);
         if (params.turnId === turnId) {
-          // Codex totals include cached input already. A repeated notification has zero delta;
-          // a missing/reset baseline uses the reported last response, as in T3's accumulator.
+          // Totals are cumulative, so a repeated notification adds nothing; a missing or reset
+          // baseline uses the reported last response instead, as in T3's accumulator. The cached
+          // parts are differenced like the rest, so the split survives the accumulation.
           const delta =
-            total === undefined ||
-            current.inputTokens < total.inputTokens ||
-            current.outputTokens < total.outputTokens
-              ? params.tokenUsage.last
-              : {
-                  inputTokens: current.inputTokens - total.inputTokens,
-                  outputTokens: current.outputTokens - total.outputTokens,
-                };
-          usage = {
-            inputTokens: (usage?.inputTokens ?? 0) + delta.inputTokens,
-            outputTokens: (usage?.outputTokens ?? 0) + delta.outputTokens,
-          };
+            (total === undefined ? undefined : grownBy(current, total)) ??
+            codexUsage(params.tokenUsage.last);
+          usage = addUsage(usage ?? { inputTokens: 0, outputTokens: 0 }, delta);
         }
         total = current;
       }
@@ -230,11 +259,14 @@ export type ClaudeCompactionTransport = {
   send(prompt: string, signal?: AbortSignal): Promise<void>;
   interrupt(): Promise<void>;
 };
+// Nullish, not optional: a model that caches nothing reports `null` here, and a message that
+// fails to parse is ignored — which, for the result message, leaves the compaction waiting for
+// a completion it was already sent.
 const Usage = z.object({
   input_tokens: z.number().nonnegative(),
   output_tokens: z.number().nonnegative(),
-  cache_creation_input_tokens: z.number().nonnegative().optional(),
-  cache_read_input_tokens: z.number().nonnegative().optional(),
+  cache_creation_input_tokens: z.number().nonnegative().nullish(),
+  cache_read_input_tokens: z.number().nonnegative().nullish(),
 });
 const ClaudeMessage = z.object({
   type: z.string(),
@@ -287,13 +319,12 @@ export function claudeCompaction(transport: ClaudeCompactionTransport): NativeCo
           return;
         }
         if (message.usage !== undefined)
-          usage = {
-            inputTokens:
-              message.usage.input_tokens +
-              (message.usage.cache_creation_input_tokens ?? 0) +
-              (message.usage.cache_read_input_tokens ?? 0),
-            outputTokens: message.usage.output_tokens,
-          };
+          usage = tokenUsage({
+            uncached: message.usage.input_tokens,
+            cacheWrite: message.usage.cache_creation_input_tokens,
+            cacheRead: message.usage.cache_read_input_tokens,
+            output: message.usage.output_tokens,
+          });
         resolve();
       }
     });

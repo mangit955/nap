@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+/**
+ * Lines one commit added and removed, as git's own `--shortstat` counted them. Recorded on
+ * `turn.completed` when the turn commits, and read back by the session sidebar's card.
+ */
+export const DiffStatSchema = z.strictObject({
+  added: z.int().nonnegative(),
+  removed: z.int().nonnegative(),
+});
+export type DiffStat = z.infer<typeof DiffStatSchema>;
+
 export const GitScopeSchema = z.enum(["branch", "uncommitted", "commit"]);
 export type GitScope = z.infer<typeof GitScopeSchema>;
 export const GitComparisonSchema = z.object({

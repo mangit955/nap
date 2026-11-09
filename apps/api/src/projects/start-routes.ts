@@ -15,6 +15,7 @@ import type { GitHubIntegration } from "../github/integration.ts";
 import { refusalStatus, resolveTurnAccess } from "../turns/model-access.ts";
 import type { TurnRouteDeps } from "../turns/routes.ts";
 import { checkSandboxQuota } from "../turns/sandbox-quota.ts";
+import type { SessionTitles } from "./session-titler.ts";
 
 export type SessionStartRouteDeps = {
   store: SessionStartStore;
@@ -25,6 +26,8 @@ export type SessionStartRouteDeps = {
     TurnRouteDeps,
     "keys" | "allowedModels" | "freeModel" | "defaultModel" | "limits"
   >;
+  /** The model's title for a session started with a prompt; never awaited (docs/adr/0031). */
+  titles?: SessionTitles | undefined;
 };
 
 export function registerSessionStartRoutes(
@@ -142,6 +145,14 @@ export function registerSessionStartRoutes(
     if (created.kind === "deleted") return c.json({ error: "This session has been deleted." }, 410);
     if (created.kind === "access_changed")
       return c.json({ error: "GitHub access changed. Reconnect and try again." }, 409);
+    // After the seed is written and off the request's path: nothing here can fail the start.
+    if (input.prompt)
+      void deps.titles?.title({
+        projectId: created.projectId,
+        userId,
+        mode: "automatic",
+        message: input.prompt.message,
+      });
     return c.json(
       { projectId: created.projectId, sessionId: created.sessionId, requestId: created.requestId },
       201,

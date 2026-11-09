@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { NapEventSchema } from "@nap/shared/events";
-import { and, eq } from "drizzle-orm";
+import { and, sql as drizzleSql, eq } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -77,6 +78,51 @@ describe("migrations", () => {
     expect(names).toEqual(
       expect.arrayContaining(["users", "projects", "sessions", "events", "snapshots"]),
     );
+  });
+
+  it("leaves a project still called the placeholder to be named by its first prompt", async () => {
+    // The last statement of the migration that added `name_source`, which marks every row it
+    // found `user`: run again here over rows as that migration found them, then rolled back.
+    const file = await readFile(
+      new URL("../drizzle/0022_project_name_source.sql", import.meta.url),
+      "utf8",
+    );
+    const update = file.split("--> statement-breakpoint").at(-1)?.trim() ?? "";
+    expect(update).toMatch(/^UPDATE "projects"/);
+    const [user] = await db
+      .insert(users)
+      .values({ email: `${randomUUID()}@example.com`, name: "Before" })
+      .returning();
+    let sources: { name: string; nameSource: string }[] = [];
+    // Rolled back, so the unscoped statement touches nobody else's rows in the shared container.
+    const rolledBack = await db
+      .transaction(async (tx) => {
+        await tx.insert(projects).values(
+          ["Untitled project", " untitled Project ", "Habit tracker"].map((name) => ({
+            userId: user!.id,
+            name,
+            slug: randomUUID(),
+            nameSource: "user" as const,
+          })),
+        );
+        await tx.execute(drizzleSql.raw(update));
+        sources = await tx
+          .select({ name: projects.name, nameSource: projects.nameSource })
+          .from(projects)
+          .where(eq(projects.userId, user!.id));
+        tx.rollback();
+      })
+      .then(
+        () => false,
+        () => true,
+      );
+    await db.delete(users).where(eq(users.id, user!.id));
+    expect(rolledBack).toBe(true);
+    expect(Object.fromEntries(sources.map((row) => [row.name, row.nameSource]))).toEqual({
+      "Untitled project": "seed",
+      " untitled Project ": "seed",
+      "Habit tracker": "user",
+    });
   });
 });
 

@@ -15,6 +15,7 @@ describe("parseStreamQuery", () => {
       sessionId: "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f",
       afterSeq: 12,
       repairOwnership: false,
+      usageCacheSplit: false,
     });
   });
 
@@ -65,4 +66,14 @@ it("opts in to repair ownership only when the client explicitly names version 1"
     value: { repairOwnership: true },
   });
   expect(query("?sessionId=0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f&repairOwnership=2").ok).toBe(false);
+});
+
+it("sends usage's cache split only to a client that names version 1 of it", () => {
+  const id = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
+  expect(query(`?sessionId=${id}&usageCacheSplit=1`)).toMatchObject({
+    ok: true,
+    value: { usageCacheSplit: true, repairOwnership: false },
+  });
+  expect(query(`?sessionId=${id}`)).toMatchObject({ ok: true, value: { usageCacheSplit: false } });
+  expect(query(`?sessionId=${id}&usageCacheSplit=true`).ok).toBe(false);
 });

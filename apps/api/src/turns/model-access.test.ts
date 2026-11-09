@@ -1,6 +1,11 @@
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import { describe, expect, it } from "vitest";
-import { availableModels, resolveTurnAccess, type TurnAccessRequest } from "./model-access.ts";
+import {
+  availableModels,
+  resolveTitleAccess,
+  resolveTurnAccess,
+  type TurnAccessRequest,
+} from "./model-access.ts";
 
 /** The shape of a real allowlist: cheap paid, expensive paid, and free. */
 const ALLOWED = [
@@ -165,5 +170,39 @@ describe("availableModels", () => {
         expect(offered).toBe(allowed);
       }
     }
+  });
+});
+
+describe("who pays for a session title", () => {
+  const title = (key: ModelCredentials | null, allowed: readonly string[] = ALLOWED) =>
+    resolveTitleAccess({ key, allowed, freeModel: "openai/gpt-5.6-luna" });
+
+  it.each<[string, ModelCredentials | null, readonly string[], ReturnType<typeof title>]>([
+    [
+      "nobody's key: the free model, on the deployment",
+      null,
+      ALLOWED,
+      { model: "openai/gpt-5.6-luna" },
+    ],
+    [
+      "an OpenRouter key: the free model, on that key",
+      OPENROUTER,
+      ALLOWED,
+      { model: "openai/gpt-5.6-luna", credentials: OPENROUTER },
+    ],
+    [
+      "an Anthropic key: the first Claude model allowed, on that key",
+      ANTHROPIC,
+      ALLOWED,
+      { model: "anthropic/claude-sonnet-5", credentials: ANTHROPIC },
+    ],
+    [
+      "an Anthropic key with no Claude model allowed: nobody",
+      ANTHROPIC,
+      ["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"],
+      null,
+    ],
+  ])("%s", (_case, key, allowed, expected) => {
+    expect(title(key, allowed)).toEqual(expected);
   });
 });

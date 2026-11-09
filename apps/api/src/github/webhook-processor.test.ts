@@ -7,7 +7,7 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { RepositoryJob } from "@nap/shared/github-protocol";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GitHubApp, type GitHubFetch } from "./app.ts";
 import { GitHubIntegration } from "./integration.ts";
 import { GitHubEventProcessor, REFRESH_AFTER_MS } from "./webhook.ts";
@@ -512,8 +512,14 @@ describe("GitHubEventProcessor", () => {
     });
     f.transport.state = "closed";
     f.transport.mergedAt = "2026-10-19T14:00:00Z";
+    const updates = vi.spyOn(f.store, "updateJob");
     await refresh(f);
     expect(await f.store.job(f.job.jobId)).toMatchObject({ pullRequestState: "merged" });
+    // GitHub's own merge time, which auto-settle measures from; this store does not keep it.
+    expect(updates).toHaveBeenCalledWith(
+      f.job.jobId,
+      expect.objectContaining({ pullRequestMergedAt: "2026-10-19T14:00:00Z" }),
+    );
     expect(f.store.enqueued).toEqual([]);
   });
 

@@ -6,15 +6,17 @@ import {
   type SessionList,
   SessionListSchema,
   type SessionNavigation,
+  SessionSearchSchema,
   type SessionSection,
   type SessionSummary,
 } from "@nap/shared/session-navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import { type PendingOp, withPending } from "./navigation-overlay.ts";
+import type { SearchSessions } from "./use-session-search.ts";
 
 /** One thing to do to the session list. A move between shelves is several, applied together. */
 export type NavigationStep =
@@ -106,6 +108,18 @@ export function useSessionNavigation({
     setStatus("ready");
   }, [fetchJson, baseUrl, publish]);
 
+  /** One search of the caller's sessions; `signal` lets the next keystroke drop this one. */
+  const search: SearchSessions = useCallback(
+    (query, signal) =>
+      githubRequest(
+        fetchJson,
+        `${baseUrl}/sessions/search?q=${encodeURIComponent(query)}`,
+        SessionSearchSchema,
+        { signal },
+      ),
+    [fetchJson, baseUrl],
+  );
+
   useEffect(() => {
     void reload();
     const refresh = () => {
@@ -125,6 +139,67 @@ export function useSessionNavigation({
       channel?.close();
     };
   }, [reload]);
+
+  /**
+   * Titles this tab asked for and is still waiting on. Drawn as `titling` straight away, before
+   * the server's own flag could arrive on the next read.
+   */
+  const [titlingIds, setTitlingIds] = useState<ReadonlySet<string>>(new Set());
+  const undim = useCallback((projectId: string) => {
+    setTitlingIds((current) => {
+      if (!current.has(projectId)) return current;
+      const next = new Set(current);
+      next.delete(projectId);
+      return next;
+    });
+  }, []);
+  const regenerateTitle = useCallback(
+    async (projectId: string) => {
+      setTitlingIds((current) => new Set(current).add(projectId));
+      const result = await githubRequest(
+        fetchJson,
+        `${baseUrl}/projects/${projectId}/title`,
+        z.object({ name: z.string() }),
+        { method: "POST" },
+      );
+      if (result.ok) {
+        // The name the server wrote, drawn now: a read that fails below must not bring back the
+        // old one.
+        confirmed.current = confirmed.current.map((row) =>
+          row.projectId === projectId ? { ...row, name: result.value.name, titling: false } : row,
+        );
+        publish();
+      } else if (result.code !== "renamed") {
+        // A rename the person made meanwhile won, as they meant it to; that is not an error.
+        setError(result.error);
+      }
+      // Either way the list is read again: the name, or the flag that a title is no longer due.
+      // The row stays dimmed until that read is over, so it never shows the old name undimmed.
+      try {
+        await reload();
+      } finally {
+        undim(projectId);
+      }
+      if (result.ok) announceSessionsChanged();
+    },
+    [fetchJson, baseUrl, reload, publish, undim],
+  );
+  // A title the server is writing on its own, after a first prompt, lands in seconds; read again
+  // every few until it has, rather than leave the name dimmed until the next ten-second poll. The
+  // server's flag expires with its claim, so this cannot outlast that.
+  const serverTitling = projects.some((row) => row.titling);
+  useEffect(() => {
+    if (!serverTitling) return;
+    const timer = setInterval(() => void reload(), TITLING_RECHECK_MS);
+    return () => clearInterval(timer);
+  }, [serverTitling, reload]);
+  const drawn = useMemo(
+    () =>
+      titlingIds.size === 0
+        ? projects
+        : projects.map((row) => (titlingIds.has(row.projectId) ? { ...row, titling: true } : row)),
+    [projects, titlingIds],
+  );
 
   /** Sends one write and answers with the server's refusal, or nothing when it was saved. */
   const send = useCallback(
@@ -263,7 +338,7 @@ export function useSessionNavigation({
           });
         }
         if (pending.current.length > 0) return;
-        notify();
+        announceSessionsChanged();
         void reload();
       });
       return done.then(() => !group.failed);
@@ -308,7 +383,7 @@ export function useSessionNavigation({
   }, [enqueue, undoAction]);
 
   return {
-    projects,
+    projects: drawn,
     status,
     actionError,
     undoAction,
@@ -317,14 +392,27 @@ export function useSessionNavigation({
     undo,
     reload,
     dismissUndo: () => setUndo(undefined),
-    rename: (projectId: string, name: string) => enqueue([{ kind: "rename", projectId, name }]),
+    rename: (projectId: string, name: string) => {
+      // The person's name wins over a title still being written, so the row stops saying one is.
+      undim(projectId);
+      return enqueue([{ kind: "rename", projectId, name }]);
+    },
     remove: (projectId: string) => enqueue([{ kind: "remove", projectId }]),
     close: (projectId: string) => enqueue([{ kind: "close", projectId }]),
+    search,
+    regenerateTitle,
   };
 }
 
-/** Tells this user's other tabs the list changed, so they reload rather than wait for a poll. */
-function notify() {
+/** How soon the list is read again while a model is writing a session's title. */
+export const TITLING_RECHECK_MS = 2000;
+
+/**
+ * Tells every other list of this user's sessions that it changed, so it reads again rather than
+ * wait for a poll — other tabs, and other hooks in this one, since a channel hears every instance
+ * but the one that sent.
+ */
+export function announceSessionsChanged() {
   if (typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel("nap-sessions");
   channel.postMessage("changed");

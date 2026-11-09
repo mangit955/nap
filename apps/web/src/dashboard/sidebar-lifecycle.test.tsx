@@ -34,6 +34,11 @@ function row(name: string, nav: Partial<SessionSummary["navigation"]> = {}): Ses
     branch: null,
     pullRequest: null,
     pendingFeedback: 0,
+    runStartedAt: null,
+    turnFinishedAt: null,
+    diff: null,
+    model: null,
+    titling: false,
   };
 }
 beforeEach(() => {

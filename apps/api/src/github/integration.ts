@@ -503,6 +503,7 @@ export class GitHubIntegration implements RepositoryWorkspace {
       pullRequestNumber: pr.number,
       pullRequestUrl: pr.html_url,
       pullRequestState: pr.merged_at !== null ? "merged" : pr.state,
+      pullRequestMergedAt: pr.merged_at ?? undefined,
       publishState: "published",
       error: null,
       updatedAt: new Date().toISOString(),

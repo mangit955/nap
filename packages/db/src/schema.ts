@@ -7,6 +7,7 @@ import type {
 import type { MediaAttachment } from "@nap/shared/media";
 import type { ProviderAuthStatus, ProviderDriver } from "@nap/shared/provider-accounts-protocol";
 import type { SessionNavigation } from "@nap/shared/session-navigation";
+import type { NameSource } from "@nap/shared/session-title";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
  *
@@ -244,6 +245,22 @@ export const projects = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /**
+     * Where `name` came from (docs/adr/0031): `seed` (trimmed from the first prompt, or a
+     * placeholder), `model`, or `user`. Nothing automatic ever replaces a `user` name. Text with a
+     * check rather than an enum, for the reason `sandbox_reservations.state` is.
+     */
+    nameSource: text("name_source").$type<NameSource>().notNull().default("seed"),
+    /**
+     * The title being written now, if any: a claim, so one project never has two in flight, and
+     * the identity a model's answer must still match to be applied. A rename clears it, which is
+     * how a rename that lands mid-generation wins.
+     */
+    titleGeneration: uuid("title_generation"),
+    /** When a title was last asked for: how a claim tells abandoned from in flight, and the cooldown. */
+    titleRequestedAt: timestamp("title_requested_at", { withTimezone: true }),
+    /** Set by the automatic claim, so a project is titled automatically at most once. */
+    titleAutoAttempted: boolean("title_auto_attempted").notNull().default(false),
     slug: text("slug").notNull(),
     navigation: jsonb("navigation").$type<SessionNavigation>().notNull().default({
       pinned: false,
@@ -255,6 +272,14 @@ export const projects = pgTable(
       unread: false,
     }),
     navigationRevision: integer("navigation_revision").notNull().default(0),
+    /**
+     * Work at or before this moment can no longer auto-settle the session (see
+     * `navigationSettings`). Stamped by the reaper when it settles one, and by the owner taking a
+     * session back out of Settled — so a session somebody un-settled stays where they put it until
+     * something new happens in it, instead of being settled again on the next tick. Null until
+     * either has happened.
+     */
+    autoSettleFloor: timestamp("auto_settle_floor", { withTimezone: true }),
     /** Changes with every lease grant, so a completed turn still invalidates prior input grants. */
     computerRevision: uuid("computer_revision").notNull().defaultRandom(),
     status: projectStatus("status").notNull().default("creating"),
@@ -264,8 +289,26 @@ export const projects = pgTable(
     createdAt,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("projects_user_id_slug_unique").on(t.userId, t.slug)],
+  (t) => [
+    unique("projects_user_id_slug_unique").on(t.userId, t.slug),
+    check("projects_name_source", sql`${t.nameSource} in ('seed', 'model', 'user')`),
+  ],
 );
+
+/**
+ * One row per person who has turned on an auto-settle rule; no row is both rules off, which is the
+ * default. A table of its own rather than columns on `users`, which the auth library maps.
+ */
+export const navigationSettings = pgTable("navigation_settings", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Settle a session after this many days with nothing happening in it. Null is off. */
+  autoSettleAfterDays: integer("auto_settle_after_days"),
+  /** Settle a session when its pull request merges after its last turn. */
+  autoSettleOnMerge: boolean("auto_settle_on_merge").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const sessions = pgTable("sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -308,7 +351,21 @@ export const events = pgTable(
     payload: jsonb("payload").$type<NapEvent["payload"]>().notNull(),
     createdAt,
   },
-  (t) => [unique("events_session_id_seq_unique").on(t.sessionId, t.seq)],
+  (t) => [
+    unique("events_session_id_seq_unique").on(t.sessionId, t.seq),
+    // The session sidebar reads, per project, the newest of these three: when a turn last ended
+    // and what its commit changed. Partial, so it holds a few rows per turn rather than every
+    // streamed token, and the read is an index probe rather than a walk through the whole log.
+    index("events_session_terminal")
+      .on(t.sessionId, t.createdAt, t.seq)
+      .where(sql`${t.type} in ('turn.completed', 'turn.failed', 'job.completed')`),
+    // Sidebar search over the person's own words. A trigram index, because the search is a
+    // substring match (`ilike '%…%'`), which no b-tree can answer; partial for the reason above.
+    // Needs `pg_trgm`, which the migration that adds this index creates.
+    index("events_message_text_trgm")
+      .using("gin", sql`(${t.payload} ->> 'text') gin_trgm_ops`)
+      .where(sql`${t.type} in ('user.message', 'steer.received')`),
+  ],
 );
 
 /**
@@ -665,6 +722,14 @@ export const repositoryJobs = pgTable(
     checkState: text("check_state").$type<RepositoryJob["checkState"]>().notNull(),
     reviewState: text("review_state").$type<RepositoryJob["reviewState"]>().notNull(),
     error: text("error"),
+    /**
+     * When the pull request merged, written once, on the job's change to `merged`: GitHub's own
+     * time when the integration has it. Not `updated_at`, which every refresh, comment and approve
+     * rewrites — a merge clock that moves would settle a session again after its owner took it
+     * back. A job created already merged, continuing a branch whose pull request had merged, has
+     * none: its work came after that merge. Rows from before this column are null too.
+     */
+    pullRequestMergedAt: timestamp("pull_request_merged_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // Which job is newest on a pull request. `updated_at` cannot say: refreshing an older job
     // bumps it, and the follow-up that superseded it would then lose to its own predecessor.

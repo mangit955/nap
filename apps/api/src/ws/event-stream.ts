@@ -18,6 +18,7 @@
  * ordering be tested at all.
  */
 
+import type { NapEvent } from "@nap/shared/events";
 import type { EventBus, Unsubscribe } from "@nap/shared/ports/event-bus";
 import type { EventStore, StoredEvent } from "@nap/shared/ports/event-store";
 import { parseClientFrame, type ServerFrame, WS_CLOSE } from "@nap/shared/ws-protocol";
@@ -49,6 +50,11 @@ export type EventStreamOptions = {
   afterSeq: number;
   /** Old open tabs use strict prompt schemas. Full ownership is explicit opt-in. */
   repairOwnership?: boolean;
+  /**
+   * Old open tabs parse usage as exactly `{ inputTokens, outputTokens }`, so the cache split is
+   * sent only to a socket that asked for it. See `docs/DEPLOY.md`, "Usage cache split rollout".
+   */
+  usageCacheSplit?: boolean;
   socket: StreamSocket;
   heartbeat?: HeartbeatOptions;
 };
@@ -89,14 +95,17 @@ export function openEventStream(options: EventStreamOptions): EventStream {
     if (sentAnything && event.seq <= lastSentSeq) return;
     sentAnything = true;
     lastSentSeq = event.seq;
+    let outgoing: StoredEvent = event;
     if (
       !options.repairOwnership &&
-      event.type === "user.message" &&
-      event.payload.repair !== undefined
+      outgoing.type === "user.message" &&
+      outgoing.payload.repair !== undefined
     ) {
-      const { repair: _repair, ...payload } = event.payload;
-      send({ type: "event", event: { ...event, payload } });
-    } else send({ type: "event", event });
+      const { repair: _repair, ...payload } = outgoing.payload;
+      outgoing = { ...outgoing, payload };
+    }
+    if (!options.usageCacheSplit) outgoing = withoutCacheSplit(outgoing);
+    send({ type: "event", event: outgoing });
   };
 
   const unsubscribe: Unsubscribe = bus.subscribe(sessionId, (event) => {
@@ -158,4 +167,43 @@ export function openEventStream(options: EventStreamOptions): EventStream {
       if (!frame.ok) send({ type: "error", message: frame.error.message });
     },
   };
+}
+
+/** Every event type whose payload carries usage. */
+// Matches an event whose payload has a `usage` key at all, optional or not: `Extract` against
+// `{ usage: unknown }` skips an optional one, and optional is how events usually grow a field.
+// Empty payloads have `keyof` = `string`, which would otherwise match every key name.
+type UsageEventType = NapEvent extends infer E
+  ? E extends { type: infer T; payload: infer P }
+    ? string extends keyof P
+      ? never
+      : "usage" extends keyof P
+        ? T
+        : never
+    : never
+  : never;
+
+/**
+ * Keyed by every one of them, so an event that gains a `usage` compiles only once it is listed
+ * here — and an old tab is never sent a cache split through an event nobody remembered.
+ */
+const USAGE_EVENTS: Record<UsageEventType, true> = {
+  "turn.completed": true,
+  "subagent.completed": true,
+  "compaction.completed": true,
+  "compaction.failed": true,
+};
+
+function carriesUsage(event: StoredEvent): event is Extract<StoredEvent, { type: UsageEventType }> {
+  return Object.hasOwn(USAGE_EVENTS, event.type);
+}
+
+/** The event as a reader from before the cache split parses it: usage with only its two totals. */
+function withoutCacheSplit(event: StoredEvent): StoredEvent {
+  if (!carriesUsage(event) || event.payload.usage == null) return event;
+  const { inputTokens, outputTokens } = event.payload.usage;
+  return {
+    ...event,
+    payload: { ...event.payload, usage: { inputTokens, outputTokens } },
+  } as StoredEvent;
 }

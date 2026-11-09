@@ -11,6 +11,7 @@
 
 import type { ComputerAnnotation } from "../computer.ts";
 import type { PromptSource } from "../events.ts";
+import type { DiffStat } from "../git-protocol.ts";
 import type { Result } from "../result.ts";
 import type { BuiltContext } from "./context-engine.ts";
 import type { PendingEvent } from "./event-store.ts";
@@ -98,7 +99,7 @@ export type AgentTurnRequest = {
    * version the workspace means. Not called for a turn that ended awaiting approval of a plan:
    * nothing was meant to change, so there is nothing to commit.
    */
-  finalize?: () => Promise<{ commitSha: string | null }>;
+  finalize?: () => Promise<{ commitSha: string | null; diff?: DiffStat | null }>;
 };
 
 export interface AgentService {

@@ -1,6 +1,9 @@
 import { ProjectComputer } from "@nap/runtime/project-computer";
 import type { DesktopInputTransport } from "@nap/shared/ports/desktop-input-transport";
-import type { SessionNavigationStore } from "@nap/shared/ports/session-navigation-store";
+import type {
+  SessionAutoSettler,
+  SessionNavigationStore,
+} from "@nap/shared/ports/session-navigation-store";
 import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
 
 /**
@@ -51,6 +54,7 @@ import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
+import type { ProjectTitleStore } from "@nap/shared/ports/project-title-store";
 import type { ProviderAccountStore } from "@nap/shared/ports/provider-account-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
@@ -78,7 +82,9 @@ import { GitHubEventProcessor } from "./github/webhook.ts";
 import type { HealthProbe } from "./health.ts";
 import { createMetrics, type Metrics } from "./metrics.ts";
 import type { CreatedProject } from "./projects/routes.ts";
+import { SessionTitler } from "./projects/session-titler.ts";
 import type { ProviderSignInRunner } from "./providers/sign-in.ts";
+import { resolveTitleAccess } from "./turns/model-access.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
 /**
@@ -137,6 +143,16 @@ export type NapRole = "api" | "worker" | "reaper" | "all";
 export type NapDeps = {
   sessionStarts?: SessionStartStore;
   sessionNavigation?: SessionNavigationStore;
+  /**
+   * Settles sessions on their owners' behalf, on the reaper's tick and under its lock. Absent
+   * settles nothing, which is right for a composition with no database behind it.
+   */
+  autoSettle?: SessionAutoSettler;
+  /**
+   * Where a model's session title is claimed and written (docs/adr/0031). Absent, every name is
+   * the trimmed seed and Regenerate title is refused, which is right with no database behind it.
+   */
+  titles?: ProjectTitleStore;
   github?: { store: GitHubStore; app: GitHubApp | null; broker?: GitBroker };
   config: NapConfig;
   /** Defaults to `all`: a composition that was not told is one process doing everything. */
@@ -466,6 +482,23 @@ export function composeNap(deps: NapDeps): ComposedNap {
     return { platform: stored.platform, apiKey: opened.value };
   };
 
+  /** Session titles, paid for as this person's turns are: `resolveTitleAccess` decides. */
+  const titler =
+    deps.titles === undefined
+      ? undefined
+      : new SessionTitler({
+          store: deps.titles,
+          provider: deps.provider,
+          events: deps.events,
+          bus: deps.bus,
+          access: async (userId) =>
+            resolveTitleAccess({
+              key: await openCallerKey(userId),
+              allowed: config.NAP_ALLOWED_MODELS,
+              freeModel: config.NAP_FREE_MODEL,
+            }),
+        });
+
   // Built for every role, and served by whichever one serves. A worker's copy counts nothing
   // because a worker holds no sockets, which is the honest reading of that pod rather than a
   // missing series — and one composition means nobody has to remember which roles have a gauge.
@@ -521,6 +554,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       ? {}
       : {
           sessionStarts: {
+            titles: titler,
             store: deps.sessionStarts,
             projects: deps.projects,
             webOrigin: config.NAP_WEB_ORIGIN,
@@ -626,6 +660,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       sessions: deps.sessions,
       // Who pays for each turn, which is also what decides the models they may name.
       keys: openCallerKey,
+      titles: titler,
       freeModel: config.NAP_FREE_MODEL,
       defaultModel: config.NAP_MODEL,
       // The same store the project routes list from, so a project named on its first turn and one
@@ -689,6 +724,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // API pod composed apart from its workers read every busy session as idle and would happily
       // close a project mid-turn.
       isBusy: (sessionIds, projectId) => occupied(projectId, sessionIds),
+      titles: titler,
     },
   });
 
@@ -736,6 +772,16 @@ export function composeNap(deps: NapDeps): ComposedNap {
               }),
             ),
           );
+
+          // Same posture as the rate-event sweep: a bounded statement on the reaper's schedule, with
+          // its own catch so a failure here never costs the tick the projects below.
+          if (deps.autoSettle !== undefined)
+            await deps.autoSettle.autoSettle().then(
+              (settled) => {
+                if (settled.length > 0) logger.info({ settled }, "sessions auto-settled");
+              },
+              (error: unknown) => logger.error({ err: error }, "could not auto-settle sessions"),
+            );
 
           return await sweepIdleProjects({
             projects: deps.projectSandboxes,

@@ -42,7 +42,7 @@ export function SettingsShell({
   connectionsHref?: string;
   /** The page sits beneath the rail's Connections entry rather than being it. */
   nested?: boolean;
-  activePage?: "connections" | "providers" | "archived";
+  activePage?: "connections" | "providers" | "archived" | "sidebar";
   /**
    * Opens the API key dialog. A page that already shows the key's state passes its own, so the
    * rail and the page answer from one state; without it the rail opens a dialog of its own.
@@ -148,6 +148,17 @@ export function SettingsShell({
                 </a>
               </li>
             )}
+            {matches("Sidebar") && (
+              <li>
+                <a
+                  href="/settings/sidebar"
+                  aria-current={activePage === "sidebar" ? "page" : undefined}
+                  className={`${ITEM} ${activePage === "sidebar" ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover"}`}
+                >
+                  Sidebar
+                </a>
+              </li>
+            )}
             {matches("API key") && (
               <li>
                 <button
@@ -164,7 +175,8 @@ export function SettingsShell({
           {!matches("Connections") &&
             !matches("Providers") &&
             !matches("API key") &&
-            !matches("Archived sessions") && (
+            !matches("Archived sessions") &&
+            !matches("Sidebar") && (
               <p className="px-2 py-1.5 text-[13px] text-muted">No settings match.</p>
             )}
         </nav>

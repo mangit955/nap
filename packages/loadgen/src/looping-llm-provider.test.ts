@@ -1,4 +1,5 @@
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor } from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { loopingLLMProvider } from "./looping-llm-provider.ts";
 
@@ -52,6 +53,16 @@ describe("loopingLLMProvider", () => {
     expect(text).toEqual(["b"]);
   });
 
+  it("keeps a scripted cache split in the turn's usage", async () => {
+    const provider = loopingLLMProvider([
+      { text: "a", usage: { inputTokens: 100, outputTokens: 1, cacheReadTokens: 80 } },
+    ]);
+    const turn = provider.startTurn();
+    await turn.complete(request);
+    await turn.complete(request);
+    expect(turn.usage()).toStrictEqual({ inputTokens: 200, outputTokens: 2, cacheReadTokens: 160 });
+  });
+
   it("accumulates the turn's usage across its calls", async () => {
     const provider = loopingLLMProvider([
       { text: "a", usage: { inputTokens: 100, outputTokens: 10 } },
@@ -87,6 +98,15 @@ describe("loopingLLMProvider", () => {
     const provider = loopingLLMProvider([{ text: "a" }]);
     provider.startTurn();
     expect(provider.totals().turns).toBe(1);
+  });
+
+  it("hands every turn the billed weights it was given, and none when it was given none", () => {
+    const weights = billedWeightsFor("openai/gpt-5.6-luna");
+
+    expect(
+      loopingLLMProvider([{ text: "a" }], { billedWeights: weights }).startTurn().billedWeights,
+    ).toBe(weights);
+    expect(loopingLLMProvider([{ text: "a" }]).startTurn()).not.toHaveProperty("billedWeights");
   });
 
   it("refuses an empty script rather than answering nothing forever", () => {
