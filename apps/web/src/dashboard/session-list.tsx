@@ -108,6 +108,7 @@ export function SessionList({
   ownerId,
   onApply,
   onRename,
+  onRegenerateTitle,
   onDelete,
   onClose,
   onSelectProject,
@@ -125,6 +126,8 @@ export function SessionList({
   /** Where every navigation change goes. Without it the list is for looking at only. */
   onApply?: ((steps: NavigationStep[], options?: ApplyOptions) => Promise<boolean>) | undefined;
   onRename?: ((id: string, name: string) => void) | undefined;
+  /** Asks a model for the session's title; the row is dimmed until it lands. */
+  onRegenerateTitle?: ((id: string) => void) | undefined;
   onDelete?: ((id: string) => void) | undefined;
   onClose?: ((id: string) => void) | undefined;
   onSelectProject?: ((projectId: string) => void) | undefined;
@@ -324,7 +327,16 @@ export function SessionList({
         {
           kind: "change",
           projectId: row.projectId,
-          change: { kind: "read", at: row.activityAt, unread },
+          // The later of the two, so marking read covers the finished turn that made it Done.
+          change: {
+            kind: "read",
+            at:
+              row.turnFinishedAt !== null &&
+              (row.activityAt === null || row.turnFinishedAt > row.activityAt)
+                ? row.turnFinishedAt
+                : row.activityAt,
+            unread,
+          },
         },
       ]);
     },
@@ -383,6 +395,8 @@ export function SessionList({
         return setDialog({ kind: "snooze", ids, names: [row.name] });
       case "rename":
         return setRenamingId(row.projectId);
+      case "regenerate-title":
+        return onRegenerateTitle?.(row.projectId);
       case "mark-unread":
       case "mark-read":
         return actions.markUnread(row, id === "mark-unread");
@@ -590,7 +604,12 @@ export function SessionList({
   const Shell: ComponentType<ShellProps> = drag?.SortableShell ?? PlainShell;
   const canNavigate = live;
   const canRename = onRename !== undefined;
-  const hasMenu = live || canRename || onDelete !== undefined || onClose !== undefined;
+  const hasMenu =
+    live ||
+    canRename ||
+    onRegenerateTitle !== undefined ||
+    onDelete !== undefined ||
+    onClose !== undefined;
   const renderRow = (row: SessionSummary, shelf: Shelf, sortable = true) => {
     const index = order.indexOf(row.projectId);
     const jumpHint =
@@ -838,6 +857,7 @@ export function SessionList({
               rename: canRename,
               putAway: onClose !== undefined,
               remove: onDelete !== undefined,
+              regenerateTitle: onRegenerateTitle !== undefined,
             },
             filteringBySource: repository !== "",
             movable: (() => {

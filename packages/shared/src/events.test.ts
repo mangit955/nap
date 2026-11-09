@@ -683,6 +683,30 @@ const CASES = [
     },
     issuePath: ["payload", "toolCalls"],
   },
+  {
+    type: "project.renamed",
+    valid: {
+      ...ENVELOPE,
+      type: "project.renamed",
+      payload: {
+        name: "Team Standup Streaks",
+        source: "model",
+        model: "openai/gpt-5.6-luna",
+        usage: { inputTokens: 900, outputTokens: 6 },
+      },
+    },
+    malformed: {
+      ...ENVELOPE,
+      type: "project.renamed",
+      payload: {
+        name: "Team Standup Streaks",
+        source: "guess",
+        model: "openai/gpt-5.6-luna",
+        usage: { inputTokens: 900, outputTokens: 6 },
+      },
+    },
+    issuePath: ["payload", "source"],
+  },
 ] as const satisfies readonly Case[];
 
 function byType(type: NapEvent["type"]): Case {

@@ -143,6 +143,14 @@ describe("ClaudeProvider", () => {
     expect(result).toMatchObject({ type: "message", truncated: true });
     expect(turn.usage()).toEqual(result.usage);
   });
+  it("asks for a title without thinking or effort, within its output bound", async () => {
+    const client = stubClient([message({})]);
+    await provider(client)
+      .startTurn()
+      .complete(request({ purpose: "title", maxOutputTokens: 64 }));
+    expect(client.calls[0]?.body).toMatchObject({ max_tokens: 64, thinking: { type: "disabled" } });
+    expect(client.calls[0]?.body).not.toHaveProperty("output_config");
+  });
   describe("usage accounting", () => {
     it("accumulates across the calls of one turn and starts a new turn at zero", async () => {
       const client = stubClient([

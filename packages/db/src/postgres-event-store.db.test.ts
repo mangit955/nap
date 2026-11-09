@@ -637,6 +637,15 @@ const PAYLOADS = [
   },
   { type: "turn.failed", payload: { reason: "refusal", message: "declined" } },
   { type: "system.notice", payload: { level: "warning", text: "restored from a snapshot" } },
+  {
+    type: "project.renamed",
+    payload: {
+      name: "Standup streak tracker",
+      source: "model",
+      model: "openai/gpt-5.6-luna",
+      usage: { inputTokens: 900, outputTokens: 6 },
+    },
+  },
   { type: "preview.stopped", payload: {} },
   { type: "job.started", payload: { jobId: JOB, objective: "build me a todo list" } },
   { type: "verification.started", payload: { jobId: JOB } },

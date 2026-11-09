@@ -45,7 +45,14 @@ export async function createProjectSession(
   return db.transaction(async (tx) => {
     const [project] = await tx
       .insert(projects)
-      .values({ userId: options.userId, name: projectName, slug: slugify(projectName) })
+      .values({
+        userId: options.userId,
+        name: projectName,
+        slug: slugify(projectName),
+        // A name passed in was typed by the person creating the project, and nothing automatic
+        // may replace it; the placeholder is a seed, which their first prompt or a model replaces.
+        nameSource: name === undefined ? "seed" : "user",
+      })
       .returning({ id: projects.id });
     if (project === undefined) throw new Error("insert into projects returned no row");
 

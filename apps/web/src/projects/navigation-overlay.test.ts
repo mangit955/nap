@@ -23,6 +23,11 @@ const row = (name: string, extra: Partial<SessionSummary> = {}): SessionSummary 
   branch: null,
   pullRequest: null,
   pendingFeedback: 0,
+  runStartedAt: null,
+  turnFinishedAt: null,
+  diff: null,
+  model: null,
+  titling: false,
   ...extra,
 });
 const at = "2026-10-20T12:00:00.000Z";

@@ -43,9 +43,20 @@ export function bundled(
  */
 export const COMMIT_COMMAND = /git add --all && /;
 
-/** The commit script's answer when it made a commit. */
-export function committed(sha: string = FAKE_COMMIT_SHA): ScriptedExecResponse {
-  return { exitCode: 0, stdout: `[main ${sha.slice(0, 7)}] Nap turn\n${sha}\n` };
+/** The line counts the fake's commit reports, unless a test asks for others. */
+export const FAKE_COMMIT_DIFF = { added: 3, removed: 1 };
+
+/** The commit script's answer when it made a commit: git's summary line, then the sha. */
+export function committed(
+  sha: string = FAKE_COMMIT_SHA,
+  diff: { added: number; removed: number } = FAKE_COMMIT_DIFF,
+): ScriptedExecResponse {
+  return {
+    exitCode: 0,
+    stdout:
+      `[main ${sha.slice(0, 7)}] Nap turn\n` +
+      ` 1 file changed, ${diff.added} insertions(+), ${diff.removed} deletions(-)\n${sha}\n`,
+  };
 }
 
 /** The commit script's answer when the tree was already clean. */

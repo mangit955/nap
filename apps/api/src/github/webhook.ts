@@ -4,6 +4,7 @@ import type {
   RepositoryFeedback,
   RepositoryJob,
 } from "@nap/shared/github-protocol";
+import type { RepositoryJobUpdate } from "@nap/shared/ports/github-store";
 import { z } from "zod";
 import type { GitHubResult } from "./app.ts";
 import type { GitHubIntegration } from "./integration.ts";
@@ -314,8 +315,10 @@ export class GitHubEventProcessor {
         },
       };
     const state = remote.value.merged_at === null ? remote.value.state : "merged";
-    const update: Partial<RepositoryJob> = {
+    const mergedAt = remote.value.merged_at ?? undefined;
+    const update: RepositoryJobUpdate = {
       pullRequestState: state,
+      pullRequestMergedAt: mergedAt,
       ...(job.publishState === "failed" ? {} : { error: null }),
       updatedAt: new Date(this.now()).toISOString(),
     };
@@ -421,7 +424,10 @@ export class GitHubEventProcessor {
           earlier.pullRequestNumber === job.pullRequestNumber &&
           earlier.pullRequestState === "open"
         )
-          await store.updateJob(earlier.jobId, { pullRequestState: state });
+          await store.updateJob(earlier.jobId, {
+            pullRequestState: state,
+            pullRequestMergedAt: mergedAt,
+          });
     }
     if (changed)
       await this.integration.notice(

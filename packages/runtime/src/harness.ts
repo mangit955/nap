@@ -267,6 +267,8 @@ function detail(event: NapEvent): string {
       return `${event.payload.reason}: ${oneLine(event.payload.message)}`;
     case "system.notice":
       return `${event.payload.level}: ${oneLine(event.payload.text)}`;
+    case "project.renamed":
+      return `named ${JSON.stringify(event.payload.name)} by ${event.payload.model}`;
     case "turn.started":
       // The user's turns are the ones you asked for, so only a repair is worth a word.
       return event.payload.source === "verification" ? "prompted by verification" : "";

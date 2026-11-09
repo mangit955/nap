@@ -150,6 +150,16 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     type: "system.notice",
     payload: { level: "warning", text: "restored from a snapshot" },
   }),
+  "project.renamed": stored({
+    ...base(13),
+    type: "project.renamed",
+    payload: {
+      name: "Standup streak tracker",
+      source: "model",
+      model: "openai/gpt-5.6-luna",
+      usage: { inputTokens: 900, outputTokens: 6 },
+    },
+  }),
   "job.started": stored({
     ...base(14),
     type: "job.started",

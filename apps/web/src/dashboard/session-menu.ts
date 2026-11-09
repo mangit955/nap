@@ -24,6 +24,7 @@ export type MenuItemId =
   | "move-up"
   | "move-down"
   | "rename"
+  | "regenerate-title"
   | "mark-unread"
   | "mark-read"
   | "filter-source"
@@ -49,7 +50,14 @@ export type SessionMenuState = {
   session: SessionSummary;
   now: Date;
   /** What the page hosting the sidebar was given a way to do. */
-  can: { navigate: boolean; rename: boolean; putAway: boolean; remove: boolean };
+  can: {
+    navigate: boolean;
+    rename: boolean;
+    putAway: boolean;
+    remove: boolean;
+    /** A model may be asked for a title (docs/adr/0031); absent on pages that cannot ask. */
+    regenerateTitle?: boolean;
+  };
   filteringBySource: boolean;
   /**
    * Whether the row has a neighbour on its shelf to swap with. Dragging reorders a shelf, and
@@ -92,6 +100,13 @@ export function sessionMenuItems({
     if (movable?.down) items.push({ id: "move-down", label: "Move down" });
   }
   if (can.rename) items.push({ id: "rename", label: "Rename", separatorBefore: true });
+  // Left out while one is already being written, rather than offered and refused.
+  if (can.regenerateTitle && !session.titling)
+    items.push({
+      id: "regenerate-title",
+      label: "Regenerate title",
+      separatorBefore: !can.rename,
+    });
   if (can.navigate)
     items.push(
       isUnread(session)

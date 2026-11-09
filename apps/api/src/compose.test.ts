@@ -282,6 +282,42 @@ describe("composeNap", () => {
     expect(swept.freeRate).toBeGreaterThan(0);
   });
 
+  it("auto-settles on the reaper's tick, only under its lock, and a failure costs the tick nothing", async () => {
+    let calls = 0;
+    const failing = {
+      autoSettle: async () => {
+        calls += 1;
+        throw new Error("settle failed");
+      },
+    };
+    const reconcile = new InMemoryCapacityReconciler();
+    compose({
+      autoSettle: failing,
+      reconcile: { reconciler: reconcile, inventory: new InMemorySandboxManager() },
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+    await expect.poll(() => calls, { timeout: 2000 }).toBeGreaterThan(0);
+    // The idle sweep after it still ran.
+    await expect.poll(() => reconcile.reclaimCalls(), { timeout: 2000 }).toBeGreaterThan(0);
+
+    let contended = 0;
+    const lock = new InMemorySweepLock();
+    expect(await lock.held()).toBe(true);
+    compose({
+      role: "reaper",
+      sweepLock: lock.contender(),
+      autoSettle: {
+        autoSettle: async () => {
+          contended += 1;
+          return [];
+        },
+      },
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(contended).toBe(0);
+  });
+
   it("serialises an open and a turn on one session, leaving the project one sandbox", async () => {
     // The failure this exists to prevent: a page that resumes on arrival while its user types a
     // message asks for both at once, and both create a sandbox when the project has none. Run in

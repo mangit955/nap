@@ -23,6 +23,7 @@ import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
 import { phaseOf, recordState } from "../projects/project-phase.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
+import { announceSessionsChanged } from "../projects/use-session-navigation.ts";
 import { Splitter } from "../ui/splitter.tsx";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
@@ -194,11 +195,36 @@ export function AppShell({
     )?.seq ?? 0;
   const projectRevision =
     log.events.findLast(
-      (event) => event.type === "system.notice" || event.type === "preview.stopped",
+      (event) =>
+        event.type === "system.notice" ||
+        event.type === "preview.stopped" ||
+        event.type === "project.renamed",
     )?.seq ?? 0;
   useEffect(() => {
     setProjectRefreshKey(projectRevision);
   }, [projectRevision]);
+  // Something the sidebar's card shows changed in this session — a turn started or ended, or a
+  // model titled it — so every list is told to read again now rather than at its next poll. The
+  // card is never drawn from the event, which a replay could make stale. Only what arrives after
+  // the replay counts: the history was already in the list each of them read when it loaded.
+  const cardSeq = log.events.findLast(
+    (event) =>
+      event.type === "project.renamed" ||
+      event.type === "turn.started" ||
+      event.type === "turn.completed" ||
+      event.type === "turn.failed" ||
+      event.type === "job.completed",
+  )?.seq;
+  const announcedCardSeq = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!log.replayed) {
+      announcedCardSeq.current = undefined;
+      return;
+    }
+    const seen = announcedCardSeq.current;
+    announcedCardSeq.current = cardSeq ?? 0;
+    if (seen !== undefined && cardSeq !== undefined && cardSeq > seen) announceSessionsChanged();
+  }, [log.replayed, cardSeq]);
 
   const files = useProjectFiles({
     sessionId,

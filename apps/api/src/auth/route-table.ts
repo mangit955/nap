@@ -191,6 +191,11 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     examplePath: `/projects/${PROJECT}/close`,
   },
   {
+    method: "POST",
+    path: "/projects/:projectId/title",
+    examplePath: `/projects/${PROJECT}/title`,
+  },
+  {
     method: "PATCH",
     path: "/projects/:projectId",
     examplePath: `/projects/${PROJECT}`,

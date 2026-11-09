@@ -72,7 +72,12 @@ export type LLMToolDefinition = {
 };
 
 export type LLMRequest = {
-  purpose?: "compaction";
+  /**
+   * A short, tool-free request outside the agent's own loop: a compaction summary, or a session
+   * title (docs/adr/0031). Both are asked for without thinking, which a summary does not need and
+   * a five-word title should not pay for.
+   */
+  purpose?: "compaction" | "title";
   maxOutputTokens?: number;
   systemPrompt: string;
   messages: LLMMessage[];

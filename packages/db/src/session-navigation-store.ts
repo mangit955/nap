@@ -1,20 +1,26 @@
 import type {
   NavigationResult,
+  SessionAutoSettler,
   SessionNavigationStore,
 } from "@nap/shared/ports/session-navigation-store";
 import {
+  AUTO_SETTLE_OFF,
+  type AutoSettleSettings,
   applyNavigationChange,
   type NavigationChange,
   NavigationSchema,
+  SESSION_SEARCH_LIMIT,
   type SessionList,
   type SessionReorder,
+  type SessionSearch,
   SessionSummarySchema,
   sessionSection,
 } from "@nap/shared/session-navigation";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
-import { projects, sessions, turnRequests } from "./schema.ts";
+import { TITLE_CLAIM_EXPIRY } from "./postgres-project-title-store.ts";
+import { navigationSettings, projects, sessions, turnRequests } from "./schema.ts";
 
 const timestamp = z.coerce.date().transform((value) => value.toISOString());
 const SummaryRow = SessionSummarySchema.extend({
@@ -22,10 +28,41 @@ const SummaryRow = SessionSummarySchema.extend({
   updatedAt: timestamp,
   activityAt: timestamp.nullable(),
   requestedAt: timestamp.nullable(),
+  runStartedAt: timestamp.nullable(),
+  turnFinishedAt: timestamp.nullable(),
 });
 const PAGE_SIZE = 100;
+/** How many sessions one reaper tick may settle; the next tick takes the rest. */
+const AUTO_SETTLE_BATCH = 200;
+/** Characters of a matching message shown before the match, and in all. */
+const SNIPPET_LEAD = 60;
+const SNIPPET_LENGTH = 200;
 
-export class PostgresSessionNavigationStore implements SessionNavigationStore {
+const SearchRow = z.object({
+  project_id: z.uuid(),
+  name: z.string(),
+  kind: z.enum(["name", "message"]),
+  snippet: z.string().nullable(),
+  cut_start: z.boolean().nullable(),
+  cut_end: z.boolean().nullable(),
+  at: timestamp,
+});
+
+/**
+ * `query` as an `ilike` pattern matching it anywhere, with its own `%`, `_` and backslash taken
+ * literally. Unescaped, a search for `50%` would match every message containing `50`.
+ */
+export function containsPattern(query: string): string {
+  return `%${query.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+}
+
+/**
+ * Now, written the way `applyNavigationChange` writes its stamps (`toISOString`, milliseconds,
+ * UTC), from the database's clock — the clock every reaper and every API pod agrees on.
+ */
+const NOW_ISO = sql`to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
+export class PostgresSessionNavigationStore implements SessionNavigationStore, SessionAutoSettler {
   constructor(private readonly db: PostgresJsDatabase) {}
 
   async list(userId: string, after?: string): Promise<SessionList> {
@@ -41,6 +78,12 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore {
           when e.type in ('turn.completed','job.completed') then 'completed' else 'ready' end,
         'activityAt', greatest(r.created_at, r.started_at, r.finished_at, e.created_at, f.latest),
         'requestedAt', greatest(r.created_at, r.started_at),
+        'runStartedAt', case when r.state = 'leased' then r.started_at end,
+        'turnFinishedAt', t.created_at,
+        'diff', d.diff,
+        'model', m.model,
+        'titling', p.title_generation is not null
+          and p.title_requested_at > now() - ${TITLE_CLAIM_EXPIRY}::interval,
         'repository', pr.repository->>'fullName',
         'branch', j.head_branch,
         'pullRequest', case when j.pull_request_number is null then null else jsonb_build_object(
@@ -59,6 +102,21 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore {
           and (r.id is null or ev.created_at >= r.created_at)
         order by ev.created_at desc, ev.seq desc limit 1
       ) e on true
+      left join lateral (
+        select ev.created_at from events ev join sessions ss on ss.id = ev.session_id
+        where ss.project_id = p.id and ev.type in ('turn.completed','turn.failed','job.completed')
+        order by ev.created_at desc, ev.seq desc limit 1
+      ) t on true
+      left join lateral (
+        select ev.payload->'diff' as diff from events ev join sessions ss on ss.id = ev.session_id
+        where ss.project_id = p.id and ev.type = 'turn.completed' and ev.payload->>'commitSha' is not null
+        order by ev.created_at desc, ev.seq desc limit 1
+      ) d on true
+      left join lateral (
+        select tr.model from turn_requests tr join sessions ss on ss.id = tr.session_id
+        where ss.project_id = p.id and tr.kind in ('turn','test') and tr.started_at is not null
+        order by tr.started_at desc, tr.id desc limit 1
+      ) m on true
       left join project_repositories pr on pr.project_id = p.id
       left join lateral (select * from repository_jobs where project_id = p.id order by created_at desc, job_id desc limit 1) j on true
       left join lateral (select count(*)::int as pending, max(created_at) as latest from repository_feedback where project_id = p.id and request_id is null) f on true
@@ -117,12 +175,41 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore {
         new Date().toISOString(),
       );
       const revision = project.navigationRevision + 1;
+      // Taking a session out of Settled, however it is done — Un-settle, a snooze, a drag, an Undo
+      // — is the owner overruling the auto-settle rules for everything that has happened so far.
+      // Settled as the sidebar draws it (`sessionSection`): a stamp older than the newest request
+      // was already overruled by that request, and clearing it overrules nothing.
+      const before = project.navigation.doneAt;
+      const unsettled =
+        before !== null &&
+        navigation.doneAt === null &&
+        Date.parse(before) >= (await this.#lastRequested(tx, projectId));
       await tx
         .update(projects)
-        .set({ navigation, navigationRevision: revision })
+        .set({
+          navigation,
+          navigationRevision: revision,
+          ...(unsettled ? { autoSettleFloor: sql`now()` } : {}),
+        })
         .where(eq(projects.id, projectId));
       return { kind: "saved", navigation, revision };
     });
+  }
+
+  /** When the project's newest request was admitted or claimed, as epoch ms; 0 for none. */
+  async #lastRequested(tx: Pick<PostgresJsDatabase, "select">, projectId: string): Promise<number> {
+    const [newest] = await tx
+      .select({
+        at: sql<number>`extract(epoch from greatest(${turnRequests.createdAt}, ${turnRequests.startedAt})) * 1000`.mapWith(
+          Number,
+        ),
+      })
+      .from(turnRequests)
+      .innerJoin(sessions, eq(sessions.id, turnRequests.sessionId))
+      .where(eq(sessions.projectId, projectId))
+      .orderBy(desc(turnRequests.createdAt), desc(turnRequests.id))
+      .limit(1);
+    return newest?.at ?? 0;
   }
 
   async reorder(
@@ -180,6 +267,11 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore {
                   : "ready",
             activityAt: null,
             requestedAt: request?.requested_at ?? null,
+            runStartedAt: null,
+            turnFinishedAt: null,
+            diff: null,
+            model: null,
+            titling: false,
             repository: null,
             branch: null,
             pullRequest: null,
@@ -200,5 +292,163 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore {
       }
       return { kind: "saved" };
     });
+  }
+
+  async search(userId: string, query: string): Promise<SessionSearch> {
+    const pattern = containsPattern(query);
+    // Scoped to the caller in the statement itself, like every other read here. Message matches
+    // come from the trigram index (`events_message_text_trgm`), whose predicate the `type in`
+    // below repeats exactly so the planner can use it. A repair prompt is the verifier's words,
+    // not the person's, so it is not searched.
+    const rows = await this.db.execute(sql`
+      with hits as (
+        select p.id as project_id, p.name, 'name' as kind, null::text as text, p.created_at as at
+        from projects p where p.user_id = ${userId} and p.name ilike ${pattern}
+        union all
+        (select distinct on (p.id) p.id, p.name, 'message', ev.payload->>'text', ev.created_at
+        from events ev
+        join sessions ss on ss.id = ev.session_id
+        join projects p on p.id = ss.project_id
+        where p.user_id = ${userId}
+          and ev.type in ('user.message', 'steer.received')
+          and not (ev.payload ? 'repair')
+          and (ev.payload->>'text') ilike ${pattern}
+        order by p.id, ev.created_at desc, ev.seq desc)
+      ),
+      best as (
+        select distinct on (project_id) * from hits order by project_id, (kind = 'name') desc, at desc
+      )
+      select project_id, name, kind, at,
+        case when kind = 'message' then substr(text, w.start, ${SNIPPET_LENGTH}) end as snippet,
+        case when kind = 'message' then w.start > 1 end as cut_start,
+        case when kind = 'message' then w.start + ${SNIPPET_LENGTH} <= length(text) end as cut_end
+      from best
+      cross join lateral (
+        select greatest(1, strpos(lower(coalesce(text, '')), lower(${query})) - ${SNIPPET_LEAD}) as start
+      ) w
+      order by (kind = 'name') desc, at desc, project_id
+      limit ${SESSION_SEARCH_LIMIT}
+    `);
+    return {
+      results: rows.map((raw) => {
+        const row = SearchRow.parse(raw);
+        return {
+          projectId: row.project_id,
+          name: row.name,
+          match:
+            row.kind === "name"
+              ? { in: "name" as const }
+              : {
+                  in: "message" as const,
+                  snippet: row.snippet ?? "",
+                  cutStart: row.cut_start ?? false,
+                  cutEnd: row.cut_end ?? false,
+                  at: row.at,
+                },
+        };
+      }),
+    };
+  }
+
+  async autoSettleSettings(userId: string): Promise<AutoSettleSettings> {
+    const [row] = await this.db
+      .select()
+      .from(navigationSettings)
+      .where(eq(navigationSettings.userId, userId));
+    if (!row) return AUTO_SETTLE_OFF;
+    return { afterDays: row.autoSettleAfterDays, onMerge: row.autoSettleOnMerge };
+  }
+
+  async saveAutoSettleSettings(userId: string, settings: AutoSettleSettings): Promise<void> {
+    const values = {
+      autoSettleAfterDays: settings.afterDays,
+      autoSettleOnMerge: settings.onMerge,
+      updatedAt: new Date(),
+    };
+    await this.db
+      .insert(navigationSettings)
+      .values({ userId, ...values })
+      .onConflictDoUpdate({ target: navigationSettings.userId, set: values });
+  }
+
+  /**
+   * Settles, as the owner would, every session their rules say has gone quiet or shipped. One
+   * statement, so there is no gap between deciding and writing for a turn to start in; the rules
+   * are all in its `where`, so running it again settles nothing it already settled.
+   *
+   * - Only owners with a `navigation_settings` row, and only the rules they turned on.
+   * - Never pinned, snoozed, or busy, and never archived or already settled as the sidebar draws
+   *   it (`sessionSection`): a stamp older than the newest request no longer counts. Busy is a request queued or
+   *   leased in any of the project's sessions — the rule a manual settle answers `busy` with, so
+   *   the reaper cannot settle what its owner could not. A turn admitted just after this commits
+   *   reopens the session anyway, as it would after a manual settle.
+   * - Never on activity at or before `auto_settle_floor`, which this stamps and which an owner
+   *   un-settling stamps, so neither the rule nor the owner is overruled by the same history.
+   * - A snooze that has ended counts as activity, for both rules: the session comes back saying
+   *   *Woke*, and filing it away on the next tick would mean nobody ever saw that.
+   * - The merge rule needs the GitHub integration's own record of when the pull request merged
+   *   (`pull_request_merged_at`, written once), and counts it only if it came after the session's
+   *   last request: a merged pull request followed by more work is not a reason to settle that
+   *   work.
+   */
+  async autoSettle(limit = AUTO_SETTLE_BATCH): Promise<string[]> {
+    const rows = await this.db.execute(sql`
+      with due as (
+        select p.id
+        from projects p
+        join navigation_settings ns on ns.user_id = p.user_id
+        left join lateral (
+          select greatest(tr.created_at, tr.started_at) as requested,
+            greatest(tr.created_at, tr.started_at, tr.finished_at) as touched
+          from turn_requests tr join sessions ss on ss.id = tr.session_id
+          where ss.project_id = p.id
+          order by tr.created_at desc, tr.id desc limit 1
+        ) w on true
+        left join lateral (
+          select max(created_at) as at from repository_feedback where project_id = p.id
+        ) fb on true
+        left join lateral (
+          select pull_request_state, pull_request_merged_at as merged_at from repository_jobs
+          where project_id = p.id order by created_at desc, job_id desc limit 1
+        ) j on true
+        cross join lateral (
+          select greatest(w.touched, (p.navigation->>'snoozedUntil')::timestamptz) as active_at,
+            coalesce(w.requested, '-infinity'::timestamptz) as requested,
+            coalesce(p.auto_settle_floor, '-infinity'::timestamptz) as floor
+        ) a
+        cross join lateral (
+          select greatest(p.created_at, a.active_at, fb.at) as quiet_since, a.floor
+        ) q
+        where (ns.auto_settle_after_days is not null or ns.auto_settle_on_merge)
+          and coalesce((p.navigation->>'pinned')::boolean, false) = false
+          and coalesce((p.navigation->>'archivedAt')::timestamptz < a.requested, true)
+          and coalesce((p.navigation->>'snoozedUntil')::timestamptz <= now(), true)
+          and coalesce((p.navigation->>'doneAt')::timestamptz < a.requested, true)
+          and not exists (
+            select 1 from turn_requests busy join sessions ss on ss.id = busy.session_id
+            where ss.project_id = p.id and busy.state in ('queued', 'leased')
+          )
+          and (
+            (ns.auto_settle_after_days is not null
+              and q.quiet_since < now() - make_interval(days => ns.auto_settle_after_days)
+              and q.quiet_since > q.floor)
+            or (ns.auto_settle_on_merge
+              and j.pull_request_state = 'merged'
+              and j.merged_at > coalesce(a.active_at, '-infinity'::timestamptz)
+              and j.merged_at > q.floor)
+          )
+        order by p.id
+        limit ${limit}
+        for update of p skip locked
+      )
+      update projects p set
+        navigation = jsonb_set(
+          jsonb_set(p.navigation, '{doneAt}', to_jsonb(${NOW_ISO})), '{snoozedUntil}', 'null'::jsonb),
+        navigation_revision = p.navigation_revision + 1,
+        auto_settle_floor = now()
+      from due where p.id = due.id
+      returning p.id
+    `);
+    return rows.map((row) => z.object({ id: z.uuid() }).parse(row).id);
   }
 }

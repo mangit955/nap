@@ -69,7 +69,7 @@ it("treats a second commit with no changes as a no-op", async () => {
 
   expect(result.ok).toBe(true);
   if (!result.ok || !before.ok) return;
-  expect(result.value).toEqual({ committed: false, sha: null });
+  expect(result.value).toEqual({ committed: false, sha: null, diff: null });
   // The repository did not move, which is the part that actually matters.
   expect(await currentSha(manager, sandboxId)).toEqual({ ok: true, value: before.value });
 });

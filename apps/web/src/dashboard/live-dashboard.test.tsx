@@ -36,6 +36,8 @@ vi.mock("../projects/use-session-navigation.ts", () => ({
       actionError: undefined,
       create: vi.fn(),
       close: vi.fn(),
+      search: vi.fn(async () => ({ ok: true as const, value: { results: [] } })),
+      regenerateTitle: vi.fn(async () => {}),
       remove: vi.fn(),
     };
   },
@@ -208,6 +210,11 @@ it("opens a project from the sidebar client-side, on the first click", () => {
       branch: null,
       pullRequest: null,
       pendingFeedback: 0,
+      runStartedAt: null,
+      turnFinishedAt: null,
+      diff: null,
+      model: null,
+      titling: false,
     },
   ];
   useSession.mockReturnValue({

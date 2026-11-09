@@ -175,7 +175,11 @@ describe("commitAll", () => {
 
     const head = await git(source, "rev-parse", "HEAD");
     expect(head).not.toBe(before);
-    expect(result).toEqual({ ok: true, value: { committed: true, sha: head } });
+    // "file" goes from one line to one other line; "new.ts" adds one. Counted by git itself.
+    expect(result).toEqual({
+      ok: true,
+      value: { committed: true, sha: head, diff: { added: 2, removed: 1 } },
+    });
     expect(await git(source, "log", "-1", "--format=%B")).toBe(MESSAGE);
     expect(await git(source, "status", "--porcelain")).toBe("");
     expect(manager.issued).toHaveLength(1);
@@ -186,7 +190,10 @@ describe("commitAll", () => {
 
     const result = await commitAll(new LocalSandbox(), "sandbox", MESSAGE, { cwd: source });
 
-    expect(result).toMatchObject({ ok: true, value: { committed: true } });
+    expect(result).toMatchObject({
+      ok: true,
+      value: { committed: true, diff: { added: 0, removed: 1 } },
+    });
     expect(await git(source, "ls-files")).toBe("");
   });
 
@@ -196,7 +203,7 @@ describe("commitAll", () => {
 
     const result = await commitAll(manager, "sandbox", MESSAGE, { cwd: source });
 
-    expect(result).toEqual({ ok: true, value: { committed: false, sha: null } });
+    expect(result).toEqual({ ok: true, value: { committed: false, sha: null, diff: null } });
     expect(await git(source, "rev-parse", "HEAD")).toBe(before);
     expect(manager.issued).toHaveLength(1);
   });

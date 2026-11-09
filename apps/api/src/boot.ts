@@ -1,3 +1,4 @@
+import { PostgresProjectTitleStore } from "@nap/db/postgres-project-title-store";
 import { PostgresSessionNavigationStore } from "@nap/db/session-navigation-store";
 import { PostgresSessionStartStore } from "@nap/db/session-start-store";
 /**
@@ -193,6 +194,8 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
    * a worker. On the bus's transport, so on the socket it already holds; and it is that bus's echo
    * heartbeat, over the same socket, that says whether it is still hearing. See `docs/adr/0027`.
    */
+  /** One store answers the sidebar's reads and writes and the reaper's auto-settle alike. */
+  const navigation = new PostgresSessionNavigationStore(db);
   const claims =
     notifyTransport === null || notifyBus === null
       ? null
@@ -375,7 +378,9 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     encryptionKey: encryptionKeyFrom(env.NAP_KEY_ENCRYPTION_SECRET),
     verifyKey: createKeyVerifier(),
     sessionStarts: new PostgresSessionStartStore(db, { claims }),
-    sessionNavigation: new PostgresSessionNavigationStore(db),
+    sessionNavigation: navigation,
+    autoSettle: navigation,
+    titles: new PostgresProjectTitleStore(db),
     createProject: (options) => createProjectSession(db, options),
     upgradeWebSocket,
     // The file a worker pod's liveness probe reads. Built here rather than in the composition

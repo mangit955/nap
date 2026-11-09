@@ -141,6 +141,33 @@ export function resolveTurnAccess(request: TurnAccessRequest): TurnAccess {
 }
 
 /**
+ * Who pays for a session title, and on which model (docs/adr/0031 D4): whoever would pay for this
+ * caller's turn, on the cheapest model their account reaches — the deployment's free model, or,
+ * for an Anthropic key, which reaches no other vendor, the first Claude model allowed. Null when
+ * there is none, and the title is not written.
+ *
+ * Decided by `resolveTurnAccess` with the model named, so the payer is the turn's own rule and a
+ * title can never fall through to `defaultModel`, which is a paid model.
+ */
+export function resolveTitleAccess(request: {
+  key: CallerKey;
+  allowed: readonly string[];
+  freeModel: string;
+}): { model: string; credentials?: ModelCredentials } | null {
+  const { key, allowed, freeModel } = request;
+  const requested =
+    key?.platform === "anthropic"
+      ? allowed.find((model) => model.startsWith("anthropic/"))
+      : freeModel;
+  if (requested === undefined) return null;
+  const access = resolveTurnAccess({ requested, key, allowed, freeModel, defaultModel: freeModel });
+  if (!access.ok) return null;
+  return access.credentials === undefined
+    ? { model: access.model }
+    : { model: access.model, credentials: access.credentials };
+}
+
+/**
  * What to run when somebody with a key names no model.
  *
  * `defaultModel` is `NAP_MODEL`, which is namespaced for OpenRouter — so it is the wrong
