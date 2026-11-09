@@ -159,7 +159,7 @@ export class ThumbnailLane {
     // A stranded upload counts as waiting: it holds its bytes and its project's place, and a store
     // that has stopped answering would otherwise strand one more per deadline without limit. So
     // waiting shots and stranded uploads together never exceed the bound, and a broken store costs
-    // cards until it answers again.
+    // cards until it answers again, or until the worker restarts if it never does.
     const stranded = this.#stranded;
     if (!this.#queued.has(projectId) && this.#queued.size + stranded >= this.#maxQueued) {
       logger.warn(
