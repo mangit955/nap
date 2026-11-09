@@ -27,6 +27,7 @@ const row = (name: string, extra: Partial<SessionSummary> = {}): SessionSummary 
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
   ...extra,
 });
 const at = "2026-10-20T12:00:00.000Z";

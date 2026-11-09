@@ -27,6 +27,7 @@ const row = (name = "Review target"): SessionSummary => ({
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -104,6 +105,7 @@ it("UI-03 reveals the final selected row after persisted shelves have loaded", (
       remove: vi.fn(),
       close: vi.fn(),
       search: vi.fn(async () => ({ ok: true as const, value: { results: [] } })),
+      regenerateTitle: vi.fn(async () => {}),
     };
     const props = {
       ownerId: "review-owner",

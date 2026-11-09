@@ -19,6 +19,7 @@ import {
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
+import { TITLE_CLAIM_EXPIRY } from "./postgres-project-title-store.ts";
 import { navigationSettings, projects, sessions, turnRequests } from "./schema.ts";
 
 const timestamp = z.coerce.date().transform((value) => value.toISOString());
@@ -81,6 +82,8 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
         'turnFinishedAt', t.created_at,
         'diff', d.diff,
         'model', m.model,
+        'titling', p.title_generation is not null
+          and p.title_requested_at > now() - ${TITLE_CLAIM_EXPIRY}::interval,
         'repository', pr.repository->>'fullName',
         'branch', j.head_branch,
         'pullRequest', case when j.pull_request_number is null then null else jsonb_build_object(
@@ -246,6 +249,7 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
             turnFinishedAt: null,
             diff: null,
             model: null,
+            titling: false,
             repository: null,
             branch: null,
             pullRequest: null,

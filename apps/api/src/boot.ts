@@ -1,3 +1,4 @@
+import { PostgresProjectTitleStore } from "@nap/db/postgres-project-title-store";
 import { PostgresSessionNavigationStore } from "@nap/db/session-navigation-store";
 import { PostgresSessionStartStore } from "@nap/db/session-start-store";
 /**
@@ -388,6 +389,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     sessionStarts: new PostgresSessionStartStore(db, { claims }),
     sessionNavigation: navigation,
     autoSettle: navigation,
+    titles: new PostgresProjectTitleStore(db),
     createProject: (options) => createProjectSession(db, options),
     upgradeWebSocket,
     // The file a worker pod's liveness probe reads. Built here rather than in the composition

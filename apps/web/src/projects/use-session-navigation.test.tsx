@@ -29,6 +29,7 @@ const row = (name: string, extra: Partial<SessionSummary> = {}): SessionSummary 
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
   ...extra,
 });
 
@@ -322,4 +323,51 @@ it("uses the accepted order revision when a refresh sees the commit before its r
     true,
   );
   expect(result.current.actionError).toBeUndefined();
+});
+
+it("dims a session while its title is regenerated, then reads the name the server wrote", async () => {
+  let session = row("Build me a habit tracker");
+  let answer: (response: Response) => void = () => {};
+  const fetchJson = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST" && url.endsWith(`/projects/${session.projectId}/title`))
+      return new Promise<Response>((resolve) => {
+        answer = resolve;
+      });
+    return Response.json({ sessions: [session], next: null });
+  });
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson }));
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+  let done: Promise<void> | undefined;
+  act(() => {
+    done = result.current.regenerateTitle(session.projectId);
+  });
+  expect(result.current.projects[0]?.titling).toBe(true);
+
+  session = { ...session, name: "Team Standup Streaks" };
+  await act(async () => {
+    answer(Response.json({ ...session }));
+    await done;
+  });
+  expect(result.current.projects[0]).toMatchObject({
+    name: "Team Standup Streaks",
+    titling: false,
+  });
+  expect(result.current.actionError).toBeUndefined();
+});
+
+it("says why a regenerated title was not written, and stops dimming the row", async () => {
+  const session = row("Habit Tracker");
+  const fetchJson = vi.fn(async (_url: string, init?: RequestInit) =>
+    init?.method === "POST"
+      ? Response.json(
+          { error: "The model's title did not fit. The name is unchanged; try again." },
+          { status: 502 },
+        )
+      : Response.json({ sessions: [session], next: null }),
+  );
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson }));
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+  await act(async () => result.current.regenerateTitle(session.projectId));
+  expect(result.current.actionError).toMatch(/name is unchanged/);
+  expect(result.current.projects[0]).toMatchObject({ name: "Habit Tracker", titling: false });
 });

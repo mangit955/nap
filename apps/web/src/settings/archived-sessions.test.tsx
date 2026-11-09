@@ -25,6 +25,7 @@ it("lists only archived sessions and restores through navigation", () => {
     turnFinishedAt: null,
     diff: null,
     model: null,
+    titling: false,
   };
   const live = {
     ...archived,

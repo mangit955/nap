@@ -210,6 +210,15 @@ const CASES = [
     payload: { level: "warning", text: "Could not restore your last snapshot." },
   },
   {
+    type: "project.renamed",
+    payload: {
+      name: "Standup streak tracker",
+      source: "model",
+      model: "openai/gpt-5.6-luna",
+      usage: { inputTokens: 900, outputTokens: 6 },
+    },
+  },
+  {
     type: "plan.updated",
     payload: { toolCallId: "p1", items: [{ content: "Add the list", status: "pending" }] },
   },

@@ -720,6 +720,16 @@ export function buildTranscript(
         items.push({ kind: "notice", key, level: event.payload.level, text: event.payload.text });
         break;
 
+      // The platform again, not the agent: a quiet line saying what the session is now called.
+      case "project.renamed":
+        items.push({
+          kind: "notice",
+          key,
+          level: "info",
+          text: `Named this session “${event.payload.name}”.`,
+        });
+        break;
+
       case "turn.started":
         if (event.payload.source === "verification" && !retryByTurn.has(event.turnId)) {
           retryByTurn.set(event.turnId, lastUserRequest);

@@ -47,6 +47,7 @@ it("loads new-session drafts from IndexedDB, excludes existing sessions and expi
     turnFinishedAt: null,
     diff: null,
     model: null,
+    titling: false,
   };
   const view = render(
     <DraftRows

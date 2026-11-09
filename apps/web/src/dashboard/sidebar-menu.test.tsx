@@ -51,6 +51,7 @@ const row = (
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
   ...extra,
 });
 

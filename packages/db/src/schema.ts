@@ -7,6 +7,7 @@ import type {
 import type { MediaAttachment } from "@nap/shared/media";
 import type { ProviderAuthStatus, ProviderDriver } from "@nap/shared/provider-accounts-protocol";
 import type { SessionNavigation } from "@nap/shared/session-navigation";
+import type { NameSource } from "@nap/shared/session-title";
 /**
  * The Postgres schema, per docs/PLAN.md §5.
  *
@@ -244,6 +245,22 @@ export const projects = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /**
+     * Where `name` came from (docs/adr/0031): `seed` (trimmed from the first prompt, or a
+     * placeholder), `model`, or `user`. Nothing automatic ever replaces a `user` name. Text with a
+     * check rather than an enum, for the reason `sandbox_reservations.state` is.
+     */
+    nameSource: text("name_source").$type<NameSource>().notNull().default("seed"),
+    /**
+     * The title being written now, if any: a claim, so one project never has two in flight, and
+     * the identity a model's answer must still match to be applied. A rename clears it, which is
+     * how a rename that lands mid-generation wins.
+     */
+    titleGeneration: uuid("title_generation"),
+    /** When a title was last asked for: how a claim tells abandoned from in flight, and the cooldown. */
+    titleRequestedAt: timestamp("title_requested_at", { withTimezone: true }),
+    /** Set by the automatic claim, so a project is titled automatically at most once. */
+    titleAutoAttempted: boolean("title_auto_attempted").notNull().default(false),
     slug: text("slug").notNull(),
     navigation: jsonb("navigation").$type<SessionNavigation>().notNull().default({
       pinned: false,
@@ -272,7 +289,10 @@ export const projects = pgTable(
     createdAt,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("projects_user_id_slug_unique").on(t.userId, t.slug)],
+  (t) => [
+    unique("projects_user_id_slug_unique").on(t.userId, t.slug),
+    check("projects_name_source", sql`${t.nameSource} in ('seed', 'model', 'user')`),
+  ],
 );
 
 /**

@@ -55,6 +55,7 @@ const portfolio: SessionSummary = {
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
 };
 
 /** The mobile drawer open on one session, with that session's context menu open over it. */

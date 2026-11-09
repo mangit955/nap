@@ -179,9 +179,11 @@ export const SessionRow = memo(function SessionRow({
           : isOpen
             ? "font-medium text-ink"
             : "font-normal text-sidebar-label group-hover:text-ink group-focus-within:text-ink"
-      }`}
+      } ${session.titling ? "animate-pulse opacity-50" : ""}`}
+      aria-busy={session.titling || undefined}
     >
       {session.name}
+      {session.titling && <span className="sr-only"> (writing a title)</span>}
     </span>
   );
 

@@ -49,6 +49,7 @@ function session(
     turnFinishedAt: null,
     diff: null,
     model: null,
+    titling: false,
     ...over,
   };
   return row;

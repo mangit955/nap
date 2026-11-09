@@ -27,6 +27,7 @@ const item = (): SessionSummary => ({
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
 });
 it("separates organization from execution and wakes snoozes without running work", () => {
   const session = item();

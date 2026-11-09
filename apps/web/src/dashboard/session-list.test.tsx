@@ -24,6 +24,7 @@ const row = (name: string): SessionSummary => ({
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
 });
 it("shows truthful activity, preserves the selected row through filtering, and offers keyboard reorder", () => {
   const a = row("Fix header");

@@ -45,6 +45,7 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
+import type { SessionTitles } from "../projects/session-titler.ts";
 import { refusalStatus, resolveTurnAccess } from "./model-access.ts";
 import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
@@ -93,6 +94,11 @@ export type TurnRouteDeps = {
    * than fail every turn for want of a table.
    */
   keys?: CallerKeys;
+  /**
+   * Writes a model's title once the first prompt has seeded the name (docs/adr/0031). Asked and
+   * never awaited; absent, the seed is the name, as before.
+   */
+  titles?: SessionTitles | undefined;
   /** What a turn runs on when the asker has no key. Always free; the env check proves it. */
   freeModel: string;
   /** What a turn runs on when the asker has a key and names nothing. */
@@ -573,7 +579,15 @@ async function nameFromFirstPrompt(
     const project = await deps.projects.get(session.projectId, userId);
     if (project === null || !isUnnamed(project.name)) return;
 
-    await deps.projects.rename(session.projectId, userId, titleFromPrompt(message));
+    // A seed lands only on a name nobody chose, and a model's title is asked for only after it.
+    if (!(await deps.projects.rename(session.projectId, userId, titleFromPrompt(message), "seed")))
+      return;
+    void deps.titles?.title({
+      projectId: session.projectId,
+      userId,
+      mode: "automatic",
+      message,
+    });
   } catch (error) {
     getLogger().warn({ err: error, projectId: session.projectId }, "could not name the project");
   }

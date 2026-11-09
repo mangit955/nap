@@ -369,7 +369,7 @@ export function toRequestParams(
   return {
     model: config.model,
     max_tokens: Math.min(request.maxOutputTokens ?? config.maxTokens, config.maxTokens),
-    ...(request.purpose === "compaction"
+    ...(request.purpose !== undefined
       ? { thinking: { type: "disabled" as const } }
       : {
           output_config: { effort: config.effort },

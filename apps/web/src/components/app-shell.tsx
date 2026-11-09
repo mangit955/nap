@@ -23,6 +23,7 @@ import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
 import { phaseOf, recordState } from "../projects/project-phase.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
+import { announceSessionsChanged } from "../projects/use-session-navigation.ts";
 import { Splitter } from "../ui/splitter.tsx";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
@@ -194,11 +195,20 @@ export function AppShell({
     )?.seq ?? 0;
   const projectRevision =
     log.events.findLast(
-      (event) => event.type === "system.notice" || event.type === "preview.stopped",
+      (event) =>
+        event.type === "system.notice" ||
+        event.type === "preview.stopped" ||
+        event.type === "project.renamed",
     )?.seq ?? 0;
   useEffect(() => {
     setProjectRefreshKey(projectRevision);
   }, [projectRevision]);
+  // A model titled the session: the bar refetches above, and the sidebar is told to read its
+  // list again. The name itself is never taken from the event, which a replay could make stale.
+  const renamedSeq = log.events.findLast((event) => event.type === "project.renamed")?.seq;
+  useEffect(() => {
+    if (renamedSeq !== undefined) announceSessionsChanged();
+  }, [renamedSeq]);
 
   const files = useProjectFiles({
     sessionId,

@@ -76,6 +76,7 @@ function server(deleteStatus: number) {
           turnFinishedAt: null,
           diff: null,
           model: null,
+          titling: false,
         })),
         next: null,
       });
@@ -165,6 +166,7 @@ describe("opening a session", () => {
                 turnFinishedAt: null,
                 diff: null,
                 model: null,
+                titling: false,
               },
             ],
             next: null,

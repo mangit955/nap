@@ -44,6 +44,8 @@ export const SessionSummarySchema = ProjectSummarySchema.extend({
   diff: DiffStatSchema.nullable().default(null),
   /** The model the newest turn ran on, as the request named it. */
   model: z.string().nullable().default(null),
+  /** A model is writing this session's title now; the row dims its name (docs/adr/0031). */
+  titling: z.boolean().default(false),
   repository: z.string().nullable(),
   branch: z.string().nullable(),
   pullRequest: z

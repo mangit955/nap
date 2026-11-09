@@ -87,12 +87,23 @@ export class InMemoryProjectStore implements ProjectStore {
     return withoutOwner(found);
   }
 
-  async rename(projectId: string, userId: string, name: string): Promise<boolean> {
+  /** Where each project's name came from; a project nobody has named is a seed, as in Postgres. */
+  readonly nameSources = new Map<string, "seed" | "model" | "user">();
+
+  async rename(
+    projectId: string,
+    userId: string,
+    name: string,
+    source: "user" | "seed" = "user",
+  ): Promise<boolean> {
     this.#throwIfFailing();
     if (this.#renameFailure !== undefined) throw this.#renameFailure;
 
     const found = this.#projects.get(projectId);
     if (found === undefined || found.userId !== userId) return false;
+    const current = this.nameSources.get(projectId) ?? "seed";
+    if (source === "seed" && current !== "seed") return false;
+    this.nameSources.set(projectId, source);
 
     // `updatedAt` moves, as it does in the real store — the listing is ordered by it, and a
     // fake that left it behind would let a store that forgot to touch it pass.

@@ -38,6 +38,7 @@ function row(name: string, nav: Partial<SessionSummary["navigation"]> = {}): Ses
     turnFinishedAt: null,
     diff: null,
     model: null,
+    titling: false,
   };
 }
 beforeEach(() => {

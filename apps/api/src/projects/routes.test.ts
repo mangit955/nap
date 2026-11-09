@@ -8,11 +8,12 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { BUNDLE_COMMAND, bundled } from "@nap/sandbox/testing/script-git";
 import type { ProjectSummary } from "@nap/shared/ports/project-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
 import type { SandboxLimits } from "../turns/sandbox-quota.ts";
 import type { ProjectRouteDeps } from "./routes.ts";
+import type { SessionTitles, TitleOutcome } from "./session-titler.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -37,6 +38,7 @@ let queue: InMemoryTurnQueue;
 /** The model settings the routes are built with. */
 let models: ProjectRouteDeps["models"];
 let limits: SandboxLimits | undefined;
+let titles: SessionTitles | undefined;
 /** The log the app writes to, so a close's announcement can be read back. */
 let events: InMemoryEventStore;
 
@@ -53,6 +55,7 @@ function summary(overrides: Partial<ProjectSummary> = {}): ProjectSummary {
 }
 
 beforeEach(async () => {
+  titles = undefined;
   sandbox = new InMemorySandboxManager()
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${SHA}\n` })
     .script(BUNDLE_COMMAND, bundled());
@@ -102,6 +105,7 @@ function app() {
       queue,
       models,
       ...(limits === undefined ? {} : { limits: { projects, sandboxes: limits } }),
+      titles,
     },
   });
 }
@@ -447,6 +451,58 @@ describe("an app built without project routes", () => {
     });
 
     expect((await bare.request("/projects")).status).toBe(404);
+  });
+});
+
+describe("POST /projects/:projectId/title", () => {
+  const regenerate = (projectId = PROJECT) =>
+    app().request(`/projects/${projectId}/title`, { method: "POST" });
+  const answering = (outcome: TitleOutcome) => {
+    const title = vi.fn(async () => outcome);
+    titles = { title };
+    return title;
+  };
+
+  it("asks for a title the person is waiting on, and answers the name it wrote", async () => {
+    const title = answering({ kind: "titled", name: "Team Standup Streaks" });
+    const res = await regenerate();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      projectId: PROJECT,
+      name: "Team Standup Streaks",
+    });
+    expect(title).toHaveBeenCalledExactlyOnceWith({
+      projectId: PROJECT,
+      userId: FAKE_OWNER,
+      mode: "manual",
+    });
+  });
+
+  it("says why the name was kept, and that it is unchanged", async () => {
+    answering({ kind: "busy" });
+    expect((await regenerate()).status).toBe(409);
+    answering({ kind: "kept", reason: "renamed" });
+    const renamed = await regenerate();
+    expect(renamed.status).toBe(409);
+    await expect(renamed.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/your name stays/),
+    });
+    answering({ kind: "kept", reason: "invalid" });
+    const invalid = await regenerate();
+    expect(invalid.status).toBe(502);
+    await expect(invalid.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/unchanged/),
+    });
+  });
+
+  it("is a 404 for somebody else's project, and asks nothing", async () => {
+    const title = answering({ kind: "titled", name: "Never" });
+    expect((await regenerate("00000000-0000-4000-8000-00000000dead")).status).toBe(404);
+    expect(title).not.toHaveBeenCalled();
+  });
+
+  it("says titles are unavailable on a deployment without them", async () => {
+    expect((await regenerate()).status).toBe(503);
   });
 });
 

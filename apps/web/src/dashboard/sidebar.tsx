@@ -135,6 +135,7 @@ export function Sidebar({
       turnFinishedAt: null,
       diff: null,
       model: null,
+      titling: false,
     }));
   return (
     <nav
@@ -250,6 +251,7 @@ export function Sidebar({
                 onRepositoryChange={setRepository}
                 onApply={navigation?.apply}
                 onRename={onRename}
+                onRegenerateTitle={navigation?.regenerateTitle}
                 onDelete={onDelete}
                 onClose={onClose}
                 onSelectProject={onSelectProject}

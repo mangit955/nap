@@ -40,6 +40,17 @@ import { parseProjectId } from "../files/params.ts";
 import { refusalStatus, resolveTurnAccess } from "../turns/model-access.ts";
 import type { CallerKeys } from "../turns/routes.ts";
 import { checkSandboxQuota, type SandboxLimits } from "../turns/sandbox-quota.ts";
+import type { SessionTitles, TitleOutcome } from "./session-titler.ts";
+
+/** What a regenerate that kept the old name says, by why. Each says the name is unchanged. */
+const KEPT_MESSAGE: Record<Extract<TitleOutcome, { kind: "kept" }>["reason"], string> = {
+  no_access: "No model is available to write a title. The name is unchanged.",
+  nothing_to_title: "There are no messages in this session to title it from yet.",
+  refused: "The model declined to write a title. The name is unchanged.",
+  failed: "Could not write a title. The name is unchanged; try again.",
+  invalid: "The model's title did not fit. The name is unchanged; try again.",
+  renamed: "The session was renamed while the title was being written, so your name stays.",
+};
 
 export type CreatedProject = { projectId: string; sessionId: string };
 
@@ -104,6 +115,8 @@ export type ProjectRouteDeps = {
    * the same — a route module has no business knowing where that is kept.
    */
   isBusy: (sessionIds: string[], projectId: string) => Promise<boolean>;
+  /** Regenerate title. Absent, the route answers that titles are not available here. */
+  titles?: SessionTitles | undefined;
 };
 
 const CreateProjectSchema = z.object({ name: z.string().optional() });
@@ -291,6 +304,36 @@ export function registerProjectRoutes(
     if (!renamed) return c.json({ error: "no such project" }, 404);
 
     return c.json({ ...project.value, name: body.data.name });
+  });
+
+  /**
+   * **Regenerate title**: the person asking for a model's title, now. Waited on, unlike the
+   * automatic one, because somebody is looking at the row and the answer is what they asked for;
+   * the call carries its own timeout. It may replace the person's own name — they asked — and a
+   * rename they make while it runs still wins (docs/adr/0031 D6).
+   */
+  app.post("/projects/:projectId/title", async (c) => {
+    const project = await found(c.req.param("projectId"), c.get("userId"), deps);
+    if (!project.ok) return c.json({ error: project.error.message }, project.error.status);
+    if (deps.titles === undefined)
+      return c.json({ error: "Titles are not available on this deployment." }, 503);
+
+    const outcome = await deps.titles.title({
+      projectId: project.value.projectId,
+      userId: c.get("userId"),
+      mode: "manual",
+    });
+    switch (outcome.kind) {
+      case "titled":
+        return c.json({ ...project.value, name: outcome.name });
+      case "busy":
+        return c.json({ error: "A title is already being written. Try again in a moment." }, 409);
+      case "kept":
+        return c.json(
+          { error: KEPT_MESSAGE[outcome.reason] },
+          outcome.reason === "renamed" ? 409 : 502,
+        );
+    }
   });
 
   app.post("/projects/:projectId/close", async (c) => {

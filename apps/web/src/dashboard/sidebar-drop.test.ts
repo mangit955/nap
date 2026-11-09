@@ -36,6 +36,7 @@ const session = (
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
   ...extra,
 });
 

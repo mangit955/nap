@@ -26,6 +26,11 @@ the owner's settings and off until turned on; a pinned, snoozed, archived or bus
 auto-settled. Taking a session back out of Settled stamps `auto_settle_floor`, and nothing at or
 before that moment can settle it again — so un-settling sticks until new work arrives.
 
+**Name source** — where a project's name came from: `seed` (the first prompt trimmed by
+`titleFromPrompt`, written at once), `model` (a title a model wrote afterwards, or on **Regenerate
+title**), or `user` (typed by the person). Nothing automatic ever replaces a `user` name, and a
+rename always wins over a title still being written. See docs/adr/0031.
+
 **Woke** — a snooze that has run out on a session nobody has looked at since. It comes back to the
 inbox saying *Woke* until it is opened or dismissed, which moves the read watermark past the
 wake. Only ever drawn, never stored: it is `snoozedUntil` in the past and `readAt` before it.

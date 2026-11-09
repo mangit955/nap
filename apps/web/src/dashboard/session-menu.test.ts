@@ -27,6 +27,7 @@ const session = (
   turnFinishedAt: null,
   diff: null,
   model: null,
+  titling: false,
   ...extra,
 });
 const everything = { navigate: true, rename: true, putAway: true, remove: true };
@@ -129,4 +130,19 @@ it("offers only what the page can do, and no branch to copy when there is none",
   });
   expect(ids(items)).toEqual(["filter-source", "copy", "copy-link"]);
   expect(items[0]?.label).toBe("Filter by Scratch");
+});
+
+it("offers Regenerate title where a page can ask, and not while one is being written", () => {
+  const offered = (titling: boolean, regenerateTitle: boolean) =>
+    ids(
+      sessionMenuItems({
+        session: session({}, { titling }),
+        now: NOW,
+        can: { ...everything, regenerateTitle },
+        filteringBySource: false,
+      }),
+    ).includes("regenerate-title");
+  expect(offered(false, true)).toBe(true);
+  expect(offered(true, true)).toBe(false);
+  expect(offered(false, false)).toBe(false);
 });

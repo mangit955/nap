@@ -33,6 +33,7 @@ vi.mock("../projects/use-session-navigation.ts", () => ({
       create: vi.fn(),
       close: vi.fn(),
       search: vi.fn(async () => ({ ok: true as const, value: { results: [] } })),
+      regenerateTitle: vi.fn(async () => {}),
       remove: vi.fn(),
     };
   },

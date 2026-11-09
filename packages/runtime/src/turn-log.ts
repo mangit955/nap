@@ -204,6 +204,15 @@ function detail(event: NapEvent): Record<string, unknown> {
     case "system.notice":
       return { noticeLevel: event.payload.level };
 
+    // The name is the person's project, so it stays out of the log like any other content.
+    case "project.renamed":
+      return {
+        nameSource: event.payload.source,
+        model: event.payload.model,
+        inputTokens: event.payload.usage.inputTokens,
+        outputTokens: event.payload.usage.outputTokens,
+      };
+
     case "job.started":
       // The objective is the user's own prose, and the rule above applies to it as much as to
       // a message: it is in the `events` table already, addressable by this very id.

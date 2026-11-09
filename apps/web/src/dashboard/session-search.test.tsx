@@ -43,6 +43,7 @@ function mount() {
         remove: vi.fn(),
         close: vi.fn(),
         search,
+        regenerateTitle: vi.fn(async () => {}),
       }}
       name="Reader"
       email={undefined}
