@@ -29,6 +29,7 @@ import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { Result } from "@nap/shared/result";
+import { dependenciesKey } from "./restore.ts";
 import { thumbnailKey } from "./turn-thumbnail.ts";
 
 export type DeleteFailureReason =
@@ -134,6 +135,19 @@ export async function deleteProject(
       error: {
         reason: "objects_failed",
         message: `could not delete the thumbnail: ${picture.error.message}`,
+      },
+    };
+  }
+
+  // The project's installed dependencies, kept so a reopen need not install them, and derived
+  // from the id for the same reason and with the same consequence as the picture above.
+  const dependencies = await objects.delete(dependenciesKey(projectId));
+  if (!dependencies.ok) {
+    return {
+      ok: false,
+      error: {
+        reason: "objects_failed",
+        message: `could not delete the dependency archive: ${dependencies.error.message}`,
       },
     };
   }

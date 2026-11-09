@@ -75,6 +75,17 @@ describe("deleting a project", () => {
     expect(objects.keys()).toEqual([]);
   });
 
+  it("takes the project's dependency archive with it, before the row that names the project", async () => {
+    // Derived from the id like the thumbnail, so after the row goes nothing could name it again.
+    await objects.put(`projects/${PROJECT}/dependencies.tar.gz`, new Uint8Array([31, 139]));
+
+    const result = await remove();
+
+    expect(objects.keys()).toEqual([]);
+    // Left out of the count for the thumbnail's reason: deleting a key never written succeeds.
+    expect(result).toMatchObject({ ok: true, value: { objectsDeleted: 2 } });
+  });
+
   it("removes the row, and with it everything the database hangs off it", async () => {
     await remove();
 

@@ -850,3 +850,22 @@ Once either new field is durable, do not roll an event reader back to a version 
 Stop new repair submissions and roll forward with compatible readers. Old logs remain readable,
 but already-contaminated test goals are not backfilled or recovered from prompt text. See
 [Fix it](computer-use.md#fix-it) for the structured repair path.
+
+## Dependency archive rollout
+
+A reopen that has to install now stores the installed `node_modules` at
+`projects/<projectId>/dependencies.tar.gz` in the same bucket, and later reopens extract it
+instead of installing ([ADR-0032](adr/0032-a-reopen-does-not-reinstall.md)). **No new env keys**:
+it uses `R2_*` as snapshots do.
+
+- **Mixed versions are safe.** Old workers neither read nor write the archive, so they install
+  as before. Anything an old reopen misses only costs that install.
+- **Storage is one object per project**, typically tens of MB, capped at 128 MiB by
+  `MAX_DEPENDENCY_ARCHIVE_BYTES`. It is replaced in place when a project's dependencies change.
+- **Deleting a project deletes its archive**, but only in code that knows about it. Deleting a
+  project from a rolled-back API leaves the archive behind, under a prefix nothing names any
+  more. After a rollback, `ListObjectsV2` on `projects/*/dependencies.tar.gz` joined against
+  `projects` finds those orphans.
+- **Rebuilding the template invalidates every archive at once.** The key includes the image's
+  dependency inputs and toolchain, so each project installs once on its next reopen and stores a
+  fresh archive.
