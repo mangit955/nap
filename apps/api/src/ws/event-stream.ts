@@ -192,6 +192,7 @@ const USAGE_EVENTS: Record<UsageEventType, true> = {
   "subagent.completed": true,
   "compaction.completed": true,
   "compaction.failed": true,
+  "project.renamed": true,
 };
 
 function carriesUsage(event: StoredEvent): event is Extract<StoredEvent, { type: UsageEventType }> {
