@@ -673,7 +673,7 @@ const oldEvent = <T extends string, P extends z.ZodType>(type: T, payload: P) =>
     createdAt: z.iso.datetime(),
     payload,
   });
-// The four usage-bearing events as an open tab from before the split parses them.
+// Every usage-bearing event as an open tab from before the split parses it.
 const OldUsageFrame = z.strictObject({
   type: z.literal("event"),
   event: z.discriminatedUnion("type", [
@@ -714,6 +714,15 @@ const OldUsageFrame = z.strictObject({
         message: z.string(),
         cancelled: z.boolean(),
         usage: OldUsage.nullable(),
+      }),
+    ),
+    oldEvent(
+      "project.renamed",
+      z.strictObject({
+        name: z.string().min(1),
+        source: z.enum(["seed", "model", "user"]),
+        model: z.string().min(1),
+        usage: OldUsage,
       }),
     ),
   ]),
@@ -760,6 +769,11 @@ describe("the usage cache split", () => {
       ...at,
       type: "turn.completed",
       payload: { usage: CACHED, durationMs: 9, commitSha: null },
+    },
+    {
+      ...at,
+      type: "project.renamed",
+      payload: { name: "Team Standup Streaks", source: "model", model: "m", usage: CACHED },
     },
   ];
   const repairPrompt: PendingEvent = {
@@ -835,7 +849,7 @@ describe("the usage cache split", () => {
 
       for (const delivered of [socket, reconnected]) {
         const usages = delivered.events.filter((event) => event.type !== "user.message");
-        expect(usages.length).toBeGreaterThanOrEqual(4);
+        expect(usages.length).toBeGreaterThanOrEqual(usageEvents.length);
         for (const event of usages) {
           expect(usageOf(event)).toStrictEqual(
             usageCacheSplit
@@ -849,9 +863,11 @@ describe("the usage cache split", () => {
         }))
           expect(OldUsageFrame.safeParse(JSON.parse(raw)).success).toBe(!usageCacheSplit);
       }
-      // Every path: 4 replayed + 4 buffered + 4 live, then 4 on reconnect.
-      expect(socket.events.filter((event) => event.type !== "user.message")).toHaveLength(12);
-      expect(reconnected.events).toHaveLength(4);
+      // Every path: each usage event replayed, buffered and live, then once more on reconnect.
+      expect(socket.events.filter((event) => event.type !== "user.message")).toHaveLength(
+        3 * usageEvents.length,
+      );
+      expect(reconnected.events).toHaveLength(usageEvents.length);
       // The repair projection is decided by its own flag, whatever this one says.
       const prompt = socket.events.find((event) => event.type === "user.message");
       expect(prompt?.type === "user.message" ? prompt.payload.repair : null).toEqual(
@@ -860,7 +876,7 @@ describe("the usage cache split", () => {
       // The log itself keeps the split; only what a legacy socket is sent loses it.
       const durable = await store.readFrom(SESSION, 0);
       expect(durable.filter((event) => event.type !== "user.message").map(usageOf)).toEqual(
-        Array(16).fill(CACHED),
+        Array(4 * usageEvents.length).fill(CACHED),
       );
     },
   );
