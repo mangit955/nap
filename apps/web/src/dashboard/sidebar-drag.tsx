@@ -21,19 +21,61 @@ import {
   type Modifier,
   MouseSensor,
   TouchSensor,
+  useDndContext,
+  useDndMonitor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
 import { SortableContext, type SortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { type ReactNode, type RefObject, useMemo, useRef } from "react";
+import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef } from "react";
 
 /**
  * The boundaries and an empty Settled shelf appear when a drag starts, which moves every row
  * below them. Rects measured before that would put each drop target where it used to be, so
- * they are measured again while the pointer moves — a few cheap reads every 50ms.
+ * they are measured again while the pointer moves — a few cheap reads every 50ms, scheduled by
+ * `DroppableMeasurements` below. `Always` is what lets a measurement land at any moment.
  */
-const MEASURING = { droppable: { strategy: MeasuringStrategy.Always, frequency: 50 } };
+const MEASURING = { droppable: { strategy: MeasuringStrategy.Always } };
+const REMEASURE_MS = 50;
+
+/**
+ * Schedules those measurements. dnd-kit would do it given a numeric `frequency`, but it never
+ * clears that timeout: one armed by mounting or by the last move fires after the layer has gone
+ * and sets state on a tree that no longer exists — in tests, after the DOM has been torn down.
+ * This keeps its rule — one measurement 50ms after the first move since the last, and no timer
+ * while nothing moves — and cancels a pending one on unmount. The move it hears is the anchored
+ * transform, so a sideways-only move schedules nothing; it moves no row either.
+ */
+function DroppableMeasurements() {
+  const { measureDroppableContainers } = useDndContext();
+  const pending = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const schedule = useCallback(() => {
+    pending.current ??= setTimeout(() => {
+      pending.current = undefined;
+      measureDroppableContainers([]);
+    }, REMEASURE_MS);
+  }, [measureDroppableContainers]);
+  useEffect(() => {
+    schedule();
+    return () => {
+      clearTimeout(pending.current);
+      pending.current = undefined;
+    };
+  }, [schedule]);
+  // The rows settle back when a drag ends or is cancelled, so those are a move like any other.
+  const listener = useMemo(
+    () => ({
+      onDragStart: schedule,
+      onDragMove: schedule,
+      onDragEnd: schedule,
+      onDragCancel: schedule,
+    }),
+    [schedule],
+  );
+  useDndMonitor(listener);
+  return null;
+}
 
 /**
  * A browser still fires the click that ends a drag on the row's link, and dnd-kit only stops
@@ -139,6 +181,7 @@ export function DragLayer({
       }}
       onDragCancel={({ active: cancelled }) => onDragEnd(String(cancelled.id), undefined)}
     >
+      <DroppableMeasurements />
       <SortableContext items={[...ids]} strategy={strategy}>
         {children}
       </SortableContext>
