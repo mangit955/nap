@@ -10,9 +10,15 @@
 -- There is deliberately no index on "sessions" here. An append updates "sessions" and then
 -- inserts into "events", so a "sessions" index built after the "events" scans deadlocks with any
 -- append caught waiting on "events"; that index belongs in a later release's own migration.
--- One cycle remains: deleting a session during the scans holds "projects" while its cascade waits
--- on "events", and the ALTER on "projects" then deadlocks with it. Whichever Postgres aborts rolls
--- back whole, so a failed migration is safe to run again.
+-- Appends do not cycle with this migration, but deletes that cascade into "events" still do. A
+-- project delete (deleting a session deletes its project) holds "projects" while its cascade waits
+-- on "events", and the ALTER on "projects" deadlocks with it; a user delete, such as
+-- `bun run loadgen:teardown --confirm`, holds "users" the same way, and the foreign key on
+-- "navigation_settings" deadlocks with it. Postgres aborts one side whole. Usually that is the
+-- migration, which is safe to run again. A waiter is checked for deadlock once, deadlock_timeout
+-- (a second by default) after it starts waiting, so a delete that began waiting less than that
+-- before those ALTERs is checked first and aborted instead; the migration commits and the delete
+-- can be retried.
 --
 -- pg_trgm is a trusted extension (Postgres 13+), so the database owner can create it.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;--> statement-breakpoint

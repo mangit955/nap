@@ -47,9 +47,19 @@ processes on it. What is different here, and why:
   `0022` alters `projects` again in the same transaction, just as briefly. An index on
   `sessions(project_id)` is deliberately left to a later release's own migration: an append
   updates `sessions` before it inserts into `events`, so building that index here, after the
-  `events` scans, deadlocks with any append waiting on them. One such cycle is left: a session
-  deleted during the scans holds `projects` while its cascade waits on `events`, and the migration
-  can then fail with `deadlock detected`. It rolls back whole, so run it again.
+  `events` scans, deadlocks with any append waiting on them. Appends no longer cycle with it, but
+  deletes that cascade into `events` still do. A project deleted during the scans (deleting a
+  session deletes its project) holds `projects` until the trailing `ALTER TABLE "projects"`
+  deadlocks with it. A user deleted then holds `users` until the `navigation_settings` foreign key
+  does, so do not run `bun run loadgen:teardown --confirm` during a release. Postgres aborts one
+  side with `deadlock detected`. Usually it is the migration: it rolls back whole, `0022`
+  included, so the worker's pre-deploy command fails, the release stops before anything new takes
+  traffic, and the old release keeps serving. Retry it like any failed release (see
+  [Release production](#release-production)): run the **CI** workflow on `main`, or the manual
+  release command. Postgres checks a waiter for deadlock once, `deadlock_timeout` (a second by
+  default) after it starts waiting, so a delete that began waiting less than that before those
+  `ALTER`s is the one aborted instead. The migration then commits, and the person retries the
+  delete.
 - **The release that added the sidebar card's fields and model titles (`0021`, `0022`) is read
   strictly by what it replaces.** Event payloads and the session list are strict schemas, so a
   browser tab opened before the deploy, and an API or reaper pod not yet rolled, reject what the
