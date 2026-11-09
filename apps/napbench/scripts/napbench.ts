@@ -25,7 +25,6 @@
 
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
-import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { type AnthropicClient, ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { DEFAULT_MAX_TOKENS } from "@nap/agent/safety/budget";
@@ -178,7 +177,7 @@ const scriptedBrowser: BrowserSessionFactory = async () => ({
  * The three things a platform decides, in one place per platform.
  *
  * A record rather than three parallel ternary chains over `options.platform`: the chains asked
- * the same question in three places, so adding a fourth route meant finding all three, and a
+ * the same question in three places, so adding another route meant finding all three, and a
  * route that answered two of them was a run that authenticated one way and was billed another.
  * Every platform speaks the same Messages API — see the notes in `@nap/agent`.
  */
@@ -197,11 +196,6 @@ const PLATFORMS: Record<
     credentials: ["OPENROUTER_API_KEY"],
     qualify: toOpenRouterModel,
     client: createOpenRouterClient,
-  },
-  bedrock: {
-    credentials: ["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"],
-    qualify: toBedrockModel,
-    client: createBedrockClient,
   },
   anthropic: { credentials: ["ANTHROPIC_API_KEY"], qualify: (model) => model },
 };

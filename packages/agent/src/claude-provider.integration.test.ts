@@ -14,7 +14,6 @@
 
 import type { LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
 import { expect, it } from "vitest";
-import { createBedrockClient, toBedrockModel } from "./bedrock.ts";
 import {
   ClaudeProvider,
   type ClaudeProviderOptions,
@@ -25,11 +24,8 @@ import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
 /**
  * Whichever account is configured — the request shape is what is under test, not the biller.
  *
- * OpenRouter first, because it is the route this project uses; the other two are kept working
- * rather than kept current. Order matters more than it looks: Bedrock used to win, and AWS
- * credentials linger in `.env` from an experiment that is still blocked on model access, so
- * checking it first sent this test down a route that 403s for reasons having nothing to do
- * with the request shape.
+ * OpenRouter first, because it is the route this project uses; Anthropic's own API is kept
+ * working rather than kept current.
  *
  * Nothing configured throws rather than skipping: a suite that quietly passes with nothing
  * behind it reports the contract as verified when nothing verified it.
@@ -45,21 +41,14 @@ function providerOptions(): ClaudeProviderOptions {
 
   if (process.env.ANTHROPIC_API_KEY) return {};
 
-  if (process.env.AWS_BEARER_TOKEN_BEDROCK) {
-    if (!process.env.AWS_REGION) {
-      throw new Error("AWS_BEARER_TOKEN_BEDROCK is set but AWS_REGION is not; Bedrock needs both.");
-    }
-    return { client: createBedrockClient(), model: toBedrockModel(MODEL) };
-  }
-
   throw new Error(
     "No model credentials are set, so this run cannot verify anything. Put OPENROUTER_API_KEY " +
-      "(or ANTHROPIC_API_KEY, or AWS_BEARER_TOKEN_BEDROCK + AWS_REGION) in apps/api/.env, " +
+      "(or ANTHROPIC_API_KEY) in apps/api/.env, " +
       "then re-run `bun run test:integration`.",
   );
 }
 
-/** The default this project ships. Named here so the Bedrock id is derived from it, not typed twice. */
+/** The default this project ships. Named here so the OpenRouter id is derived from it, not typed twice. */
 const MODEL = DEFAULT_MODEL_CONFIG.model;
 
 /**

@@ -33,17 +33,14 @@ const BaseSchema = z.object({
    * conditional check below rather than a flat list. Demanding an Anthropic key from someone
    * billing through OpenRouter is how a boot check teaches people to paste dummy values.
    *
-   * **OpenRouter is the default and the route this project actually uses.** The other two are
-   * kept because they are the same Messages API underneath and cost nothing to keep working,
-   * but nothing here is configured for them.
+   * **OpenRouter is the default and the route this project actually uses.** Anthropic's own API
+   * is kept because it is the same Messages API underneath and costs nothing to keep working,
+   * but nothing here is configured for it.
    */
-  NAP_PLATFORM: z.enum(["openrouter", "anthropic", "bedrock"]).default("openrouter"),
+  NAP_PLATFORM: z.enum(["openrouter", "anthropic"]).default("openrouter"),
   /** Billed to an OpenRouter account, whatever the model. Keys look like `sk-or-…`. */
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  /** Bedrock takes an API key as a bearer token, and throws at construction with no region. */
-  AWS_BEARER_TOKEN_BEDROCK: z.string().min(1).optional(),
-  AWS_REGION: z.string().min(1).optional(),
   /**
    * Signs session cookies. Required from the moment there is sign-in to sign: a process that
    * cannot verify its own cookies has no way to tell who is asking.
@@ -403,9 +400,7 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
   const required =
     env.NAP_PLATFORM === "openrouter"
       ? (["OPENROUTER_API_KEY"] as const)
-      : env.NAP_PLATFORM === "bedrock"
-        ? (["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"] as const)
-        : (["ANTHROPIC_API_KEY"] as const);
+      : (["ANTHROPIC_API_KEY"] as const);
 
   for (const key of required) {
     if (env[key] !== undefined) continue;

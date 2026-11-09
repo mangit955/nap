@@ -19,12 +19,6 @@ describe("toOpenRouterModel", () => {
     expect(toOpenRouterModel("openai/gpt-5.6-luna")).toBe("openai/gpt-5.6-luna");
     expect(toOpenRouterModel("openai/gpt-5.6-terra")).toBe("openai/gpt-5.6-terra");
   });
-
-  it("does not mistake Bedrock's prefix for its own", () => {
-    // Bedrock namespaces with a dot, OpenRouter with a slash. Treating one as the other would
-    // send `anthropic/anthropic.claude-opus-5`, which is a 404 nobody would read correctly.
-    expect(toOpenRouterModel("anthropic.claude-opus-5")).toBe("anthropic/anthropic.claude-opus-5");
-  });
 });
 
 /**
@@ -69,7 +63,7 @@ describe("createOpenRouterClient", () => {
 
   it("refuses to construct without a key rather than failing at the first request", () => {
     // Deleted, not assigned `undefined`: assigning it stores the *string* "undefined", which is
-    // truthy and made the equivalent Bedrock test pass vacuously the first time it was written.
+    // truthy and made a test like this one pass vacuously the first time it was written.
     withEnvKey(undefined, () => {
       expect(() => createOpenRouterClient({})).toThrow(/OPENROUTER_API_KEY/);
     });
