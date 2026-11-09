@@ -212,6 +212,30 @@ describe("the bound on how many", () => {
     });
   });
 
+  it("photographs a project asked for twice while it waited once, as the newer request left it", async () => {
+    // Two jobs closing in quick succession behind a busy browser. Keeping the older request would
+    // spend a browser on a workspace that has already moved, and then store nothing at all.
+    const f = await fixture();
+    const [busy, target] = [await f.project(), await f.project()];
+    await f.lane.request(busy);
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+
+    await f.lane.request(target);
+    f.setWorkspace(MOVED);
+    await f.lane.request(target);
+
+    f.capture.release();
+    await vi.waitFor(() => expect(f.capture.requests).toHaveLength(2));
+    f.capture.release(new Uint8Array([2]));
+    await vi.waitFor(() => expect(f.lane.pending).toBe(0));
+
+    expect(f.capture.requests).toHaveLength(2);
+    expect(await f.objects.get(thumbnailKey(target.projectId))).toEqual({
+      ok: true,
+      value: new Uint8Array([2]),
+    });
+  });
+
   it.each([0, -1, 1.5])("refuses a capture bound of %s rather than never photographing", (n) => {
     const sandbox = new InMemorySandboxManager();
     expect(
@@ -355,13 +379,30 @@ describe("stopping", () => {
     expect(f.objects.keys()).toHaveLength(1);
   });
 
-  it("does not wait past its grace for a browser that never answers", async () => {
+  it("does not wait past its grace for a browser that never answers, and tells it to stop", async () => {
     const f = await fixture({ stopGraceMs: 5 });
     await f.lane.request(await f.project());
     await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
 
     await expect(f.lane.stop()).resolves.toBeUndefined();
-    expect(f.capture.waiting).toBe(1);
+
+    // Aborted rather than abandoned: the browser is closed by its own adapter, not by the
+    // process's exit, and nothing is left counted as running.
+    expect(f.capture.requests[0]?.options.signal?.aborted).toBe(true);
+    expect(f.lane.pending).toBe(0);
+  });
+
+  it("stores nothing from a shot that answers after it was told to stop", async () => {
+    const f = await fixture({ stopGraceMs: 5 });
+    const target = await f.project();
+    await f.lane.request(target);
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+
+    await f.lane.stop();
+    f.capture.release();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(f.objects.keys()).not.toContain(thumbnailKey(target.projectId));
   });
 
   it("refuses anything asked for afterwards", async () => {
@@ -373,5 +414,223 @@ describe("stopping", () => {
 
     expect(f.lane.pending).toBe(0);
     expect(f.capture.requests).toEqual([]);
+  });
+});
+
+describe("a shot that never finishes", () => {
+  it("is given up on at its deadline, and its place goes to the next project", async () => {
+    // At a bound of one, a browser that hangs would otherwise be the last picture this worker
+    // ever takes: every later request waits behind it until the queue fills and drops them all.
+    const f = await fixture({ shotTimeoutMs: 20 });
+    const [stuck, next] = [await f.project(), await f.project()];
+    await f.lane.request(stuck);
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+    await f.lane.request(next);
+
+    await vi.waitFor(() => expect(f.capture.requests).toHaveLength(2));
+    expect(f.capture.requests[1]?.url).toContain(next.sandboxId);
+    expect(f.capture.requests[0]?.options.signal?.aborted).toBe(true);
+  });
+
+  it("stores nothing if the browser answers after the deadline", async () => {
+    const f = await fixture({ shotTimeoutMs: 20 });
+    const target = await f.project();
+    await f.lane.request(target);
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+    await vi.waitFor(() => expect(f.lane.pending).toBe(0));
+
+    f.capture.release();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(f.objects.keys()).not.toContain(thumbnailKey(target.projectId));
+  });
+
+  it("rejects nothing when the late answer is a throw", async () => {
+    // Nobody is awaiting a shot that was given up on, so a rejection from it would be unhandled.
+    const f = await fixture({ shotTimeoutMs: 20 });
+    let explode: (error: Error) => void = () => {};
+    vi.spyOn(f.capture, "capture").mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          explode = reject;
+        }),
+    );
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      await f.lane.request(await f.project());
+      await vi.waitFor(() => expect(f.lane.pending).toBe(0));
+      explode(new Error("the browser fell over"));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+
+    expect(unhandled).not.toHaveBeenCalled();
+  });
+
+  it("does not let an upload abandoned at its deadline overwrite a newer picture", async () => {
+    // A store's put cannot be called back, so a shot given up on mid-upload may still land. The
+    // project's next shot waits for it rather than storing first and being overwritten by it.
+    const f = await fixture({ shotTimeoutMs: 200 });
+    const [target, other] = [await f.project(), await f.project()];
+    const put = f.objects.put.bind(f.objects);
+    let releaseOld = () => {};
+    let oldStarted = false;
+    vi.spyOn(f.objects, "put").mockImplementation(async (key, bytes) => {
+      if (bytes[0] === 1) {
+        oldStarted = true;
+        await new Promise<void>((resolve) => {
+          releaseOld = resolve;
+        });
+      }
+      return put(key, bytes);
+    });
+
+    await f.lane.request(target);
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+    f.capture.release(new Uint8Array([1]));
+    await vi.waitFor(() => expect(oldStarted).toBe(true));
+
+    f.setWorkspace(MOVED);
+    await f.lane.request(target);
+    await f.lane.request(other);
+    // The deadline still gives the browser back, to the project with nothing in the air.
+    await vi.waitFor(() => expect(f.capture.requests).toHaveLength(2));
+    expect(f.capture.requests[1]?.url).toContain(other.sandboxId);
+    f.capture.release(new Uint8Array([3]));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(f.capture.requests).toHaveLength(2);
+
+    releaseOld();
+    await vi.waitFor(() => expect(f.capture.requests).toHaveLength(3));
+    f.capture.release(new Uint8Array([2]));
+    await vi.waitFor(() => expect(f.lane.pending).toBe(0));
+
+    expect(await f.objects.get(thumbnailKey(target.projectId))).toEqual({
+      ok: true,
+      value: new Uint8Array([2]),
+    });
+  });
+
+  it("does not let an older shot's late answer end a newer shot's wait for its upload", async () => {
+    // The first shot is given up on in a browser that never listens, the second strands its
+    // upload, and then the first browser answers. Only the shot that started an upload may say it
+    // has landed: otherwise a third starts beside it, and the stranded put overwrites its picture.
+    const f = await fixture({ shotTimeoutMs: 200 });
+    const target = await f.project();
+    let answerOld: (bytes: Uint8Array) => void = () => {};
+    let oldSignal: AbortSignal | undefined;
+    vi.spyOn(f.capture, "capture").mockImplementationOnce(
+      (_url, options) =>
+        new Promise((resolve) => {
+          oldSignal = options?.signal;
+          answerOld = (bytes) => resolve({ ok: true, value: bytes });
+        }),
+    );
+    const put = f.objects.put.bind(f.objects);
+    let releaseStranded = () => {};
+    let strandedStarted = false;
+    vi.spyOn(f.objects, "put").mockImplementation(async (key, bytes) => {
+      if (bytes[0] === 2) {
+        strandedStarted = true;
+        await new Promise<void>((resolve) => {
+          releaseStranded = resolve;
+        });
+      }
+      return put(key, bytes);
+    });
+
+    await f.lane.request(target);
+    await vi.waitFor(() => expect(oldSignal?.aborted).toBe(true));
+    await vi.waitFor(() => expect(f.lane.pending).toBe(0));
+
+    await f.lane.request(target);
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+    f.capture.release(new Uint8Array([2]));
+    await vi.waitFor(() => expect(strandedStarted).toBe(true));
+    await vi.waitFor(() => expect(f.capture.requests[0]?.options.signal?.aborted).toBe(true));
+
+    answerOld(new Uint8Array([1]));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    f.setWorkspace(MOVED);
+    await f.lane.request(target);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(f.capture.requests).toHaveLength(1);
+
+    releaseStranded();
+    await vi.waitFor(() => expect(f.capture.requests).toHaveLength(2));
+    f.capture.release(new Uint8Array([3]));
+    await vi.waitFor(() => expect(f.lane.pending).toBe(0));
+
+    expect(await f.objects.get(thumbnailKey(target.projectId))).toEqual({
+      ok: true,
+      value: new Uint8Array([3]),
+    });
+  });
+
+  it("refuses new pictures while as many uploads hang as the queue would hold", async () => {
+    // Each hung upload holds its bytes and its project's place, so they are bounded the way
+    // waiting shots are: a store that stops answering costs cards, not memory.
+    const f = await fixture({ shotTimeoutMs: 200, maxQueued: 1 });
+    const [stuck, refused, later] = [await f.project(), await f.project(), await f.project()];
+    const put = f.objects.put.bind(f.objects);
+    let releaseStuck = () => {};
+    let stuckStarted = false;
+    vi.spyOn(f.objects, "put").mockImplementation(async (key, bytes) => {
+      if (key === thumbnailKey(stuck.projectId)) {
+        stuckStarted = true;
+        await new Promise<void>((resolve) => {
+          releaseStuck = resolve;
+        });
+      }
+      return put(key, bytes);
+    });
+
+    await f.lane.request(stuck);
+    await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+    f.capture.release();
+    await vi.waitFor(() => expect(stuckStarted).toBe(true));
+    await vi.waitFor(() => expect(f.capture.requests[0]?.options.signal?.aborted).toBe(true));
+
+    await f.lane.request(refused);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(f.capture.requests).toHaveLength(1);
+    expect(f.lane.pending).toBe(1);
+
+    releaseStuck();
+    await vi.waitFor(() => expect(f.lane.pending).toBe(0));
+    await f.lane.request(later);
+    await vi.waitFor(() => expect(f.capture.requests).toHaveLength(2));
+    expect(f.capture.requests[1]?.url).toContain(later.sandboxId);
+  });
+
+  it("does not wait at stop for an upload that hangs, or hear from it afterwards", async () => {
+    const f = await fixture({ stopGraceMs: 5 });
+    const target = await f.project();
+    let explode: (error: Error) => void = () => {};
+    vi.spyOn(f.objects, "put").mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          explode = reject;
+        }),
+    );
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      await f.lane.request(target);
+      await vi.waitFor(() => expect(f.capture.waiting).toBe(1));
+      f.capture.release();
+      await vi.waitFor(() => expect(f.objects.put).toHaveBeenCalled());
+
+      await expect(f.lane.stop()).resolves.toBeUndefined();
+      explode(new Error("the bucket fell over"));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+
+    expect(unhandled).not.toHaveBeenCalled();
+    expect(f.lane.pending).toBe(0);
   });
 });
