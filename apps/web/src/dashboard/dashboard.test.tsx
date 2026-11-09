@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./dashboard.tsx";
-import { SessionActions } from "./session-actions.tsx";
+import { SessionList } from "./session-list.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
 /**
@@ -33,13 +34,36 @@ beforeAll(() => {
   };
 });
 
+const portfolio: SessionSummary = {
+  projectId: "00000000-0000-4000-8000-000000000001",
+  name: "Portfolio",
+  status: "ready",
+  sandboxId: "sandbox",
+  sessionIds: [],
+  createdAt: "2026-10-23T00:00:00.000Z",
+  updatedAt: "2026-10-23T00:00:00.000Z",
+  navigation: NavigationSchema.parse({}),
+  revision: 0,
+  activity: "ready",
+  activityAt: null,
+  requestedAt: null,
+  repository: null,
+  branch: null,
+  pullRequest: null,
+  pendingFeedback: 0,
+};
+
+/** The mobile drawer open on one session, with that session's context menu open over it. */
 function openSessionActions() {
   render(
     <Dashboard
       sidebar={
         <nav aria-label="Sessions">
-          <SessionActions
-            name="Portfolio"
+          <SessionList
+            sessions={[portfolio]}
+            query=""
+            repository=""
+            onApply={vi.fn(async () => true)}
             onRename={vi.fn()}
             onClose={vi.fn()}
             onDelete={vi.fn()}
@@ -50,59 +74,50 @@ function openSessionActions() {
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
-  fireEvent.click(screen.getByRole("button", { name: "Session actions for Portfolio" }));
+  // A touch screen's way in: it has no right-click.
+  fireEvent.click(screen.getByRole("button", { name: "More actions for Portfolio" }));
+  return screen.getByRole("menu", { name: "Actions for Portfolio" });
 }
 
-it("keeps every portalled session action reachable by Tab inside mobile sessions", () => {
-  const rects = vi
-    .spyOn(HTMLElement.prototype, "getClientRects")
-    .mockReturnValue(
-      Object.assign([new DOMRect(0, 0, 100, 30)], { item: () => new DOMRect(0, 0, 100, 30) }),
-    );
-  try {
-    openSessionActions();
-    expect(screen.getByRole("button", { name: "Rename" })).toHaveFocus();
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
-    expect(screen.getByRole("button", { name: "Put away workspace" })).toHaveFocus();
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
-    expect(screen.getByRole("button", { name: "Delete project" })).toHaveFocus();
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab", shiftKey: true });
-    expect(screen.getByRole("button", { name: "Put away workspace" })).toHaveFocus();
-  } finally {
-    rects.mockRestore();
-  }
+it("keeps the context menu's arrow keys to the menu, and Tab leaves it for the row", () => {
+  openSessionActions();
+  expect(screen.getByRole("menuitem", { name: "Pin" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitem", { name: "Settle" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Tab" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.getByRole("link", { name: /Portfolio/ })).toHaveFocus();
+  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
 });
 
 it("closes the session action menu before the mobile drawer on Escape", () => {
   openSessionActions();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-  expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
     "aria-expanded",
     "true",
   );
-  expect(screen.getByRole("button", { name: "Session actions for Portfolio" })).toHaveFocus();
+  expect(screen.getByRole("link", { name: /Portfolio/ })).toHaveFocus();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
   expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
 });
 
-it("leaves the rename dialog's keys to the dialog while mobile sessions stays open", () => {
+it("leaves the delete dialog's keys to the dialog while mobile sessions stays open", () => {
   openSessionActions();
-  fireEvent.click(screen.getByRole("button", { name: "Rename" }));
-  const input = screen.getByRole("textbox", { name: "Session name" });
-  input.focus();
-  expect(fireEvent.keyDown(input, { key: "Tab" })).toBe(true);
-  expect(fireEvent.keyDown(input, { key: "Escape" })).toBe(true);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+  const dialog = screen.getByRole("dialog", { name: "Delete session?" });
+  const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+  cancel.focus();
+  expect(fireEvent.keyDown(cancel, { key: "Tab" })).toBe(true);
+  expect(fireEvent.keyDown(cancel, { key: "Escape" })).toBe(true);
   expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
     "aria-expanded",
     "true",
   );
-  const dialog = screen.getByRole("dialog", { name: "Rename session" });
-  if (!(dialog instanceof HTMLDialogElement)) throw new Error("Expected the native dialog");
-  act(() => dialog.close());
-  expect(screen.getByRole("button", { name: "Session actions for Portfolio" })).toHaveFocus();
-  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-  expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
 });
 
 describe("the dashboard frame", () => {

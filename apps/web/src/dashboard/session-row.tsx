@@ -2,21 +2,24 @@
 
 import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
 import {
+  AlarmClock,
   AlarmClockOff,
   Check,
   CircleAlert,
   CircleCheck,
   CircleDashed,
+  Ellipsis,
   FolderGit2,
   GitPullRequest,
   Pin,
   SquarePen,
   Undo2,
+  X,
 } from "lucide-react";
 import {
-  type HTMLAttributes,
   type KeyboardEvent,
   type MouseEvent,
+  memo,
   type ReactNode,
   useEffect,
   useRef,
@@ -47,20 +50,32 @@ import { SnoozeMenu } from "./snooze-menu.tsx";
  *
  * Adapted from T3 Code (MIT, Copyright (c) 2026 T3 Tools Inc.), `sidebar/SidebarThreadRow.tsx`.
  */
-export function SessionRow({
+export type RowAction =
+  /** Somebody looked at the session: opened it, or (`dismiss`) cleared its Woke on purpose. */
+  | { kind: "seen"; projectId: string; dismiss?: boolean }
+  | { kind: "settle"; projectId: string; value: boolean }
+  /** Snooze until a time, or wake now with `null`. */
+  | { kind: "snooze"; projectId: string; until: string | null }
+  | { kind: "rename-start"; projectId: string }
+  /** `name` is absent when the edit was abandoned. */
+  | { kind: "rename-end"; projectId: string; name?: string | undefined }
+  /** Open the context menu at a point — from the touch-only trigger, which has no right-click. */
+  | { kind: "menu"; projectId: string; at: { x: number; y: number } };
+
+export const SessionRow = memo(function SessionRow({
   session,
   shelf,
   isOpen,
   hasDraft,
   now,
-  busy,
-  onOpen,
+  selected = false,
+  renaming = false,
+  jumpHint,
+  canNavigate = false,
+  canRename = false,
+  hasMenu = false,
+  dispatch,
   onSelectProject,
-  onSettle,
-  onSnooze,
-  onRename,
-  actions,
-  rowProps,
 }: {
   session: SessionSummary;
   /** Which shelf the row is on. Pinned and inbox rows are cards; the shelves are slim rows. */
@@ -69,22 +84,26 @@ export function SessionRow({
   /** Something is typed into this session's box and not sent. */
   hasDraft: boolean;
   now: number;
-  busy: boolean;
-  onOpen: () => void;
+  /** Part of a multi-selection. */
+  selected?: boolean;
+  renaming?: boolean;
+  /** The shortcut that opens this row, shown while its modifier is held. */
+  jumpHint?: string | undefined;
+  /** Whether the page can change where this row sits — settle, snooze, wake. */
+  canNavigate?: boolean;
+  canRename?: boolean;
+  /** Whether the row has a context menu, and so a trigger for it where nothing can right-click. */
+  hasMenu?: boolean;
+  /**
+   * Every action the row can take, through one function the list keeps stable — so a row
+   * re-renders when its own session changes, not whenever the list does.
+   */
+  dispatch: (action: RowAction) => void;
   /** Handles a committed selection locally instead of following the project link. */
   onSelectProject?: ((projectId: string) => void) | undefined;
-  /** Settle (true) or un-settle (false). */
-  onSettle?: ((value: boolean) => void) | undefined;
-  /** Snooze until a time, or wake now with `null`. */
-  onSnooze?: ((until: string | null) => void) | undefined;
-  onRename?: ((name: string) => void) | undefined;
-  /** The actions menu for this row — its trigger, which right-click also opens. */
-  actions?: ReactNode;
-  rowProps?: HTMLAttributes<HTMLLIElement> & Record<`data-${string}`, unknown>;
 }) {
   const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(clickTimer.current), []);
-  const [renaming, setRenaming] = useState(false);
   const link = useRef<HTMLAnchorElement>(null);
   const restoreFocus = useRef(false);
   useEffect(() => {
@@ -94,7 +113,17 @@ export function SessionRow({
     }
   }, [renaming]);
   const [menuOpen, setMenuOpen] = useState(false);
-  const status = rowStatus(session);
+  const { projectId } = session;
+  const onOpen = () => dispatch({ kind: "seen", projectId });
+  const onRename = canRename ? () => dispatch({ kind: "rename-start", projectId }) : undefined;
+  const onSettle = canNavigate
+    ? (value: boolean) => dispatch({ kind: "settle", projectId, value })
+    : undefined;
+  const onSnooze = canNavigate
+    ? (until: string | null) => dispatch({ kind: "snooze", projectId, until })
+    : undefined;
+  const status = rowStatus(session, now);
+  const woke = status?.kind === "woke";
   const source = sessionSource(session.repository);
   const quiet = recedes(status, isOpen);
   const working = status?.kind === "working";
@@ -103,11 +132,18 @@ export function SessionRow({
   const snoozed = section === "snoozed";
   const settled = section === "done";
   const href = `/p/${session.projectId}`;
-  const surface = isOpen
-    ? "bg-row-active"
-    : hasDraft
-      ? "bg-warning/[0.04] hover:bg-warning/[0.08]"
-      : "hover:bg-row-hover";
+  const surface = selected
+    ? "bg-accent-tint"
+    : isOpen
+      ? "bg-row-active"
+      : hasDraft
+        ? "bg-warning/[0.04] hover:bg-warning/[0.08]"
+        : "hover:bg-row-hover";
+  // Said once, inside the link, so a screen reader hears it with the row's name.
+  const selectedNote = selected ? <span className="sr-only">, selected</span> : null;
+  const hint = jumpHint ? (
+    <kbd className="rounded-[4px] bg-hover px-1 font-sans text-[11px] text-ink-2">{jumpHint}</kbd>
+  ) : null;
   // T3 fades work in progress that is not open, so the eye goes to rows that want something.
   // Its menus are portaled out of the row, so an open one is matched by its trigger's
   // aria-expanded rather than by hover or focus, which have both left the row by then.
@@ -121,8 +157,11 @@ export function SessionRow({
       name={session.name}
       onDone={(name, keyboard) => {
         restoreFocus.current = keyboard;
-        setRenaming(false);
-        if (name !== undefined && name !== session.name) onRename?.(name);
+        dispatch({
+          kind: "rename-end",
+          projectId,
+          name: name !== undefined && name !== session.name ? name : undefined,
+        });
       }}
     />
   ) : (
@@ -171,9 +210,29 @@ export function SessionRow({
       if (!onRename) return;
       event.preventDefault();
       clearTimeout(clickTimer.current);
-      setRenaming(true);
+      onRename();
     },
   };
+
+  // Touch screens have no right-click, and iOS does not turn a long press on a link into one, so
+  // they get a visible trigger for the same menu. `session-actions` keeps it, and the hover
+  // controls around it, shown on touch only (`globals.css`, `hover: none`).
+  const more = hasMenu ? (
+    <button
+      type="button"
+      aria-label={`More actions for ${session.name}`}
+      title="More actions"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        dispatch({ kind: "menu", projectId, at: { x: rect.right - 240, y: rect.bottom + 4 } });
+      }}
+      className="session-actions hidden size-5 shrink-0 place-items-center rounded-md text-muted hover:text-ink"
+    >
+      <Ellipsis aria-hidden className="size-3.5" />
+    </button>
+  ) : null;
 
   const hoverControls = `sidebar-row-controls pointer-events-none absolute right-1.5 flex items-center opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 ${menuOpen ? "pointer-events-auto opacity-100" : ""}`;
 
@@ -182,7 +241,7 @@ export function SessionRow({
       ? `in ${snoozeWakeLabel(session.navigation.snoozedUntil ?? "", now)}`
       : compactTime(session.navigation.doneAt ?? session.updatedAt, now);
     return (
-      <li className="group relative list-none" {...rowProps}>
+      <div className="group relative">
         <div className={`relative flex h-9 items-center rounded-md ${surface}`}>
           {renaming ? (
             <div className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5">{title}</div>
@@ -198,37 +257,30 @@ export function SessionRow({
               </span>
               {hasDraft && <DraftMark />}
               {title}
+              {selectedNote}
               <span
                 className={`ml-auto shrink-0 text-xs tabular-nums transition-opacity group-hover:opacity-0 ${snoozed ? "text-info" : "text-sidebar-label"}`}
               >
-                {time}
+                {hint ?? time}
               </span>
             </a>
           )}
           <span className={`${hoverControls} inset-y-0`}>
             {snoozed
               ? onSnooze && (
-                  <RowButton
-                    label={`Wake ${session.name}`}
-                    disabled={busy}
-                    onPress={() => onSnooze(null)}
-                  >
+                  <RowButton label={`Wake ${session.name}`} onPress={() => onSnooze(null)}>
                     <AlarmClockOff aria-hidden className="size-3.5" />
                   </RowButton>
                 )
               : onSettle && (
-                  <RowButton
-                    label={`Un-settle ${session.name}`}
-                    disabled={busy}
-                    onPress={() => onSettle(false)}
-                  >
+                  <RowButton label={`Un-settle ${session.name}`} onPress={() => onSettle(false)}>
                     <Undo2 aria-hidden className="size-3.5" />
                   </RowButton>
                 )}
-            {actions}
+            {more}
           </span>
         </div>
-      </li>
+      </div>
     );
   }
 
@@ -250,14 +302,19 @@ export function SessionRow({
             onSettle || onSnooze ? "group-hover:opacity-0 group-has-[:focus-visible]:opacity-0" : ""
           } ${menuOpen ? "opacity-0" : ""}`}
         >
-          <StatusSlot
-            status={status}
-            timestamp={session.requestedAt ?? session.updatedAt}
-            now={now}
-          />
+          {hint ?? (
+            <StatusSlot
+              status={status}
+              timestamp={session.requestedAt ?? session.updatedAt}
+              now={now}
+            />
+          )}
         </span>
       </span>
-      <span className="mt-1 flex min-w-0">{title}</span>
+      <span className="mt-1 flex min-w-0">
+        {title}
+        {selectedNote}
+      </span>
       <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-label">
         {session.branch ? (
           <>
@@ -287,7 +344,7 @@ export function SessionRow({
   );
 
   return (
-    <li className="group relative list-none py-0.5" {...rowProps}>
+    <div className="group relative py-0.5">
       <div className={`relative h-[4.875rem] rounded-md ${surface} ${fade}`}>
         {renaming ? (
           <div className="flex h-full flex-col px-2.5 py-2">{inner}</div>
@@ -298,19 +355,27 @@ export function SessionRow({
         )}
         {!working && (onSettle || onSnooze) && (
           <span className={`${hoverControls} top-2 h-5`}>
+            {woke && (
+              // The Woke chip again, now a button: hovering is the moment it can be dismissed.
+              <RowButton
+                label={`Dismiss Woke for ${session.name}`}
+                onPress={() => dispatch({ kind: "seen", projectId, dismiss: true })}
+              >
+                <X aria-hidden className="size-3.5" />
+                <span aria-hidden className="text-info">
+                  Woke
+                </span>
+              </RowButton>
+            )}
             {onSnooze &&
+              !woke &&
               (snoozed ? (
-                <RowButton
-                  label={`Wake ${session.name}`}
-                  disabled={busy}
-                  onPress={() => onSnooze(null)}
-                >
+                <RowButton label={`Wake ${session.name}`} onPress={() => onSnooze(null)}>
                   <AlarmClockOff aria-hidden className="size-3.5" />
                 </RowButton>
               ) : (
                 <SnoozeMenu
                   name={session.name}
-                  disabled={busy}
                   onSnooze={(until) => onSnooze(until)}
                   onOpenChange={setMenuOpen}
                 />
@@ -318,7 +383,6 @@ export function SessionRow({
             {onSettle && (
               <RowButton
                 label={`${settled ? "Un-settle" : "Settle"} ${session.name}`}
-                disabled={busy}
                 onPress={() => onSettle(!settled)}
               >
                 {settled ? (
@@ -331,11 +395,11 @@ export function SessionRow({
             )}
           </span>
         )}
-        {actions && <span className={`${hoverControls} bottom-2 h-5`}>{actions}</span>}
+        {more && <span className={`${hoverControls} bottom-2 h-5`}>{more}</span>}
       </div>
-    </li>
+    </div>
   );
-}
+});
 
 const LINK =
   "rounded-md outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent";
@@ -381,6 +445,13 @@ function StatusSlot({
       <span className="inline-flex items-center gap-1 font-medium text-danger">
         <CircleAlert aria-hidden className="size-4 shrink-0" />
         <span role="status">Failed</span>
+      </span>
+    );
+  if (status.kind === "woke")
+    return (
+      <span className="inline-flex items-center gap-1 font-medium text-info">
+        <AlarmClock aria-hidden className="size-4 shrink-0" />
+        <span role="status">Woke</span>
       </span>
     );
   return (
@@ -439,12 +510,10 @@ function DraftMark() {
 
 function RowButton({
   label,
-  disabled,
   onPress,
   children,
 }: {
   label: string;
-  disabled: boolean;
   onPress: () => void;
   children: ReactNode;
 }) {
@@ -453,7 +522,6 @@ function RowButton({
       type="button"
       aria-label={label}
       title={label}
-      disabled={disabled}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();

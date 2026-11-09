@@ -31,7 +31,6 @@ function ArchivedNavigation() {
       ) : (
         <ArchivedSessions
           sessions={navigation.projects}
-          busyProjectId={navigation.busyProjectId}
           onRestore={(id) => void navigation.change(id, { kind: "archive", value: false })}
         />
       )}
@@ -45,11 +44,9 @@ function ArchivedNavigation() {
 }
 export function ArchivedSessions({
   sessions,
-  busyProjectId,
   onRestore,
 }: {
   sessions: readonly SessionSummary[];
-  busyProjectId?: string | undefined;
   onRestore: (id: string) => void;
 }) {
   const now = Date.now();
@@ -64,7 +61,6 @@ export function ArchivedSessions({
           </a>
           <button
             type="button"
-            disabled={!!busyProjectId}
             onClick={() => onRestore(row.projectId)}
             aria-label={`Restore ${row.name}`}
             className="rounded-md border border-edge px-3 py-1.5 text-xs hover:bg-hover disabled:opacity-40"

@@ -3,6 +3,7 @@ import type {
   SessionNavigationStore,
 } from "@nap/shared/ports/session-navigation-store";
 import {
+  applyNavigationChange,
   type NavigationChange,
   NavigationSchema,
   type SessionList,
@@ -110,34 +111,11 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore {
           .limit(1);
         if (pending.length) return { kind: "busy" };
       }
-      const navigation = NavigationSchema.parse(project.navigation);
-      const now = new Date().toISOString();
-      switch (change.kind) {
-        case "pin":
-          navigation.pinned = change.pinned;
-          navigation.position = null;
-          break;
-        case "done":
-          navigation.doneAt = change.value ? now : null;
-          navigation.snoozedUntil = null;
-          break;
-        case "archive":
-          navigation.archivedAt = change.value ? now : null;
-          break;
-        case "snooze":
-          navigation.snoozedUntil = change.until;
-          navigation.doneAt = null;
-          break;
-        case "read":
-          navigation.unread = change.unread;
-          // A delayed read must not acknowledge activity the caller never observed.
-          if (!change.unread && change.at && (!navigation.readAt || change.at > navigation.readAt))
-            navigation.readAt = change.at;
-          break;
-        case "restore":
-          Object.assign(navigation, change.navigation);
-          break;
-      }
+      const navigation = applyNavigationChange(
+        NavigationSchema.parse(project.navigation),
+        change,
+        new Date().toISOString(),
+      );
       const revision = project.navigationRevision + 1;
       await tx
         .update(projects)
