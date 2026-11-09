@@ -189,3 +189,76 @@ describe("opening a session", () => {
     );
   });
 });
+
+describe("switching to another project", () => {
+  // jsdom cannot load a document, so a click it did not prevent is one the browser would have
+  // followed with a full reload — which is the regression these exist to catch.
+  async function otherLink() {
+    return screen.findByRole("link", { name: /Other app/ });
+  }
+
+  it("navigates client-side on the first click, without waiting to see if a second follows", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      server(200);
+      const onNavigate = vi.fn();
+      render(<SessionSidebar projectId={PROJECT_ID} onNavigate={onNavigate} />);
+      vi.useRealTimers();
+      const link = await otherLink();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+      expect(fireEvent.click(link, { detail: 1 })).toBe(false);
+
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(`/p/${OTHER_PROJECT}`);
+      expect(onNavigate).toHaveBeenCalledOnce();
+      // Nothing left to replay the click a moment later.
+      vi.advanceTimersByTime(1_000);
+      expect(navigate).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("navigates client-side on keyboard activation", async () => {
+    server(200);
+    render(<SessionSidebar projectId={PROJECT_ID} />);
+
+    expect(fireEvent.click(await otherLink(), { detail: 0 })).toBe(false);
+
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(`/p/${OTHER_PROJECT}`);
+  });
+
+  // A modified click is never a switch: ⌘/Ctrl and Shift select rows in the list, and anything
+  // the list does not claim is the browser's to open elsewhere.
+  it.each(["metaKey", "ctrlKey", "shiftKey", "altKey"])(
+    "does not switch projects on a %s click",
+    async (modifier) => {
+      server(200);
+      render(<SessionSidebar projectId={PROJECT_ID} />);
+
+      fireEvent.click(await otherLink(), { detail: 1, [modifier]: true });
+
+      expect(navigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("leaves an Alt-click to the browser", async () => {
+    server(200);
+    render(<SessionSidebar projectId={PROJECT_ID} />);
+
+    expect(fireEvent.click(await otherLink(), { detail: 1, altKey: true })).toBe(true);
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate to the project already open", async () => {
+    server(200);
+    const onNavigate = vi.fn();
+    render(<SessionSidebar projectId={PROJECT_ID} onNavigate={onNavigate} />);
+
+    fireEvent.click(await screen.findByRole("link", { name: /Current app/ }), { detail: 1 });
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(onNavigate).toHaveBeenCalledOnce();
+  });
+});

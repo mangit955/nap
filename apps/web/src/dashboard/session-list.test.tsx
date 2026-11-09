@@ -150,7 +150,8 @@ it("snoozes with a preset, settles, and edits a title inline without following i
       { label: "Settled" },
     );
     const link = screen.getByRole("link", { name: /Fix header/ });
-    expect(fireEvent.click(link, { detail: 1 })).toBe(false);
+    // The first click of a double-click has gone wherever it goes; the second is not followed.
+    expect(fireEvent.click(link, { detail: 2 })).toBe(false);
     fireEvent.doubleClick(link);
     vi.advanceTimersByTime(350);
     const input = screen.getByRole("textbox", { name: "Session name" });

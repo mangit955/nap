@@ -42,7 +42,7 @@ import type {
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
 import { CANCELLED, pause, stopAware } from "./cancellation.ts";
-import { DeltaStream } from "./delta-stream.ts";
+import { DeltaStream, type Schedule } from "./delta-stream.ts";
 import { DirectoryRules } from "./hooks/directory-rules.ts";
 import type { TurnHook } from "./hooks/hook.ts";
 import { PlanMode } from "./hooks/plan-mode.ts";
@@ -92,6 +92,8 @@ export type AgentServiceOptions = {
   now?: () => string;
   /** Injected for the same reason, for the duration `turn.completed` reports. */
   clock?: () => number;
+  /** Injected so a test can close a streaming window without waiting it out. */
+  schedule?: Schedule;
   /**
    * A model to continue on when the turn's own model refuses, already on the deployment's
    * allowlist. Used only when the deployment is paying: a person's own key may not reach it.
@@ -320,13 +322,14 @@ class Turn {
       const stepBudget = this.#budget.check();
       if (!stepBudget.ok) return this.#failWith(stepBudget.failure);
 
-      // One per step, because a step is one stream. Its buffer is flushed the moment the
-      // call returns and before any branch below can leave the loop, so the last thought of
-      // a turn survives whichever way that turn ended — a refusal and an upstream failure
-      // are the two cases where the reasoning is the only account of what happened.
+      // One per step, because a step is one stream. Both are ended the moment the call
+      // returns and before any branch below can leave the loop, so the last thought of a turn
+      // survives whichever way that turn ended — a refusal and an upstream failure are the two
+      // cases where the reasoning is the only account of what happened.
+      const schedule = this.#options.schedule;
       const thinking = new DeltaStream((text) => {
         if (!this.#cancelled()) this.#emit({ type: "agent.thinking", payload: { text } });
-      });
+      }, schedule);
 
       // The answer's prose, on its own stream. `wrote` is what decides whether the assembled
       // text is emitted afterwards: a model or a route that sends no text deltas would
@@ -336,7 +339,7 @@ class Turn {
         if (this.#cancelled()) return;
         wrote = true;
         this.#emit({ type: "agent.message", payload: { text } });
-      });
+      }, schedule);
 
       const reminders = this.#hooks.flatMap(
         (hook) => hook.beforeModel?.(this.#budget.spent().steps) ?? [],
@@ -362,6 +365,13 @@ class Turn {
       // The provider receives the signal too, but a proxy or upstream stream can take a while
       // to honour it. Racing here ends our turn immediately, preventing further tool calls or
       // streamed output while the transport tears itself down in the background.
+      //
+      // Each channel flushes the other before it speaks, and a tool call starting flushes both,
+      // so what reaches the log is in the order the model wrote it: two buffers flushing on
+      // their own thresholds would otherwise let a long reply overtake the short thought before
+      // it. The call is then over however it ended — returned, cancelled, thrown — and its
+      // streams with it: closed, or on a cancelled turn abandoned, so no window is left armed
+      // to write into a turn that has already ended.
       const messages = [...this.#messages];
       const completed = await stopAware(
         this.#turn.complete({
@@ -369,12 +379,26 @@ class Turn {
           messages,
           tools: this.#tools,
           ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-          onThinkingDelta: (delta) => thinking.push(delta),
-          onTextDelta: (delta) => prose.push(delta),
+          onThinkingDelta: (delta) => {
+            prose.flush();
+            thinking.push(delta);
+          },
+          onTextDelta: (delta) => {
+            thinking.flush();
+            prose.push(delta);
+          },
+          onToolCallStart: () => {
+            thinking.flush();
+            prose.flush();
+          },
           ...(this.#request.signal === undefined ? {} : { signal: this.#request.signal }),
         }),
         this.#request.signal,
-      );
+      ).finally(() => {
+        for (const stream of [thinking, prose])
+          if (this.#cancelled()) stream.abandon();
+          else stream.close();
+      });
 
       if (completed === CANCELLED || this.#cancelled()) {
         return this.#fail("cancelled", "The turn was cancelled.");
@@ -397,9 +421,6 @@ class Turn {
             windowTokens: this.#turn.contextWindowTokens ?? null,
           },
         });
-
-      thinking.flush();
-      prose.flush();
 
       if (result.type === "refusal") {
         if (this.#fallBack()) continue;

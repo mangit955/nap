@@ -11,13 +11,26 @@ import { Sidebar } from "../dashboard/sidebar.tsx";
 import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 
-export function SessionSidebar({ projectId }: { projectId: string }) {
+/**
+ * The workspace's sidebar. It lives in the `/p` layout, so it outlives every switch between
+ * projects: the list is not fetched again and the row just opened is still the one clicked.
+ */
+export function SessionSidebar({
+  projectId,
+  onNavigate,
+}: {
+  /** The open project, if the route has one. */
+  projectId: string | undefined;
+  /** Called on every selection, so a mobile drawer can close: navigation here prevents the click. */
+  onNavigate?: (() => void) | undefined;
+}) {
   const router = useRouter();
   const { data } = authClient.useSession();
   const navigation = useSessionNavigation();
   const { projects, status, actionError, rename, remove, close } = navigation;
   const lastRead = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (projectId === undefined) return;
     const row = projects.find((item) => item.projectId === projectId);
     if (!row || document.hidden) return;
     const stamp = `${projectId}:${row.activityAt}:${row.navigation.snoozedUntil}`;
@@ -42,6 +55,12 @@ export function SessionSidebar({ projectId }: { projectId: string }) {
         recents={recentProjects(projects, projects.length)}
         activeProjectId={projectId}
         onNewProject={() => router.push("/dashboard")}
+        // Client-side, so switching projects keeps this page: no new document, no auth refetch,
+        // no sidebar reload. The workspace under it is keyed by project and starts over.
+        onSelectProject={(id) => {
+          if (id !== projectId) router.push(`/p/${id}`);
+          onNavigate?.();
+        }}
         onApiKey={() => setSettings(true)}
         keyHint={key.state?.configured ? key.state.hint : undefined}
         signingOut={signingOut}

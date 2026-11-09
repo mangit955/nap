@@ -115,6 +115,8 @@ function SignedInDashboard({
             email={user.isAnonymous ? undefined : (user.email ?? undefined)}
             avatarUrl={user.image ?? undefined}
             onRename={(id, name) => void rename(id, name)}
+            // Client-side, so opening a project costs no new document and no auth round trip.
+            onSelectProject={(id) => router.push(`/p/${id}`)}
             onDelete={(id) => void remove(id)}
             onClose={(id) => void close(id)}
             error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}

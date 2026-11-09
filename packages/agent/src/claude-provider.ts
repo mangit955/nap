@@ -66,6 +66,8 @@ export type AnthropicClient = {
        * the first argument and ignore the second.
        */
       on(event: "thinking" | "text", listener: (delta: string, snapshot: string) => void): void;
+      /** Every raw event, of which only a `tool_use` block opening is read. */
+      on(event: "streamEvent", listener: (event: Anthropic.MessageStreamEvent) => void): void;
       finalMessage(): Promise<AnthropicMessage>;
     };
   };
@@ -554,6 +556,13 @@ class ClaudeTurn implements LLMTurn {
         if (request.onTextDelta !== undefined) {
           const forward = request.onTextDelta;
           stream.on("text", (delta) => forward(delta));
+        }
+        if (request.onToolCallStart !== undefined) {
+          const forward = request.onToolCallStart;
+          stream.on("streamEvent", (event) => {
+            if (event.type === "content_block_start" && event.content_block.type === "tool_use")
+              forward();
+          });
         }
         const message = await stream.finalMessage();
         return this.#record(toTurnResult(message));

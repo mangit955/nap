@@ -13,9 +13,19 @@
  * closing phrase sitting in the buffer until the next burst arrives, and time alone chops a
  * fast burst into whatever landed in each window. Whichever comes first wins.
  *
- * Pure, with an injected clock, so the interesting cases — a tail below both thresholds, a
- * delta that overshoots one, a flush with nothing buffered — are testable without a model and
- * without waiting.
+ * **The time threshold is a timer, not a check made when the next delta lands.** It used to be
+ * the second, and a short preamble — "Let me build the board." — then waited for the whole
+ * response: the model went on to stream a tool call's arguments, which are not text, so
+ * nothing pushed again until the call returned, seconds or tens of seconds later.
+ *
+ * A stream belongs to one model call and is ended with it, by `close` (hand over the tail) or
+ * `abandon` (the turn was cancelled; drop it). After either it is inert: no timer is left
+ * armed, and a delta from a transport still tearing itself down is ignored, so nothing can
+ * reach the log after the step that owned it is over.
+ *
+ * The scheduler is injected, so the interesting cases — a tail below both thresholds, a delta
+ * that overshoots one, a window that closes with nothing else arriving, a stream ended with a
+ * timer armed — are testable without a model, without waiting, and without fake global timers.
  */
 
 /** Roughly a phrase. Short enough to read as it arrives, long enough not to spam the log. */
@@ -33,46 +43,73 @@ export const FLUSH_AFTER_CHARS = 120;
  */
 export const FLUSH_AFTER_MS = 400;
 
+/** Runs `run` after `ms`, and returns what cancels it. */
+export type Schedule = (run: () => void, ms: number) => () => void;
+
+const realTimers: Schedule = (run, ms) => {
+  const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+};
+
 export class DeltaStream {
   readonly #emit: (text: string) => void;
-  readonly #now: () => number;
+  readonly #schedule: Schedule;
   #buffer = "";
-  /** When the text now buffered started waiting. Undefined whenever the buffer is empty. */
-  #openedAt: number | undefined;
+  /** Cancels the window the buffered text opened. Undefined whenever the buffer is empty. */
+  #disarm: (() => void) | undefined;
+  #ended = false;
 
-  constructor(emit: (text: string) => void, now: () => number = () => Date.now()) {
+  constructor(emit: (text: string) => void, schedule: Schedule = realTimers) {
     this.#emit = emit;
-    this.#now = now;
+    this.#schedule = schedule;
   }
 
   push(delta: string): void {
-    if (delta === "") return;
-    if (this.#buffer === "") this.#openedAt = this.#now();
+    if (this.#ended || delta === "") return;
     this.#buffer += delta;
 
-    if (
-      this.#buffer.length >= FLUSH_AFTER_CHARS ||
-      this.#now() - (this.#openedAt ?? this.#now()) >= FLUSH_AFTER_MS
-    ) {
+    if (this.#buffer.length >= FLUSH_AFTER_CHARS) {
       this.flush();
+      return;
     }
+    // Opened by the first text into an empty buffer and closed with it, which is what keeps a
+    // long silence *before* the text from expiring the window in advance.
+    this.#disarm ??= this.#schedule(() => {
+      this.#disarm = undefined;
+      this.flush();
+    }, FLUSH_AFTER_MS);
   }
 
   /**
-   * Hands over whatever is buffered, if anything.
+   * Hands over whatever is buffered, if anything, and closes its window.
    *
-   * Called when the model call returns, so a thought that ended below both thresholds is not
-   * lost — and deliberately silent on an empty buffer, since a turn that thought nothing would
-   * otherwise put an empty paragraph on the rail.
+   * Called mid-call wherever order demands it — a tool call starting, the other channel
+   * speaking — and deliberately silent on an empty buffer, since a turn that thought nothing
+   * would otherwise put an empty paragraph on the rail.
    */
   flush(): void {
+    this.#disarm?.();
+    this.#disarm = undefined;
+    // Nothing to check for an ended stream: ending empties the buffer and `push` refuses
+    // anything after, so an ended stream has nothing here to hand over.
     if (this.#buffer === "") return;
 
     const text = this.#buffer;
     this.#buffer = "";
-    // Closed with the buffer it belonged to. The next piece of text opens its own window
-    // when it arrives, which is what keeps a long silence from expiring one in advance.
-    this.#openedAt = undefined;
     this.#emit(text);
+  }
+
+  /** The call is over: hands over the tail, so a thought below both thresholds is not lost. */
+  close(): void {
+    this.flush();
+    this.#ended = true;
+  }
+
+  /** The call was cancelled: drops the tail, since nothing may follow the turn's ending. */
+  abandon(): void {
+    this.#disarm?.();
+    this.#disarm = undefined;
+    this.#buffer = "";
+    this.#ended = true;
   }
 }

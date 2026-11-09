@@ -1,3 +1,4 @@
+import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,12 +11,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const replace = vi.fn();
+const push = vi.fn();
+/** What the session list holds. Empty unless a test needs a row to click. */
+let listed: SessionSummary[] = [];
 const useSession = vi.fn();
 const useProjects = vi.fn();
 const signOut = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace, refresh: vi.fn() }),
+  useRouter: () => ({ push, replace, refresh: vi.fn() }),
 }));
 
 vi.mock("../auth/client.ts", () => ({
@@ -27,7 +31,7 @@ vi.mock("../projects/use-session-navigation.ts", () => ({
   useSessionNavigation: () => {
     useProjects();
     return {
-      projects: [],
+      projects: listed,
       status: "ready",
       actionError: undefined,
       create: vi.fn(),
@@ -47,6 +51,7 @@ const { LiveDashboard } = await import("./live-dashboard.tsx");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  listed = [];
 });
 
 describe("the dashboard, before there is a session", () => {
@@ -182,4 +187,44 @@ it("wires the dashboard header toggle to a focused draft details popover", () =>
   fireEvent.keyDown(card, { key: "Escape" });
   expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
   expect(toggle).toHaveFocus();
+});
+
+it("opens a project from the sidebar client-side, on the first click", () => {
+  // A plain link would load a new document: auth, the list and the project fetched again.
+  const at = "2026-10-23T00:00:00.000Z";
+  listed = [
+    {
+      projectId: "5e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192",
+      name: "Kanban board",
+      status: "ready",
+      sandboxId: null,
+      sessionIds: [],
+      createdAt: at,
+      updatedAt: at,
+      navigation: NavigationSchema.parse({}),
+      revision: 0,
+      activity: "completed",
+      activityAt: null,
+      requestedAt: null,
+      repository: null,
+      branch: null,
+      pullRequest: null,
+      pendingFeedback: 0,
+      runStartedAt: null,
+      turnFinishedAt: null,
+      diff: null,
+      model: null,
+      titling: false,
+    },
+  ];
+  useSession.mockReturnValue({
+    data: { user: { id: "00000000-0000-4000-8000-000000000001", name: "Manas" } },
+    isPending: false,
+  });
+  render(<LiveDashboard />);
+
+  const link = screen.getByRole("link", { name: /Kanban board/ });
+  expect(fireEvent.click(link, { detail: 1 })).toBe(false);
+
+  expect(push).toHaveBeenCalledExactlyOnceWith("/p/5e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192");
 });
