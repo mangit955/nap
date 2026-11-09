@@ -29,9 +29,18 @@
  * process whose turn has just used the sandbox, so the handle is always cached here — feeding it
  * requests from another process would break this.
  *
- * **A shutdown does not wait for it.** What is queued is dropped, and what is running gets a short
- * grace. Nothing here is written down anywhere, so a process that dies with shots outstanding
- * loses only those pictures: the project's next committed turn or restart takes another.
+ * **A shutdown does not wait for it, and no browser it opens outlives its deadline.** What is
+ * queued is dropped, and what is running gets a short grace and is then aborted, which closes its
+ * browser. Every shot has a deadline of its own too: a browser that never answers would otherwise
+ * hold its place for good, and at a bound of one that is the last picture this worker ever takes. A
+ * shot given up on gives its browser's place back at once, whether or not the browser heard, and
+ * stores nothing unless its upload had already begun. A put cannot be called back, so one that had
+ * goes on holding its project: that project's next shot waits for it to land rather than landing
+ * first and being overwritten by the older picture. Those stranded uploads count against
+ * `maxQueued`, so a store that stops answering costs cards rather than a growing pile of bytes
+ * nobody is waiting on.
+ * Nothing here is written down anywhere, so a process that dies with shots outstanding loses only
+ * those pictures: the project's next committed turn or restart takes another.
  *
  * How many run at once and how many may wait are the composition's to say, since both depend on
  * how many turns this worker runs.
@@ -47,6 +56,13 @@ import { captureThumbnail } from "./turn-thumbnail.ts";
 /** Long enough for a browser that has loaded its page to finish, not for one that has not. */
 const DEFAULT_STOP_GRACE_MS = 10_000;
 
+/**
+ * Comfortably past every wait a shot is allowed — the runtime's preview deadline, a browser's
+ * launch and page deadlines, two workspace reads and an upload — so it only ever ends a shot
+ * something below failed to end.
+ */
+const DEFAULT_SHOT_TIMEOUT_MS = 120_000;
+
 export type ThumbnailLaneOptions = {
   sandbox: SandboxManager;
   capture: PageCapture;
@@ -58,8 +74,10 @@ export type ThumbnailLaneOptions = {
    * since every request passes through the queue on its way to a browser.
    */
   maxQueued: number;
-  /** How long `stop` waits for shots already in flight. */
+  /** How long `stop` waits for shots already in flight, before aborting them. */
   stopGraceMs?: number;
+  /** How long one shot may take, start to finish, before it is aborted and its place freed. */
+  shotTimeoutMs?: number;
 };
 
 export type ThumbnailTarget = {
@@ -88,10 +106,16 @@ export class ThumbnailLane {
   readonly #limit: number;
   readonly #maxQueued: number;
   readonly #stopGraceMs: number;
+  readonly #shotTimeoutMs: number;
   /** One per project, oldest first. A `Map` keeps a replaced entry's place in the line. */
   readonly #queued = new Map<string, Shot>();
   /** Keyed by project, because two shots of one could otherwise land in the wrong order. */
-  readonly #running = new Map<string, Promise<void>>();
+  readonly #running = new Map<string, { done: Promise<void>; abort: AbortController }>();
+  /**
+   * Projects whose picture is on its way into the store. A put cannot be called back, so this
+   * outlives a shot given up on mid-upload, and the project's next shot waits until it has landed.
+   */
+  readonly #storing = new Set<string>();
   #stopped = false;
 
   constructor(options: ThumbnailLaneOptions) {
@@ -112,6 +136,7 @@ export class ThumbnailLane {
     this.#limit = options.concurrency;
     this.#maxQueued = options.maxQueued;
     this.#stopGraceMs = options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
+    this.#shotTimeoutMs = options.shotTimeoutMs ?? DEFAULT_SHOT_TIMEOUT_MS;
   }
 
   /**
@@ -131,8 +156,16 @@ export class ThumbnailLane {
     // Asked again because the read above is the one moment a stop can land in between.
     if (this.#stopped) return;
     const { projectId } = target;
-    if (!this.#queued.has(projectId) && this.#queued.size >= this.#maxQueued) {
-      logger.warn({ queued: this.#queued.size }, "too many thumbnails waiting; dropping this one");
+    // A stranded upload counts as waiting: it holds its bytes and its project's place, and a store
+    // that has stopped answering would otherwise strand one more per deadline without limit. So
+    // waiting shots and stranded uploads together never exceed the bound, and a broken store costs
+    // cards until it answers again, or until the worker restarts if it never does.
+    const stranded = this.#stranded;
+    if (!this.#queued.has(projectId) && this.#queued.size + stranded >= this.#maxQueued) {
+      logger.warn(
+        { queued: this.#queued.size, stranded },
+        "too many thumbnails waiting; dropping this one",
+      );
       return;
     }
 
@@ -141,33 +174,48 @@ export class ThumbnailLane {
   }
 
   /**
-   * Stops taking pictures: drops what is waiting and gives what is running a short grace.
+   * Stops taking pictures: drops what is waiting, gives what is running a short grace, and aborts
+   * whatever is still running after it.
    *
    * Never waits longer than the grace, because the caller is a process on its way out, and a page
-   * that will not load must not cost it the deadline the platform gave it. A browser left behind
-   * goes with the process.
+   * that will not load must not cost it the deadline the platform gave it. An upload still going
+   * after that is left to land or not: it is of the workspace the shot was asked for, and nothing
+   * else of the project can start here any more to be overwritten by it.
    */
   async stop(): Promise<void> {
     this.#stopped = true;
     this.#queued.clear();
-    if (this.#running.size === 0) return;
+    const running = [...this.#running.values()];
+    if (running.length === 0) return;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const graceOver = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, this.#stopGraceMs);
     });
-    await Promise.race([Promise.all(this.#running.values()), graceOver]);
+    await Promise.race([Promise.all(running.map((shot) => shot.done)), graceOver]);
     clearTimeout(timer);
+
+    // Settles at once: a shot that is aborted stops being waited for, whether or not its browser
+    // has heard yet.
+    for (const shot of running) shot.abort.abort();
+    await Promise.all(running.map((shot) => shot.done));
   }
 
   /**
-   * How many shots are waiting or running.
+   * How many shots are waiting or running, counting an upload left behind by one given up on.
    *
    * Here so a test can tell "nothing was stored" from "nothing has been stored yet", which would
    * otherwise read the same.
    */
   get pending(): number {
-    return this.#queued.size + this.#running.size;
+    return this.#queued.size + this.#running.size + this.#stranded;
+  }
+
+  /** Uploads still in flight for a shot no longer running: given up on at its deadline or stop. */
+  get #stranded(): number {
+    let count = 0;
+    for (const projectId of this.#storing) if (!this.#running.has(projectId)) count += 1;
+    return count;
   }
 
   /**
@@ -179,24 +227,52 @@ export class ThumbnailLane {
   #pump(): void {
     for (const [projectId, shot] of this.#queued) {
       if (this.#running.size >= this.#limit) return;
-      if (this.#running.has(projectId)) continue;
+      if (this.#running.has(projectId) || this.#storing.has(projectId)) continue;
 
       this.#queued.delete(projectId);
-      const running = withLogContext(shot.logger, {}, () => this.#take(shot))
+      const abort = new AbortController();
+      const deadline = setTimeout(() => {
+        shot.logger.warn(
+          { timeoutMs: this.#shotTimeoutMs },
+          "a project thumbnail took too long; giving up on it",
+        );
+        abort.abort();
+      }, this.#shotTimeoutMs);
+      // Set once the picture is cleared to overwrite the stored one, so that only the shot which
+      // started an upload ever ends the project's wait for it.
+      let storing = false;
+      const work = withLogContext(shot.logger, {}, () =>
+        this.#take(shot, abort.signal, () => {
+          storing = true;
+          this.#storing.add(projectId);
+        }),
+      )
         .catch((error: unknown) => {
-          shot.logger.warn({ err: error }, "could not capture a project thumbnail");
+          // Whoever gave up on it has said so already, and nobody is awaiting it any more.
+          if (!abort.signal.aborted)
+            shot.logger.warn({ err: error }, "could not capture a project thumbnail");
         })
         .finally(() => {
-          // In a `finally` because a throw must not cost the slot: one lost at a bound of one is a
-          // worker that never photographs anything again.
-          this.#running.delete(projectId);
+          if (!storing) return;
+          this.#storing.delete(projectId);
           this.#pump();
         });
-      this.#running.set(projectId, running);
+      // Raced rather than trusted: the abort is a request, and a browser or a sandbox call that
+      // ignores it must still not keep the place. An upload it leaves behind holds the project's
+      // place through `#storing` instead of holding the browser's.
+      const done = Promise.race([work, untilAborted(abort.signal)]).finally(() => {
+        clearTimeout(deadline);
+        // In a `finally` because a throw must not cost the slot: one lost at a bound of one is a
+        // worker that never photographs anything again.
+        this.#running.delete(projectId);
+        this.#pump();
+      });
+      this.#running.set(projectId, { done, abort });
     }
   }
 
-  async #take(shot: Shot): Promise<void> {
+  /** `storing` is told the moment the upload is cleared to start, before the put is called. */
+  async #take(shot: Shot, signal: AbortSignal, storing: () => void): Promise<void> {
     const { projectId, sandboxId, port, previewTimeoutMs } = shot;
     const log = getLogger();
 
@@ -217,16 +293,21 @@ export class ThumbnailLane {
       projectId,
       sandboxId,
       port,
+      signal,
       ...(previewTimeoutMs === undefined ? {} : { previewTimeoutMs }),
       // Last, because the picture just taken may show a half-finished edit or a dead sandbox's
       // error page, and this is the moment it would replace a good one.
       beforeStore: async () => {
         const now = await this.#readWorkspace(sandboxId);
         gone = now === null;
-        return now === shot.workspace;
+        const store = now === shot.workspace && !signal.aborted;
+        if (store) storing();
+        return store;
       },
     });
 
+    // Whoever gave up on it has said so already.
+    if (signal.aborted) return;
     if (taken.ok) {
       log.info({ key: taken.value.key }, "project thumbnail captured");
     } else if (taken.error.superseded === true) {
@@ -258,4 +339,12 @@ export class ThumbnailLane {
     }
     return null;
   }
+}
+
+/** Resolves once the signal fires, so a shot can stop being waited for without its cooperation. */
+function untilAborted(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }

@@ -19,7 +19,9 @@ let server: Server;
 let origin: string;
 
 beforeAll(async () => {
-  server = createServer((_request, response) => {
+  server = createServer((request, response) => {
+    // A page that never answers, which is what a caller gives up on.
+    if (request.url === "/hang") return;
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<html><body style='background:#123456'><h1>a habit tracker</h1></body></html>");
   });
@@ -29,6 +31,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
@@ -60,6 +63,33 @@ describe.skipIf(CHROME === undefined)("capturing a page with a real browser", ()
     expect(await capture.capture(origin)).toMatchObject({
       ok: false,
       error: { code: "unavailable" },
+    });
+  });
+
+  it("gives up when it is aborted, rather than waiting for its own deadline", async () => {
+    // What the thumbnail lane does to a shot past its deadline or at shutdown. Closing the browser
+    // is the point: an abort that only stopped the caller waiting would leave Chrome running.
+    const capture = new ChromePageCapture({ executablePath: CHROME ?? "" });
+    const abort = new AbortController();
+    setTimeout(() => abort.abort(), 1_500);
+    const started = Date.now();
+
+    const shot = await capture.capture(`${origin}hang`, {
+      timeoutMs: 60_000,
+      signal: abort.signal,
+    });
+
+    expect(shot).toMatchObject({ ok: false, error: { code: "timeout" } });
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+
+  it("launches nothing for a capture aborted before it began", async () => {
+    const capture = new ChromePageCapture({ executablePath: "/nowhere/chrome" });
+
+    // A missing binary would say `unavailable`; this never gets as far as looking for one.
+    expect(await capture.capture(origin, { signal: AbortSignal.abort() })).toMatchObject({
+      ok: false,
+      error: { code: "timeout" },
     });
   });
 });

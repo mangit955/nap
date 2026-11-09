@@ -5,10 +5,12 @@ import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
+import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { scriptGit } from "@nap/sandbox/testing/script-git";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 
 /**
@@ -47,12 +49,12 @@ beforeEach(() => {
   sessions = new InMemorySessionStore([{ sessionId: SESSION_ID, projectId: PROJECT_ID }]);
 });
 
-function runtime(script: AgentScript, durable = true) {
+function runtime(script: AgentScript | ScriptedAgent, durable = true) {
   return new SingleAgentRuntime({
     sessions,
     sandbox,
     context: new StubContextEngine(),
-    agent: new ScriptedAgent(script),
+    agent: script instanceof ScriptedAgent ? script : new ScriptedAgent(script),
     events,
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
@@ -60,11 +62,16 @@ function runtime(script: AgentScript, durable = true) {
   });
 }
 
-const run = (script: AgentScript = () => completedTurn(COMMIT_SHA), durable = true) =>
+const run = (
+  script: AgentScript | ScriptedAgent = () => completedTurn(COMMIT_SHA),
+  durable = true,
+  signal?: AbortSignal,
+) =>
   runtime(script, durable).runTurn({
     turnId: crypto.randomUUID(),
     sessionId: SESSION_ID,
     message: "add a delete button",
+    ...(signal === undefined ? {} : { signal }),
   });
 
 describe("a turn that changed something", () => {
@@ -166,5 +173,149 @@ describe("when the snapshot itself fails", () => {
       (event) => event.type === "turn.completed" || event.type === "turn.failed",
     );
     expect(terminals).toHaveLength(1);
+  });
+});
+
+describe("a job that repairs itself", () => {
+  const REPAIRED_SHA = "2222222222222222222222222222222222222222";
+
+  /**
+   * A project whose typecheck says no `reds` times and then yes, and whose HEAD moves on with each
+   * turn the agent runs — which is what a repair that commits does to it.
+   */
+  function repairingProject(reds: number) {
+    let remaining = reds;
+    let head = COMMIT_SHA;
+    sandbox = scriptGit(
+      new InMemorySandboxManager({
+        serves: [TEMPLATE_DEV_PORT],
+        seed: {
+          [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify({
+            scripts: { typecheck: "tsc --noEmit" },
+          }),
+        },
+      }),
+    )
+      .script(/git rev-parse HEAD/, () => ({ exitCode: 0, stdout: `${head}\n` }))
+      .script(/bun run typecheck/, () => {
+        if (remaining === 0) return { exitCode: 0 };
+        remaining -= 1;
+        return { exitCode: 1, stderr: "type error" };
+      });
+    const agent = new ScriptedAgent(() => {
+      const sha = agent.calls === 1 ? COMMIT_SHA : REPAIRED_SHA;
+      head = sha;
+      return completedTurn(sha);
+    });
+    return agent;
+  }
+
+  /** Bundle uploads that finish when the test says, counted so an overlap would show. */
+  function gatedUploads() {
+    const waiting: (() => void)[] = [];
+    let inFlight = 0;
+    const gate = { asked: 0, peak: 0, release: () => waiting.shift()?.() };
+    const put = objects.put.bind(objects);
+    vi.spyOn(objects, "put").mockImplementation(async (key, bytes) => {
+      if (key.endsWith(".bundle")) {
+        gate.asked += 1;
+        inFlight += 1;
+        gate.peak = Math.max(gate.peak, inFlight);
+        await new Promise<void>((resolve) => waiting.push(resolve));
+        inFlight -= 1;
+      }
+      return put(key, bytes);
+    });
+    return gate;
+  }
+
+  it("does not start a repair until the round before it has reached storage", async () => {
+    // A worker can die without running a single `finally`. Had the repair committed by then, the
+    // newest durable snapshot would predate both rounds, so the repair waits for the upload.
+    const agent = repairingProject(1);
+    const uploads = gatedUploads();
+
+    const outcome = run(agent);
+
+    await vi.waitFor(() => expect(uploads.asked).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(agent.calls).toBe(1);
+
+    uploads.release();
+    await vi.waitFor(() => expect(agent.calls).toBe(2));
+    expect(snapshots.all()).toEqual([expect.objectContaining({ gitSha: COMMIT_SHA })]);
+    await vi.waitFor(() => expect(uploads.asked).toBe(2));
+    uploads.release();
+    expect((await outcome).ok).toBe(true);
+  });
+
+  it("records every round's snapshot before it returns, one at a time, the newest last", async () => {
+    // Before it returns is before the lease goes back, which is what orders this job's snapshots
+    // against the next turn's and keeps the idle sweep away from the sandbox mid-bundle.
+    const agent = repairingProject(1);
+    const uploads = gatedUploads();
+    let returned = false;
+
+    const outcome = run(agent).finally(() => {
+      returned = true;
+    });
+
+    await vi.waitFor(() => expect(uploads.asked).toBe(1));
+    uploads.release();
+    await vi.waitFor(() => expect(uploads.asked).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The repair passed and its own round is uploading: the job has closed, the lease has not.
+    expect(returned).toBe(false);
+
+    uploads.release();
+    await outcome;
+
+    expect(uploads.peak).toBe(1);
+    expect(snapshots.all()).toHaveLength(2);
+    expect(snapshots.all().at(-1)).toMatchObject({ gitSha: REPAIRED_SHA });
+  });
+
+  it("starts no repair when the job is cancelled while the round before it uploads", async () => {
+    // The upload is the one wait between a red check and the repair it prompts, so a cancel that
+    // lands during it must be heard before another turn is begun.
+    const agent = repairingProject(Number.POSITIVE_INFINITY);
+    const controller = new AbortController();
+    const uploads = gatedUploads();
+
+    const outcome = run(agent, true, controller.signal);
+
+    await vi.waitFor(() => expect(uploads.asked).toBe(1));
+    controller.abort();
+    uploads.release();
+    await outcome;
+
+    // One prompt, the person's: no repair was begun, not even one that refused at once.
+    const log = await events.readFrom(SESSION_ID, 0);
+    expect(log.filter((event) => event.type === "user.message")).toHaveLength(1);
+    expect(log.at(-1)).toMatchObject({ type: "job.completed", payload: { outcome: "abandoned" } });
+    expect(agent.calls).toBe(1);
+    expect(snapshots.all()).toEqual([expect.objectContaining({ gitSha: COMMIT_SHA })]);
+  });
+
+  it("still records the round before it when the repair crashes", async () => {
+    // The boundary a worker's own failure lands on: the round before has committed and the turn
+    // that was meant to fix it is gone. That commit must still have reached storage.
+    const agent = repairingProject(Number.POSITIVE_INFINITY);
+    agent.before = async () => {
+      if (agent.calls >= 2) throw new Error("provider exploded");
+    };
+    const uploads = gatedUploads();
+
+    const outcome = run(agent);
+
+    await vi.waitFor(() => expect(uploads.asked).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(agent.calls).toBe(1);
+
+    const releasing = setInterval(uploads.release, 2);
+    await outcome.finally(() => clearInterval(releasing));
+
+    expect(snapshots.all()[0]).toMatchObject({ gitSha: COMMIT_SHA });
+    expect(uploads.peak).toBe(1);
   });
 });

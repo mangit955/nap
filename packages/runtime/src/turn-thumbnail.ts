@@ -59,6 +59,11 @@ export type CaptureThumbnailOptions = {
    * a caller that cannot hold the sandbox still needs a last word on whether that is a good trade.
    */
   beforeStore?: () => Promise<boolean>;
+  /**
+   * The asker has stopped waiting. Handed to the browser so it closes, and asked again before
+   * storing, because a picture nobody waited for is not one to overwrite the last with.
+   */
+  signal?: AbortSignal;
 };
 
 const DEFAULT_PREVIEW_TIMEOUT_MS = 15_000;
@@ -80,16 +85,19 @@ export async function captureThumbnail(
     return { ok: false, error: { message: `no preview to photograph: ${preview.error.message}` } };
   }
 
-  const shot = await capture.capture(
-    preview.value,
+  const { signal } = options;
+  if (signal?.aborted) return { ok: false, error: { message: "the shot was abandoned" } };
+  const shot = await capture.capture(preview.value, {
     // Left to the adapter's own default when the caller has no opinion, rather than repeated
     // here — two places holding a number that has to agree is how they stop agreeing.
-    options.captureTimeoutMs === undefined ? {} : { timeoutMs: options.captureTimeoutMs },
-  );
+    ...(options.captureTimeoutMs === undefined ? {} : { timeoutMs: options.captureTimeoutMs }),
+    ...(signal === undefined ? {} : { signal }),
+  });
   if (!shot.ok) {
     return { ok: false, error: { message: `could not capture the page: ${shot.error.message}` } };
   }
 
+  if (signal?.aborted) return { ok: false, error: { message: "the shot was abandoned" } };
   if (options.beforeStore !== undefined && !(await options.beforeStore())) {
     return { ok: false, error: { message: "the picture is out of date", superseded: true } };
   }

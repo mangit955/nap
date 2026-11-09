@@ -32,6 +32,12 @@ export type PageCaptureOptions = {
   width?: number;
   height?: number;
   timeoutMs?: number;
+  /**
+   * Gives up on the capture and frees whatever it holds. A caller that has stopped waiting
+   * aborts it, so a browser that will not finish is closed by its adapter rather than left
+   * to the process's exit.
+   */
+  signal?: AbortSignal;
 };
 
 export interface PageCapture {
