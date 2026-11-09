@@ -12,6 +12,18 @@ at a time. Outlives every sandbox it ever had.
 **Session** — one conversation about a project. A project's newest session is the one its workspace
 opens; a link never names a session, because the project grows new ones.
 
+**Settled** — of a session in the sidebar: finished with, and so out of the inbox, on the Settled
+shelf at the bottom. Settling is the reader's own bookkeeping, not a fact about the work, so a
+new request un-settles a session by itself; a turn still running cannot be settled. The API,
+the store and the reorder `section` call it **done** (`navigation.doneAt`), and keep that name on
+purpose: it is a persisted field and a wire value, the web maps it in one place
+(`shelveSessions`), and renaming it would migrate stored rows to change no behaviour. Not a
+**Verdict** and not a closed **Job** — a session can be settled with its checks red.
+
+**Woke** — a snooze that has run out on a session nobody has looked at since. It comes back to the
+inbox saying *Woke* until it is opened or dismissed, which moves the read watermark past the
+wake. Only ever drawn, never stored: it is `snoozedUntil` in the past and `readAt` before it.
+
 **Media attachment** — a named reference on a user message: one prepared JPEG for an image,
 or sampled JPEG frames with timestamps for a video. These bytes travel with the durable turn
 request and event; the original file and video audio do not. A text-only model sees a named
@@ -719,6 +731,11 @@ its Computer. Its goal and source commit are recorded in `test.started`; its inp
 built from that goal and the Job's diff. Assertions are declared before input and receive a
 verdict after a new screenshot. The result does not change the Job's checkpoint. A failed
 assertion offers a separate repair the user may request; it never starts one itself.
+
+**Goal** — what an **App test** of a Job is judged against. Usually the Job's objective. A Job
+opened by **Fix it** has the repair prompt as its objective and the failed test's goal as its
+goal, copied from that test's `test.started` by the runtime. Structured repairs preserve this goal
+without reading it from the repair prompt. Older logs fall back to the objective and are not backfilled.
 
 **Test recording** — a video of one App test, with annotations on the video’s timeline. It shows
 what was attempted and what was visible; it does not independently establish an assertion’s truth.

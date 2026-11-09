@@ -162,6 +162,26 @@ describe("enqueue", () => {
     expect(ordinary).not.toHaveProperty("plan");
   });
 
+  it("round-trips the app test a Fix it repairs, and leaves an ordinary prompt without one", async () => {
+    const seed = await seedSession();
+    const fixesTest = crypto.randomUUID();
+    await enqueueRequest(queue, {
+      ...seed,
+      kind: "turn",
+      message: "Fix the failures found while testing this app.",
+      model: "anthropic/claude-opus-5",
+      billsToUser: false,
+      fixesTest,
+    });
+    const leased = await queue.claim("fix-worker");
+    expect(leased?.fixesTest).toBe(fixesTest);
+    if (leased) await queue.settle(leased.id, "fix-worker", "done");
+
+    await enqueueTurn(seed);
+    const ordinary = await queue.claim("fix-worker");
+    expect(ordinary).not.toHaveProperty("fixesTest");
+  });
+
   it("writes a queued request under the id it was given", async () => {
     const seed = await seedSession();
     const { id } = await enqueueTurn(seed);

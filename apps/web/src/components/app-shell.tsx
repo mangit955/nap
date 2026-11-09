@@ -258,7 +258,7 @@ export function AppShell({
       ? {
           videoUrl: recordingUrl,
           downloadUrl: `${recordingUrl}?download=1`,
-          title: selectedTest.objective ?? "App test",
+          title: selectedTest.goal ?? "App test",
           annotations: selectedTest.annotations,
           counts: selectedTest.counts,
         }

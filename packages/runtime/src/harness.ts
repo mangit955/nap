@@ -33,7 +33,7 @@ export const HARNESS_USAGE = [
   'Usage: bun run harness [options] "<prompt>"',
   "",
   "  --real                  Use real E2B and the real model. Costs money.",
-  `  --platform=<name>       openrouter | anthropic | bedrock (default ${HARNESS_DEFAULTS.platform}) — which account pays`,
+  `  --platform=<name>       openrouter | anthropic (default ${HARNESS_DEFAULTS.platform}) — which account pays`,
   `  --model=<id>            Model for a real run (default ${HARNESS_DEFAULTS.model})`,
   `  --effort=<level>        low | medium | high | xhigh | max (default ${HARNESS_DEFAULTS.effort})`,
   `  --max-steps=<n>         Model calls allowed in the turn (default ${HARNESS_DEFAULTS.maxSteps})`,
@@ -52,11 +52,11 @@ export type HarnessEffort = (typeof EFFORT_LEVELS)[number];
 /**
  * Where the models are reached from.
  *
- * All three speak the same Messages API and differ only in which account is billed and how the
- * client authenticates — see the notes in `@nap/agent`'s bedrock and openrouter modules.
+ * Both speak the same Messages API and differ only in which account is billed and how the
+ * client authenticates — see the notes in `@nap/agent`'s openrouter module.
  * OpenRouter is first because it is the one this project uses.
  */
-const PLATFORMS = ["openrouter", "anthropic", "bedrock"] as const;
+const PLATFORMS = ["openrouter", "anthropic"] as const;
 export type HarnessPlatform = (typeof PLATFORMS)[number];
 
 export type HarnessOptions = {

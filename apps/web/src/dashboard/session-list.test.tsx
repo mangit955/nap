@@ -1,5 +1,5 @@
 import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { SessionList } from "./session-list.tsx";
 
@@ -26,38 +26,32 @@ it("shows truthful activity, preserves the selected row through filtering, and o
   const b = row("Add menu");
   a.navigation.position = 0;
   b.navigation.position = 1;
-  const change = vi.fn();
-  const reorder = vi.fn();
+  const apply = vi.fn(async () => true);
   const view = render(
     <SessionList
       sessions={[a, b]}
       activeProjectId={a.projectId}
       query=""
       repository=""
-      onChange={change}
-      onReorder={reorder}
+      onApply={apply}
     />,
   );
   expect(screen.queryByRole("status")).toBeNull();
   expect(screen.queryByText("Working")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Session actions for Fix header" }));
-  fireEvent.click(screen.getByRole("button", { name: "Move down" }));
-  expect(reorder).toHaveBeenCalledWith(
-    expect.objectContaining({
-      rows: [
-        { projectId: b.projectId, revision: 0 },
-        { projectId: a.projectId, revision: 0 },
-      ],
-    }),
-  );
+  fireEvent.contextMenu(screen.getByRole("link", { name: /Fix header/ }));
+  const menu = screen.getByRole("menu", { name: "Actions for Fix header" });
+  expect(within(menu).queryByRole("menuitem", { name: "Move up" })).toBeNull();
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Move down" }));
+  expect(apply).toHaveBeenCalledWith([
+    { kind: "reorder", section: "active", projectIds: [b.projectId, a.projectId] },
+  ]);
   view.rerender(
     <SessionList
       sessions={[a, b]}
       activeProjectId={a.projectId}
       query="unmatched"
       repository=""
-      onChange={change}
-      onReorder={reorder}
+      onApply={apply}
     />,
   );
   expect(screen.getByRole("link", { name: /Fix header/ })).toHaveAttribute("aria-current", "page");
@@ -122,25 +116,34 @@ it("snoozes with a preset, settles, and edits a title inline without following i
   vi.useFakeTimers();
   try {
     const session = row("Fix header");
-    const onChange = vi.fn();
+    const apply = vi.fn(async () => true);
     const onRename = vi.fn();
     render(
       <SessionList
         sessions={[session]}
         query=""
         repository=""
-        onChange={onChange}
+        onApply={apply}
         onRename={onRename}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Snooze Fix header" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /In 1 hour/ }));
-    expect(onChange).toHaveBeenLastCalledWith(session.projectId, {
-      kind: "snooze",
-      until: new Date(Date.now() + 3600000).toISOString(),
-    });
+    expect(apply).toHaveBeenLastCalledWith(
+      [
+        {
+          kind: "change",
+          projectId: session.projectId,
+          change: { kind: "snooze", until: new Date(Date.now() + 3600000).toISOString() },
+        },
+      ],
+      { label: "Snoozed" },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Settle Fix header" }));
-    expect(onChange).toHaveBeenLastCalledWith(session.projectId, { kind: "done", value: true });
+    expect(apply).toHaveBeenLastCalledWith(
+      [{ kind: "change", projectId: session.projectId, change: { kind: "done", value: true } }],
+      { label: "Settled" },
+    );
     const link = screen.getByRole("link", { name: /Fix header/ });
     // The first click of a double-click has gone wherever it goes; the second is not followed.
     expect(fireEvent.click(link, { detail: 2 })).toBe(false);

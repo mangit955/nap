@@ -132,11 +132,6 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
     reason:
       "The accessibility scanner belongs to apps/napbench for the same reason Playwright does: it is an evaluation tool, it runs inside a browser nothing that ships has, and the deployed image is built from one workspace-wide install. Depend on BrowserSession.scanAccessibility from @nap/bench instead — what counts as a violation is axe's answer, and nothing above the port needs to know whose. See docs/adr/0001.",
   },
-  "@anthropic-ai/bedrock-sdk": {
-    owner: "@nap/agent",
-    reason:
-      "Reaching the models through Bedrock rather than Anthropic directly is a transport detail, and it belongs to @nap/agent for the same reason the direct SDK does. Which platform serves a request must not be visible above the LLMProvider interface — the whole point is that the agent loop and the event contract cannot tell the difference.",
-  },
 };
 
 /**

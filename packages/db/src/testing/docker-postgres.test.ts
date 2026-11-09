@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { portFrom, startDockerPostgres } from "./docker-postgres.ts";
 
@@ -35,8 +36,6 @@ vi.mock("postgres", () => ({ default: () => Object.assign(sql.query, { end: sql.
 vi.mock("drizzle-orm/postgres-js", () => ({ drizzle: (client: unknown) => client }));
 vi.mock("drizzle-orm/postgres-js/migrator", () => ({ migrate: sql.migrate }));
 
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
 // A real CLI process, never a real Docker command. Its resource file represents exactly one
 // allocation, including an allocation made before `run` has printed its ID.
 const dockerStub = `#!${process.execPath}
@@ -45,13 +44,16 @@ const path = require('node:path');
 const dir = process.env.NAP_PG_FIXTURE;
 const args = process.argv.slice(2);
 const command = args[0];
-fs.appendFileSync(path.join(dir, 'events'), JSON.stringify({args, pid:process.pid})+'\\n');
+if (command === 'run') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.NAP_PG_STUB_DELAY_MS || 0));
+function record() { fs.appendFileSync(path.join(dir, 'events'), JSON.stringify({args, pid:process.pid})+'\\n'); }
+if (command !== 'run') record();
 const mode = fs.readFileSync(path.join(dir,'mode'),'utf8');
 const resource = path.join(dir,'resource');
 const name = args[args.indexOf('--name')+1] || 'legacy';
 function hang() { process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); }
 if (command === 'run') {
   fs.writeFileSync(resource,name);
+  record();
   if (mode === 'run-hang') hang(); else console.log('owned-id');
 } else if (command === 'port') {
   if (mode === 'port-hang') hang();
@@ -67,7 +69,7 @@ if (command === 'run') {
 } else { console.error('unexpected docker arguments'); process.exitCode=1; }
 `;
 
-describe("startDockerPostgres", () => {
+describe("startDockerPostgres", { timeout: 20_000 }, () => {
   let fixture: string;
   let pending: Promise<unknown>[];
 
@@ -92,7 +94,10 @@ describe("startDockerPostgres", () => {
   }
 
   async function waitFor(command: string) {
-    for (let attempt = 0; attempt < 100; attempt++) {
+    // Child readiness is a precondition, not the startup-deadline measurement. Cold Node
+    // starts can exceed a second under the full suite; only this real-time watchdog waits.
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
       const found = (await events()).find((event) => event.args[0] === command);
       if (found) return found;
       await delay(10);
@@ -122,6 +127,7 @@ describe("startDockerPostgres", () => {
   }
 
   afterEach(async () => {
+    vi.useRealTimers();
     // Also clean the fixture's real processes when running against the broken implementation.
     for (const event of await events()) {
       try {
@@ -134,9 +140,11 @@ describe("startDockerPostgres", () => {
   });
 
   it("aborts an allocating CLI, drains it, and rolls back by its pre-known owned name", async () => {
+    vi.stubEnv("NAP_PG_STUB_DELAY_MS", "1200");
     const controller = new AbortController();
     const startup = start({ signal: controller.signal, timeoutMs: 10_000 });
     const allocating = await waitFor("run");
+    await expect(readFile(join(fixture, "resource"), "utf8")).resolves.toMatch(/^nap-postgres-/);
     controller.abort(new Error("startup interrupted"));
     expect(await failure(startup)).toContain("startup interrupted");
     expect(() => process.kill(allocating.pid, 0)).toThrow();
@@ -160,13 +168,18 @@ describe("startDockerPostgres", () => {
     "bounds %s within the startup budget and drains the process",
     async (mode) => {
       await writeFile(join(fixture, "mode"), mode);
-      expect(await failure(start({ timeoutMs: 800 }))).toContain("timed out after 800ms");
-      const calls = await events();
-      const blocked = calls.find(
-        (event) => event.args[0] === (mode === "run-hang" ? "run" : "port"),
-      );
-      expect(blocked).toBeDefined();
-      expect(() => process.kill(blocked!.pid, 0)).toThrow();
+      // The startup clock stays still while the actual CLI reaches the stage under test.
+      // Otherwise a slow first spawn can consume the budget before `port` is ever called.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const startup = start({ timeoutMs: 800 });
+      const settled = vi.fn();
+      void startup.then(settled, settled);
+      const blocked = await waitFor(mode === "run-hang" ? "run" : "port");
+      await vi.advanceTimersByTimeAsync(799);
+      expect(settled).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await failure(startup)).toContain("timed out after 800ms");
+      expect(() => process.kill(blocked.pid, 0)).toThrow();
       await expect(readFile(join(fixture, "resource"))).rejects.toThrow(/ENOENT/);
     },
   );
@@ -202,17 +215,25 @@ describe("startDockerPostgres", () => {
 
   it("includes migrations in the single startup deadline", async () => {
     await writeFile(join(fixture, "mode"), "ready");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
     let terminate!: (error: Error) => void;
-    sql.migrate.mockImplementationOnce(
-      () =>
-        new Promise<never>((_resolve, reject) => {
-          terminate = reject;
-        }),
-    );
+    sql.migrate.mockImplementationOnce(() => {
+      entered();
+      return new Promise<never>((_resolve, reject) => {
+        terminate = reject;
+      });
+    });
     sql.end.mockImplementationOnce(async () => {
       terminate(new Error("CONNECTION_DESTROYED"));
     });
-    expect(await failure(start({ timeoutMs: 800 }))).toContain("timed out after 800ms");
+    const startup = start({ timeoutMs: 800 });
+    await reached;
+    await vi.advanceTimersByTimeAsync(800);
+    expect(await failure(startup)).toContain("timed out after 800ms");
     expect(sql.migrate).toHaveBeenCalledOnce();
     await expect(readFile(join(fixture, "resource"))).rejects.toThrow(/ENOENT/);
   });

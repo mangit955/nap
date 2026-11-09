@@ -45,6 +45,11 @@ export type JobState = {
   jobId: string;
   /** What was asked, as the prompt that opened the job put it. */
   objective: string;
+  /**
+   * What an app test of this job is judged against: the objective, except for a job **Fix it**
+   * opened, whose goal is the goal of the test it repairs. Never a repair prompt.
+   */
+  goal: string;
   phase: JobPhase;
   /** The most recent verification's findings; empty until one has completed. */
   checks: readonly VerifiedCheck[];
@@ -121,6 +126,7 @@ export function openJob(state: SessionJobs): JobState | undefined {
 type Tally = {
   jobId: string;
   objective: string;
+  goal: string;
   startedAt: string;
   checkpointSha: string | null;
   /** Paths rather than a count, so a file written twice is not two files. */
@@ -200,6 +206,7 @@ export function foldJobs(events: readonly StoredEvent[]): SessionJobs {
       const tally: Tally = {
         jobId: event.payload.jobId,
         objective: event.payload.objective,
+        goal: event.payload.goal ?? event.payload.objective,
         startedAt: event.createdAt,
         checkpointSha: null,
         paths: new Set(),
@@ -251,6 +258,7 @@ function toJobState(tally: Tally): JobState {
   return {
     jobId: tally.jobId,
     objective: tally.objective,
+    goal: tally.goal,
     phase: phaseOf(tally, attemptsUsed),
     checks: tally.checks,
     attemptsUsed,

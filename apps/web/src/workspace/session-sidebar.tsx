@@ -6,6 +6,7 @@ import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
 import { recentProjects } from "../dashboard/filters.ts";
+import { seenChange } from "../dashboard/session-rows.ts";
 import { Sidebar } from "../dashboard/sidebar.tsx";
 import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
@@ -32,23 +33,16 @@ export function SessionSidebar({
     if (projectId === undefined) return;
     const row = projects.find((item) => item.projectId === projectId);
     if (!row || document.hidden) return;
-    const stamp = `${projectId}:${row.activityAt}`;
+    const stamp = `${projectId}:${row.activityAt}:${row.navigation.snoozedUntil}`;
     if (lastRead.current === stamp) return;
     lastRead.current = stamp;
-    if (
-      row.navigation.unread ||
-      (row.activityAt && (!row.navigation.readAt || row.activityAt > row.navigation.readAt))
-    )
-      void navigation.change(projectId, { kind: "read", at: row.activityAt, unread: false });
+    // The open session is being looked at, which also ends a Woke.
+    const seen = seenChange(row, Date.now());
+    if (seen) void navigation.change(projectId, seen, { quiet: true });
   }, [projectId, projects, navigation]);
   const [settings, setSettings] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const [busyProjectId, setBusyProjectId] = useState<string>();
   const key = useApiKey();
-  const run = (id: string, action: (id: string) => Promise<unknown>) => {
-    setBusyProjectId(id);
-    void action(id).finally(() => setBusyProjectId(undefined));
-  };
   return (
     <>
       <ApiKeyPanel open={settings} onClose={() => setSettings(false)} keyState={key} />
@@ -72,14 +66,13 @@ export function SessionSidebar({
         signingOut={signingOut}
         loading={status === "loading"}
         error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}
-        busyProjectId={navigation.busyProjectId ?? busyProjectId}
         onRename={(id, name) => void rename(id, name)}
         onDelete={(id) =>
-          run(id, async (removedId) => {
-            if ((await remove(removedId)) && removedId === projectId) router.replace("/dashboard");
+          void remove(id).then((removed) => {
+            if (removed && id === projectId) router.replace("/dashboard");
           })
         }
-        onClose={(id) => run(id, close)}
+        onClose={(id) => void close(id)}
         onSignOut={() => {
           setSigningOut(true);
           void authClient

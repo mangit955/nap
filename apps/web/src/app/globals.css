@@ -2346,6 +2346,7 @@ details[open] > .nap-float {
 }
 @media (hover: none) {
   .session-actions {
+    display: grid;
     opacity: 1;
   }
 }
@@ -2759,6 +2760,7 @@ details[open] > .nap-float {
 }
 @media (hover: none) {
   .session-actions {
+    display: grid;
     opacity: 1;
   }
 }

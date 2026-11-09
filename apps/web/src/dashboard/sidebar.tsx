@@ -8,7 +8,7 @@ import { NapMark } from "../brand/nap-mark.tsx";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { ConnectionsIcon, ProvidersIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { DraftRows } from "./draft-rows.tsx";
-import { SessionList } from "./session-list.tsx";
+import { preloadDrag, SessionList } from "./session-list.tsx";
 import { SourceFilter } from "./source-filter.tsx";
 
 export function Sidebar({
@@ -28,7 +28,6 @@ export function Sidebar({
   onSelectProject,
   error,
   loading = false,
-  busyProjectId,
   navigation,
   ownerId,
   persistScroll = true,
@@ -52,7 +51,6 @@ export function Sidebar({
   onSelectProject?: ((projectId: string) => void) | undefined;
   error?: string | undefined;
   loading?: boolean;
-  busyProjectId?: string | undefined;
 }) {
   const [query, setQuery] = useState("");
   const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
@@ -81,6 +79,11 @@ export function Sidebar({
     };
   }, [ownerId]);
   const [repository, setRepository] = useState("");
+  // A sidebar that can change anything can drag; fetch that layer while the list loads.
+  const draggable = navigation !== undefined;
+  useEffect(() => {
+    if (draggable) void preloadDrag();
+  }, [draggable]);
   const scroll = useRef<HTMLElement>(null);
   const restoredScroll = useRef(false);
   const revealedSelection = useRef<HTMLAnchorElement | null>(null);
@@ -196,11 +199,8 @@ export function Sidebar({
                 activeProjectId={activeProjectId}
                 query={query}
                 repository={repository}
-                busyProjectId={busyProjectId}
-                onChange={
-                  navigation ? (id, change) => void navigation.change(id, change) : undefined
-                }
-                onReorder={navigation ? (order) => void navigation.reorder(order) : undefined}
+                onRepositoryChange={setRepository}
+                onApply={navigation?.apply}
                 onRename={onRename}
                 onDelete={onDelete}
                 onClose={onClose}
@@ -218,11 +218,7 @@ export function Sidebar({
       {navigation?.undoAction && (
         <div role="status" className="session-undo">
           <span>{navigation.undoAction.label}</span>
-          <button
-            type="button"
-            disabled={!!navigation.busyProjectId}
-            onClick={() => void navigation.undo()}
-          >
+          <button type="button" onClick={() => void navigation.undo()}>
             Undo
           </button>
           <button type="button" aria-label="Dismiss undo" onClick={navigation.dismissUndo}>
