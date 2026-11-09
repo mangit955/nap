@@ -26,6 +26,7 @@ import type { NapEvent, NapEventOf, ToolName } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { DistributiveOmit } from "@nap/shared/ports/event-store";
 import type {
+  BilledWeights,
   LLMContentBlock,
   LLMMessage,
   LLMProvider,
@@ -35,7 +36,7 @@ import type {
 import { addUsage, billedTokens, outputTokensFor } from "@nap/shared/usage";
 import { CANCELLED, stopAware } from "./cancellation.ts";
 import { DirectoryRules } from "./hooks/directory-rules.ts";
-import type { TurnBudget } from "./safety/budget.ts";
+import { type TurnBudget, weightsOf } from "./safety/budget.ts";
 import type { SubagentRunner, ToolContext, ToolOutcome } from "./tools/context.ts";
 import type { ToolDefinition } from "./tools/definitions.ts";
 import { runsConcurrently } from "./tools/definitions.ts";
@@ -195,12 +196,12 @@ export class SubagentPool implements SubagentRunner {
     const allowance = Math.floor(this.availableTokens() * SUBAGENT_BUDGET_SHARE);
     let reserved = allowance;
     this.#reserved += allowance;
-    const recordUsage = (spent: TokenUsage) => {
+    const recordUsage = (spent: TokenUsage, weights: BilledWeights) => {
       Object.assign(usage, addUsage(usage, spent));
       this.#usage = addUsage(this.#usage, spent);
-      options.budget.recordUsage(spent);
+      options.budget.recordUsage(spent, weights);
       // Actual spend is already removed by TurnBudget; only the unused promise stays held.
-      const consumed = Math.min(reserved, billedTokens(spent));
+      const consumed = Math.min(reserved, billedTokens(spent, weights));
       reserved -= consumed;
       this.#reserved -= consumed;
     };
@@ -237,7 +238,7 @@ export class SubagentPool implements SubagentRunner {
       ledger: FileLedger;
       emit: ToolContext["emit"];
       model: string | undefined;
-      recordUsage: (usage: TokenUsage) => void;
+      recordUsage: (usage: TokenUsage, weights: BilledWeights) => void;
     },
     finish: (outcome: SubagentOutcome, report: string) => ToolOutcome,
     counted: () => void,
@@ -249,6 +250,9 @@ export class SubagentPool implements SubagentRunner {
       model,
       credentials: options.credentials,
     });
+    // The helper's own model's, which may be cheaper than the lead's: its spend is charged, and
+    // its output capped, at what that model bills.
+    const weights = weightsOf(turn);
     const messages: LLMMessage[] = [{ role: "user", content: request.task }];
     const steps = SUBAGENT_STEPS[request.profile];
     const rules = new DirectoryRules({
@@ -259,7 +263,7 @@ export class SubagentPool implements SubagentRunner {
 
     for (let step = 1; step <= steps; step += 1) {
       if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
-      if (billedTokens(usage) >= allowance || !options.budget.check().ok)
+      if (billedTokens(usage, weights) >= allowance || !options.budget.check().ok)
         return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
       if (step === steps)
         appendText(
@@ -267,7 +271,7 @@ export class SubagentPool implements SubagentRunner {
           "This is your last request. Reply with your report now, from what you have found.",
         );
 
-      const remaining = allowance - billedTokens(usage);
+      const remaining = allowance - billedTokens(usage, weights);
       const available = Math.min(
         remaining,
         options.budget.remaining().tokens - this.#reserved + remaining,
@@ -279,7 +283,7 @@ export class SubagentPool implements SubagentRunner {
       });
       // The input priced uncached, the most it can cost short of a cache write; what is left
       // pays for output at the output rate.
-      const maxOutputTokens = outputTokensFor(available - input);
+      const maxOutputTokens = outputTokensFor(available - input, weights);
       if (maxOutputTokens < 1)
         return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
       let completed: LLMTurnResult | typeof CANCELLED;
@@ -304,10 +308,10 @@ export class SubagentPool implements SubagentRunner {
         return finish("cancelled", "Stopped before it finished.");
       }
       const result = completed;
-      recordUsage(result.usage);
+      recordUsage(result.usage, weights);
 
       if (signal.aborted) return finish("cancelled", "Stopped before it finished.");
-      if (billedTokens(usage) > allowance || !options.budget.check().ok)
+      if (billedTokens(usage, weights) > allowance || !options.budget.check().ok)
         return finish("failed", "Stopped: the turn's budget cannot cover more of this search.");
       if (result.type === "refusal") return finish("failed", "The model declined this task.");
       if (result.type === "error") return finish("failed", result.message);

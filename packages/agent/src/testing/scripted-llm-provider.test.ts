@@ -1,4 +1,5 @@
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor } from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { ScriptedLLMProvider } from "./scripted-llm-provider.ts";
 
@@ -139,5 +140,20 @@ describe("ScriptedLLMProvider", () => {
     provider.startTurn();
 
     expect(() => provider.startTurn()).toThrow(/turn/i);
+  });
+});
+
+describe("ScriptedLLMProvider billed weights", () => {
+  it("gives each turn the weights a test resolves from its options, and none by default", () => {
+    const provider = new ScriptedLLMProvider([[], [], []], {
+      billedWeights: (options) =>
+        options.model === undefined ? undefined : billedWeightsFor(options.model),
+    });
+
+    expect(provider.startTurn({ model: "anthropic/claude-opus-5" }).billedWeights).toBe(
+      billedWeightsFor("anthropic/claude-opus-5"),
+    );
+    expect(provider.startTurn()).not.toHaveProperty("billedWeights");
+    expect(new ScriptedLLMProvider([[]]).startTurn()).not.toHaveProperty("billedWeights");
   });
 });

@@ -1,7 +1,9 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { estimateContextTokens } from "@nap/shared/compaction";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
-import type { LLMProvider, TokenUsage } from "@nap/shared/ports/llm-provider";
+import type { LLMProvider, LLMTurnOptions, TokenUsage } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor, MODEL_BILLED_WEIGHTS, outputTokensFor } from "@nap/shared/usage";
 import { beforeEach, describe, expect, it } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import {
@@ -213,4 +215,106 @@ describe("a runaway turn", () => {
     expect(provider.requests.length).toBeLessThan(20);
     expect(compactions).toEqual([]);
   });
+});
+
+describe("each model's usage is charged at that model's weights", () => {
+  const OPUS = "anthropic/claude-opus-5";
+  const LUNA = "openai/gpt-5.6-luna";
+  /** As `ClaudeProvider` does: the known row for a priced model, nothing for any other. */
+  const resolved = (options: LLMTurnOptions) =>
+    options.model !== undefined && Object.hasOwn(MODEL_BILLED_WEIGHTS, options.model)
+      ? billedWeightsFor(options.model)
+      : undefined;
+  const hundredOut: ScriptedResponse = {
+    text: "Done.",
+    usage: { inputTokens: 0, outputTokens: 100 },
+  };
+
+  function run(
+    script: ScriptedTurn[],
+    options: {
+      model: string;
+      maxTokens: number;
+      fallbackModel?: string;
+      subagents?: boolean;
+    },
+  ) {
+    const provider = new ScriptedLLMProvider(script, { billedWeights: resolved });
+    const agent = new NapAgentService({
+      provider,
+      budget: { maxTokens: options.maxTokens },
+      ...(options.fallbackModel === undefined ? {} : { fallbackModel: options.fallbackModel }),
+    });
+    const request: AgentTurnRequest = {
+      sessionId: SESSION_ID,
+      turnId: TURN_ID,
+      sandboxId,
+      sandbox: manager,
+      model: options.model,
+      onEvent: (event) => events.push(event),
+      context: {
+        systemPrompt: "You are editing a React project.",
+        messages: [{ role: "user", content: "Build the settings page." }],
+        estimatedTokens: 20,
+        ...(options.subagents === true
+          ? { subagentPrompts: { explore: "You search.", general: "You build." } }
+          : {}),
+      },
+    };
+    return { provider, done: agent.runTurn(request) };
+  }
+
+  it.each([
+    [OPUS, undefined],
+    [LUNA, "token budget exceeded: 600 billed tokens spent, limit 550"],
+    ["vendor/unpriced", "token budget exceeded: 600 billed tokens spent, limit 550"],
+  ])("charges a hundred output tokens on %s at its own output ratio", async (model, failure) => {
+    // 500 on Anthropic's model, 600 on OpenAI's, and the fallback's 600 on a model nobody priced.
+    await run([[hundredOut]], { model, maxTokens: 550 }).done;
+
+    if (failure === undefined) {
+      expect(payloadOf("turn.failed")).toBeUndefined();
+      expect(payloadOf("turn.completed")).toBeDefined();
+    } else
+      expect(payloadOf("turn.failed")).toEqual({ reason: "budget_exceeded", message: failure });
+  });
+
+  it("charges what a fallback model answers at the fallback's weights, not the refusing model's", async () => {
+    // 100 out on Opus (500) and 100 out on Luna (600). Charged at the refusing turn's weights
+    // the pair would be 1,000 and fit the ceiling.
+    await run([[{ refusal: true, usage: { inputTokens: 0, outputTokens: 100 } }], [hundredOut]], {
+      model: OPUS,
+      fallbackModel: LUNA,
+      maxTokens: 1_050,
+    }).done;
+
+    expect(payloadOf("turn.failed")).toEqual({
+      reason: "budget_exceeded",
+      message: "token budget exceeded: 1100 billed tokens spent, limit 1050",
+    });
+  });
+
+  it.each([
+    [OPUS, 5],
+    [LUNA, 6],
+  ])(
+    "caps the lead's output on %s at its own output weight while helpers can hold promises",
+    async (model, output) => {
+      const { provider, done } = run([[hundredOut]], {
+        model,
+        maxTokens: 120_000,
+        subagents: true,
+      });
+      await done;
+
+      const [sent] = provider.requests;
+      if (sent === undefined) throw new Error("the lead sent nothing");
+      // Nothing spent or promised yet, so all of the budget less the input, priced uncached.
+      const weights = billedWeightsFor(model);
+      expect(weights.output).toBe(output);
+      expect(sent.maxOutputTokens).toBe(
+        outputTokensFor(120_000 - estimateContextTokens(sent), weights),
+      );
+    },
+  );
 });

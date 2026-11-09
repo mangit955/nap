@@ -18,6 +18,7 @@
  */
 
 import type {
+  BilledWeights,
   LLMProvider,
   LLMRequest,
   LLMToolCall,
@@ -58,8 +59,13 @@ export interface CountingLLMProvider extends LLMProvider {
 /**
  * @param script The responses one turn hands out, in call order. Its last entry should be a
  *   plain answer with no tool calls, because it is what a long turn will keep receiving.
+ * @param options.billedWeights What every turn's usage is charged at. Absent leaves them off the
+ *   turn, which the agent reads as the fallback, as it would from a provider that knew no model.
  */
-export function loopingLLMProvider(script: readonly LoopingResponse[]): CountingLLMProvider {
+export function loopingLLMProvider(
+  script: readonly LoopingResponse[],
+  options: { billedWeights?: BilledWeights } = {},
+): CountingLLMProvider {
   if (script.length === 0) {
     throw new RangeError("loopingLLMProvider needs at least one response to hand out");
   }
@@ -103,6 +109,7 @@ export function loopingLLMProvider(script: readonly LoopingResponse[]): Counting
           };
         },
         usage: () => usage,
+        ...(options.billedWeights === undefined ? {} : { billedWeights: options.billedWeights }),
       };
     },
   };

@@ -16,6 +16,7 @@ import type {
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
 import type { Result } from "@nap/shared/result";
+import { addUsage, billedWeightsFor, tokenUsage } from "@nap/shared/usage";
 import { z } from "zod";
 
 const ZERO = { inputTokens: 0, outputTokens: 0 };
@@ -43,8 +44,11 @@ const Decision = z.strictObject({
   text: z.string(),
   toolCalls: z.array(WireCall),
 });
+// `cached_input_tokens` is part of `input_tokens`, as the Responses API counts it, and absent from
+// a Codex that reports none.
 const Usage = z.object({
   input_tokens: z.int().nonnegative(),
+  cached_input_tokens: z.int().nonnegative().optional(),
   output_tokens: z.int().nonnegative(),
 });
 const Event = z.object({
@@ -401,10 +405,20 @@ export async function openComputerLocalCodex(
           case "turn.completed":
             if (completed || event.usage === undefined) return false;
             completed = true;
-            usage = {
-              inputTokens: event.usage.input_tokens,
-              outputTokens: event.usage.output_tokens,
-            };
+            {
+              // Clamped, so a cached count larger than the input cannot become a split the
+              // usage schema refuses or a negative uncached remainder.
+              const cached = Math.min(
+                event.usage.cached_input_tokens ?? 0,
+                event.usage.input_tokens,
+              );
+              usage = tokenUsage({
+                uncached: event.usage.input_tokens - cached,
+                cacheWrite: 0,
+                cacheRead: cached,
+                output: event.usage.output_tokens,
+              });
+            }
             return true;
           default:
             return false;
@@ -465,9 +479,12 @@ export async function openComputerLocalCodex(
     value: {
       provider: {
         startTurn(turnOptions) {
-          const total: TokenUsage = { ...ZERO };
+          let total: TokenUsage = { ...ZERO };
           return {
             usage: () => ({ ...total }),
+            // `gpt-5.6-sol` has no priced row, and a ChatGPT subscription is not billed per token
+            // anyway; the fallback keeps the turn budget a bound no known model's rates exceed.
+            billedWeights: billedWeightsFor(options.napModel),
             complete(request) {
               const task = (
                 turnOptions?.credentials !== undefined ||
@@ -484,8 +501,7 @@ export async function openComputerLocalCodex(
                   const finalResult = cleanupFailed
                     ? error("Local Codex private input cleanup failed.", result.usage)
                     : result;
-                  total.inputTokens += finalResult.usage.inputTokens;
-                  total.outputTokens += finalResult.usage.outputTokens;
+                  total = addUsage(total, finalResult.usage);
                   return finalResult;
                 });
               pending.add(task);

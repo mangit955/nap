@@ -13,7 +13,7 @@
  */
 
 import type { TokenUsage } from "@nap/shared/ports/llm-provider";
-import { billedTokens } from "@nap/shared/usage";
+import { billedTokens, billedWeightsFor } from "@nap/shared/usage";
 import { z } from "zod";
 
 /**
@@ -88,11 +88,10 @@ export type CostEstimate = z.infer<typeof CostEstimateSchema>;
  * is not in the table.
  *
  * Cached input is priced at what the cache bills it — a read at a tenth of the input rate, a
- * write at a quarter more — by the same `BILLED_WEIGHTS` the turn budget charges by, so the
- * budget and the estimate cannot disagree about a cache read. Those multipliers are
- * Anthropic's; an OpenAI model through OpenRouter does not surcharge a write, so its cached
- * turn is over-estimated by a little. Usage from before the split carries no cache fields and
- * prices exactly as it always did, all of it at the input rate.
+ * write at a quarter more — by the model's own row of the weights the turn budget charges by
+ * (`billedWeightsFor`), so the budget and the estimate cannot disagree about a cache read. Every
+ * vendor in the table bills the cache at those same multipliers. Usage from before the split
+ * carries no cache fields and prices exactly as it always did, all of it at the input rate.
  */
 export function estimateCost(
   model: string | undefined,
@@ -107,9 +106,9 @@ export function estimateCost(
   const price = (MODEL_PRICES as Record<string, ModelPrice>)[model];
   if (price === undefined) return undefined;
 
-  // Input in uncached-token equivalents. Output is left out of it and priced from the table,
-  // which knows each model's own output rate where the budget's weight is one ratio for all.
-  const input = billedTokens({ ...usage, outputTokens: 0 });
+  // Input in uncached-token equivalents. Output is left out of it and priced from its own rate,
+  // which a test holds to the same ratio as the model's output weight.
+  const input = billedTokens({ ...usage, outputTokens: 0 }, billedWeightsFor(model));
   const usd =
     (input / 1_000_000) * price.inputPerMTokUsd +
     (usage.outputTokens / 1_000_000) * price.outputPerMTokUsd;

@@ -41,7 +41,12 @@ import type {
   LLMTurnResult,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
-import { addUsage, billedTokens, outputTokensFor } from "@nap/shared/usage";
+import {
+  addUsage,
+  billedTokens,
+  FALLBACK_BILLED_WEIGHTS,
+  outputTokensFor,
+} from "@nap/shared/usage";
 import { CANCELLED, pause, stopAware } from "./cancellation.ts";
 import { DeltaStream, type Schedule } from "./delta-stream.ts";
 import { DirectoryRules } from "./hooks/directory-rules.ts";
@@ -49,7 +54,7 @@ import type { TurnHook } from "./hooks/hook.ts";
 import { PlanMode } from "./hooks/plan-mode.ts";
 import { PlanTracking } from "./hooks/plan-tracking.ts";
 import { Steering } from "./hooks/steering.ts";
-import { TurnBudget, type TurnBudgetOptions } from "./safety/budget.ts";
+import { TurnBudget, type TurnBudgetOptions, weightsOf } from "./safety/budget.ts";
 import { appendText, SubagentPool } from "./subagents.ts";
 import type { ToolDefinition } from "./tools/definitions.ts";
 import { runsConcurrently } from "./tools/definitions.ts";
@@ -358,7 +363,10 @@ class Turn {
       const maxOutputTokens =
         this.#helpers === undefined
           ? undefined
-          : outputTokensFor(this.#helpers.availableTokens() - this.#estimate());
+          : outputTokensFor(
+              this.#helpers.availableTokens() - this.#estimate(),
+              weightsOf(this.#turn),
+            );
       if (maxOutputTokens !== undefined && maxOutputTokens < 1)
         return this.#fail(
           "budget_exceeded",
@@ -376,8 +384,11 @@ class Turn {
       // streams with it: closed, or on a cancelled turn abandoned, so no window is left armed
       // to write into a turn that has already ended.
       const messages = [...this.#messages];
+      // Held so the usage is charged at the weights of the model that produced it, whatever
+      // `#turn` is by the time it is recorded.
+      const turn = this.#turn;
       const completed = await stopAware(
-        this.#turn.complete({
+        turn.complete({
           systemPrompt: this.#request.context.systemPrompt,
           messages,
           tools: this.#tools,
@@ -407,7 +418,7 @@ class Turn {
         return this.#fail("cancelled", "The turn was cancelled.");
       }
       const result = completed;
-      this.#budget.recordUsage(result.usage);
+      this.#budget.recordUsage(result.usage, weightsOf(turn));
       this.#reportedInput = result.usage.inputTokens > 0 ? result.usage.inputTokens : undefined;
       this.#inputEstimate = estimateContextTokens({
         systemPrompt: this.#request.context.systemPrompt,
@@ -632,9 +643,9 @@ class Turn {
    * Every reason a summary is not the sidekick's is decided here, before anything is awaited, so a
    * turn with no sidekick sends the lead its request exactly as it did before Fusion.
    *
-   * `size` is the request's tokens, which a window must hold; `cost` is what it is billed at,
-   * which the budget must cover. `spare` is what the budget holds beyond the compaction's own
-   * reserve, in the same billed tokens. The sidekick is tried
+   * `size` is the request's tokens, which a window must hold; `request` is its input and output,
+   * which the budget must cover at whichever model's weights would bill them. `spare` is what the
+   * budget holds beyond the compaction's own reserve, in billed tokens. The sidekick is tried
    * only when that pays for its attempt and for the lead repeating it, and, when the turn goes on
    * after the summary, for the lead's next request as well: the context at its current size, which
    * a compaction only shrinks, plus the output headroom the loop allows a request. A failed
@@ -645,13 +656,26 @@ class Turn {
    * A request the sidekick's window cannot hold is not a failure, only not the sidekick's. A
    * provider that cannot open the sidekick's conversation is one, and the lead writes the rest.
    */
-  #sidekickFor(size: number, cost: number, spare: number, continues: boolean): LLMTurn | undefined {
+  #sidekickFor(
+    size: number,
+    request: TokenUsage,
+    spare: number,
+    continues: boolean,
+  ): LLMTurn | undefined {
     const model = this.#sidekickFailed ? undefined : this.#sidekick();
     if (model === undefined) return undefined;
+    const lead = weightsOf(this.#turn);
     const next = continues
-      ? billedTokens({ inputTokens: this.#estimate(), outputTokens: this.#headroom() })
+      ? billedTokens({ inputTokens: this.#estimate(), outputTokens: this.#headroom() }, lead)
       : 0;
-    if (cost * 2 + next > spare) return undefined;
+    // The attempt at the sidekick's own weights once its conversation is open, and before then at
+    // the fallback, which is at least what any known model charges: opening a conversation the
+    // turn cannot afford is what this check exists to avoid.
+    const attempt = billedTokens(
+      request,
+      this.#sidekickTurn === undefined ? FALLBACK_BILLED_WEIGHTS : weightsOf(this.#sidekickTurn),
+    );
+    if (attempt + billedTokens(request, lead) + next > spare) return undefined;
     if (this.#sidekickTurn === undefined) {
       try {
         this.#sidekickTurn = this.#options.provider.startTurn({ model });
@@ -705,7 +729,7 @@ class Turn {
       this.#sidekickFailed = true;
       return {};
     }
-    this.#budget.recordUsage(completed.usage);
+    this.#budget.recordUsage(completed.usage, weightsOf(sidekick));
     if (!isUsableSummary(completed)) {
       this.#sidekickFailed = true;
       return { wasted: completed.usage };
@@ -814,7 +838,8 @@ class Turn {
       // costs, which the budget must cover. A summary request is never a cache hit — its prompt
       // is not the conversation's — so its input is priced uncached.
       const size = estimate + outputTokens;
-      const cost = billedTokens({ inputTokens: estimate, outputTokens });
+      const priced = { inputTokens: estimate, outputTokens };
+      const cost = billedTokens(priced, weightsOf(this.#turn));
       if (remaining.steps <= (trigger === "automatic" ? 1 : 0) || cost + reserve > availableTokens)
         throw new Error("Not enough turn budget remains for compaction and continuation.");
       if (size > (this.#turn.contextWindowTokens ?? Number.POSITIVE_INFINITY))
@@ -824,7 +849,7 @@ class Turn {
       // A manual compaction ends its turn; an automatic one is followed by the lead's next step.
       const sidekick = this.#sidekickFor(
         size,
-        cost,
+        priced,
         availableTokens - reserve,
         trigger === "automatic",
       );
@@ -834,14 +859,16 @@ class Turn {
         if (attempt.summary !== undefined) return attempt.summary;
         wasted = attempt.wasted;
       }
-      const result = await stopAware(this.#turn.complete(request), this.#request.signal);
+      const lead = this.#turn;
+      const result = await stopAware(lead.complete(request), this.#request.signal);
       if (result === CANCELLED) throw new Error("Compaction cancelled.");
       if (result.type === "message") this.#delivered(request.messages);
-      this.#budget.recordUsage(result.usage);
+      this.#budget.recordUsage(result.usage, weightsOf(lead));
       // The compaction reports what it cost, the sidekick's failed attempt included.
       return wasted === undefined ? result : { ...result, usage: addUsage(result.usage, wasted) };
     };
     const native = this.#turn.compact;
+    const nativeWeights = weightsOf(this.#turn);
     const result = await this.#request.compactContext({
       messages: this.#messages,
       tools: this.#tools,
@@ -873,10 +900,13 @@ class Turn {
                 });
               } catch (error) {
                 // No refund for a native command whose outcome/cost was not delivered.
-                this.#budget.recordUsage({ inputTokens: reserve, outputTokens: 0 });
+                this.#budget.recordUsage({ inputTokens: reserve, outputTokens: 0 }, nativeWeights);
                 throw error;
               }
-              this.#budget.recordUsage(result.usage ?? { inputTokens: reserve, outputTokens: 0 });
+              this.#budget.recordUsage(
+                result.usage ?? { inputTokens: reserve, outputTokens: 0 },
+                nativeWeights,
+              );
               if (result.usage !== null)
                 this.#nativeUsage = addUsage(this.#nativeUsage, result.usage);
               else this.#usageIncomplete = true;

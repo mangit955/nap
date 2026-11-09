@@ -1,5 +1,6 @@
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
+import { CompactionResultSchema } from "@nap/shared/compaction";
 import type { NapEvent } from "@nap/shared/events";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 import type { EventBus, EventHandler, Unsubscribe } from "@nap/shared/ports/event-bus";
@@ -657,3 +658,237 @@ it.each([false, true])(
     }
   },
 );
+
+// Usage as every reader before the cache split parsed it (ab471932): exactly these two keys.
+const OldUsage = z.strictObject({
+  inputTokens: z.int().nonnegative(),
+  outputTokens: z.int().nonnegative(),
+});
+const oldEvent = <T extends string, P extends z.ZodType>(type: T, payload: P) =>
+  z.strictObject({
+    type: z.literal(type),
+    sessionId: z.uuid(),
+    turnId: z.uuid(),
+    seq: z.int().nonnegative(),
+    createdAt: z.iso.datetime(),
+    payload,
+  });
+// The four usage-bearing events as an open tab from before the split parses them.
+const OldUsageFrame = z.strictObject({
+  type: z.literal("event"),
+  event: z.discriminatedUnion("type", [
+    oldEvent(
+      "turn.completed",
+      z.strictObject({
+        usageIncomplete: z.literal(true).optional(),
+        usage: OldUsage,
+        durationMs: z.int().nonnegative(),
+        commitSha: z.string().min(1).nullable(),
+        awaiting: z.literal("plan_approval").optional(),
+      }),
+    ),
+    oldEvent(
+      "subagent.completed",
+      z.strictObject({
+        subagentId: z.string().min(1),
+        outcome: z.enum(["completed", "failed", "cancelled"]),
+        summary: z.string(),
+        toolCalls: z.int().nonnegative(),
+        usage: OldUsage,
+      }),
+    ),
+    oldEvent(
+      "compaction.completed",
+      z.strictObject({
+        id: z.uuid(),
+        result: CompactionResultSchema,
+        usage: OldUsage.nullable(),
+        beforeTokens: z.int().nonnegative().nullable(),
+        afterTokens: z.int().nonnegative().nullable(),
+      }),
+    ),
+    oldEvent(
+      "compaction.failed",
+      z.strictObject({
+        id: z.uuid(),
+        message: z.string(),
+        cancelled: z.boolean(),
+        usage: OldUsage.nullable(),
+      }),
+    ),
+  ]),
+});
+
+describe("the usage cache split", () => {
+  const CACHED = {
+    inputTokens: 3_210,
+    outputTokens: 5,
+    cacheWriteTokens: 200,
+    cacheReadTokens: 3_000,
+  };
+  const COMPACTION = "5d6e7f80-9a1b-4c2d-8e3f-4a5b6c7d8e9f";
+  const at = { sessionId: SESSION, turnId: TURN, createdAt: "2026-11-09T00:00:00.000Z" };
+  const usageEvents: PendingEvent[] = [
+    {
+      ...at,
+      type: "subagent.completed",
+      payload: {
+        subagentId: "h1",
+        outcome: "completed",
+        summary: "s",
+        toolCalls: 1,
+        usage: CACHED,
+      },
+    },
+    {
+      ...at,
+      type: "compaction.completed",
+      payload: {
+        id: COMPACTION,
+        result: { kind: "native", provider: "claude", sessionId: "native", coveredThrough: 2 },
+        usage: CACHED,
+        beforeTokens: null,
+        afterTokens: null,
+      },
+    },
+    {
+      ...at,
+      type: "compaction.failed",
+      payload: { id: COMPACTION, message: "no", cancelled: false, usage: CACHED },
+    },
+    {
+      ...at,
+      type: "turn.completed",
+      payload: { usage: CACHED, durationMs: 9, commitSha: null },
+    },
+  ];
+  const repairPrompt: PendingEvent = {
+    ...at,
+    type: "user.message",
+    payload: { text: "Repair this", repair: { requestId: TURN, jobId: OTHER_SESSION } },
+  };
+
+  const usageOf = (event: NapEvent) => ("usage" in event.payload ? event.payload.usage : undefined);
+
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    "over replay, buffered, live and reconnect, usageCacheSplit=%s repairOwnership=%s",
+    async (usageCacheSplit, repairOwnership) => {
+      const store = new InMemoryEventStore();
+      const bus = new InMemoryEventBus();
+      const flags = {
+        ...(usageCacheSplit ? { usageCacheSplit: true } : {}),
+        ...(repairOwnership ? { repairOwnership: true } : {}),
+      };
+      // Replayed: in the log before the socket opened.
+      for (const event of [repairPrompt, ...usageEvents]) await store.append(event);
+      const socket = new FakeSocket();
+      let release: () => void = () => {};
+      const paused = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const stream = openEventStream({
+        store: {
+          append: store.append.bind(store),
+          readFrom: async (sessionId, cursor) => {
+            const history = await store.readFrom(sessionId, cursor);
+            await paused;
+            return history;
+          },
+        },
+        bus,
+        sessionId: SESSION,
+        afterSeq: 0,
+        socket,
+        ...flags,
+      });
+      let last = 0;
+      try {
+        // Buffered: published while the history read was in flight.
+        for (const event of usageEvents) bus.publish(await store.append(event));
+        release();
+        await stream.ready;
+        // Live.
+        for (const event of usageEvents) bus.publish(await store.append(event));
+        last = socket.seqs.at(-1) ?? 0;
+      } finally {
+        release();
+        stream.onClose();
+      }
+      // Reconnected after more was written.
+      for (const event of usageEvents) await store.append(event);
+      const reconnected = new FakeSocket();
+      const next = openEventStream({
+        store,
+        bus,
+        sessionId: SESSION,
+        afterSeq: last,
+        socket: reconnected,
+        ...flags,
+      });
+      await next.ready;
+      next.onClose();
+
+      for (const delivered of [socket, reconnected]) {
+        const usages = delivered.events.filter((event) => event.type !== "user.message");
+        expect(usages.length).toBeGreaterThanOrEqual(4);
+        for (const event of usages) {
+          expect(usageOf(event)).toStrictEqual(
+            usageCacheSplit
+              ? CACHED
+              : { inputTokens: CACHED.inputTokens, outputTokens: CACHED.outputTokens },
+          );
+        }
+        for (const raw of delivered.sent.filter((raw) => {
+          const frame = JSON.parse(raw);
+          return frame.type === "event" && frame.event.type !== "user.message";
+        }))
+          expect(OldUsageFrame.safeParse(JSON.parse(raw)).success).toBe(!usageCacheSplit);
+      }
+      // Every path: 4 replayed + 4 buffered + 4 live, then 4 on reconnect.
+      expect(socket.events.filter((event) => event.type !== "user.message")).toHaveLength(12);
+      expect(reconnected.events).toHaveLength(4);
+      // The repair projection is decided by its own flag, whatever this one says.
+      const prompt = socket.events.find((event) => event.type === "user.message");
+      expect(prompt?.type === "user.message" ? prompt.payload.repair : null).toEqual(
+        repairOwnership ? repairPrompt.payload.repair : undefined,
+      );
+      // The log itself keeps the split; only what a legacy socket is sent loses it.
+      const durable = await store.readFrom(SESSION, 0);
+      expect(durable.filter((event) => event.type !== "user.message").map(usageOf)).toEqual(
+        Array(16).fill(CACHED),
+      );
+    },
+  );
+
+  it("leaves usage without a cache split, and null usage, exactly as stored", async () => {
+    const store = new InMemoryEventStore();
+    const plain = { inputTokens: 10, outputTokens: 1 };
+    await store.append({
+      ...at,
+      type: "turn.completed",
+      payload: { usage: plain, durationMs: 1, commitSha: null },
+    });
+    await store.append({
+      ...at,
+      type: "compaction.failed",
+      payload: { id: COMPACTION, message: "no", cancelled: true, usage: null },
+    });
+    const socket = new FakeSocket();
+    const stream = openEventStream({
+      store,
+      bus: new InMemoryEventBus(),
+      sessionId: SESSION,
+      afterSeq: 0,
+      socket,
+    });
+    await stream.ready;
+    stream.onClose();
+
+    expect(socket.events.map(usageOf)).toStrictEqual([plain, null]);
+  });
+});

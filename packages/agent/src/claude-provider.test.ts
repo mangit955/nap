@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIConnectionError, APIError, BadRequestError, RateLimitError } from "@anthropic-ai/sdk";
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor, FALLBACK_BILLED_WEIGHTS } from "@nap/shared/usage";
 import { describe, expect, it, vi } from "vitest";
 import {
   type AnthropicClient,
@@ -236,6 +237,33 @@ describe("ClaudeProvider", () => {
 
       expect(toTokenUsage(partial)).toStrictEqual({ inputTokens: 0, outputTokens: 3 });
       expect(toTokenUsage(undefined)).toStrictEqual({ inputTokens: 0, outputTokens: 0 });
+    });
+
+    it("hands each turn the billed weights of the model it resolved to", () => {
+      // The budget charges a turn's usage by these, and only the provider knows which model a
+      // turn ended up on: the configured default, a caller's override, or a bare Anthropic id.
+      const claude = new ClaudeProvider({
+        client: stubClient([]),
+        createClient: () => stubClient([]),
+      });
+      const opus = billedWeightsFor("anthropic/claude-opus-5");
+
+      expect(claude.startTurn().billedWeights).toBe(billedWeightsFor("openai/gpt-5.6-luna"));
+      expect(claude.startTurn().billedWeights?.output).toBe(6);
+      expect(claude.startTurn({ model: "anthropic/claude-opus-5" }).billedWeights).toBe(opus);
+      expect(
+        claude.startTurn({
+          model: "anthropic/claude-opus-5",
+          credentials: { platform: "anthropic", apiKey: "sk-ant-test" },
+        }).billedWeights,
+      ).toBe(opus);
+      expect(
+        new ClaudeProvider({ client: stubClient([]), model: "claude-opus-5" }).startTurn()
+          .billedWeights,
+      ).toBe(opus);
+      expect(claude.startTurn({ model: "vendor/unpriced" }).billedWeights).toBe(
+        FALLBACK_BILLED_WEIGHTS,
+      );
     });
 
     it("still counts a call that ended in an error", async () => {

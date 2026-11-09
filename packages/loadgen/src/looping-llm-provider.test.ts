@@ -1,4 +1,5 @@
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor } from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { loopingLLMProvider } from "./looping-llm-provider.ts";
 
@@ -97,6 +98,15 @@ describe("loopingLLMProvider", () => {
     const provider = loopingLLMProvider([{ text: "a" }]);
     provider.startTurn();
     expect(provider.totals().turns).toBe(1);
+  });
+
+  it("hands every turn the billed weights it was given, and none when it was given none", () => {
+    const weights = billedWeightsFor("openai/gpt-5.6-luna");
+
+    expect(
+      loopingLLMProvider([{ text: "a" }], { billedWeights: weights }).startTurn().billedWeights,
+    ).toBe(weights);
+    expect(loopingLLMProvider([{ text: "a" }]).startTurn()).not.toHaveProperty("billedWeights");
   });
 
   it("refuses an empty script rather than answering nothing forever", () => {

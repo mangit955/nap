@@ -1,5 +1,6 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { LLMProvider, LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor } from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { CALIBRATION } from "./calibration.ts";
 import { slowLLMProvider, slowSandboxManager } from "./slow-ports.ts";
@@ -130,5 +131,16 @@ describe("slowLLMProvider", () => {
 
     expect(await turn.complete(REQUEST)).toEqual(ANSWER);
     expect(turn.usage()).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  it("keeps the underlying turn's billed weights, so a slowed turn is charged as it would be", () => {
+    const weights = billedWeightsFor("anthropic/claude-opus-5");
+    const inner: LLMProvider = {
+      startTurn: () => ({ ...stubProvider(ANSWER).startTurn(), billedWeights: weights }),
+    };
+
+    expect(slowLLMProvider(inner, { sleep: async () => {} }).startTurn().billedWeights).toBe(
+      weights,
+    );
   });
 });

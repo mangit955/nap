@@ -2,7 +2,12 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { estimateContextTokens } from "@nap/shared/compaction";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { LLMRequest } from "@nap/shared/ports/llm-provider";
-import { billedTokens } from "@nap/shared/usage";
+import {
+  billedTokens,
+  billedWeightsFor,
+  FALLBACK_BILLED_WEIGHTS,
+  outputTokensFor,
+} from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import { TurnBudget } from "./safety/budget.ts";
@@ -35,6 +40,42 @@ async function fixture(script: ScriptedTurn, maxTokens: number, prompt = "Search
 }
 
 describe("helper request affordability", () => {
+  it.each([
+    ["anthropic/claude-opus-5", 5],
+    ["openai/gpt-5.6-luna", 6],
+  ])("caps a helper on %s at that model's output weight, %i", async (model, output) => {
+    const sandbox = new InMemorySandboxManager();
+    const created = await sandbox.create("budget");
+    if (!created.ok) throw new Error(created.error.message);
+    const provider = new ScriptedLLMProvider([[{ text: "report" }]], {
+      billedWeights: (options) => billedWeightsFor(options.model),
+    });
+    const budget = new TurnBudget({ maxTokens: 20_000 });
+    const helpers = new SubagentPool({
+      provider,
+      budget,
+      modelFor: () => model,
+      credentials: undefined,
+      prompts: { explore: "Search.", general: "Search." },
+      request: { sessionId: SESSION, turnId: TURN, sandboxId: created.value.id, sandbox },
+      emit: () => {},
+      now: () => "2026-01-01T00:00:00.000Z",
+    });
+
+    expect((await helpers.run({ toolCallId: "sub", profile: "explore", task: "Look." })).ok).toBe(
+      true,
+    );
+
+    const [sent] = provider.requests;
+    if (sent === undefined) throw new Error("the helper sent nothing");
+    // Half the turn's 20k is the helper's share; its input is priced uncached, the rest is output.
+    const weights = billedWeightsFor(model);
+    expect(weights.output).toBe(output);
+    expect(sent.maxOutputTokens).toBe(
+      outputTokensFor(10_000 - estimateContextTokens(sent), weights),
+    );
+  });
+
   it.each(["task", "system prompt", "tool schemas"] as const)(
     "refuses an initial request whose %s cannot fit the share",
     async (large) => {
@@ -77,7 +118,7 @@ describe("helper request affordability", () => {
     expect(provider.requests).toHaveLength(1);
     expect(report.ok).toBe(false);
     expect(report.output).toMatch(/budget|allowance/i);
-    expect(budget.spent().tokens).toBe(billedTokens(first));
+    expect(budget.spent().tokens).toBe(billedTokens(first, FALLBACK_BILLED_WEIGHTS));
   });
 
   it("caps each output using the full next input and the remaining allowance", async () => {
@@ -104,8 +145,13 @@ describe("helper request affordability", () => {
       expect(cap).toBeGreaterThan(0);
       // Priced as the budget prices it: output at its own rate, input as if uncached.
       expect(
-        billedTokens({ inputTokens: estimateContextTokens(sent), outputTokens: cap }),
-      ).toBeLessThanOrEqual(10_000 - (index === 0 ? 0 : billedTokens(first)));
+        billedTokens(
+          { inputTokens: estimateContextTokens(sent), outputTokens: cap },
+          FALLBACK_BILLED_WEIGHTS,
+        ),
+      ).toBeLessThanOrEqual(
+        10_000 - (index === 0 ? 0 : billedTokens(first, FALLBACK_BILLED_WEIGHTS)),
+      );
     }
   });
 
@@ -140,7 +186,7 @@ describe("helper request affordability", () => {
       expect(report.output).toMatch(/budget|allowance/i);
       expect(provider.requests).toHaveLength(1);
       expect(helpers.usage()).toEqual(usage);
-      expect(budget.spent().tokens).toBe(billedTokens(usage));
+      expect(budget.spent().tokens).toBe(billedTokens(usage, FALLBACK_BILLED_WEIGHTS));
       expect((await sandbox.readFile(sandboxId, PATH)).ok).toBe(false);
       expect(events.filter((event) => event.type === "file.changed")).toEqual([]);
       expect(events.at(-1)).toMatchObject({
@@ -206,7 +252,7 @@ describe("helper request affordability", () => {
       const report = helpers.run({ toolCallId: "sub", profile: "explore", task: "Read the file." });
       await started;
       try {
-        expect(budget.spent().tokens).toBe(billedTokens(first));
+        expect(budget.spent().tokens).toBe(billedTokens(first, FALLBACK_BILLED_WEIGHTS));
         // What is already spent must not also stay inside the original 10000 promise.
         expect(helpers.availableTokens()).toBe(10_000);
         if (ending === "cancelled") await helpers.settle();
@@ -215,7 +261,9 @@ describe("helper request affordability", () => {
         await report;
       }
       expect((await report).ok).toBe(ending === "completed");
-      expect(budget.spent().tokens).toBe(billedTokens(first) + (ending === "cancelled" ? 0 : 100));
+      expect(budget.spent().tokens).toBe(
+        billedTokens(first, FALLBACK_BILLED_WEIGHTS) + (ending === "cancelled" ? 0 : 100),
+      );
       expect(helpers.availableTokens()).toBe(budget.remaining().tokens);
     },
   );
@@ -310,10 +358,13 @@ describe("helper request affordability", () => {
     const helperCap = helperRequest.maxOutputTokens;
     expect(helperCap).toBeDefined();
     if (helperCap === undefined) throw new Error("Missing helper output cap");
-    const remaining = maxTokens - billedTokens(initialUsage);
+    const remaining = maxTokens - billedTokens(initialUsage, FALLBACK_BILLED_WEIGHTS);
     const promised = Math.floor(remaining / 2);
     const cost = (sent: LLMRequest, cap: number) =>
-      billedTokens({ inputTokens: estimateContextTokens(sent), outputTokens: cap });
+      billedTokens(
+        { inputTokens: estimateContextTokens(sent), outputTokens: cap },
+        FALLBACK_BILLED_WEIGHTS,
+      );
     expect(cost(helperRequest, helperCap)).toBeLessThanOrEqual(promised);
     if (concurrent) {
       const parentCap = parentRequest.maxOutputTokens;

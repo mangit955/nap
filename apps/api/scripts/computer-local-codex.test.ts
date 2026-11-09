@@ -7,6 +7,7 @@ import { TOOL_DEFINITIONS, TOOL_SCHEMAS } from "@nap/agent/tools/definitions";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { LLMRequest, LLMTurnResult } from "@nap/shared/ports/llm-provider";
+import { billedWeightsFor, FALLBACK_BILLED_WEIGHTS, TokenUsageSchema } from "@nap/shared/usage";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { openComputerLocalCodex } from "./computer-local-codex.ts";
@@ -43,6 +44,7 @@ type PeerSpec = {
   builtin?: string;
   fault?: "failed" | "missing-usage" | "stdout" | "stderr" | "hang" | "hold";
   exitCode?: number;
+  usage?: Record<string, number>;
 };
 type LaunchOptions = Parameters<
   NonNullable<Parameters<typeof openComputerLocalCodex>[0]["launch"]>
@@ -105,7 +107,7 @@ if (args.includes("login") && args.includes("status")) {
         send({ type: "turn.failed", error: { message: "synthetic-secret-failure" } });
       } else {
         send({ type: "item.completed", item: { id: "answer", type: "agent_message", text: spec.raw ?? JSON.stringify(spec.decision ?? { kind: "message", text: "fixture response", toolCalls: [] }) } });
-        if (spec.fault !== "missing-usage") send({ type: "turn.completed", usage: { input_tokens: 120, cached_input_tokens: 90, output_tokens: 12 } });
+        if (spec.fault !== "missing-usage") send({ type: "turn.completed", usage: spec.usage ?? { input_tokens: 120, cached_input_tokens: 90, output_tokens: 12 } });
       }
       if (spec.fault === "hold") setInterval(() => {}, 1000);
       else process.exitCode = spec.exitCode ?? 0;
@@ -409,9 +411,12 @@ it("describes declared tools, parses inputJson into Nap calls, and counts cached
   expect(TOOL_SCHEMAS.computer.parse(selected[0]?.input)).toEqual({
     actions: [{ action: "screenshot" }],
   });
-  expect(result.usage).toEqual({
+  // `input_tokens` already includes the cached part, so the input total stays as reported and
+  // the cached part is carried inside it rather than added to it.
+  expect(result.usage).toStrictEqual({
     inputTokens: USAGE.input_tokens,
     outputTokens: USAGE.output_tokens,
+    cacheReadTokens: USAGE.cached_input_tokens,
   });
   expect(turn.usage()).toEqual(result.usage);
   expect(delta).not.toHaveBeenCalled();
@@ -488,7 +493,7 @@ it("distinguishes refusal from malformed output, failed turns, missing usage, an
   const refused = await opened(refusal);
   expect(await refused.provider.startTurn().complete(request())).toMatchObject({
     type: "refusal",
-    usage: { inputTokens: 120, outputTokens: 12 },
+    usage: { inputTokens: 120, outputTokens: 12, cacheReadTokens: 90 },
   });
   for (const spec of [
     { raw: "not structured JSON" },
@@ -572,6 +577,35 @@ it("bounds both output pipes and redacts stderr instead of retaining unbounded c
   }
 });
 
+it.each([
+  [
+    "reports no cached input",
+    { input_tokens: 70, output_tokens: 7 },
+    { inputTokens: 70, outputTokens: 7 },
+  ],
+  [
+    "reports more cached input than input",
+    { input_tokens: 70, cached_input_tokens: 500, output_tokens: 7 },
+    { inputTokens: 70, outputTokens: 7, cacheReadTokens: 70 },
+  ],
+])("keeps the input total and a valid split when Codex %s", async (_, usage, expected) => {
+  const f = await peer({ decision: COMPUTER, usage });
+  const local = await opened(f);
+  const turn = local.provider.startTurn();
+
+  const result = await turn.complete(request());
+
+  expect(result.usage).toStrictEqual(expected);
+  expect(TokenUsageSchema.safeParse(result.usage).success).toBe(true);
+});
+
+it("charges its turns at the weights its Nap model is priced at, the fallback for an unpriced one", async () => {
+  const local = await opened(await peer({ decision: COMPUTER }));
+
+  expect(local.provider.startTurn().billedWeights).toBe(billedWeightsFor(MODEL.napModel));
+  expect(billedWeightsFor(MODEL.napModel)).toBe(FALLBACK_BILLED_WEIGHTS);
+});
+
 it("isolates handle usage, generates fresh call IDs, and closes idempotently without another exec", async () => {
   const f = await peer({ decision: COMPUTER });
   const local = await opened(f);
@@ -580,10 +614,10 @@ it("isolates handle usage, generates fresh call IDs, and closes idempotently wit
   const first = await a.complete(request());
   const second = await a.complete(request());
   expect(calls(first)[0]?.id).not.toBe(calls(second)[0]?.id);
-  expect(a.usage()).toEqual({ inputTokens: 240, outputTokens: 24 });
-  expect(b.usage()).toEqual({ inputTokens: 0, outputTokens: 0 });
+  expect(a.usage()).toStrictEqual({ inputTokens: 240, outputTokens: 24, cacheReadTokens: 180 });
+  expect(b.usage()).toStrictEqual({ inputTokens: 0, outputTokens: 0 });
   await b.complete(request());
-  expect(b.usage()).toEqual({ inputTokens: 120, outputTokens: 12 });
+  expect(b.usage()).toStrictEqual({ inputTokens: 120, outputTokens: 12, cacheReadTokens: 90 });
   await Promise.all([local.close(), local.close()]);
   const count = f.launches.length;
   expect((await a.complete(request())).type).toBe("error");
@@ -619,8 +653,8 @@ it("retains measured usage when private input cleanup fails after the owned chil
     expect(result).not.toHaveProperty("toolCalls");
     await expect(local.close()).rejects.toThrow("Local Codex private input cleanup failed.");
     expect({ returned: result.usage, total: turn.usage() }).toEqual({
-      returned: { inputTokens: 120, outputTokens: 12 },
-      total: { inputTokens: 120, outputTokens: 12 },
+      returned: { inputTokens: 120, outputTokens: 12, cacheReadTokens: 90 },
+      total: { inputTokens: 120, outputTokens: 12, cacheReadTokens: 90 },
     });
   } finally {
     cleanupFault.reject = null;

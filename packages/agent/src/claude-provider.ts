@@ -32,6 +32,7 @@
 
 import Anthropic, { APIConnectionError, APIError, RateLimitError } from "@anthropic-ai/sdk";
 import type {
+  BilledWeights,
   LLMContentBlock,
   LLMMessage,
   LLMObservationBlock,
@@ -44,10 +45,10 @@ import type {
   ModelCredentials,
   TokenUsage,
 } from "@nap/shared/ports/llm-provider";
-import { addUsage, tokenUsage } from "@nap/shared/usage";
+import { addUsage, billedWeightsFor, tokenUsage } from "@nap/shared/usage";
 import { z } from "zod";
 import { toDirectAnthropicModel } from "./anthropic.ts";
-import { createOpenRouterClient } from "./openrouter.ts";
+import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
 
 /** The assembled response. Named locally so tests do not reach into the SDK's namespace. */
 export type AnthropicMessage = Anthropic.Message;
@@ -474,10 +475,15 @@ export class ClaudeProvider implements LLMProvider {
           // three layers away.
           toModelId(options.model, options.credentials?.platform);
 
-    return new ClaudeTurn(this.#clientFor(options.credentials), this.#sleep, {
-      ...this.#config,
-      model,
-    });
+    // Looked up by the codebase's spelling of the model, which is the one the table is keyed by:
+    // a bare id is Anthropic's, as everywhere else here.
+    const weights = billedWeightsFor(toOpenRouterModel(options.model ?? this.#config.model));
+    return new ClaudeTurn(
+      this.#clientFor(options.credentials),
+      this.#sleep,
+      { ...this.#config, model },
+      weights,
+    );
   }
 
   /**
@@ -535,12 +541,20 @@ class ClaudeTurn implements LLMTurn {
   readonly #client: AnthropicClient;
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #config: ModelConfig;
+  /** An own property rather than a getter, so a wrapper spreading this turn keeps it. */
+  readonly billedWeights: BilledWeights;
   #usage: TokenUsage = NO_USAGE;
 
-  constructor(client: AnthropicClient, sleep: (ms: number) => Promise<void>, config: ModelConfig) {
+  constructor(
+    client: AnthropicClient,
+    sleep: (ms: number) => Promise<void>,
+    config: ModelConfig,
+    billedWeights: BilledWeights,
+  ) {
     this.#client = client;
     this.#sleep = sleep;
     this.#config = config;
+    this.billedWeights = billedWeights;
   }
 
   async complete(request: LLMRequest): Promise<LLMTurnResult> {

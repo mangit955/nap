@@ -14,7 +14,7 @@ import type {
   LLMTurn,
   LLMTurnResult,
 } from "@nap/shared/ports/llm-provider";
-import { billedTokens } from "@nap/shared/usage";
+import { billedTokens, FALLBACK_BILLED_WEIGHTS } from "@nap/shared/usage";
 import { beforeEach, describe, expect, it } from "vitest";
 import { NapAgentService } from "./agent-service.ts";
 import {
@@ -160,10 +160,13 @@ const HEADROOM = 8_192;
 /** The context budget an automatic compaction is tested under; a fifth of it exceeds HEADROOM. */
 const CONTEXT_BUDGET = 50_000;
 /** What one summary request is estimated to cost, input and output, at what each is billed. */
-const SUMMARY_COST = billedTokens({
-  inputTokens: estimateContextTokens(SUMMARY_REQUEST),
-  outputTokens: SUMMARY_REQUEST.maxOutputTokens ?? 0,
-});
+const SUMMARY_COST = billedTokens(
+  {
+    inputTokens: estimateContextTokens(SUMMARY_REQUEST),
+    outputTokens: SUMMARY_REQUEST.maxOutputTokens ?? 0,
+  },
+  FALLBACK_BILLED_WEIGHTS,
+);
 
 /** A normal turn that compacts automatically before its first step, as a long session's does. */
 function automatic(compactContext: CompactContext): AgentTurnRequest {
@@ -468,7 +471,7 @@ describe("an automatic compaction inside a turn", () => {
             maxTokens:
               SUMMARY_COST * 2 +
               4_096 +
-              billedTokens({ inputTokens: next, outputTokens: HEADROOM }) +
+              billedTokens({ inputTokens: next, outputTokens: HEADROOM }, FALLBACK_BILLED_WEIGHTS) +
               slack,
           },
         },

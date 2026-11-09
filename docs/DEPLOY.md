@@ -364,6 +364,33 @@ stop producers and roll forward with compatible readers instead of deleting even
 The activity observation semantics and legacy recovery limits are in
 [ADR-0017](adr/0017-repair-prompts-record-request-ownership.md).
 
+## Usage cache split rollout
+
+The worker now writes `cacheWriteTokens` and `cacheReadTokens` into the usage of `turn.completed`,
+`subagent.completed`, `compaction.completed` and `compaction.failed` whenever a model reports cached
+input, which is most turns. Old rows parse in the new readers, but an old API, reaper or worker
+rejects a new row, as with repair ownership above. Browser tabs are covered the same way: the new
+API strips the cache fields from every frame unless the socket opts in with `usageCacheSplit=1`,
+which the new web client sends, on replay, reconnect and live frames alike. Open tabs need no
+refresh. There is no database migration.
+
+So the order is reader first, exactly as in the [repair ownership rollout](#repair-ownership-rollout):
+every API and reaper instance on the release before a new worker claims anything. Its steps and
+rollback rule name the Railway services; the paragraph below is the same order on Render.
+
+Production is on Render, and its normal release deploys the worker *first*
+([Release production](#release-production)), which is the wrong order for this change. Hold the
+automatic release by putting `[skip ci]` in the merge commit's message, so no workflow runs for
+that push and no secret is touched. Then, from Render, deploy that commit to `nap-api` and wait for
+`/readyz` and for its old instances to exit; then the same for `nap-reaper`. Then deploy it to
+`nap-worker`. Render runs the new worker beside the draining old one for up to its drain timeout,
+which is safe here: a draining worker claims nothing new, and a session is leased to one worker at
+a time, so the old one never reads a row the new one wrote. Finally run the
+**CI** workflow on `main` with **Run workflow** while `main` is still that commit: the release
+script finds all three services live at it, reuses them, and deploys the web at the same SHA. Do
+not use the manual release script for this change, since it deploys the worker first. See
+[ADR-0031](adr/0031-the-turn-budget-is-denominated-in-what-is-billed.md).
+
 ## First deployment
 
 ### 1. A production database

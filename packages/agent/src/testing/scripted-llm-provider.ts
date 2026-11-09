@@ -18,6 +18,7 @@
  */
 
 import type {
+  BilledWeights,
   LLMProvider,
   LLMRequest,
   LLMToolCall,
@@ -91,14 +92,25 @@ function toResult(response: ScriptedResponse): LLMTurnResult {
   };
 }
 
+export type ScriptedLLMProviderOptions = {
+  /**
+   * The billed weights a turn started with these options carries, as a real provider resolves
+   * them from the turn's model. Absent, or answering undefined, leaves them off the turn, which a
+   * caller reads as the fallback.
+   */
+  billedWeights?: (options: LLMTurnOptions) => BilledWeights | undefined;
+};
+
 export class ScriptedLLMProvider implements LLMProvider {
   readonly #turns: ScriptedTurn[];
+  readonly #billedWeights: ScriptedLLMProviderOptions["billedWeights"];
   #started = 0;
   /** Every request across every turn, in the order they were made. */
   readonly #requests: LLMRequest[] = [];
 
-  constructor(turns: ScriptedTurn[]) {
+  constructor(turns: ScriptedTurn[], options: ScriptedLLMProviderOptions = {}) {
     this.#turns = turns;
+    this.#billedWeights = options.billedWeights;
   }
 
   readonly #turnOptions: LLMTurnOptions[] = [];
@@ -122,7 +134,10 @@ export class ScriptedLLMProvider implements LLMProvider {
     }
     this.#started += 1;
 
-    return new ScriptedTurnHandle(script, this.#started, this.#requests);
+    const handle = new ScriptedTurnHandle(script, this.#started, this.#requests);
+    const weights = this.#billedWeights?.(options);
+    if (weights !== undefined) handle.billedWeights = weights;
+    return handle;
   }
 }
 
@@ -134,6 +149,7 @@ class ScriptedTurnHandle implements RecordingLLMTurn {
   readonly #requests: LLMRequest[] = [];
   #consumed = 0;
   #usage: TokenUsage = NO_USAGE;
+  declare billedWeights?: BilledWeights;
 
   constructor(script: ScriptedTurn, turnNumber: number, allRequests: LLMRequest[]) {
     this.#script = script;

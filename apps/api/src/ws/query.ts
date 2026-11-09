@@ -15,11 +15,14 @@ export type StreamQuery = {
   /** Send events *after* this sequence number; 0 means the whole transcript. */
   afterSeq: number;
   repairOwnership: boolean;
+  /** The client parses usage's cache fields; without this they are left off every frame. */
+  usageCacheSplit: boolean;
 };
 
 const StreamQuerySchema = z.object({
   sessionId: z.uuid(),
   repairOwnership: z.literal("1").optional(),
+  usageCacheSplit: z.literal("1").optional(),
   /**
    * Absent means "from the beginning". Present means it must be a real sequence number —
    * matched as digits rather than coerced, because `Number("")` is 0 and `?seq=` would then
@@ -33,6 +36,7 @@ export function parseStreamQuery(url: URL): Result<StreamQuery, { message: strin
   const parsed = StreamQuerySchema.safeParse({
     sessionId: url.searchParams.get("sessionId") ?? undefined,
     repairOwnership: url.searchParams.get("repairOwnership") ?? undefined,
+    usageCacheSplit: url.searchParams.get("usageCacheSplit") ?? undefined,
     ...(seq === null ? {} : { seq }),
   });
 
@@ -50,6 +54,7 @@ export function parseStreamQuery(url: URL): Result<StreamQuery, { message: strin
       sessionId: parsed.data.sessionId,
       afterSeq: parsed.data.seq ?? 0,
       repairOwnership: parsed.data.repairOwnership === "1",
+      usageCacheSplit: parsed.data.usageCacheSplit === "1",
     },
   };
 }

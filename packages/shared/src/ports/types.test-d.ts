@@ -8,6 +8,7 @@ import type { BuiltContext, ContextEngine, ContextRequest } from "./context-engi
 import type { EventBus, Unsubscribe } from "./event-bus.ts";
 import type { EventStore, PendingEvent, StoredEvent } from "./event-store.ts";
 import type {
+  BilledWeights,
   LLMContentBlock,
   LLMMessage,
   LLMProvider,
@@ -169,9 +170,11 @@ expectTypeOf<TokenUsage>().toEqualTypeOf<{
   cacheWriteTokens?: number;
   cacheReadTokens?: number;
 }>();
-// What the event schema accepts is what the port carries, so a parsed event's usage can be
-// handed to anything that takes the port's.
-expectTypeOf<z.output<typeof TokenUsageSchema>>().toExtend<TokenUsage>();
+// Inferred from the schema rather than written beside it, so what an event parses to is exactly
+// what the port carries, in both directions.
+expectTypeOf<z.output<typeof TokenUsageSchema>>().toEqualTypeOf<TokenUsage>();
+// A turn's billed weights are optional provider policy: absent means the fallback.
+expectTypeOf<LLMTurn["billedWeights"]>().toEqualTypeOf<BilledWeights | undefined>();
 
 // A refusal is an expected outcome with its own branch, not an exception and not
 // something a caller can reach by indexing into content.
