@@ -383,9 +383,11 @@ Production is on Render, and its normal release deploys the worker *first*
 automatic release by putting `[skip ci]` in the merge commit's message, so no workflow runs for
 that push and no secret is touched. Then, from Render, deploy that commit to `nap-api` and wait for
 `/readyz` and for its old instances to exit; then the same for `nap-reaper`. Then deploy it to
-`nap-worker`. Render runs the new worker beside the draining old one for up to its drain timeout,
-which is safe here: a draining worker claims nothing new, and a session is leased to one worker at
-a time, so the old one never reads a row the new one wrote. Finally run the
+`nap-worker`. Render starts the new worker before it signals the old one, and until then both
+can claim: an old worker that picks up a session the new one has already run fails that turn on
+the new usage fields, and a resend succeeds. Once signalled, the old worker claims nothing. Merge
+nothing else to `main` until this release has finished, since that merge would run the normal
+worker-first release while old readers are still up. Finally run the
 **CI** workflow on `main` with **Run workflow** while `main` is still that commit: the release
 script finds all three services live at it, reuses them, and deploys the web at the same SHA. Do
 not use the manual release script for this change, since it deploys the worker first. See
