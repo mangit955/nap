@@ -245,18 +245,49 @@ export async function bundle(
   return { ok: true, value: encodeRepositoryBundle(bytes.value, ref) };
 }
 
+export type RestoreOptions = GitOptions & {
+  /**
+   * A command printing **one line** about the working tree, run on the tree being replaced and
+   * again on the restored one, inside the restore's own round trip.
+   *
+   * For a caller that has to compare the two trees: asking afterwards, with commands of its own,
+   * costs a round trip each, and before this the restore spent four of its ten on exactly that.
+   * Its exit status is part of the script, so a probe that can fail fails the restore; one meant
+   * only to describe should be written so that it cannot.
+   */
+  probe?: string | undefined;
+};
+
+export type RestoredBundle = {
+  /**
+   * What `probe` printed on the old tree and on the new one, trimmed, or null when no probe was
+   * asked for. Empty when nothing was printed: a caller deciding something from these must treat
+   * a value it does not recognise as "cannot tell", never as a match.
+   */
+  probe: { before: string; after: string } | null;
+};
+
 /**
  * Replaces the repository and working tree with the contents of a bundle.
  *
  * Builds and validates fresh Git metadata before replacing the old repository. Every ref
  * survives, and the envelope disambiguates branches whose tips happen to be the same commit.
+ *
+ * **Two round trips: the upload, then one script.** The script used to be five commands, each a
+ * round trip made after the last, and a reopened project waits for every one. The steps are
+ * joined with `&&` so the first to fail stops the rest, which is what keeps `rm -rf .git` from
+ * running on the strength of a bundle git refused; there is no `;` in the chain. The failure comes
+ * back as the one `exec_failed` it always was, carrying git's stderr.
+ *
+ * With a `probe`, git's own output is sent to stderr so that stdout holds the probe's two lines and
+ * nothing else — `reset --hard` prints "HEAD is now at …", which would otherwise be read as one.
  */
 export async function restoreBundle(
   manager: SandboxManager,
   sandboxId: string,
   bytes: Uint8Array,
-  options?: GitOptions,
-): Promise<Result<void, SandboxError>> {
+  options?: RestoreOptions,
+): Promise<Result<RestoredBundle, SandboxError>> {
   if (options?.signal?.aborted) return cancelled();
   const decodedBundle = decodeRepositoryBundle(bytes);
   if (!decodedBundle.ok) return decodedBundle;
@@ -264,50 +295,54 @@ export async function restoreBundle(
   if (!written.ok) return written;
 
   const directory = "/tmp/nap-snapshot.git";
-  const fetched = await git(
-    manager,
-    sandboxId,
-    `git bundle verify ${BUNDLE_PATH} && rm -rf ${directory} && git -c core.hooksPath=/dev/null clone --mirror ${BUNDLE_PATH} ${directory}`,
-    options,
-  );
-  if (!fetched.ok) return fetched;
-
   const head = decodedBundle.value.head;
-  if (head !== null) {
-    const selected = await git(
-      manager,
-      sandboxId,
-      `git --git-dir=${directory} rev-parse --verify ${shellQuote(`${head}^{commit}`)} && ` +
-        (head.startsWith("refs/heads/")
-          ? `git check-ref-format ${shellQuote(head)} && git --git-dir=${directory} symbolic-ref HEAD ${shellQuote(head)}`
-          : `git --git-dir=${directory} update-ref --no-deref HEAD ${shellQuote(head)}`),
-      options,
-    );
-    if (!selected.ok) return selected;
-  }
+  const steps = [
+    `git bundle verify ${BUNDLE_PATH}`,
+    `rm -rf ${directory}`,
+    `git -c core.hooksPath=/dev/null clone --mirror ${BUNDLE_PATH} ${directory}`,
+    ...(head === null
+      ? []
+      : [
+          `git --git-dir=${directory} rev-parse --verify ${shellQuote(`${head}^{commit}`)}`,
+          ...(head.startsWith("refs/heads/")
+            ? [
+                `git check-ref-format ${shellQuote(head)}`,
+                `git --git-dir=${directory} symbolic-ref HEAD ${shellQuote(head)}`,
+              ]
+            : [`git --git-dir=${directory} update-ref --no-deref HEAD ${shellQuote(head)}`]),
+        ]),
+    `git --git-dir=${directory} config core.bare false`,
+    `git --git-dir=${directory} config core.hooksPath /dev/null`,
+    `git --git-dir=${directory} config --remove-section remote.origin`,
+    // Everything above is validated before the template's Git metadata is replaced. Its index is
+    // kept until the reset, so files tracked only by the template are removed from the tree too.
+    `(test ! -f .git/index || cp .git/index ${directory}/index)`,
+    "rm -rf .git",
+    `mv ${directory} .git`,
+    "git reset --hard HEAD",
+    // No `-x`: ignored files must survive. node_modules is gitignored and baked into the
+    // image, and deleting it would turn a one-second project open into a full reinstall.
+    "git clean -fd",
+  ].join(" && ");
 
-  const configured = await git(
-    manager,
-    sandboxId,
-    `git --git-dir=${directory} config core.bare false && git --git-dir=${directory} config core.hooksPath /dev/null && git --git-dir=${directory} config --remove-section remote.origin`,
-    options,
-  );
-  if (!configured.ok) return configured;
+  const probe = options?.probe;
+  const script =
+    probe === undefined
+      ? steps
+      : `before=$(${probe}) && { ${steps}; } >&2 && after=$(${probe}) && ` +
+        `printf '%s\\n%s\\n' "$before" "$after"`;
+  const restored = await git(manager, sandboxId, script, options);
+  if (!restored.ok) return restored;
+  if (probe === undefined) return { ok: true, value: { probe: null } };
 
-  // Validate everything before replacing the template's Git metadata. Keep its index until
-  // reset so files tracked only by the template are removed from the working tree too.
-  const reset = await git(
-    manager,
-    sandboxId,
-    `(test ! -f .git/index || cp .git/index ${directory}/index) && rm -rf .git && mv ${directory} .git && git reset --hard HEAD`,
-    options,
-  );
-  if (!reset.ok) return reset;
-
-  // No `-x`: ignored files must survive. node_modules is gitignored and baked into the
-  // image, and deleting it would turn a one-second project open into a full reinstall.
-  const cleaned = await git(manager, sandboxId, "git clean -fd", options);
-  if (!cleaned.ok) return cleaned;
-
-  return { ok: true, value: undefined };
+  const lines = restored.value.trimEnd().split("\n");
+  return {
+    ok: true,
+    value: {
+      probe: {
+        before: lines.length >= 2 ? (lines.at(-2)?.trim() ?? "") : "",
+        after: lines.at(-1)?.trim() ?? "",
+      },
+    },
+  };
 }

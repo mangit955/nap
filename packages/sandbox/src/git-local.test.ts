@@ -261,3 +261,90 @@ describe("a snapshot's bytes", () => {
     expect(manager.issued.some((command) => command.includes("base64"))).toBe(false);
   });
 });
+
+describe("restoreBundle against real git", () => {
+  it("leaves exactly the snapshot's commit: tracked files byte for byte, untracked files gone, ignored files kept", async () => {
+    await writeFile(join(source, ".gitignore"), "node_modules\n");
+    await mkdir(join(source, "src"));
+    await writeFile(join(source, "src", "app.ts"), "export const app = 1;\n");
+    await git(source, "add", ".");
+    await git(source, "commit", "-m", "The project");
+    // The template's side: a file only it tracks, an untracked leftover, and the baked dependencies
+    // that a restore must not delete.
+    await writeFile(join(target, "template-only.ts"), "export {};\n");
+    await git(target, "add", ".");
+    await git(target, "commit", "-m", "Template");
+    await writeFile(join(target, "leftover.txt"), "untracked");
+    await mkdir(join(target, "node_modules"));
+    await writeFile(join(target, "node_modules", "baked.js"), "baked");
+    await writeFile(join(target, ".gitignore"), "node_modules\n");
+    const manager = new LocalSandbox();
+    const captured = await bundle(manager, "sandbox", { cwd: source });
+    if (!captured.ok) throw new Error(captured.error.message);
+    manager.issued.length = 0;
+
+    const restored = await restoreBundle(manager, "sandbox", captured.value, { cwd: target });
+
+    if (!restored.ok) throw new Error(restored.error.message);
+    expect(manager.issued).toHaveLength(1);
+    expect(await git(target, "rev-parse", "HEAD")).toBe(await git(source, "rev-parse", "HEAD"));
+    expect(await git(target, "ls-tree", "-r", "HEAD")).toBe(
+      await git(source, "ls-tree", "-r", "HEAD"),
+    );
+    // Untracked files are cleaned and nothing differs from the commit; ignored files survive.
+    expect(await git(target, "status", "--porcelain", "--untracked-files=all")).toBe("");
+    await expect(stat(join(target, "template-only.ts"))).rejects.toThrow();
+    await expect(stat(join(target, "leftover.txt"))).rejects.toThrow();
+    expect(await readFile(join(target, "node_modules", "baked.js"), "utf8")).toBe("baked");
+  });
+
+  it("reads the probe on the old tree and on the new one, in the same command", async () => {
+    await writeFile(join(source, "file"), "the project's");
+    await git(source, "commit", "-am", "Project");
+    const manager = new LocalSandbox();
+    const captured = await bundle(manager, "sandbox", { cwd: source });
+    if (!captured.ok) throw new Error(captured.error.message);
+    manager.issued.length = 0;
+    const templateBlob = await git(target, "rev-parse", "HEAD:file");
+
+    const restored = await restoreBundle(manager, "sandbox", captured.value, {
+      cwd: target,
+      probe: "git rev-parse HEAD:file",
+    });
+
+    expect(restored).toEqual({
+      ok: true,
+      value: {
+        probe: {
+          before: templateBlob,
+          after: await git(source, "rev-parse", "HEAD:file"),
+        },
+      },
+    });
+    expect(manager.issued).toHaveLength(1);
+  });
+
+  it("fails part-way as one exec_failed, without having replaced the live repository", async () => {
+    // A bundle git accepts, naming a HEAD the bundle does not contain: the restore gets past the
+    // verify and the clone and fails at selecting HEAD, before anything in the target is touched.
+    const manager = new LocalSandbox();
+    const captured = await bundle(manager, "sandbox", { cwd: source });
+    if (!captured.ok) throw new Error(captured.error.message);
+    const decoded = decodeRepositoryBundle(captured.value);
+    if (!decoded.ok) throw new Error(decoded.error.message);
+    const forged = Buffer.concat([
+      Buffer.from(`# nap snapshot v1\n${JSON.stringify({ head: "f".repeat(40) })}\n`),
+      decoded.value.bundle,
+    ]);
+    const before = await git(target, "rev-parse", "HEAD");
+
+    const restored = await restoreBundle(manager, "sandbox", forged, {
+      cwd: target,
+      probe: "echo probed",
+    });
+
+    expect(restored).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+    expect(await git(target, "rev-parse", "HEAD")).toBe(before);
+    expect(await readFile(join(target, "file"), "utf8")).toBe("template");
+  });
+});
