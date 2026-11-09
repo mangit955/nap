@@ -39,7 +39,7 @@ export const NAPBENCH_USAGE = [
   "",
   `  --suite=<name>          Run a named suite, serially (${SUITE_NAMES.join(" | ")})`,
   "  --real                  Use real E2B, a real model and a real browser. Costs money.",
-  `  --platform=<name>       openrouter | anthropic | bedrock (default ${NAPBENCH_DEFAULTS.platform}) — which account pays`,
+  `  --platform=<name>       openrouter | anthropic (default ${NAPBENCH_DEFAULTS.platform}) — which account pays`,
   `  --model=<id>            Model for a real run (default ${NAPBENCH_DEFAULTS.model})`,
   `  --effort=<level>        low | medium | high | xhigh | max (default ${NAPBENCH_DEFAULTS.effort})`,
   `  --max-steps=<n>         Model calls allowed in a turn (default ${NAPBENCH_DEFAULTS.maxSteps})`,
@@ -64,8 +64,8 @@ export const NAPBENCH_USAGE = [
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type BenchEffort = (typeof EFFORT_LEVELS)[number];
 
-/** Where the models are reached from — the same three the harness offers, and the same order. */
-const PLATFORMS = ["openrouter", "anthropic", "bedrock"] as const;
+/** Where the models are reached from — the same two the harness offers, and the same order. */
+const PLATFORMS = ["openrouter", "anthropic"] as const;
 export type BenchPlatform = (typeof PLATFORMS)[number];
 
 /**

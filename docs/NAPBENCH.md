@@ -72,7 +72,7 @@ mistyped on a paid run and silently use the default.
 |---|---|
 | `--suite=<name>` | Run a named suite serially. `all` (the four, frozen), `hard` (built to separate models), `smoke` (the tracer) or `product` (scored on both halves). |
 | `--real` | Real E2B, real model, real Chrome. Also requires `NAP_CHROME_PATH`. |
-| `--platform=<name>` | `openrouter` (default), `anthropic` or `bedrock` — which account pays. |
+| `--platform=<name>` | `openrouter` (default) or `anthropic` — which account pays. |
 | `--model=<id>` | Model for a real run. Also what the cost estimate is priced against. |
 | `--effort=<level>` | `low` … `max`. |
 | `--max-steps=<n>` | Model calls allowed within one turn. |

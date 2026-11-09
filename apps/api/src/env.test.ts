@@ -54,55 +54,13 @@ describe("parseEnv", () => {
     expect(() => parseEnv(rest)).toThrow(new RegExp(key));
   });
 
-  it("wants AWS credentials instead when the models are reached through Bedrock", () => {
-    // Not a second vendor — the same models billed to an AWS account. Demanding an Anthropic
-    // key from someone paying through AWS is exactly the kind of check that teaches people to
-    // paste dummy values.
-    const bedrock = {
-      DATABASE_URL: VALID.DATABASE_URL,
-      E2B_API_KEY: VALID.E2B_API_KEY,
-      NAP_PLATFORM: "bedrock",
-      AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
-      AWS_REGION: "us-east-1",
-      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
-      NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
-      ...R2,
-    };
-
-    expect(parseEnv(bedrock).NAP_PLATFORM).toBe("bedrock");
-  });
-
-  it.each(["AWS_BEARER_TOKEN_BEDROCK", "AWS_REGION"])("requires %s on Bedrock", (key) => {
-    // The region especially: the Bedrock client throws at *construction* without one, so a
-    // missing region is a stack trace at boot rather than a sentence naming the variable.
-    const bedrock: Record<string, string> = {
-      DATABASE_URL: VALID.DATABASE_URL,
-      E2B_API_KEY: VALID.E2B_API_KEY,
-      NAP_PLATFORM: "bedrock",
-      AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
-      AWS_REGION: "us-east-1",
-      BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
-      NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
-      ...R2,
-    };
-    delete bedrock[key];
-
-    expect(() => parseEnv(bedrock)).toThrow(new RegExp(key));
-  });
-
-  it("does not ask for an Anthropic key on the Bedrock path", () => {
+  it("refuses to boot on the retired Bedrock route rather than quietly billing another", () => {
+    // Bedrock was removed. A deployment still configured for it must stop at boot naming the
+    // variable, not fall through to another route and charge an account nobody chose. Every
+    // other route's key is present, so the platform name is the only thing left to refuse.
     expect(() =>
-      parseEnv({
-        DATABASE_URL: VALID.DATABASE_URL,
-        E2B_API_KEY: VALID.E2B_API_KEY,
-        NAP_PLATFORM: "bedrock",
-        AWS_BEARER_TOKEN_BEDROCK: "ABSK-test",
-        AWS_REGION: "us-east-1",
-        BETTER_AUTH_SECRET: VALID.BETTER_AUTH_SECRET,
-        NAP_KEY_ENCRYPTION_SECRET: VALID.NAP_KEY_ENCRYPTION_SECRET,
-        ...R2,
-      }),
-    ).not.toThrow();
+      parseEnv({ ...REQUIRED, ANTHROPIC_API_KEY: "sk-ant-test", NAP_PLATFORM: "bedrock" }),
+    ).toThrow(/NAP_PLATFORM/);
   });
 
   it("bills OpenRouter unless told otherwise", () => {

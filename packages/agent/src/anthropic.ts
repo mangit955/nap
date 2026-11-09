@@ -12,13 +12,7 @@
  * be set and then forgotten.
  */
 
-/**
- * The vendor namespace OpenRouter requires and Anthropic's own API does not have.
- *
- * Note the slash: Bedrock namespaces the same models with a *dot* (`anthropic.claude-opus-5`),
- * and that id belongs to a different transport. Stripping only the slash form means a Bedrock
- * id passed here stays wrong and surfaces as a 404, which beats being silently accepted.
- */
+/** The vendor namespace OpenRouter requires and Anthropic's own API does not have. */
 const NAMESPACE = "anthropic/";
 
 /**

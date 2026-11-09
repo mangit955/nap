@@ -24,7 +24,6 @@ import { PostgresSessionStartStore } from "@nap/db/session-start-store";
  * what makes it importable, and therefore typechecked, by things that are not a running process.
  */
 
-import { createBedrockClient, toBedrockModel } from "@nap/agent/bedrock";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
@@ -248,14 +247,6 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
         model: toOpenRouterModel(env.NAP_MODEL),
         effort: env.NAP_EFFORT,
         client: createOpenRouterClient(),
-      });
-    }
-
-    if (env.NAP_PLATFORM === "bedrock") {
-      return new ClaudeProvider({
-        model: toBedrockModel(env.NAP_MODEL),
-        effort: env.NAP_EFFORT,
-        client: createBedrockClient(),
       });
     }
 
