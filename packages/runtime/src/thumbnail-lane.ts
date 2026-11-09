@@ -29,9 +29,13 @@
  * process whose turn has just used the sandbox, so the handle is always cached here — feeding it
  * requests from another process would break this.
  *
- * **A shutdown does not wait for it.** What is queued is dropped, and what is running gets a short
- * grace. Nothing here is written down anywhere, so a process that dies with shots outstanding
- * loses only those pictures: the project's next committed turn or restart takes another.
+ * **A shutdown does not wait for it, and nothing it runs outlives its deadline.** What is queued is
+ * dropped, and what is running gets a short grace and is then aborted, which closes its browser.
+ * Every shot has a deadline of its own too: a browser that never answers would otherwise hold its
+ * place for good, and at a bound of one that is the last picture this worker ever takes. A shot
+ * given up on gives its place back at once, whether or not the browser heard, and stores nothing.
+ * Nothing here is written down anywhere, so a process that dies with shots outstanding loses only
+ * those pictures: the project's next committed turn or restart takes another.
  *
  * How many run at once and how many may wait are the composition's to say, since both depend on
  * how many turns this worker runs.
@@ -47,6 +51,13 @@ import { captureThumbnail } from "./turn-thumbnail.ts";
 /** Long enough for a browser that has loaded its page to finish, not for one that has not. */
 const DEFAULT_STOP_GRACE_MS = 10_000;
 
+/**
+ * Comfortably past every wait a shot is allowed — the runtime's preview deadline, a browser's
+ * launch and page deadlines, two workspace reads and an upload — so it only ever ends a shot
+ * something below failed to end.
+ */
+const DEFAULT_SHOT_TIMEOUT_MS = 120_000;
+
 export type ThumbnailLaneOptions = {
   sandbox: SandboxManager;
   capture: PageCapture;
@@ -58,8 +69,10 @@ export type ThumbnailLaneOptions = {
    * since every request passes through the queue on its way to a browser.
    */
   maxQueued: number;
-  /** How long `stop` waits for shots already in flight. */
+  /** How long `stop` waits for shots already in flight, before aborting them. */
   stopGraceMs?: number;
+  /** How long one shot may take, start to finish, before it is aborted and its place freed. */
+  shotTimeoutMs?: number;
 };
 
 export type ThumbnailTarget = {
@@ -88,10 +101,11 @@ export class ThumbnailLane {
   readonly #limit: number;
   readonly #maxQueued: number;
   readonly #stopGraceMs: number;
+  readonly #shotTimeoutMs: number;
   /** One per project, oldest first. A `Map` keeps a replaced entry's place in the line. */
   readonly #queued = new Map<string, Shot>();
   /** Keyed by project, because two shots of one could otherwise land in the wrong order. */
-  readonly #running = new Map<string, Promise<void>>();
+  readonly #running = new Map<string, { done: Promise<void>; abort: AbortController }>();
   #stopped = false;
 
   constructor(options: ThumbnailLaneOptions) {
@@ -112,6 +126,7 @@ export class ThumbnailLane {
     this.#limit = options.concurrency;
     this.#maxQueued = options.maxQueued;
     this.#stopGraceMs = options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
+    this.#shotTimeoutMs = options.shotTimeoutMs ?? DEFAULT_SHOT_TIMEOUT_MS;
   }
 
   /**
@@ -141,23 +156,29 @@ export class ThumbnailLane {
   }
 
   /**
-   * Stops taking pictures: drops what is waiting and gives what is running a short grace.
+   * Stops taking pictures: drops what is waiting, gives what is running a short grace, and aborts
+   * whatever is still running after it.
    *
    * Never waits longer than the grace, because the caller is a process on its way out, and a page
-   * that will not load must not cost it the deadline the platform gave it. A browser left behind
-   * goes with the process.
+   * that will not load must not cost it the deadline the platform gave it.
    */
   async stop(): Promise<void> {
     this.#stopped = true;
     this.#queued.clear();
-    if (this.#running.size === 0) return;
+    const running = [...this.#running.values()];
+    if (running.length === 0) return;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const graceOver = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, this.#stopGraceMs);
     });
-    await Promise.race([Promise.all(this.#running.values()), graceOver]);
+    await Promise.race([Promise.all(running.map((shot) => shot.done)), graceOver]);
     clearTimeout(timer);
+
+    // Settles at once: a shot that is aborted stops being waited for, whether or not its browser
+    // has heard yet.
+    for (const shot of running) shot.abort.abort();
+    await Promise.all(running.map((shot) => shot.done));
   }
 
   /**
@@ -182,21 +203,35 @@ export class ThumbnailLane {
       if (this.#running.has(projectId)) continue;
 
       this.#queued.delete(projectId);
-      const running = withLogContext(shot.logger, {}, () => this.#take(shot))
+      const abort = new AbortController();
+      const deadline = setTimeout(() => {
+        shot.logger.warn(
+          { timeoutMs: this.#shotTimeoutMs },
+          "a project thumbnail took too long; giving up on it",
+        );
+        abort.abort();
+      }, this.#shotTimeoutMs);
+      // Raced rather than trusted: the abort is a request, and a browser or a sandbox call that
+      // ignores it must still not keep the place. The race also handles the loser's rejection.
+      const done = Promise.race([
+        withLogContext(shot.logger, {}, () => this.#take(shot, abort.signal)),
+        untilAborted(abort.signal),
+      ])
         .catch((error: unknown) => {
           shot.logger.warn({ err: error }, "could not capture a project thumbnail");
         })
         .finally(() => {
+          clearTimeout(deadline);
           // In a `finally` because a throw must not cost the slot: one lost at a bound of one is a
           // worker that never photographs anything again.
           this.#running.delete(projectId);
           this.#pump();
         });
-      this.#running.set(projectId, running);
+      this.#running.set(projectId, { done, abort });
     }
   }
 
-  async #take(shot: Shot): Promise<void> {
+  async #take(shot: Shot, signal: AbortSignal): Promise<void> {
     const { projectId, sandboxId, port, previewTimeoutMs } = shot;
     const log = getLogger();
 
@@ -217,16 +252,19 @@ export class ThumbnailLane {
       projectId,
       sandboxId,
       port,
+      signal,
       ...(previewTimeoutMs === undefined ? {} : { previewTimeoutMs }),
       // Last, because the picture just taken may show a half-finished edit or a dead sandbox's
       // error page, and this is the moment it would replace a good one.
       beforeStore: async () => {
         const now = await this.#readWorkspace(sandboxId);
         gone = now === null;
-        return now === shot.workspace;
+        return now === shot.workspace && !signal.aborted;
       },
     });
 
+    // Whoever gave up on it has said so already.
+    if (signal.aborted) return;
     if (taken.ok) {
       log.info({ key: taken.value.key }, "project thumbnail captured");
     } else if (taken.error.superseded === true) {
@@ -258,4 +296,12 @@ export class ThumbnailLane {
     }
     return null;
   }
+}
+
+/** Resolves once the signal fires, so a shot can stop being waited for without its cooperation. */
+function untilAborted(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }

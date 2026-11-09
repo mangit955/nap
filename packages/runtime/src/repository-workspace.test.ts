@@ -207,6 +207,36 @@ it("prepares one dedicated branch, verifies without a preview, saves then publis
   expect(verification?.payload.checks.some((check) => check.name === "preview")).toBe(false);
 });
 
+it.each([
+  ["passes", 0],
+  ["runs out of repairs", 1],
+] as const)(
+  "does not publish a job that %s until every round it committed is saved",
+  async (_name, exitCode) => {
+    // A repair no longer waits for the round before it to upload, so the close is where the job
+    // catches up. Uploads are held here so the order cannot come out right by luck.
+    const f = await fixture();
+    f.sandbox.script(/bun run typecheck/, { exitCode, stderr: "" });
+    const held: (() => void)[] = [];
+    const put = f.objects.put.bind(f.objects);
+    vi.spyOn(f.objects, "put").mockImplementation(async (key, bytes) => {
+      if (key.endsWith(".bundle")) await new Promise<void>((resolve) => held.push(resolve));
+      return put(key, bytes);
+    });
+    const recorded: number[] = [];
+    f.finishJob.mockImplementation(async () => {
+      recorded.push(f.snapshots.all().length);
+      return { ok: true, value: undefined };
+    });
+
+    const outcome = f.run();
+    const releasing = setInterval(() => held.shift()?.(), 5);
+    await outcome.finally(() => clearInterval(releasing));
+
+    expect(recorded).toEqual([f.agent.calls]);
+  },
+);
+
 it("reports publication failure while keeping the verified job and snapshot", async () => {
   const f = await fixture();
   f.finishJob.mockResolvedValue({
