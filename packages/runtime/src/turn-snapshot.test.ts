@@ -229,18 +229,21 @@ describe("a job that repairs itself", () => {
     return gate;
   }
 
-  it("starts the repair without waiting for the round before it to reach storage", async () => {
-    // The person is watching a repair, not a backup: holding the next turn for an upload only
-    // makes the job, and so everything queued behind its lease, take longer.
+  it("does not start a repair until the round before it has reached storage", async () => {
+    // A worker can die without running a single `finally`. Had the repair committed by then, the
+    // newest durable snapshot would predate both rounds, so the repair waits for the upload.
     const agent = repairingProject(1);
     const uploads = gatedUploads();
 
     const outcome = run(agent);
 
-    await vi.waitFor(() => expect(agent.calls).toBe(2));
-    expect(snapshots.all()).toEqual([]);
+    await vi.waitFor(() => expect(uploads.asked).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(agent.calls).toBe(1);
 
     uploads.release();
+    await vi.waitFor(() => expect(agent.calls).toBe(2));
+    expect(snapshots.all()).toEqual([expect.objectContaining({ gitSha: COMMIT_SHA })]);
     await vi.waitFor(() => expect(uploads.asked).toBe(2));
     uploads.release();
     expect((await outcome).ok).toBe(true);
@@ -258,15 +261,10 @@ describe("a job that repairs itself", () => {
     });
 
     await vi.waitFor(() => expect(uploads.asked).toBe(1));
-    await vi.waitFor(() => expect(agent.calls).toBe(2));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    // The repair's own round has been checked and wants its snapshot, and waits for the first.
-    expect(uploads.asked).toBe(1);
-    expect(returned).toBe(false);
-
     uploads.release();
     await vi.waitFor(() => expect(uploads.asked).toBe(2));
     await new Promise((resolve) => setTimeout(resolve, 20));
+    // The repair passed and its own round is uploading: the job has closed, the lease has not.
     expect(returned).toBe(false);
 
     uploads.release();
@@ -277,34 +275,43 @@ describe("a job that repairs itself", () => {
     expect(snapshots.all().at(-1)).toMatchObject({ gitSha: REPAIRED_SHA });
   });
 
-  it.each([
-    ["crashes", "throw"],
-    ["is cancelled", "abort"],
-  ] as const)("still records the round before it when the repair %s", async (_name, how) => {
-    // The boundary a worker's own failure lands on: the round before has committed, its upload
-    // is in flight, and the turn that was meant to fix it is gone. That commit must still reach
-    // storage before anything can hand the lease back.
+  it("starts no repair when the job is cancelled while the round before it uploads", async () => {
+    // The upload is the one wait between a red check and the repair it prompts, so a cancel that
+    // lands during it must be heard before another turn is begun.
     const agent = repairingProject(Number.POSITIVE_INFINITY);
     const controller = new AbortController();
+    const uploads = gatedUploads();
+
+    const outcome = run(agent, true, controller.signal);
+
+    await vi.waitFor(() => expect(uploads.asked).toBe(1));
+    controller.abort();
+    uploads.release();
+    await outcome;
+
+    // One prompt, the person's: no repair was begun, not even one that refused at once.
+    const log = await events.readFrom(SESSION_ID, 0);
+    expect(log.filter((event) => event.type === "user.message")).toHaveLength(1);
+    expect(log.at(-1)).toMatchObject({ type: "job.completed", payload: { outcome: "abandoned" } });
+    expect(agent.calls).toBe(1);
+    expect(snapshots.all()).toEqual([expect.objectContaining({ gitSha: COMMIT_SHA })]);
+  });
+
+  it("still records the round before it when the repair crashes", async () => {
+    // The boundary a worker's own failure lands on: the round before has committed and the turn
+    // that was meant to fix it is gone. That commit must still have reached storage.
+    const agent = repairingProject(Number.POSITIVE_INFINITY);
     agent.before = async () => {
-      if (agent.calls < 2) return;
-      if (how === "throw") throw new Error("provider exploded");
-      controller.abort();
+      if (agent.calls >= 2) throw new Error("provider exploded");
     };
     const uploads = gatedUploads();
-    let returned = false;
 
-    const outcome = run(agent, true, controller.signal).finally(() => {
-      returned = true;
-    });
+    const outcome = run(agent);
 
-    await vi.waitFor(() => expect(agent.calls).toBe(2));
+    await vi.waitFor(() => expect(uploads.asked).toBe(1));
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(uploads.asked).toBe(1);
-    expect(returned).toBe(false);
+    expect(agent.calls).toBe(1);
 
-    // A scripted agent does not hear the cancel, so the repair may still commit — and then its
-    // commit is preserved too, after this one. Every upload is let through until the job returns.
     const releasing = setInterval(uploads.release, 2);
     await outcome.finally(() => clearInterval(releasing));
 

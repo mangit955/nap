@@ -213,8 +213,8 @@ it.each([
 ] as const)(
   "does not publish a job that %s until every round it committed is saved",
   async (_name, exitCode) => {
-    // A repair no longer waits for the round before it to upload, so the close is where the job
-    // catches up. Uploads are held here so the order cannot come out right by luck.
+    // The last round's upload is still in flight when the job closes, so the close is where the
+    // publish has to wait for it. Uploads are held here so the order cannot come out right by luck.
     const f = await fixture();
     f.sandbox.script(/bun run typecheck/, { exitCode, stderr: "" });
     const held: (() => void)[] = [];
