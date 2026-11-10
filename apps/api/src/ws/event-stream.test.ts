@@ -713,7 +713,7 @@ const oldEvent = <T extends string, P extends z.ZodType>(type: T, payload: P) =>
     createdAt: z.iso.datetime(),
     payload,
   });
-// The usage-bearing events as an open tab from before the split parses them.
+// The usage-bearing events as an open tab that did not ask for the split parses them.
 const OldUsageFrame = z.strictObject({
   type: z.literal("event"),
   event: z.discriminatedUnion("type", [
@@ -756,7 +756,6 @@ const OldUsageFrame = z.strictObject({
         usage: OldUsage.nullable(),
       }),
     ),
-    // Shipped before the split as well, and parsed by those tabs with the same strict usage.
     oldEvent(
       "project.renamed",
       z.strictObject({
@@ -814,7 +813,12 @@ describe("the usage cache split", () => {
     {
       ...at,
       type: "project.renamed",
-      payload: { name: "Todo app", source: "model", model: "openai/gpt-5.6-luna", usage: CACHED },
+      payload: {
+        name: "Dark mode toggle",
+        source: "model",
+        model: "openai/gpt-5-mini",
+        usage: CACHED,
+      },
     },
   ];
   const repairPrompt: PendingEvent = {
@@ -904,9 +908,9 @@ describe("the usage cache split", () => {
         }))
           expect(OldUsageFrame.safeParse(JSON.parse(raw)).success).toBe(!usageCacheSplit);
       }
-      // Every path: one of each replayed, buffered and live, then one of each on reconnect.
+      // Every path: each one replayed, buffered and live, then again on reconnect.
       expect(socket.events.filter((event) => event.type !== "user.message")).toHaveLength(
-        3 * usageEvents.length,
+        usageEvents.length * 3,
       );
       expect(reconnected.events).toHaveLength(usageEvents.length);
       // The repair projection is decided by its own flag, whatever this one says.
@@ -917,7 +921,7 @@ describe("the usage cache split", () => {
       // The log itself keeps the split; only what a legacy socket is sent loses it.
       const durable = await store.readFrom(SESSION, 0);
       expect(durable.filter((event) => event.type !== "user.message").map(usageOf)).toEqual(
-        Array(4 * usageEvents.length).fill(CACHED),
+        Array(usageEvents.length * 4).fill(CACHED),
       );
     },
   );
