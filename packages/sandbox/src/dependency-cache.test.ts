@@ -66,11 +66,16 @@ describe("the stored archive's envelope", () => {
 
   it.each([
     ["no envelope at all", ARCHIVE],
-    ["an envelope with no end", new TextEncoder().encode(`# nap dependencies v1\n{"key":"${KEY}"`)],
-    ["a header that is not JSON", new TextEncoder().encode("# nap dependencies v1\nnope\n")],
+    ["an envelope with no end", new TextEncoder().encode(`# nap dependencies v2\n{"key":"${KEY}"`)],
+    [
+      // Written before an install had to prove it was decided by its inputs alone.
+      "an envelope from the first version",
+      new TextEncoder().encode(`# nap dependencies v1\n{"key":"${KEY}"}\nrest`),
+    ],
+    ["a header that is not JSON", new TextEncoder().encode("# nap dependencies v2\nnope\n")],
     [
       "a key that is not a sha256",
-      new TextEncoder().encode('# nap dependencies v1\n{"key":"abc"}\nrest'),
+      new TextEncoder().encode('# nap dependencies v2\n{"key":"abc"}\nrest'),
     ],
     ["an empty archive", encodeDependencyArchive(KEY, new Uint8Array())],
   ])("reads %s as no archive, never as one", (_, bytes) => {
@@ -90,29 +95,45 @@ describe("DEPENDENCY_KEY_PROBE", () => {
 });
 
 describe("installDependencies", () => {
-  it("runs one command that installs, records the result and reads the key again", async () => {
+  it("runs one command that checks the inputs either side of the install and records the result", async () => {
     const { manager, sandboxId } = await sandboxed();
-    manager.script(/bun install/, { exitCode: 0, stdout: `Checked 42 installs\n${KEY}\n` });
+    manager.script(/bun install/, {
+      exitCode: 0,
+      stdout: "Checked 42 installs\nnap-dependencies-cacheable\n",
+    });
     const signal = new AbortController().signal;
 
     const result = await installDependencies(manager, sandboxId, { signal, timeoutMs: 1234 });
 
-    expect(result).toEqual({ ok: true, value: { exitCode: 0, key: KEY, stderr: "" } });
+    expect(result).toEqual({ ok: true, value: { exitCode: 0, cacheable: true, stderr: "" } });
     const [install] = manager.execs(sandboxId);
     expect(manager.execs(sandboxId)).toHaveLength(1);
     expect(install?.options).toMatchObject({ signal, stopOnGiveUp: true, timeoutMs: 1234 });
-    expect(install?.command).toMatch(/bun install &&[\s\S]*sha256sum/);
+    expect(install?.command).toMatch(/git status --porcelain[\s\S]*bun install[\s\S]*git status/);
   });
 
-  it("reports a failed install as its exit code, with no key", async () => {
+  it("reports an install that left nothing worth caching as not cacheable", async () => {
     const { manager, sandboxId } = await sandboxed();
-    manager.script(/bun install/, { exitCode: 1, stderr: "no such package" });
+    manager.script(/bun install/, { exitCode: 0, stdout: "Checked 42 installs\n" });
+
+    const result = await installDependencies(manager, sandboxId, { timeoutMs: 1 });
+
+    expect(result).toMatchObject({ ok: true, value: { exitCode: 0, cacheable: false } });
+  });
+
+  it("reports a failed install as its exit code, never as cacheable", async () => {
+    const { manager, sandboxId } = await sandboxed();
+    manager.script(/bun install/, {
+      exitCode: 1,
+      stdout: "nap-dependencies-cacheable\n",
+      stderr: "no such package",
+    });
 
     const result = await installDependencies(manager, sandboxId, { timeoutMs: 1 });
 
     expect(result).toEqual({
       ok: true,
-      value: { exitCode: 1, key: null, stderr: "no such package" },
+      value: { exitCode: 1, cacheable: false, stderr: "no such package" },
     });
   });
 });

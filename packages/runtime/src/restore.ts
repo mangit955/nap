@@ -113,6 +113,13 @@ export function dependenciesKey(projectId: string): string {
  */
 export const MAX_DEPENDENCY_ARCHIVE_BYTES = 128 * 1024 * 1024;
 
+/**
+ * The longest a reopen that needs the archive waits for it to download and upload before
+ * installing instead. Less than the install it saves, so a slow or silent store costs at most
+ * this much more than having no cache; the store's client has no deadline of its own.
+ */
+export const DEPENDENCY_ARCHIVE_WAIT_MS = 30_000;
+
 const MISSING_SNAPSHOT_WARNING =
   "Couldn't restore this project's last snapshot — it isn't in storage any more. " +
   "Starting from a fresh template.";
@@ -174,17 +181,46 @@ export async function openProject(
   }
 
   // Uploaded beside the restore, before anyone knows whether it fits: on a reopen that needs it,
-  // that takes the upload off the critical path, and a reopen that does not is rare.
-  const staging = archiving.then(async (stored) => {
-    if (stored === null) return null;
-    const staged = await stageDependencyArchive(sandbox, sandboxId, stored.archive);
-    return staged.ok ? stored.key : null;
-  });
+  // that takes the upload off the critical path. Nothing waits for it unless the keys say it is
+  // needed, and then only until a deadline, and once the open has decided without it, an archive
+  // that finishes downloading afterwards is not uploaded at all.
+  let decided = false;
+  const staging: Staging = {
+    // An upload already running when the open decides is left to finish, into a scratch file
+    // nothing reads; caught, because nothing may be waiting for it when it settles.
+    key: archiving
+      .then(async (stored) => {
+        if (stored === null || decided) return null;
+        const staged = await stageDependencyArchive(sandbox, sandboxId, stored.archive);
+        return staged.ok ? stored.key : null;
+      })
+      .catch(() => null),
+    decide: () => {
+      decided = true;
+    },
+  };
+  try {
+    return await restoreProject(options, sandboxId, bytes, staging);
+  } finally {
+    staging.decide();
+  }
+}
+
+/** The archive being uploaded beside the restore, and the way to say it is no longer wanted. */
+type Staging = { key: Promise<string | null>; decide: () => void };
+
+/** A template project's restore, and the dependencies it needs once the tree is back. */
+async function restoreProject(
+  options: OpenProjectOptions,
+  sandboxId: string,
+  bytes: Uint8Array,
+  staging: Staging,
+): Promise<Result<OpenedProject, OpenError>> {
+  const { sandbox, objects, snapshots, projectId } = options;
   const restored = await restoreBundle(sandbox, sandboxId, bytes, {
     signal: options.signal,
     probe: DEPENDENCY_KEY_PROBE,
   });
-  const stagedKey = await staging;
 
   if (!restored.ok) {
     if (options.signal?.aborted) {
@@ -206,6 +242,9 @@ export async function openProject(
   }
 
   const key = template !== null && project !== null ? dependencyCacheKey(template, project) : null;
+  const stagedKey =
+    key === null ? null : await within(staging.key, DEPENDENCY_ARCHIVE_WAIT_MS, options.signal);
+  staging.decide();
   if (key !== null && stagedKey === key) {
     const extracted = await extractDependencies(sandbox, sandboxId);
     if (extracted.ok) return opened(sandboxId, { restored: true, cachedDependencies: true });
@@ -219,18 +258,40 @@ export async function openProject(
     return opened(sandboxId, { restored: true, warning: INSTALL_FAILED_WARNING });
   }
 
-  // Stored only when the install was decided by the committed inputs alone — it read the same key
-  // afterwards — and the open was not abandoned on the way.
-  if (key === null || installed.value.key !== project || options.signal?.aborted) {
+  // Stored only when the install was decided by the committed inputs alone, as the sandbox checked
+  // around it, and the open was not abandoned on the way.
+  if (key === null || !installed.value.cacheable || options.signal?.aborted) {
     return opened(sandboxId, { restored: true, installed: true });
   }
   return {
     ok: true,
     value: {
       ...opened(sandboxId, { restored: true, installed: true }).value,
-      dependencyCacheWrite: storeArchive(sandbox, sandboxId, objects, projectId, key),
+      dependencyCacheWrite: storeArchive(sandbox, sandboxId, objects, snapshots, projectId, key),
     },
   };
+}
+
+/** What `promise` settles to, or null once `ms` pass or `signal` aborts, whichever is first. */
+async function within<T>(
+  promise: Promise<T | null>,
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<T | null> {
+  if (signal?.aborted) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stop = () => {};
+  const given = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+    stop = () => resolve(null);
+    signal?.addEventListener("abort", stop, { once: true });
+  });
+  try {
+    return await Promise.race([promise, given]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
+  }
 }
 
 /** The create, reported to `onCreated` the moment it exists, whatever happens beside it. */
@@ -295,11 +356,21 @@ async function fetchArchive(
   }
 }
 
-/** Packs the dependencies an install just left and stores them for the next reopen. Never rejects. */
+/**
+ * Packs the dependencies an install just left and stores them for the next reopen. Never rejects.
+ *
+ * Nothing holds the project while this runs, so it may be deleted meanwhile, and a delete removes
+ * the archive before the rows that name the project. An upload landing after that removal would
+ * be kept forever, so once it has landed this asks whether the project is still there, and removes
+ * its own archive when it is not, or when that cannot be told. A delete removes the archive again
+ * once the rows are gone, which covers an upload whose check came before them: between the two,
+ * every order of the upload, the check and the delete ends with no archive for a deleted project.
+ */
 async function storeArchive(
   sandbox: SandboxManager,
   sandboxId: string,
   objects: ObjectStore,
+  snapshots: SnapshotStore,
   projectId: string,
   key: string,
 ): Promise<boolean> {
@@ -312,7 +383,14 @@ async function storeArchive(
       dependenciesKey(projectId),
       encodeDependencyArchive(key, archive.value),
     );
-    return stored.ok;
+    if (!stored.ok) return false;
+    const exists = await snapshots.latestFor(projectId).then(
+      (snapshot) => snapshot !== null,
+      () => false,
+    );
+    if (exists) return true;
+    await objects.delete(dependenciesKey(projectId));
+    return false;
   } catch {
     return false;
   }

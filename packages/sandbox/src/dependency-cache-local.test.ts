@@ -107,6 +107,8 @@ beforeEach(async () => {
       "  mkdir -p node_modules/left-pad node_modules/.bin",
       '  echo "module.exports = $(cat bun.lock)" > node_modules/left-pad/index.js',
       "  ln -sf ../left-pad/index.js node_modules/.bin/left-pad",
+      // What a test wants this install to do besides: rewrite its inputs, run a script.
+      "  if [ -f ../install-hook.sh ]; then . ../install-hook.sh; fi",
       '  echo "installed"; exit 0',
       "fi",
       "exit 1",
@@ -162,9 +164,7 @@ describe("a dependency archive's round trip", () => {
       ...options(),
       timeoutMs: 10_000,
     });
-    expect(installed).toMatchObject({ ok: true, value: { exitCode: 0 } });
-    if (!installed.ok) return;
-    expect(installed.value.key).toBe(readDependencyKey(await sh(DEPENDENCY_KEY_PROBE)));
+    expect(installed).toMatchObject({ ok: true, value: { exitCode: 0, cacheable: true } });
     // A cache the dev server writes after the install is not part of the archive, and not a reason
     // to refuse one.
     await mkdir(join(project, "node_modules", ".vite"));
@@ -267,6 +267,24 @@ describe("archiveDependencies refuses a tree that is not the install's", () => {
     expect(archive.ok).toBe(false);
   });
 
+  it("when a file in it was overwritten after the install with its old timestamp put back", async () => {
+    // What extracting a tarball over the tree does: new bytes, the archive's mtime. Only the
+    // inode's change time, which nothing can set, still says it happened.
+    const manager = new LocalSandbox();
+    await install(manager);
+    const file = join(project, "node_modules", "left-pad", "index.js");
+    await sh(`touch -r ${file} ${join(directory, "stamp")}`);
+    await writeFile(file, "module.exports = 'other bytes'");
+    await sh(`touch -r ${join(directory, "stamp")} ${file}`);
+
+    const archive = await archiveDependencies(manager, "sandbox", {
+      ...options(),
+      maxBytes: 1 << 20,
+    });
+
+    expect(archive.ok).toBe(false);
+  });
+
   it("when a package was removed after the install", async () => {
     const manager = new LocalSandbox();
     await install(manager);
@@ -305,6 +323,133 @@ describe("archiveDependencies refuses a tree that is not the install's", () => {
   });
 });
 
+describe("installDependencies only calls an install cacheable when its inputs decided all of it", () => {
+  async function installWith(hook: string | null) {
+    if (hook !== null) await writeFile(join(directory, "install-hook.sh"), hook);
+    const installed = await installDependencies(new LocalSandbox(), "sandbox", {
+      ...options(),
+      timeoutMs: 10_000,
+    });
+    if (!installed.ok) throw new Error(installed.error.message);
+    // An install that is not cacheable must still have installed: only the record is withheld.
+    expect(installed.value.exitCode).toBe(0);
+    return installed.value.cacheable;
+  }
+
+  async function commit(file: string, contents: string) {
+    await writeFile(join(project, file), contents);
+    await sh("git add . && git commit -q -m Change");
+  }
+
+  async function archivable(): Promise<boolean> {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const archive = await archiveDependencies(new LocalSandbox(), "sandbox", {
+      ...options(),
+      maxBytes: 1 << 20,
+    });
+    return archive.ok;
+  }
+
+  it("when nothing but the committed inputs went into it", async () => {
+    expect(await installWith(null)).toBe(true);
+    expect(await archivable()).toBe(true);
+  });
+
+  it.each([
+    ["rewrote the lockfile", 'echo "rewritten" > bun.lock'],
+    ["wrote a lockfile nobody committed", 'echo "new" > bun.lockb'],
+    ["edited package.json", "echo '{}' > package.json"],
+  ])("not when the install %s, and nothing is left to archive", async (_, hook) => {
+    // HEAD is untouched, so a key read from what git committed cannot see this.
+    expect(await installWith(hook)).toBe(false);
+    expect(await archivable()).toBe(false);
+  });
+
+  it.each([
+    ["postinstall", '{"dependencies":{"left-pad":"1"},"scripts":{"postinstall":"node gen.js"}}'],
+    ["prepare", '{"dependencies":{"left-pad":"1"},"scripts":{"prepare":"node gen.js"}}'],
+    ["workspaces", '{"dependencies":{"left-pad":"1"},"workspaces":["packages/*"]}'],
+    ["a file: dependency", '{"dependencies":{"left-pad":"1","local":"file:./vendor/local"}}'],
+    ["a link: dependency", '{"dependencies":{"left-pad":"1","local":"link:local"}}'],
+    ["a relative path dependency", '{"devDependencies":{"local":"../local"}}'],
+    ["a local override", '{"dependencies":{"left-pad":"1"},"overrides":{"x":"file:../x"}}'],
+    ["a tarball by path", '{"dependencies":{"left-pad":"1","local":"vendor/local.tgz"}}'],
+    [
+      "a patch outside patches/",
+      '{"dependencies":{"left-pad":"1"},"patchedDependencies":{"left-pad@1":"my-patches/x.patch"}}',
+    ],
+  ])("not when package.json declares %s, whose inputs the key does not hold", async (_, json) => {
+    // A root lifecycle script can read any file and write outside node_modules; a local package
+    // is a directory of source. Neither is in the key, so neither may be cached.
+    await commit("package.json", `${json}\n`);
+
+    expect(await installWith(null)).toBe(false);
+  });
+
+  it("still when every patch is under patches/, which the key hashes", async () => {
+    await commit(
+      "package.json",
+      '{"dependencies":{"left-pad":"1"},"patchedDependencies":{"left-pad@1":"patches/x.patch"}}\n',
+    );
+
+    expect(await installWith(null)).toBe(true);
+  });
+
+  it("not when the install brought in a package with an install script of its own", async () => {
+    // Such a script ran with the project as its working tree — Prisma's generates a client from
+    // the project's schema — so what it wrote depends on files the key does not hold.
+    const hook =
+      "mkdir -p node_modules/generator && " +
+      `echo '{"name":"generator","version":"1.0.0","scripts":{"postinstall":"node x"}}' ` +
+      "> node_modules/generator/package.json";
+
+    expect(await installWith(hook)).toBe(false);
+  });
+
+  it.each([
+    ["a binding.gyp", "touch node_modules/native/binding.gyp"],
+    [
+      "a nested package's preinstall",
+      "mkdir -p node_modules/native/node_modules/inner && " +
+        `echo '{"name":"inner","version":"2.0.0","scripts":{"preinstall":"x"}}' ` +
+        "> node_modules/native/node_modules/inner/package.json",
+    ],
+  ])("not when the install brought in %s", async (_, extra) => {
+    const hook = `mkdir -p node_modules/native && echo '{"name":"native","version":"1.0.0"}' > node_modules/native/package.json && ${extra}`;
+
+    expect(await installWith(hook)).toBe(false);
+  });
+
+  it("still when a package with an install script was already there, at the same version", async () => {
+    // The template's own: installed when the image was built, on the template's tree, and not run
+    // again by an install that leaves it where it is.
+    await mkdir(join(project, "node_modules", "baked"), { recursive: true });
+    await writeFile(
+      join(project, "node_modules", "baked", "package.json"),
+      '{"name":"baked","version":"1.0.0","scripts":{"postinstall":"node check.js"}}',
+    );
+
+    expect(await installWith(null)).toBe(true);
+  });
+
+  it("not when the install changed the version of a package that has an install script", async () => {
+    await mkdir(join(project, "node_modules", "baked"), { recursive: true });
+    await writeFile(
+      join(project, "node_modules", "baked", "package.json"),
+      '{"name":"baked","version":"1.0.0","scripts":{"postinstall":"node check.js"}}',
+    );
+    const hook = `echo '{"name":"baked","version":"2.0.0","scripts":{"postinstall":"node check.js"}}' > node_modules/baked/package.json`;
+
+    expect(await installWith(hook)).toBe(false);
+  });
+
+  it("not when the tree it installed into already had an input nobody committed", async () => {
+    await writeFile(join(project, ".npmrc"), "registry=https://example.invalid\n");
+
+    expect(await installWith(null)).toBe(false);
+  });
+});
+
 it("installDependencies reports no key when the install failed", async () => {
   await writeFile(join(shims, "bun"), '#!/bin/sh\n[ "$1" = "--revision" ] && echo r\nexit 3\n');
 
@@ -313,7 +458,7 @@ it("installDependencies reports no key when the install failed", async () => {
     timeoutMs: 10_000,
   });
 
-  expect(installed).toMatchObject({ ok: true, value: { exitCode: 3, key: null } });
+  expect(installed).toMatchObject({ ok: true, value: { exitCode: 3, cacheable: false } });
   // No record of a successful install, so nothing can be archived from this tree.
   await expect(readFile(join(scratch, "installed"))).rejects.toThrow();
 });

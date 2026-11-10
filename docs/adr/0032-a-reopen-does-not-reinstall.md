@@ -1,6 +1,6 @@
 # ADR-0032: A reopen does not reinstall, and its round trips overlap
 
-**Status:** Accepted, 2026-11-09. Built and tested on fakes and against a real shell, git and tar. The real-E2B round trip (`restore.integration.test.ts`) has been written for it but not run, so no reopen has been timed on a real sandbox.
+**Status:** Accepted, 2026-11-09; D4 and D5 added 2026-11-10 after review. Built and tested on fakes and against a real shell, git, tar and Node. The real-E2B round trip (`restore.integration.test.ts`) has been written for it but not run, so no reopen has been timed on a real sandbox.
 
 ## Context
 
@@ -44,8 +44,8 @@ An archive is written after a cache miss, from the tree the restore's own `bun i
 
 Packing takes seconds (packing the template's own 134 MB `node_modules`, installed on a developer's Mac rather than in a sandbox, took 4.6 s and produced 33 MB), so it runs **after `openProject` has returned**. Nothing the user waits for waits on it. Because the turn is running while the archive is made, the archive is refused if anything changed:
 
-- **The install itself moved the inputs.** The install reads the key again in the same command. If the install rewrote the lockfile, the committed inputs did not decide its result, so nothing is stored.
-- **The tree moved after the install.** The install leaves a record listing the packages present when it finished. After packing, the archive command checks that no entry under `node_modules` is newer than that record and that the package list is unchanged. Edits, additions and removals are all refused. Tool caches (`.vite`, `.vite-temp`, `.cache`, `.tmp`) are left out of the archive, ignored by the check, and carried across an extraction, as an install leaves them. A running Vite writes `.vite` whenever it optimises a dependency.
+- **Something other than the committed inputs went into the install.** See D4. The install command decides this itself and writes the record below only when nothing did.
+- **The tree moved after the install.** The install leaves a record listing the packages present when it finished. After packing, the archive command checks that no entry under `node_modules` has an inode change time (`ctime`) newer than that record and that the package list is unchanged. It checks `ctime` rather than `mtime` because extracting a tarball over the tree, or `cp -p`, writes new bytes under an old `mtime`, and nothing can set a `ctime` back. Edits, additions and removals are all refused. Tool caches (`.vite`, `.vite-temp`, `.cache`, `.tmp`) are left out of the archive, ignored by the check, and carried across an extraction, as an install leaves them. A running Vite writes `.vite` whenever it optimises a dependency.
 - **The archive is larger than `MAX_DEPENDENCY_ARCHIVE_BYTES` (128 MiB).** That bounds what one reopen downloads and holds in memory. Such a project installs on every reopen, as every project did before.
 
 The write is never awaited, never rejects, and its failure is never shown to anyone. `OpenedProject.dependencyCacheWrite` exposes it so tests can wait on it.
@@ -66,12 +66,35 @@ For a template project, the snapshot row, the bundle and the dependency archive 
 
 **The cost:** a storage outage now creates a sandbox and destroys it at once, where before it created nothing. That sandbox is billed for seconds, and the capacity reservation that covered it is released as before. **Imported repositories keep the old order.** Their first bundle can wait minutes behind the broker's transfer slots (`acquire-sandbox.test.ts` covers this), and a sandbox created alongside that wait would be billed for it and could outlive its own deadline.
 
+### D4: An install is cached only when its inputs alone decided it
+
+A key describes an install only if the install read nothing but what the key hashes. The first version of this decision assumed that and checked it by reading the key again after the install. Review found two ways that check could not work:
+
+- **An install that rewrote its own inputs.** A key read from `git ls-tree HEAD` does not change when `bun install` rewrites `bun.lock` in the working tree, because HEAD did not move. The rewritten install was stored under the committed key.
+- **An install that ran a lifecycle script.** A script can read any file in the project and write anywhere. Prisma's client package, for one, generates code from the project's schema. The schema is not in the key, so a changed schema reused stale generated code. And output the script wrote outside `node_modules` was not in the archive, so a cache hit lost it.
+
+The install command now decides whether its result may be cached, in the same round trip as the install:
+
+- **Before and after the install, `git status --porcelain --ignored --untracked-files=all` over the input paths must print nothing.** That covers a rewritten lockfile, a migrated `bun.lockb`, an edited `package.json`, and an input the template left that nobody committed.
+- **The root `package.json` must declare no install lifecycle script** (`preinstall`, `install`, `postinstall`, `preprepare`, `prepare`, `postprepare`), **no `workspaces`, no local package** (`file:`, `link:`, `workspace:`, `portal:`, `git+file:`, a path, or a tarball by path) in any dependency field, `overrides` or `resolutions`, **and no patch outside `patches/`** in `patchedDependencies`. A local package is a directory of source the key does not hold, and the key hashes only the `patches` directory.
+- **The install must bring in no package with an install script of its own**, or a `binding.gyp`, that was not already in the tree at the same path, name and version. A small Node script lists them before and after. One already there at the same version is the template's: it ran when the image was built, on the template's tree, and an install that leaves it in place does not run it again.
+
+If any of these fails, the install still happened and the reopen still works. Only the record is withheld, so nothing is archived and that project installs on every reopen, as before this ADR. **That is the limitation this decision accepts**: a project that adds a package with an install script (Prisma, `sharp`, anything native) gets no cache. Caching that safely would need the script's real inputs in the key and its real outputs in the archive, and nothing here can know either. The packages an agent usually adds (UI kits, date and validation libraries, icons) have no such scripts. Whatever the template's own tree holds is treated as already known, so a project that leaves it alone is unaffected; one whose new dependency moves or re-versions such a package (an `esbuild`, say) installs every time.
+
+Archives stored before this decision carry a version-1 header and are read as a miss, so every one of them is replaced once.
+
+### D5: An optional archive never holds up a reopen, and never outlives its project
+
+**The archive is downloaded beside the restore, but waited for only when the keys say it is needed**, and then for at most `DEPENDENCY_ARCHIVE_WAIT_MS` (30 s) or until the open is cancelled. The store's client has no deadline of its own, so before this a silent storage connection held every snapshot reopen, including the common one whose template dependencies already matched. Once the open stops waiting, an archive that finishes downloading later is not uploaded into the sandbox. One whose upload had already started finishes into a scratch file that nothing reads.
+
+**A late upload cannot leave an archive behind a deleted project.** The upload runs off any lease, so a project can be deleted while it is in flight. `deleteProject` removes the archive before the rows (so a failed delete can be retried) and again after them. The upload, once it has landed, asks the snapshot store whether the project still has a snapshot, and deletes its own archive if it has none or the store cannot say. Every order of those steps ends with no archive for a deleted project. The gaps are failures at the wrong moment: the second, best-effort delete failing for an upload that checked before the rows went; an upload the client reports as failed that the store in fact kept, which skips the check; and the upload's own delete failing.
+
 ## Consequences
 
 - No new env keys. The archive lives in the bucket `R2_*` already names, under the project's own prefix.
-- Storage is at most one archive per project: about 33 MB for a project that added a little, capped at 128 MiB. It is replaced when the inputs change and deleted with the project. An R2 lifecycle rule is not needed for the bound. One on `projects/*/dependencies.tar.gz` would only trim archives of projects that are never deleted, and an expired archive costs one install.
+- Storage is at most one archive per project: about 33 MB for a project that added a little, capped at 128 MiB. It is replaced when the inputs change and deleted with the project, including by a delete that raced the upload (D5). An R2 lifecycle rule is not needed for the bound. One on `projects/*/dependencies.tar.gz` would only trim archives of projects that are never deleted, and an expired archive costs one install.
 - A reopen holds the archive in memory twice, once downloading and once uploading. Streaming both ends is a follow-up: E2B's `files.write` accepts a `ReadableStream`, and the S3 body offers `transformToWebStream()`. It would need a streaming method on both ports, and `r2-object-store.ts` is being changed by #220.
-- The probe runs `bun`, `node`, `git`, `sha256sum` and `cut` in the image. If any of them is missing, the result is an install, never a wrong archive.
+- The probe runs `bun`, `node`, `git`, `sha256sum` and `cut` in the image, and the install's eligibility check runs `git` and `node`. If any of them is missing, the result is an install, never a wrong archive.
 - Reversing D1 means deleting the cache paths in `openProject`. The probe can stay, since the baked-template comparison still needs it. Reversing D3's overlap means awaiting the fetch before `createSandbox`.
 
 ### Follow-ups, not built

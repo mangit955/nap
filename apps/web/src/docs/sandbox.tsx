@@ -172,8 +172,9 @@ export function Sandbox() {
         using. So a reaper commits the workspace, bundles the git repository to object storage and
         destroys the sandbox. Restore is the inverse, and takes seconds. That turns &ldquo;come back
         tomorrow&rdquo; from a billing problem into a cold start. Dependencies a project added are
-        not reinstalled either: the first reopen&rsquo;s install is archived under a key of exactly
-        what decided it, and a later reopen extracts that archive only on an exact match.
+        not reinstalled either: when nothing but its committed inputs decided it, the first
+        reopen&rsquo;s install is archived under a key of those inputs, and a later reopen extracts
+        that archive only on an exact match.
       </P>
 
       <P>

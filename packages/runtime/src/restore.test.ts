@@ -22,8 +22,8 @@ import type { ObjectStoreError } from "@nap/shared/ports/object-store";
 import type { Sandbox, SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { beforeEach, describe, expect, it } from "vitest";
-import { dependenciesKey, openProject } from "./restore.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEPENDENCY_ARCHIVE_WAIT_MS, dependenciesKey, openProject } from "./restore.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
@@ -129,7 +129,7 @@ function restoreReads(before: string, after: string = before): void {
 
 beforeEach(() => {
   sandbox = new CountingSandboxManager();
-  scriptDependencies(sandbox, PROJECT_INPUTS);
+  scriptDependencies(sandbox);
   sandbox.script(RESTORE_COMMAND, restored(TEMPLATE_INPUTS));
   objects = new RecordingObjectStore();
   snapshots = new InMemorySnapshotStore();
@@ -382,11 +382,11 @@ describe("a project that added a dependency", () => {
     expect(opened.value.dependencyCacheWrite).toBeUndefined();
   });
 
-  it("stores nothing when the install itself moved the inputs", async () => {
-    // An install that rewrote the lockfile was not determined by the committed one.
+  it("stores nothing when the install says its inputs did not decide all of it", async () => {
+    // It rewrote the lockfile, or ran a script that could read anything: the key would lie.
     await seedSnapshot();
     restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
-    sandbox.script(INSTALL_COMMAND, installedWith(EARLIER_INPUTS));
+    sandbox.script(INSTALL_COMMAND, installedWith(false));
 
     const opened = await open();
     if (!opened.ok) throw new Error("expected the open to succeed");
@@ -411,7 +411,7 @@ describe("a project that added a dependency", () => {
   it("runs the install with the open's signal, a long deadline, and a stop on giving up", async () => {
     await seedSnapshot();
     restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
-    sandbox.script(INSTALL_COMMAND, { ...installedWith(PROJECT_INPUTS), runsForMs: 4 * 60_000 });
+    sandbox.script(INSTALL_COMMAND, { ...installedWith(), runsForMs: 4 * 60_000 });
     const { signal } = new AbortController();
 
     const opened = await open({ signal });
@@ -438,6 +438,132 @@ describe("a project that added a dependency", () => {
     if (!opened.ok) return;
     expect(opened.value.warning).toMatch(/dependenc/i);
     expect(opened.value.dependencyCacheWrite).toBeUndefined();
+  });
+});
+
+describe("an archive that is slow to arrive", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Lets every promise that can settle settle, without moving any clock. */
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 50; i += 1) await Promise.resolve();
+  }
+
+  it("is not waited for when the template's dependencies already fit", async () => {
+    await seedSnapshot();
+    await seedArchive();
+    const downloading = deferred();
+    objects.gate = { key: DEPENDENCIES, until: downloading.promise };
+
+    // A storage read that never answers must not hold up a reopen that does not need it.
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+    expect(opened.value).toMatchObject({ restored: true, installed: false });
+
+    // Nor may it land in the sandbox afterwards.
+    downloading.release();
+    await settle();
+    expect((await sandbox.readFileBytes(opened.value.sandboxId, INCOMING_ARCHIVE)).ok).toBe(false);
+  });
+
+  it("is given up on at its deadline, and the reopen installs instead", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await seedSnapshot();
+    await seedArchive();
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    const downloading = deferred();
+    objects.gate = { key: DEPENDENCIES, until: downloading.promise };
+    // The archive arrives while the install it was given up for is running, and is not uploaded.
+    let stagedDuringInstall: boolean | null = null;
+    sandbox.script(INSTALL_COMMAND, async () => {
+      downloading.release();
+      await settle();
+      const id = sandbox.lastCreatedId ?? "";
+      stagedDuringInstall = (await sandbox.readFileBytes(id, INCOMING_ARCHIVE)).ok;
+      return installedWith();
+    });
+
+    let settled = false;
+    const opening = open().finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(DEPENDENCY_ARCHIVE_WAIT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const opened = await opening;
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    expect(opened.value).toMatchObject({ installed: true, cachedDependencies: false });
+    expect(stagedDuringInstall).toBe(false);
+    expect(commandsMatching(opened.value.sandboxId, EXTRACT_COMMAND)).toEqual([]);
+    expect((await sandbox.readFileBytes(opened.value.sandboxId, INCOMING_ARCHIVE)).ok).toBe(false);
+    await opened.value.dependencyCacheWrite;
+  });
+
+  it("is given up on the moment the open is cancelled", async () => {
+    await seedSnapshot();
+    await seedArchive();
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    const downloading = deferred();
+    objects.gate = { key: DEPENDENCIES, until: downloading.promise };
+    const controller = new AbortController();
+    sandbox.script(RESTORE_COMMAND, async () => {
+      // Cancelled once the restore has answered, while the open waits for the archive alone.
+      setTimeout(() => controller.abort(), 0);
+      return restored(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    });
+
+    // Resolves although the archive never arrives, long before its deadline.
+    const opened = await open({ signal: controller.signal });
+
+    expect(controller.signal.aborted).toBe(true);
+    if (opened.ok) expect(opened.value.cachedDependencies).toBe(false);
+    expect(commandsMatching(sandbox.lastCreatedId ?? "", EXTRACT_COMMAND)).toEqual([]);
+    downloading.release();
+  });
+});
+
+describe("an archive stored for a project that no longer exists", () => {
+  it("is deleted again when the project was deleted while it was being stored", async () => {
+    // A delete removes the archive before the rows; an upload that lands after that has nobody
+    // left to remove it, so the upload checks afterwards and removes its own.
+    await seedSnapshot();
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    const archiving = deferred();
+    sandbox.script(ARCHIVE_COMMAND, async () => {
+      await archiving.promise;
+      return archived();
+    });
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+    snapshots.latestFor = async () => null;
+    archiving.release();
+
+    expect(await opened.value.dependencyCacheWrite).toBe(false);
+    expect(objects.keys()).not.toContain(DEPENDENCIES);
+  });
+
+  it("is deleted again when whether the project still exists cannot be told", async () => {
+    await seedSnapshot();
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    const archiving = deferred();
+    sandbox.script(ARCHIVE_COMMAND, async () => {
+      await archiving.promise;
+      return archived();
+    });
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+    snapshots.latestFor = async () => {
+      throw new Error("database unreachable");
+    };
+    archiving.release();
+
+    expect(await opened.value.dependencyCacheWrite).toBe(false);
+    expect(objects.keys()).not.toContain(DEPENDENCIES);
   });
 });
 

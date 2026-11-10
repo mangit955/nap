@@ -11,7 +11,9 @@
  *
  * The project adds a real dependency before it is put away, so the reopens take every path the
  * dependency cache has: the first misses, installs and stores an archive; the second extracts it
- * and must then build; a corrupt archive must fall back to installing. Each open's duration is
+ * and must then build; a corrupt archive must fall back to installing. The first reopen storing
+ * anything at all is the check that the real template passes the sandbox's own test of whether an
+ * install may be cached — its packages, its toolchain, its `node`. Each open's duration is
  * printed, since none of it can be measured on a fake.
  */
 
@@ -148,6 +150,11 @@ it("restores every tracked file byte for byte", async () => {
 
   expect(treeAfter).toBe(treeBefore);
   expect(treeAfter).toContain(FILE);
+});
+
+it("leaves the tree exactly as committed after the install that the first reopen ran", async () => {
+  // An install that rewrote the lockfile would show here, and would not have been cached.
+  expect(await sh(restoredSandboxId, "git status --porcelain --untracked-files=all")).toBe("");
 });
 
 it("puts the working tree back, not just the history", async () => {

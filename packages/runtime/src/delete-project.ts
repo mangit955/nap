@@ -16,7 +16,8 @@
  *      by the project id itself;
  *   3. delete the objects, and **stop here if any of that fails** — the rows still name them,
  *      so the same call can be made again;
- *   4. delete the project, which takes its sessions, events and snapshot rows with it.
+ *   4. delete the project, which takes its sessions, events and snapshot rows with it, and then
+ *      the dependency archive once more, for an upload that raced the first delete.
  *
  * Step 3 is safe to repeat: `ObjectStore.delete` treats a missing key as success, so a retry
  * after a partial failure finishes the job rather than reporting a new one.
@@ -171,6 +172,11 @@ export async function deleteProject(
 
   try {
     const deleted = await projects.delete(projectId, userId);
+    // Once more, now the rows are gone: a reopen stores this archive off any lease, and one whose
+    // upload landed after the delete above, and checked for the project before the rows went, is
+    // still there. Best effort, since the project is already deleted; the first delete is the one
+    // a retry depends on. The reasoning is beside the upload, in `restore.ts`.
+    await objects.delete(dependenciesKey(projectId)).catch(() => {});
     return { ok: true, value: { deleted, objectsDeleted, sandboxDestroyed } };
   } catch (error) {
     // The objects are gone and the rows are not, which is the recoverable half of the two:

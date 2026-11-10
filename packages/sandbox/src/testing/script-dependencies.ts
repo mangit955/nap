@@ -5,7 +5,7 @@
  * package that reopens a project has to answer them, and several copies of the same regexes drift.
  */
 
-import { DEPENDENCY_SCRATCH } from "../dependency-cache.ts";
+import { DEPENDENCY_CACHEABLE_LINE, DEPENDENCY_SCRATCH } from "../dependency-cache.ts";
 import type { InMemorySandboxManager, ScriptedExecResponse } from "./in-memory-sandbox-manager.ts";
 
 export const INSTALL_COMMAND = /bun install/;
@@ -21,9 +21,12 @@ export const OUTGOING_ARCHIVE = `${DEPENDENCY_SCRATCH}/outgoing.tar.gz`;
 /** What `archiveDependencies` reads back. Not a real tarball: nothing in a fake opens one. */
 export const FAKE_DEPENDENCY_ARCHIVE = new TextEncoder().encode("gzipped-node-modules");
 
-/** An install that succeeded and read `key` afterwards; null for one whose probe printed nothing. */
-export function installedWith(key: string | null): ScriptedExecResponse {
-  return { exitCode: 0, stdout: `Checked 42 installs\n${key ?? ""}\n` };
+/** An install that succeeded, and whose result may or may not be cached. */
+export function installedWith(cacheable = true): ScriptedExecResponse {
+  return {
+    exitCode: 0,
+    stdout: `Checked 42 installs\n${cacheable ? `${DEPENDENCY_CACHEABLE_LINE}\n` : ""}`,
+  };
 }
 
 /** An archive command that packed `bytes`: their size on stdout, and the file left to read. */
@@ -31,13 +34,13 @@ export function archived(bytes: Uint8Array = FAKE_DEPENDENCY_ARCHIVE): ScriptedE
   return { exitCode: 0, stdout: `${bytes.length}\n`, writes: { [OUTGOING_ARCHIVE]: bytes } };
 }
 
-/** Every dependency command answered as a healthy sandbox would, the install reading `key`. */
+/** Every dependency command answered as a healthy sandbox would. */
 export function scriptDependencies(
   manager: InMemorySandboxManager,
-  key: string | null,
+  cacheable = true,
 ): InMemorySandboxManager {
   return manager
-    .script(INSTALL_COMMAND, installedWith(key))
+    .script(INSTALL_COMMAND, installedWith(cacheable))
     .script(ARCHIVE_COMMAND, archived())
     .script(DISCARD_COMMAND, { exitCode: 0 })
     .script(EXTRACT_COMMAND, { exitCode: 0 });

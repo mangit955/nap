@@ -862,7 +862,11 @@ it uses `R2_*` as snapshots do.
   as before. Anything an old reopen misses only costs that install.
 - **Storage is one object per project**, typically tens of MB, capped at 128 MiB by
   `MAX_DEPENDENCY_ARCHIVE_BYTES`. It is replaced in place when a project's dependencies change.
-- **Deleting a project deletes its archive**, but only in code that knows about it. Deleting a
+  A project whose install runs a lifecycle script, or reads a local package, stores none.
+- **The archive is version 2.** Version-1 archives, written by an earlier build of this branch if
+  one was ever deployed, read as a miss and are replaced on the next reopen that installs.
+- **Deleting a project deletes its archive**, once before its rows and once after, so an upload
+  that raced the delete does not survive it. That holds only in code that knows about it. Deleting a
   project from a rolled-back API leaves the archive behind, under a prefix nothing names any
   more. After a rollback, `ListObjectsV2` on `projects/*/dependencies.tar.gz` joined against
   `projects` finds those orphans.

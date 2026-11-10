@@ -86,6 +86,22 @@ describe("deleting a project", () => {
     expect(result).toMatchObject({ ok: true, value: { objectsDeleted: 2 } });
   });
 
+  it("takes a dependency archive that landed after its first delete but before the rows went", async () => {
+    // A reopen's upload runs off the turn's lease and can land at any point in a delete. One that
+    // lands before the rows go would see the project still there and keep its archive.
+    const dependencies = `projects/${PROJECT}/dependencies.tar.gz`;
+    const deleteRows = projects.delete.bind(projects);
+    projects.delete = async (...args) => {
+      await objects.put(dependencies, new Uint8Array([31, 139]));
+      return await deleteRows(...args);
+    };
+
+    const result = await remove();
+
+    expect(result).toMatchObject({ ok: true, value: { deleted: true } });
+    expect(objects.keys()).toEqual([]);
+  });
+
   it("removes the row, and with it everything the database hangs off it", async () => {
     await remove();
 
