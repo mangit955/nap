@@ -164,6 +164,19 @@ type JobRun = {
 };
 
 /**
+ * What a job leaves to do after its rounds, carried across them by `#driveJob`.
+ */
+type JobTail = {
+  /**
+   * The snapshot of the newest round that committed. At most one is ever in flight, because the
+   * next round does not begin until it has settled.
+   */
+  preserving: Promise<void>;
+  /** Whether any round this loop ran committed — the one thing worth a new picture. */
+  changed: boolean;
+};
+
+/**
  * Where the loop is picked up: after a turn this process just ran, or at whatever a restart
  * found in the log. See `continue-job.ts`.
  */
@@ -1174,8 +1187,38 @@ export class SingleAgentRuntime implements Runtime {
    * folded to and lets it carry on (`continue-job.ts`). The entry says which of the loop's two
    * halves to start in: a commit nothing has checked enters at the arbitration, and a failure
    * the log already recorded enters at the repair it prompts.
+   *
+   * **Every round that commits is snapshotted, and the next round waits for it.** A repair does not
+   * begin until the round before it has reached storage, or failed to: a worker can die outright,
+   * with no `finally` run, and a repair that had committed by then would leave the newest durable
+   * snapshot older than both rounds. The job does not return — so the lease does not go back —
+   * until the last of them has settled either. See the note on `#preserve`.
+   *
+   * **The picture is asked for once, as the job closes**, and only if some round of it changed the
+   * app: a repair round's app is one its own checks just called broken, and the round that closes
+   * the job may itself have committed nothing.
    */
   async #driveJob(run: JobRun, entry: JobEntry): Promise<TurnOutcome> {
+    const tail: JobTail = { preserving: Promise.resolve(), changed: false };
+    // `finally`, because a close that throws after the last round committed must still not hand
+    // the lease back over its upload.
+    // `#preserve` never rejects, so this cannot replace the error it waits behind.
+    const outcome = await this.#driveRounds(run, entry, tail).finally(() => tail.preserving);
+
+    // Not for a turn that was stopped: a worker that has lost its lease does nothing further on
+    // this session's behalf (`docs/scaling-design.md` §21, 10).
+    const { settings } = run;
+    if (
+      tail.changed &&
+      run.previewPort !== null &&
+      settings.signal?.aborted !== true &&
+      settings.work?.stopped !== true
+    )
+      await this.#photograph(run.session.projectId, run.sandboxId, run.previewPort);
+    return outcome;
+  }
+
+  async #driveRounds(run: JobRun, entry: JobEntry, tail: JobTail): Promise<TurnOutcome> {
     const { session, sink, sandboxId, jobId, objective, settings, attempts } = run;
     const emit = <T extends NapEvent["type"]>(type: T, payload: Payload<T>): void => {
       run.turn.emit(type, payload);
@@ -1185,6 +1228,8 @@ export class SingleAgentRuntime implements Runtime {
       emit("job.completed", { jobId, outcome });
       run.open = false;
       await sink.drain();
+      // A publish reads the repository, and the snapshot it follows should be of what it read.
+      await tail.preserving;
       if (!settings.work?.stopped)
         await this.#finishRepositoryJob({
           scope: run.turn,
@@ -1232,27 +1277,20 @@ export class SingleAgentRuntime implements Runtime {
         // Only for a turn this loop ran. A continued job is arbitrating a commit that reached
         // storage before the process died, and re-bundling it would pay for the same bytes
         // twice — and photograph an application nothing has changed since the last shot.
-        if (fresh) {
-          // Under the lease, unlike the picture below, and that is load-bearing: see the note on
-          // `#preserve`.
-          await this.#preserve(session.projectId, sandboxId, outcome.commitSha);
-          // Only when the turn changed something — an unchanged app photographs identically — and
-          // when no repair is about to edit it, since the app on screen is one its own checks just
-          // called broken. Not for a turn that was stopped: a worker that has lost its lease does
-          // nothing further on this session's behalf (`docs/scaling-design.md` §21, 10).
-          if (
-            outcome.commitSha !== null &&
-            run.previewPort !== null &&
-            settings.signal?.aborted !== true &&
-            (failed === null || run.repairs >= MAX_REPAIR_ATTEMPTS)
-          )
-            await this.#photograph(session.projectId, sandboxId, run.previewPort);
+        //
+        // Started here and waited for before anything else is begun — a repair, a publish, the
+        // lease going back — so a close that needs no wait is not held behind it. Under the lease
+        // either way, and that is load-bearing: see `#preserve`.
+        if (fresh && outcome.commitSha !== null) {
+          tail.preserving = this.#preserve(session.projectId, sandboxId, outcome.commitSha);
+          tail.changed = true;
         }
 
         // Arbitration closed the job: it passed, there was nothing to check, or the run learned
         // nothing about the project.
         if (failed === null) {
           run.open = false;
+          await tail.preserving;
           await this.#finishRepositoryJob({
             scope: run.turn,
             sandboxId,
@@ -1275,6 +1313,10 @@ export class SingleAgentRuntime implements Runtime {
         );
         return outcome;
       }
+
+      // The barrier between rounds: the repair must not commit over a round that is not yet
+      // durable. Before the cancel check below, so a cancel that lands during the upload is heard.
+      await tail.preserving;
 
       // Cancellation stops the loop, not just the turn. The signal is checked here as well as
       // inside the agent because this is the one moment where nothing is running: a cancel
@@ -1778,6 +1820,12 @@ export class SingleAgentRuntime implements Runtime {
    * the reason it is not beside the photograph.** The next turn may start on any worker, and the
    * only thing that orders two snapshots of one project, or a snapshot against the restore a
    * lost sandbox triggers, is that they never overlap. See `docs/scaling-design.md` §17 (B-7).
+   *
+   * **Inside a job it holds up the next round.** A repair begins only once the round before has
+   * settled here, so a worker that dies outright mid-repair leaves at most the repair's own work
+   * outside storage. Letting the two overlap would need a durable record of a pending snapshot
+   * that the reaper reconciles, which is a follow-up rather than something a `finally` can stand
+   * in for. Never rejects, which the waits on it rely on: a failed upload must not fail the job.
    */
   async #preserve(projectId: string, sandboxId: string, commitSha: string | null): Promise<void> {
     if (this.#restore === null || commitSha === null) return;

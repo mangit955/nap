@@ -219,6 +219,31 @@ describe("a job that is not over yet", () => {
     expect(capture.requests).toHaveLength(1);
   });
 
+  it("takes the job's one picture when it closes, even if the round that closed it committed nothing", async () => {
+    // The first round changed the app and its checks said no; the repair changed nothing and the
+    // job closed on it. The app on screen is still not the one the card shows.
+    redProject(1);
+    let turns = 0;
+    const script: AgentScript = () => {
+      turns += 1;
+      return completedTurn(turns === 1 ? COMMIT_SHA : null);
+    };
+
+    expect(await run(script)).toMatchObject({ ok: true });
+    await settled();
+
+    expect(capture.requests).toHaveLength(1);
+  });
+
+  it("takes one picture for a job however many repairs it ran", async () => {
+    redProject(2);
+
+    expect(await run()).toMatchObject({ ok: true });
+    await settled();
+
+    expect(capture.requests).toHaveLength(1);
+  });
+
   it("does take one when the repairs have run out, since that is what the project now is", async () => {
     redProject(Number.POSITIVE_INFINITY);
 
