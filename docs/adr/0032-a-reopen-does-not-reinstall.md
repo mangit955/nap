@@ -1,6 +1,6 @@
 # ADR-0032: A reopen does not reinstall, and its round trips overlap
 
-**Status:** Accepted, 2026-11-09; D4 and D5 added 2026-11-10 after review. Built and tested on fakes and against a real shell, git, tar and Node. The real-E2B round trip (`restore.integration.test.ts`) has been written for it but not run, so no reopen has been timed on a real sandbox.
+**Status:** Accepted, 2026-11-09; D4 to D6 added 2026-11-10 after review. Built and tested on fakes and against a real shell, git, tar and Node, with the offline install checked against real Bun. The real-E2B round trip (`restore.integration.test.ts`) has been written for it but not run, so no reopen has been timed on a real sandbox.
 
 ## Context
 
@@ -60,28 +60,33 @@ For a template project, the snapshot row, the bundle and the dependency archive 
 |---|---|---|
 | Dependencies unchanged from the template | 10 | 3: `create`, upload, restore |
 | Dependencies from the archive | 11 plus an install | 5: `create`, upload ‖ archive upload, restore, extract |
+| Dependencies from the package cache (D4) | 11 plus an install | 6: `create`, upload ‖ archive upload, restore, extract, offline install |
 | Cache miss | 11 plus an install | 4 plus the install, then 3 in the background |
 
 `restore.test.ts` asserts these counts and fails if they grow.
 
 **The cost:** a storage outage now creates a sandbox and destroys it at once, where before it created nothing. That sandbox is billed for seconds, and the capacity reservation that covered it is released as before. **Imported repositories keep the old order.** Their first bundle can wait minutes behind the broker's transfer slots (`acquire-sandbox.test.ts` covers this), and a sandbox created alongside that wait would be billed for it and could outlive its own deadline.
 
-### D4: An install is cached only when its inputs alone decided it
+### D4: What is archived depends on what decided the install
 
 A key describes an install only if the install read nothing but what the key hashes. The first version of this decision assumed that and checked it by reading the key again after the install. Review found two ways that check could not work:
 
 - **An install that rewrote its own inputs.** A key read from `git ls-tree HEAD` does not change when `bun install` rewrites `bun.lock` in the working tree, because HEAD did not move. The rewritten install was stored under the committed key.
 - **An install that ran a lifecycle script.** A script can read any file in the project and write anywhere. Prisma's client package, for one, generates code from the project's schema. The schema is not in the key, so a changed schema reused stale generated code. And output the script wrote outside `node_modules` was not in the archive, so a cache hit lost it.
 
-The install command now decides whether its result may be cached, in the same round trip as the install:
+No key can name what an arbitrary script reads. So for those projects the tree is not cached at all. What is cached is what the install downloaded, which depends only on the lockfile. The install command says which of three cases it was, in the same round trip as the install:
 
-- **Before and after the install, `git status --porcelain --ignored --untracked-files=all` over the input paths must print nothing.** That covers a rewritten lockfile, a migrated `bun.lockb`, an edited `package.json`, and an input the template left that nobody committed.
-- **The root `package.json` must declare no install lifecycle script** (`preinstall`, `install`, `postinstall`, `preprepare`, `prepare`, `postprepare`), **no `workspaces`, no local package** (`file:`, `link:`, `workspace:`, `portal:`, `git+file:`, a path, or a tarball by path) in any dependency field, `overrides` or `resolutions`, **and no patch outside `patches/`** in `patchedDependencies`. A local package is a directory of source the key does not hold, and the key hashes only the `patches` directory.
-- **The install must bring in no package with an install script of its own**, or a `binding.gyp`, that was not already in the tree at the same path, name and version. A small Node script lists them before and after. One already there at the same version is the template's: it ran when the image was built, on the template's tree, and an install that leaves it in place does not run it again.
+- **No archive**, when the inputs or any committed file differ from HEAD before or after the install (`git status --porcelain`, with `--ignored --untracked-files=all` over the input paths). That covers a rewritten lockfile, a migrated `bun.lockb`, an edited `package.json`, and an input the template left that nobody committed. D6 says what the open does then.
+- **`node_modules`**, when the tree is clean and nothing else could have decided what the install wrote:
+  - the root `package.json` declares no install lifecycle script (`preinstall`, `install`, `postinstall`, `preprepare`, `prepare`, `postprepare`), no `workspaces`, no local package (`file:`, `link:`, `workspace:`, `portal:`, `git+file:`, a path, or a tarball by path) in any dependency field, `overrides` or `resolutions`, and no patch outside `patches/`;
+  - the install brought in no package with an install script of its own, or a `binding.gyp`, that was not already in the tree at the same path, name and version. A small Node script lists them before and after. One already there is the template's: it ran when the image was built, and an install that leaves it in place does not run it again.
 
-If any of these fails, the install still happened and the reopen still works. Only the record is withheld, so nothing is archived and that project installs on every reopen, as before this ADR. **That is the limitation this decision accepts**: a project that adds a package with an install script (Prisma, `sharp`, anything native) gets no cache. Caching that safely would need the script's real inputs in the key and its real outputs in the archive, and nothing here can know either. The packages an agent usually adds (UI kits, date and validation libraries, icons) have no such scripts. Whatever the template's own tree holds is treated as already known, so a project that leaves it alone is unaffected; one whose new dependency moves or re-versions such a package (an `esbuild`, say) installs every time.
+  A reopen extracts this archive and installs nothing.
+- **`packages`**, when the tree is clean but one of those rules fails. The archive is every entry of Bun's package cache (`bun pm cache`) newer than a mark the install left just before it ran: the package directories and manifests it downloaded. Bun keeps a scoped package a level down, in `@scope/`, so inside a scope directory it is the scoped packages that are compared with the mark, never the directory as a whole. The image's cache already has scopes such as `@types`, and a package the install added there must still be found. Entries the image already had are left out, since every sandbox has them. A reopen adds the entries to the cache, merging scope directories and keeping any entry already there, and runs `bun install --offline --frozen-lockfile`. **That install runs the project's scripts again, on the tree being opened**, so their output is exactly what any install would produce, inside `node_modules` or outside it. `--offline` means no network: Bun fails, rather than fetching, if anything is missing. `--frozen-lockfile` means nothing is resolved differently than it was online. If the offline install fails for any reason, the reopen installs normally, which is the miss path.
 
-Archives stored before this decision carry a version-1 header and are read as a miss, so every one of them is replaced once.
+**This is not "no install" for those projects.** The user chose it over two alternatives (2026-11-10). One was installing at teardown or after each turn under a key of the whole committed tree. The other was accepting a full install on every reopen. The offline install does no resolution and no download; what it costs is linking plus whatever the scripts themselves take. Measured on a developer's Mac with Bun 1.4.2: an offline install of one restored package took 79 ms. It failed cleanly with an empty cache, and re-ran a `postinstall` that read a changed source file, producing the new output.
+
+Archives carry a version-3 header naming their kind. Version 1 and 2 headers are read as a miss, so every older archive is replaced once.
 
 ### D5: An optional archive never holds up a reopen, and never outlives its project
 
@@ -89,11 +94,16 @@ Archives stored before this decision carry a version-1 header and are read as a 
 
 **A late upload cannot leave an archive behind a deleted project.** The upload runs off any lease, so a project can be deleted while it is in flight. `deleteProject` removes the archive before the rows (so a failed delete can be retried) and again after them. The upload, once it has landed, asks the snapshot store whether the project still has a snapshot, and deletes its own archive if it has none or the store cannot say. Every order of those steps ends with no archive for a deleted project. The gaps are failures at the wrong moment: the second, best-effort delete failing for an upload that checked before the rows went; an upload the client reports as failed that the store in fact kept, which skips the check; and the upload's own delete failing.
 
+### D6: An install that changes committed files opens with a warning
+
+A restore's install may itself rewrite a committed file: a stale `bun.lock`, or a root script regenerating a tracked file. The tree then cannot be both what was committed and what its dependencies were installed for. Resetting the files would leave dependencies resolved from inputs the tree no longer has; failing the open would put an error page where a working project could be. The open therefore keeps the install, and `OpenedProject.warning` names the changed files: the first five, and how many more. The install command lists them from `git status --porcelain --untracked-files=no` after it ran; the tree was clean before, since the restore had just reset it. No archive is stored for such an install. The user chose this over failing the open (2026-11-10).
+
 ## Consequences
 
+- An offline install that times out, say on a hanging `postinstall`, is followed by an online one with the same `RESTORE_INSTALL_TIMEOUT_MS`, so the worst case for such a reopen is twice that deadline. A cancel still ends it at once.
 - No new env keys. The archive lives in the bucket `R2_*` already names, under the project's own prefix.
 - Storage is at most one archive per project: about 33 MB for a project that added a little, capped at 128 MiB. It is replaced when the inputs change and deleted with the project, including by a delete that raced the upload (D5). An R2 lifecycle rule is not needed for the bound. One on `projects/*/dependencies.tar.gz` would only trim archives of projects that are never deleted, and an expired archive costs one install.
-- A reopen holds the archive in memory twice, once downloading and once uploading. Streaming both ends is a follow-up: E2B's `files.write` accepts a `ReadableStream`, and the S3 body offers `transformToWebStream()`. It would need a streaming method on both ports, and `r2-object-store.ts` is being changed by #220.
+- A reopen holds the archive in memory about three times at once: the download, the decoded copy and the upload's. Streaming both ends is a follow-up: E2B's `files.write` accepts a `ReadableStream`, and the S3 body offers `transformToWebStream()`. It would need a streaming method on both ports, and `r2-object-store.ts` is being changed by #220.
 - The probe runs `bun`, `node`, `git`, `sha256sum` and `cut` in the image, and the install's eligibility check runs `git` and `node`. If any of them is missing, the result is an install, never a wrong archive.
 - Reversing D1 means deleting the cache paths in `openProject`. The probe can stay, since the baked-template comparison still needs it. Reversing D3's overlap means awaiting the fetch before `createSandbox`.
 

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   archiveDependencies,
+  archivePackageCache,
   DEPENDENCY_KEY_PROBE,
   decodeDependencyArchive,
   dependencyCacheKey,
   encodeDependencyArchive,
   extractDependencies,
+  extractPackageCache,
   installDependencies,
   readDependencyKey,
   stageDependencyArchive,
@@ -57,27 +59,40 @@ describe("dependencyCacheKey", () => {
 describe("the stored archive's envelope", () => {
   const ARCHIVE = Uint8Array.from({ length: 256 }, (_, index) => index);
 
-  it("round-trips the key and the archive byte for byte", () => {
-    expect(decodeDependencyArchive(encodeDependencyArchive(KEY, ARCHIVE))).toEqual({
-      key: KEY,
-      archive: ARCHIVE,
-    });
-  });
+  it.each(["node_modules", "packages"] as const)(
+    "round-trips the key, the kind (%s) and the archive byte for byte",
+    (kind) => {
+      expect(decodeDependencyArchive(encodeDependencyArchive(KEY, kind, ARCHIVE))).toEqual({
+        key: KEY,
+        kind,
+        archive: ARCHIVE,
+      });
+    },
+  );
 
   it.each([
     ["no envelope at all", ARCHIVE],
-    ["an envelope with no end", new TextEncoder().encode(`# nap dependencies v2\n{"key":"${KEY}"`)],
+    ["an envelope with no end", new TextEncoder().encode(`# nap dependencies v3\n{"key":"${KEY}"`)],
     [
       // Written before an install had to prove it was decided by its inputs alone.
       "an envelope from the first version",
       new TextEncoder().encode(`# nap dependencies v1\n{"key":"${KEY}"}\nrest`),
     ],
-    ["a header that is not JSON", new TextEncoder().encode("# nap dependencies v2\nnope\n")],
+    [
+      // Written before an archive said what kind it is.
+      "an envelope from the second version",
+      new TextEncoder().encode(`# nap dependencies v2\n{"key":"${KEY}"}\nrest`),
+    ],
+    ["a header that is not JSON", new TextEncoder().encode("# nap dependencies v3\nnope\n")],
     [
       "a key that is not a sha256",
-      new TextEncoder().encode('# nap dependencies v2\n{"key":"abc"}\nrest'),
+      new TextEncoder().encode('# nap dependencies v3\n{"key":"abc","kind":"packages"}\nrest'),
     ],
-    ["an empty archive", encodeDependencyArchive(KEY, new Uint8Array())],
+    [
+      "a kind it does not know",
+      new TextEncoder().encode(`# nap dependencies v3\n{"key":"${KEY}","kind":"vendor"}\nrest`),
+    ],
+    ["an empty archive", encodeDependencyArchive(KEY, "node_modules", new Uint8Array())],
   ])("reads %s as no archive, never as one", (_, bytes) => {
     expect(decodeDependencyArchive(bytes)).toBeNull();
   });
@@ -99,33 +114,70 @@ describe("installDependencies", () => {
     const { manager, sandboxId } = await sandboxed();
     manager.script(/bun install/, {
       exitCode: 0,
-      stdout: "Checked 42 installs\nnap-dependencies-cacheable\n",
+      stdout: "Checked 42 installs\nnap-dependencies-cache node_modules\n",
     });
     const signal = new AbortController().signal;
 
     const result = await installDependencies(manager, sandboxId, { signal, timeoutMs: 1234 });
 
-    expect(result).toEqual({ ok: true, value: { exitCode: 0, cacheable: true, stderr: "" } });
+    expect(result).toEqual({
+      ok: true,
+      value: { exitCode: 0, cache: "node_modules", changed: [], stderr: "" },
+    });
     const [install] = manager.execs(sandboxId);
     expect(manager.execs(sandboxId)).toHaveLength(1);
     expect(install?.options).toMatchObject({ signal, stopOnGiveUp: true, timeoutMs: 1234 });
-    expect(install?.command).toMatch(/git status --porcelain[\s\S]*bun install[\s\S]*git status/);
+    expect(install?.command).toMatch(
+      /git status --porcelain[\s\S]*bun install &&[\s\S]*git status/,
+    );
+    expect(install?.command).not.toMatch(/--offline/);
   });
 
-  it("reports an install that left nothing worth caching as not cacheable", async () => {
+  it("installs offline from the package cache, with the lockfile frozen, when asked", async () => {
     const { manager, sandboxId } = await sandboxed();
-    manager.script(/bun install/, { exitCode: 0, stdout: "Checked 42 installs\n" });
+    manager.script(/bun install/, { exitCode: 0, stdout: "" });
+
+    await installDependencies(manager, sandboxId, { offline: true, timeoutMs: 1 });
+
+    expect(manager.commands(sandboxId)[0]).toMatch(/bun install --offline --frozen-lockfile &&/);
+  });
+
+  it.each([
+    ["packages", "nap-dependencies-cache packages\n", "packages"],
+    ["none", "", null],
+  ] as const)("reads which archive describes the install: %s", async (_, line, cache) => {
+    const { manager, sandboxId } = await sandboxed();
+    manager.script(/bun install/, { exitCode: 0, stdout: `Checked 42 installs\n${line}` });
 
     const result = await installDependencies(manager, sandboxId, { timeoutMs: 1 });
 
-    expect(result).toMatchObject({ ok: true, value: { exitCode: 0, cacheable: false } });
+    expect(result).toMatchObject({ ok: true, value: { exitCode: 0, cache } });
+  });
+
+  it("names the committed files the install changed, from git's own listing", async () => {
+    const { manager, sandboxId } = await sandboxed();
+    manager.script(/bun install/, {
+      exitCode: 0,
+      stdout:
+        "Checked 42 installs\nnap-dependencies-changed  M bun.lock\n" +
+        "nap-dependencies-changed  D src/old name.ts\n" +
+        'nap-dependencies-changed  M "src/caf\\303\\251 page.ts"\n',
+    });
+
+    const result = await installDependencies(manager, sandboxId, { timeoutMs: 1 });
+
+    expect(result).toMatchObject({
+      ok: true,
+      // A name git had to quote is given without the quotes, its escapes as git wrote them.
+      value: { cache: null, changed: ["bun.lock", "src/old name.ts", "src/caf\\303\\251 page.ts"] },
+    });
   });
 
   it("reports a failed install as its exit code, never as cacheable", async () => {
     const { manager, sandboxId } = await sandboxed();
     manager.script(/bun install/, {
       exitCode: 1,
-      stdout: "nap-dependencies-cacheable\n",
+      stdout: "nap-dependencies-cache node_modules\n",
       stderr: "no such package",
     });
 
@@ -133,8 +185,46 @@ describe("installDependencies", () => {
 
     expect(result).toEqual({
       ok: true,
-      value: { exitCode: 1, cacheable: false, stderr: "no such package" },
+      value: { exitCode: 1, cache: null, changed: [], stderr: "no such package" },
     });
+  });
+});
+
+describe("archivePackageCache and extractPackageCache", () => {
+  it("packs what the install downloaded in one command, then reads it back", async () => {
+    const { manager, sandboxId } = await sandboxed();
+    const ARCHIVE = new Uint8Array([31, 139, 8, 0]);
+    manager.script(/tar -cz -f/, {
+      exitCode: 0,
+      stdout: `${ARCHIVE.length}\n`,
+      writes: { [`${SCRATCH}/outgoing.tar.gz`]: ARCHIVE },
+    });
+    manager.script(/rm -f -- /, { exitCode: 0 });
+
+    const result = await archivePackageCache(manager, sandboxId, { maxBytes: 100 });
+
+    expect(result).toEqual({ ok: true, value: ARCHIVE });
+    expect(manager.commands(sandboxId)[0]).toMatch(/bun pm cache[\s\S]*-cnewer/);
+  });
+
+  it("refuses an archive over the bound without reading it", async () => {
+    const { manager, sandboxId } = await sandboxed();
+    manager.script(/tar -cz -f/, { exitCode: 0, stdout: "101\n" });
+    manager.script(/rm -f -- /, { exitCode: 0 });
+
+    const result = await archivePackageCache(manager, sandboxId, { maxBytes: 100 });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+  });
+
+  it("extracts into the package cache with one command, and reports a failure", async () => {
+    const { manager, sandboxId } = await sandboxed();
+    manager.script(/tar -xz -f/, { exitCode: 2, stderr: "gzip: stdin: not in gzip format" });
+
+    const result = await extractPackageCache(manager, sandboxId);
+
+    expect(result).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+    expect(manager.commands(sandboxId)).toHaveLength(1);
   });
 });
 

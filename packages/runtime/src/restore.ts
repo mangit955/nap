@@ -19,8 +19,11 @@
  *     tell" are different: handing back an empty template on a transient outage invites the
  *     next teardown to overwrite a good snapshot with nothing.
  *   - **The dependency archive is a cache**, so every way it can fail — absent, unreachable,
- *     stale, unreadable, refused by tar — is a miss, and a miss installs. Only the archive whose
- *     key is exactly the restored tree's is ever extracted.
+ *     stale, unreadable, refused by tar, an offline install from it that fails — is a miss, and a
+ *     miss installs. Only the archive whose key is exactly the restored tree's is ever extracted.
+ *   - **An install that changes committed files** opens the project with a warning naming them.
+ *     The tree cannot be both what was committed and what the dependencies were installed for,
+ *     and a working project that says so beats an error page in place of one.
  *
  * Template sandboxes boot their baked dev server. Imported repositories stop that process
  * and run their owner-configured setup and optional development command after restore.
@@ -28,11 +31,15 @@
 
 import {
   archiveDependencies,
+  archivePackageCache,
   DEPENDENCY_KEY_PROBE,
+  type DependencyArchiveKind,
   decodeDependencyArchive,
   dependencyCacheKey,
   encodeDependencyArchive,
   extractDependencies,
+  extractPackageCache,
+  type InstalledDependencies,
   installDependencies,
   readDependencyKey,
   stageDependencyArchive,
@@ -68,9 +75,15 @@ export type OpenedProject = {
    * still usable. Null on the ordinary paths, including a first open with no snapshot.
    */
   warning: string | null;
-  /** Whether this open ran an install: the project's own setup, or `bun install` on a cache miss. */
+  /**
+   * Whether this open ran an install: the project's own setup, `bun install` on a cache miss, or
+   * `bun install --offline` from the project's stored package cache.
+   */
   installed: boolean;
-  /** Whether the project's dependencies were extracted from its stored archive. */
+  /**
+   * Whether the project's dependencies came from its stored archive: extracted in place, or, with
+   * `installed`, installed offline from the packages it held.
+   */
   cachedDependencies: boolean;
   /**
    * The archive this open is storing for the next one, after an install made one worth storing:
@@ -132,6 +145,16 @@ const INSTALL_FAILED_WARNING =
   "Restored this project, but installing its dependencies failed. " +
   "The preview may not build until they install successfully.";
 
+/** Kept short: it names the files, and a long list would bury the sentence that matters. */
+function installChangedWarning(changed: readonly string[]): string {
+  const shown = changed.slice(0, 5).join(", ");
+  const more = changed.length > 5 ? ` and ${changed.length - 5} more` : "";
+  return (
+    `Restored this project, but installing its dependencies changed files it had committed: ` +
+    `${shown}${more}. They are left as the install wrote them.`
+  );
+}
+
 const CANCELLED = "Opening this workspace was cancelled.";
 
 /** What a snapshot fetch found: the bytes to restore, or none, and what to say about it. */
@@ -142,7 +165,10 @@ type Fetched = {
 };
 
 /** A stored dependency archive, read but not yet known to fit. */
-type StoredArchive = { key: string; archive: Uint8Array };
+type StoredArchive = { key: string; kind: DependencyArchiveKind; archive: Uint8Array };
+
+/** What a staged archive is: its key, which says whether it fits, and how to use it if so. */
+type StagedArchive = { key: string; kind: DependencyArchiveKind };
 
 export async function openProject(
   options: OpenProjectOptions,
@@ -188,11 +214,11 @@ export async function openProject(
   const staging: Staging = {
     // An upload already running when the open decides is left to finish, into a scratch file
     // nothing reads; caught, because nothing may be waiting for it when it settles.
-    key: archiving
-      .then(async (stored) => {
+    archive: archiving
+      .then(async (stored): Promise<StagedArchive | null> => {
         if (stored === null || decided) return null;
         const staged = await stageDependencyArchive(sandbox, sandboxId, stored.archive);
-        return staged.ok ? stored.key : null;
+        return staged.ok ? { key: stored.key, kind: stored.kind } : null;
       })
       .catch(() => null),
     decide: () => {
@@ -207,7 +233,7 @@ export async function openProject(
 }
 
 /** The archive being uploaded beside the restore, and the way to say it is no longer wanted. */
-type Staging = { key: Promise<string | null>; decide: () => void };
+type Staging = { archive: Promise<StagedArchive | null>; decide: () => void };
 
 /** A template project's restore, and the dependencies it needs once the tree is back. */
 async function restoreProject(
@@ -242,12 +268,28 @@ async function restoreProject(
   }
 
   const key = template !== null && project !== null ? dependencyCacheKey(template, project) : null;
-  const stagedKey =
-    key === null ? null : await within(staging.key, DEPENDENCY_ARCHIVE_WAIT_MS, options.signal);
+  const staged =
+    key === null ? null : await within(staging.archive, DEPENDENCY_ARCHIVE_WAIT_MS, options.signal);
   staging.decide();
-  if (key !== null && stagedKey === key) {
-    const extracted = await extractDependencies(sandbox, sandboxId);
-    if (extracted.ok) return opened(sandboxId, { restored: true, cachedDependencies: true });
+  if (key !== null && staged?.key === key) {
+    if (staged.kind === "node_modules") {
+      const extracted = await extractDependencies(sandbox, sandboxId);
+      if (extracted.ok) return opened(sandboxId, { restored: true, cachedDependencies: true });
+    } else {
+      // The packages, not the tree: an install from them runs the project's scripts again, on
+      // this tree, and needs no network. Failing, it falls through to the install below.
+      const extracted = await extractPackageCache(sandbox, sandboxId);
+      const offline = extracted.ok
+        ? await installDependencies(sandbox, sandboxId, {
+            offline: true,
+            signal: options.signal,
+            timeoutMs: RESTORE_INSTALL_TIMEOUT_MS,
+          })
+        : null;
+      if (offline?.ok && offline.value.exitCode === 0) {
+        return installedProject(sandboxId, offline.value, { cachedDependencies: true });
+      }
+    }
   }
 
   const installed = await installDependencies(sandbox, sandboxId, {
@@ -258,18 +300,41 @@ async function restoreProject(
     return opened(sandboxId, { restored: true, warning: INSTALL_FAILED_WARNING });
   }
 
-  // Stored only when the install was decided by the committed inputs alone, as the sandbox checked
-  // around it, and the open was not abandoned on the way.
-  if (key === null || !installed.value.cacheable || options.signal?.aborted) {
-    return opened(sandboxId, { restored: true, installed: true });
+  // Stored only when the sandbox said an archive describes the install, and the open was not
+  // abandoned on the way.
+  const cache = installed.value.cache;
+  if (key === null || cache === null || options.signal?.aborted) {
+    return installedProject(sandboxId, installed.value);
   }
   return {
     ok: true,
     value: {
-      ...opened(sandboxId, { restored: true, installed: true }).value,
-      dependencyCacheWrite: storeArchive(sandbox, sandboxId, objects, snapshots, projectId, key),
+      ...installedProject(sandboxId, installed.value).value,
+      dependencyCacheWrite: storeArchive(
+        sandbox,
+        sandboxId,
+        objects,
+        snapshots,
+        projectId,
+        key,
+        cache,
+      ),
     },
   };
+}
+
+/** A restored project after a successful install, with a warning if it changed committed files. */
+function installedProject(
+  sandboxId: string,
+  installed: InstalledDependencies,
+  outcome: { cachedDependencies?: boolean } = {},
+): { ok: true; value: OpenedProject } {
+  return opened(sandboxId, {
+    restored: true,
+    installed: true,
+    ...outcome,
+    warning: installed.changed.length > 0 ? installChangedWarning(installed.changed) : null,
+  });
 }
 
 /** What `promise` settles to, or null once `ms` pass or `signal` aborts, whichever is first. */
@@ -357,7 +422,8 @@ async function fetchArchive(
 }
 
 /**
- * Packs the dependencies an install just left and stores them for the next reopen. Never rejects.
+ * Packs what an install just left — its `node_modules`, or the packages it downloaded, as `kind`
+ * says — and stores it for the next reopen. Never rejects.
  *
  * Nothing holds the project while this runs, so it may be deleted meanwhile, and a delete removes
  * the archive before the rows that name the project. An upload landing after that removal would
@@ -373,15 +439,15 @@ async function storeArchive(
   snapshots: SnapshotStore,
   projectId: string,
   key: string,
+  kind: DependencyArchiveKind,
 ): Promise<boolean> {
   try {
-    const archive = await archiveDependencies(sandbox, sandboxId, {
-      maxBytes: MAX_DEPENDENCY_ARCHIVE_BYTES,
-    });
+    const pack = kind === "node_modules" ? archiveDependencies : archivePackageCache;
+    const archive = await pack(sandbox, sandboxId, { maxBytes: MAX_DEPENDENCY_ARCHIVE_BYTES });
     if (!archive.ok) return false;
     const stored = await objects.put(
       dependenciesKey(projectId),
-      encodeDependencyArchive(key, archive.value),
+      encodeDependencyArchive(key, kind, archive.value),
     );
     if (!stored.ok) return false;
     const exists = await snapshots.latestFor(projectId).then(

@@ -14,10 +14,14 @@
  * (a stale key, an envelope that does not parse, a tarball that does not extract) is a miss, and a
  * miss installs, which is what happened before this existed.
  *
- * **A key only describes an install its inputs decided.** One that rewrote its own lockfile, or
- * ran a lifecycle script — which can read any file in the project and write anywhere — produced
- * something those inputs do not name. `installDependencies` refuses to call such an install
- * cacheable, so it is never stored, and that project installs on every reopen as it always did.
+ * **What is archived depends on what decided the install.** One its committed inputs alone
+ * decided is archived as the `node_modules` it left, and a reopen extracts that and installs
+ * nothing. One that ran a lifecycle script, or read a local package, depends on files no key can
+ * name — a script can read anything in the project and write anywhere — so its tree is never
+ * archived. Bun's package cache is, instead: what the install downloaded, which depends only on
+ * the lockfile. A reopen restores it and runs `bun install --offline`, which runs the scripts again
+ * against the tree being opened, exactly as any install would, without the network. An install
+ * that rewrote its own inputs is archived as neither.
  *
  * Plain functions over a `SandboxManager`, like `git.ts`: the commands are a convention of how
  * projects are laid out, not something a sandbox is.
@@ -80,9 +84,12 @@ export const DEPENDENCY_CACHE_DIRECTORIES = [".vite", ".vite-temp", ".cache", ".
  */
 const INPUTS_STATUS = `git status --porcelain --ignored --untracked-files=all -- ${DEPENDENCY_INPUTS.join(" ")} 2>&1`;
 
+/** Every committed file the working tree no longer matches, one `git status` line each. */
+const TRACKED_STATUS = "git status --porcelain --untracked-files=no";
+
 /**
- * A Node script deciding whether an install may be cached, run before it (`scan`) and after it
- * (`check <scan's output>`). Node rather than shell because it parses `package.json`.
+ * A Node script deciding whether the tree an install left may be cached, run before it (`scan`)
+ * and after it (`check <scan's output>`). Node rather than shell because it parses `package.json`.
  *
  * `scan` prints every package under `node_modules` with an install-time script of its own, or a
  * `binding.gyp` that makes one implicit. `check` exits non-zero when the install brought in one that
@@ -161,21 +168,34 @@ export function dependencyCacheKey(template: string, project: string): string {
 }
 
 /**
- * Version 2: version 1 archives were stored before an install had to show that its inputs alone
- * decided it, so some of them describe trees their key does not, and none can be told apart.
+ * Version 3. Version 1 archives were stored before an install had to show that its inputs alone
+ * decided it, so some describe trees their key does not; version 2 ones do not say their kind.
  */
-const PREFIX = "# nap dependencies v2\n";
-const Header = z.object({ key: z.string().regex(KEY) });
+const PREFIX = "# nap dependencies v3\n";
+const Header = z.object({
+  key: z.string().regex(KEY),
+  /**
+   * `node_modules`: the tree an install left, extracted in place of installing. `packages`: Bun's
+   * package cache, which a reopen restores and then installs from offline.
+   */
+  kind: z.enum(["node_modules", "packages"]),
+});
 
-/** The archive as it is stored: a line naming its key, then the gzipped tarball. */
-export function encodeDependencyArchive(key: string, archive: Uint8Array): Uint8Array {
-  return Buffer.concat([Buffer.from(`${PREFIX}${JSON.stringify({ key })}\n`), archive]);
+export type DependencyArchiveKind = z.infer<typeof Header>["kind"];
+
+/** The archive as it is stored: a line naming its key and kind, then the gzipped tarball. */
+export function encodeDependencyArchive(
+  key: string,
+  kind: DependencyArchiveKind,
+  archive: Uint8Array,
+): Uint8Array {
+  return Buffer.concat([Buffer.from(`${PREFIX}${JSON.stringify({ key, kind })}\n`), archive]);
 }
 
-/** The key and the archive, or null when the bytes are not something this wrote. */
+/** The key, kind and archive, or null when the bytes are not something this wrote. */
 export function decodeDependencyArchive(
   bytes: Uint8Array,
-): { key: string; archive: Uint8Array } | null {
+): { key: string; kind: DependencyArchiveKind; archive: Uint8Array } | null {
   const buffer = Buffer.from(bytes);
   if (buffer.subarray(0, PREFIX.length).toString() !== PREFIX) return null;
   const end = buffer.indexOf(10, PREFIX.length);
@@ -184,7 +204,7 @@ export function decodeDependencyArchive(
     const header = Header.safeParse(JSON.parse(buffer.subarray(PREFIX.length, end).toString()));
     const archive = buffer.subarray(end + 1);
     if (!header.success || archive.length === 0) return null;
-    return { key: header.data.key, archive: new Uint8Array(archive) };
+    return { key: header.data.key, kind: header.data.kind, archive: new Uint8Array(archive) };
   } catch {
     return null;
   }
@@ -201,6 +221,8 @@ function paths(options: DependencyOptions | undefined) {
     installed: shellQuote(`${scratch}/installed`),
     /** The packages with install scripts that were there before the install. */
     scripted: shellQuote(`${scratch}/scripted`),
+    /** Touched just before an install: what it downloaded into Bun's cache is newer. */
+    downloads: shellQuote(`${scratch}/downloads`),
     fresh: shellQuote(`${scratch}/new`),
     old: shellQuote(`${scratch}/old`),
   };
@@ -224,44 +246,85 @@ function changedSince(marker: string): string {
   return `find node_modules -mindepth 1 \\( ${caches} \\) -prune -o -cnewer ${marker} -print`;
 }
 
-/** What an install prints last when its result may be cached. */
-export const DEPENDENCY_CACHEABLE_LINE = "nap-dependencies-cacheable";
+/** Starts the line an install prints naming the archive that describes it. */
+export const DEPENDENCY_CACHE_LINE = "nap-dependencies-cache";
+/** Starts each line an install prints naming a committed file it changed. */
+export const DEPENDENCY_CHANGED_LINE = "nap-dependencies-changed";
+
+export type InstalledDependencies = {
+  exitCode: number;
+  /** The archive that describes this install, or null when none does. Null unless it succeeded. */
+  cache: DependencyArchiveKind | null;
+  /** Committed files the install left different from HEAD, as paths. Empty unless it succeeded. */
+  changed: string[];
+  stderr: string;
+};
 
 /**
- * Installs the project's dependencies and says whether the result may be cached — one command.
+ * Installs the project's dependencies, says which archive describes the result, and names any
+ * committed file it changed — one command.
  *
- * Cacheable only when the inputs were exactly the committed ones before the install and still are
- * after it, and `ELIGIBILITY` finds nothing else the install could have read. Then, and only then,
- * it writes the record `archiveDependencies` requires: the packages it left, at the time it left
- * them. A key read from HEAD cannot see an install that rewrote its lockfile, because HEAD did not
+ * Before the install, its inputs must be exactly the committed ones and every tracked file
+ * unchanged; after it, the same. Then the tree it left is described by its inputs when
+ * `ELIGIBILITY` also finds nothing else it could have read (`node_modules`, and the record
+ * `archiveDependencies` requires is written), and otherwise only what it downloaded is (`packages`).
+ * A key read from HEAD cannot see an install that rewrote its lockfile, because HEAD did not
  * move; the working tree's status can.
  *
- * Whether it is cacheable never changes whether it installed: the check that decides is outside
- * the install's own `&&` chain, so the exit code is the install's, as it was before.
+ * `offline` installs from Bun's package cache alone, as restored by `extractPackageCache`, with the
+ * lockfile frozen so that nothing can be resolved differently from how it was online.
+ *
+ * None of this changes whether it installed: the checks are outside the install's own `&&` chain,
+ * so the exit code is the install's, as it was before.
  */
 export async function installDependencies(
   manager: SandboxManager,
   sandboxId: string,
-  options: DependencyOptions & { signal?: AbortSignal | undefined; timeoutMs: number },
-): Promise<Result<{ exitCode: number; cacheable: boolean; stderr: string }, SandboxError>> {
+  options: DependencyOptions & {
+    offline?: boolean | undefined;
+    signal?: AbortSignal | undefined;
+    timeoutMs: number;
+  },
+): Promise<Result<InstalledDependencies, SandboxError>> {
   const p = paths(options);
   const eligibility = `node -e ${shellQuote(ELIGIBILITY)}`;
+  const clean = `test -z "$(${INPUTS_STATUS})" && test -z "$(${TRACKED_STATUS} 2>&1)"`;
+  const install =
+    options.offline === true ? "bun install --offline --frozen-lockfile" : "bun install";
   const result = await manager.exec(
     sandboxId,
-    `cd ${p.cwd} && mkdir -p ${p.scratch} && rm -f ${p.installed} ${p.scripted} && ` +
-      `{ test -z "$(${INPUTS_STATUS})" && ${eligibility} scan > ${p.scripted} || rm -f ${p.scripted}; } && ` +
-      "bun install && " +
-      `{ { test -f ${p.scripted} && test -z "$(${INPUTS_STATUS})" && ` +
-      `${eligibility} check ${p.scripted} && { ${PACKAGES} > ${p.installed} || true; } && ` +
-      `echo ${DEPENDENCY_CACHEABLE_LINE}; } || true; rm -f ${p.scripted}; }`,
+    `cd ${p.cwd} && mkdir -p ${p.scratch} && rm -f ${p.installed} ${p.scripted} ${p.downloads} && ` +
+      `{ ${clean} && ${eligibility} scan > ${p.scripted} && touch ${p.downloads} || rm -f ${p.scripted}; } && ` +
+      `${install} && ` +
+      `{ ${TRACKED_STATUS} | sed 's/^/${DEPENDENCY_CHANGED_LINE} /'; ` +
+      `{ test -f ${p.scripted} && ${clean} && ` +
+      `{ ${eligibility} check ${p.scripted} && { ${PACKAGES} > ${p.installed} || true; } && ` +
+      `echo '${DEPENDENCY_CACHE_LINE} node_modules' || echo '${DEPENDENCY_CACHE_LINE} packages'; }; } || true; ` +
+      `rm -f ${p.scripted}; }`,
     undefined,
     { signal: options.signal, stopOnGiveUp: true, timeoutMs: options.timeoutMs },
   );
   if (!result.ok) return result;
   const { exitCode, stdout, stderr } = result.value;
-  const cacheable =
-    exitCode === 0 && stdout.trimEnd().split("\n").at(-1)?.trim() === DEPENDENCY_CACHEABLE_LINE;
-  return { ok: true, value: { exitCode, cacheable, stderr } };
+  if (exitCode !== 0) return { ok: true, value: { exitCode, cache: null, changed: [], stderr } };
+
+  const lines = stdout.split("\n");
+  const kind = lines
+    .filter((line) => line.startsWith(`${DEPENDENCY_CACHE_LINE} `))
+    .at(-1)
+    ?.slice(DEPENDENCY_CACHE_LINE.length + 1)
+    .trim();
+  const changed = lines
+    .filter((line) => line.startsWith(`${DEPENDENCY_CHANGED_LINE} `))
+    // `git status --porcelain` is two status letters and a space, then the path.
+    .map((line) => line.slice(DEPENDENCY_CHANGED_LINE.length + 1 + 3))
+    // Quoted by git when it holds a space or anything unusual; the quotes are not the name.
+    .map((path) =>
+      path.length > 1 && path.startsWith('"') && path.endsWith('"') ? path.slice(1, -1) : path,
+    )
+    .filter((path) => path !== "");
+  const cache = kind === "node_modules" || kind === "packages" ? kind : null;
+  return { ok: true, value: { exitCode, cache, changed, stderr } };
 }
 
 /** Puts a stored archive where `extractDependencies` reads it from. Bytes, both ways. */
@@ -348,6 +411,83 @@ export async function archiveDependencies(
   // fakes that answer commands by pattern.
   await manager.exec(sandboxId, `rm -f -- ${p.outgoing}`);
   return result;
+}
+
+/**
+ * Packs what the last install downloaded into Bun's package cache, or refuses — one command, then
+ * a read.
+ *
+ * "Downloaded" is every entry of the cache newer than the mark the install left just before it ran:
+ * package directories and their manifests at the top level, and inside each `@scope` directory the
+ * scoped packages, since Bun keeps those a level down. A scope directory is never archived whole:
+ * the image's cache already has scopes such as `@types`, so the package the install added must be
+ * found inside it, and the image's own packages there left out, since every sandbox has them. Nothing here has to be checked against the tree as
+ * `archiveDependencies` does, because nothing is extracted from it as a tree: an offline install
+ * reads what it needs from it by name and version, and fails when something is missing.
+ */
+export async function archivePackageCache(
+  manager: SandboxManager,
+  sandboxId: string,
+  options: DependencyOptions & { maxBytes: number },
+): Promise<Result<Uint8Array, SandboxError>> {
+  const p = paths(options);
+  const archived = await manager.exec(
+    sandboxId,
+    `cd ${p.cwd} && test -f ${p.downloads} && cache=$(bun pm cache) && rm -f ${p.outgoing} && ` +
+      `cd "$cache" && entries=$({ find . -mindepth 1 -maxdepth 1 ! -name '@*' -cnewer ${p.downloads}; ` +
+      `find . -mindepth 2 -maxdepth 2 -path './@*/*' -cnewer ${p.downloads}; }) && ` +
+      `test -n "$entries" && printf '%s\\n' "$entries" | tar -cz -f ${p.outgoing} -T - && ` +
+      `wc -c < ${p.outgoing}`,
+  );
+  if (!archived.ok) return archived;
+
+  const size = Number(archived.value.stdout.trim());
+  let result: Result<Uint8Array, SandboxError>;
+  if (archived.value.exitCode !== 0 || !Number.isSafeInteger(size)) {
+    result = failed("the install downloaded nothing, or its packages could not be packed");
+  } else if (size > options.maxBytes) {
+    result = failed(`the package archive is ${size} bytes, over the ${options.maxBytes} kept`);
+  } else {
+    result = await manager.readFileBytes(
+      sandboxId,
+      `${options.scratch ?? DEPENDENCY_SCRATCH}/outgoing.tar.gz`,
+    );
+  }
+
+  await manager.exec(sandboxId, `rm -f -- ${p.outgoing}`);
+  return result;
+}
+
+/**
+ * Adds the staged package archive's entries to Bun's package cache — one command.
+ *
+ * Extracted beside the cache first and moved in only once that worked, so a corrupt archive adds
+ * nothing. An entry the cache already holds is kept as it is: it came with the image. A scope
+ * directory is merged, not skipped, so a package added to a scope the image has still arrives.
+ */
+export async function extractPackageCache(
+  manager: SandboxManager,
+  sandboxId: string,
+  options?: DependencyOptions,
+): Promise<VoidResult<SandboxError>> {
+  const p = paths(options);
+  const incoming = shellQuote(p.incoming);
+  const result = await manager.exec(
+    sandboxId,
+    `cd ${p.cwd} && cache=$(bun pm cache) && rm -rf ${p.fresh} && mkdir -p ${p.fresh} "$cache" && ` +
+      `tar -xz -f ${incoming} -C ${p.fresh} && test -n "$(ls -A ${p.fresh})" && ` +
+      `for entry in $(ls -A ${p.fresh}); do ` +
+      `if [ -d ${p.fresh}/"$entry" ] && [ "\${entry#@}" != "$entry" ]; then ` +
+      `mkdir -p "$cache/$entry" || exit 1; for scoped in $(ls -A ${p.fresh}/"$entry"); do ` +
+      `test -e "$cache/$entry/$scoped" || mv ${p.fresh}/"$entry/$scoped" "$cache/$entry/$scoped" || exit 1; done; ` +
+      `else test -e "$cache/$entry" || mv ${p.fresh}/"$entry" "$cache/$entry" || exit 1; fi; done && ` +
+      `rm -rf ${p.fresh} ${incoming}`,
+  );
+  if (!result.ok) return result;
+  if (result.value.exitCode !== 0) {
+    return failed(`could not extract the package archive: ${result.value.stderr}`);
+  }
+  return { ok: true, value: undefined };
 }
 
 function failed(message: string): Result<never, SandboxError> {

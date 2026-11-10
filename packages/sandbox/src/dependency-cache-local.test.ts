@@ -26,8 +26,10 @@ import type { Result } from "@nap/shared/result";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   archiveDependencies,
+  archivePackageCache,
   DEPENDENCY_KEY_PROBE,
   extractDependencies,
+  extractPackageCache,
   installDependencies,
   readDependencyKey,
   stageDependencyArchive,
@@ -97,13 +99,22 @@ beforeEach(async () => {
   shims = join(directory, "bin");
   await mkdir(project);
   await mkdir(shims);
-  // `bun install` lays down the tree the lockfile names; `bun --revision` is the toolchain.
+  // `bun install` lays down the tree the lockfile names, "downloading" left-pad into its package
+  // cache first; `--offline` refuses unless the cache already holds it, as Bun's does. `bun pm
+  // cache` names that cache, and `bun --revision` is the toolchain.
   await writeFile(
     join(shims, "bun"),
     [
       "#!/bin/sh",
+      `cache=${JSON.stringify(join(directory, "bun-cache"))}`,
       'if [ "$1" = "--revision" ]; then echo "1.0.0+shim"; exit 0; fi',
+      'if [ "$1 $2" = "pm cache" ]; then printf %s "$cache"; exit 0; fi',
       'if [ "$1" = "install" ]; then',
+      '  case " $* " in',
+      // A scoped package lives a level down, in a scope directory the image's cache may already have.
+      '    *" --offline "*) [ -f "$cache/left-pad@1/index.js" ] && [ -f "$cache/@types/debug@1/index.d.ts" ] || { echo "offline: not in the cache" >&2; exit 1; } ;;',
+      '    *) mkdir -p "$cache/left-pad@1" "$cache/@types/debug@1" && echo "module.exports = 1" > "$cache/left-pad@1/index.js" && touch "$cache/left-pad.npm" "$cache/@types/debug@1/index.d.ts" ;;',
+      "  esac",
       "  mkdir -p node_modules/left-pad node_modules/.bin",
       '  echo "module.exports = $(cat bun.lock)" > node_modules/left-pad/index.js',
       "  ln -sf ../left-pad/index.js node_modules/.bin/left-pad",
@@ -164,7 +175,7 @@ describe("a dependency archive's round trip", () => {
       ...options(),
       timeoutMs: 10_000,
     });
-    expect(installed).toMatchObject({ ok: true, value: { exitCode: 0, cacheable: true } });
+    expect(installed).toMatchObject({ ok: true, value: { exitCode: 0, cache: "node_modules" } });
     // A cache the dev server writes after the install is not part of the archive, and not a reason
     // to refuse one.
     await mkdir(join(project, "node_modules", ".vite"));
@@ -191,9 +202,9 @@ describe("a dependency archive's round trip", () => {
     expect(await readlink(join(restored, "node_modules", ".bin", "left-pad"))).toBe(
       "../left-pad/index.js",
     );
-    // Nothing is left behind to be uploaded twice or to fill the disk. (`installed` is the source
-    // sandbox's record of its install; the two share a scratch directory only in this test.)
-    expect(await sh("ls -A", scratch)).toBe("installed");
+    // Nothing is left behind to be uploaded twice or to fill the disk. (`downloads` and `installed`
+    // are the source sandbox's marks of its install; the two share a scratch directory only here.)
+    expect(await sh("ls -A", scratch)).toBe("downloads\ninstalled");
   });
 
   it("leaves the dependencies alone when the archive is corrupt", async () => {
@@ -323,7 +334,7 @@ describe("archiveDependencies refuses a tree that is not the install's", () => {
   });
 });
 
-describe("installDependencies only calls an install cacheable when its inputs decided all of it", () => {
+describe("installDependencies says which archive, if any, describes the install", () => {
   async function installWith(hook: string | null) {
     if (hook !== null) await writeFile(join(directory, "install-hook.sh"), hook);
     const installed = await installDependencies(new LocalSandbox(), "sandbox", {
@@ -331,9 +342,9 @@ describe("installDependencies only calls an install cacheable when its inputs de
       timeoutMs: 10_000,
     });
     if (!installed.ok) throw new Error(installed.error.message);
-    // An install that is not cacheable must still have installed: only the record is withheld.
+    // Whatever it says about caching, it must still have installed.
     expect(installed.value.exitCode).toBe(0);
-    return installed.value.cacheable;
+    return installed.value.cache;
   }
 
   async function commit(file: string, contents: string) {
@@ -350,8 +361,8 @@ describe("installDependencies only calls an install cacheable when its inputs de
     return archive.ok;
   }
 
-  it("when nothing but the committed inputs went into it", async () => {
-    expect(await installWith(null)).toBe(true);
+  it("its node_modules, when nothing but the committed inputs went into it", async () => {
+    expect(await installWith(null)).toBe("node_modules");
     expect(await archivable()).toBe(true);
   });
 
@@ -359,9 +370,9 @@ describe("installDependencies only calls an install cacheable when its inputs de
     ["rewrote the lockfile", 'echo "rewritten" > bun.lock'],
     ["wrote a lockfile nobody committed", 'echo "new" > bun.lockb'],
     ["edited package.json", "echo '{}' > package.json"],
-  ])("not when the install %s, and nothing is left to archive", async (_, hook) => {
+  ])("none, when the install %s, and nothing is left to archive", async (_, hook) => {
     // HEAD is untouched, so a key read from what git committed cannot see this.
-    expect(await installWith(hook)).toBe(false);
+    expect(await installWith(hook)).toBeNull();
     expect(await archivable()).toBe(false);
   });
 
@@ -378,24 +389,25 @@ describe("installDependencies only calls an install cacheable when its inputs de
       "a patch outside patches/",
       '{"dependencies":{"left-pad":"1"},"patchedDependencies":{"left-pad@1":"my-patches/x.patch"}}',
     ],
-  ])("not when package.json declares %s, whose inputs the key does not hold", async (_, json) => {
+  ])("its packages only, when package.json declares %s", async (_, json) => {
     // A root lifecycle script can read any file and write outside node_modules; a local package
-    // is a directory of source. Neither is in the key, so neither may be cached.
+    // is a directory of source. Neither is in the key, so the tree they leave is not cached: the
+    // packages are, and a reopen installs from them, which runs the scripts again.
     await commit("package.json", `${json}\n`);
 
-    expect(await installWith(null)).toBe(false);
+    expect(await installWith(null)).toBe("packages");
   });
 
-  it("still when every patch is under patches/, which the key hashes", async () => {
+  it("its node_modules when every patch is under patches/, which the key hashes", async () => {
     await commit(
       "package.json",
       '{"dependencies":{"left-pad":"1"},"patchedDependencies":{"left-pad@1":"patches/x.patch"}}\n',
     );
 
-    expect(await installWith(null)).toBe(true);
+    expect(await installWith(null)).toBe("node_modules");
   });
 
-  it("not when the install brought in a package with an install script of its own", async () => {
+  it("its packages only, when the install brought in a package with an install script", async () => {
     // Such a script ran with the project as its working tree — Prisma's generates a client from
     // the project's schema — so what it wrote depends on files the key does not hold.
     const hook =
@@ -403,7 +415,7 @@ describe("installDependencies only calls an install cacheable when its inputs de
       `echo '{"name":"generator","version":"1.0.0","scripts":{"postinstall":"node x"}}' ` +
       "> node_modules/generator/package.json";
 
-    expect(await installWith(hook)).toBe(false);
+    expect(await installWith(hook)).toBe("packages");
   });
 
   it.each([
@@ -414,13 +426,13 @@ describe("installDependencies only calls an install cacheable when its inputs de
         `echo '{"name":"inner","version":"2.0.0","scripts":{"preinstall":"x"}}' ` +
         "> node_modules/native/node_modules/inner/package.json",
     ],
-  ])("not when the install brought in %s", async (_, extra) => {
+  ])("its packages only, when the install brought in %s", async (_, extra) => {
     const hook = `mkdir -p node_modules/native && echo '{"name":"native","version":"1.0.0"}' > node_modules/native/package.json && ${extra}`;
 
-    expect(await installWith(hook)).toBe(false);
+    expect(await installWith(hook)).toBe("packages");
   });
 
-  it("still when a package with an install script was already there, at the same version", async () => {
+  it("its node_modules when a package with an install script was already there, unchanged", async () => {
     // The template's own: installed when the image was built, on the template's tree, and not run
     // again by an install that leaves it where it is.
     await mkdir(join(project, "node_modules", "baked"), { recursive: true });
@@ -429,10 +441,10 @@ describe("installDependencies only calls an install cacheable when its inputs de
       '{"name":"baked","version":"1.0.0","scripts":{"postinstall":"node check.js"}}',
     );
 
-    expect(await installWith(null)).toBe(true);
+    expect(await installWith(null)).toBe("node_modules");
   });
 
-  it("not when the install changed the version of a package that has an install script", async () => {
+  it("its packages only, when the install moved a package that has an install script", async () => {
     await mkdir(join(project, "node_modules", "baked"), { recursive: true });
     await writeFile(
       join(project, "node_modules", "baked", "package.json"),
@@ -440,13 +452,189 @@ describe("installDependencies only calls an install cacheable when its inputs de
     );
     const hook = `echo '{"name":"baked","version":"2.0.0","scripts":{"postinstall":"node check.js"}}' > node_modules/baked/package.json`;
 
-    expect(await installWith(hook)).toBe(false);
+    expect(await installWith(hook)).toBe("packages");
   });
 
-  it("not when the tree it installed into already had an input nobody committed", async () => {
+  it("none, when the tree it installed into already had an input nobody committed", async () => {
     await writeFile(join(project, ".npmrc"), "registry=https://example.invalid\n");
 
-    expect(await installWith(null)).toBe(false);
+    expect(await installWith(null)).toBeNull();
+  });
+
+  it("none, naming the files, when the install rewrote a committed file that is not an input", async () => {
+    // A root script regenerating a tracked file: the restored tree is no longer the committed one,
+    // and the open has to say so rather than report a clean restore.
+    await commit("generated.txt", "committed\n");
+    await commit("package.json", '{"scripts":{"postinstall":"node gen.js"}}\n');
+    await writeFile(join(directory, "install-hook.sh"), 'echo "regenerated" > generated.txt');
+
+    const installed = await installDependencies(new LocalSandbox(), "sandbox", {
+      ...options(),
+      timeoutMs: 10_000,
+    });
+
+    expect(installed).toMatchObject({
+      ok: true,
+      value: { exitCode: 0, cache: null, changed: ["generated.txt"] },
+    });
+  });
+
+  it("names no files when the install left every committed one alone", async () => {
+    const installed = await installDependencies(new LocalSandbox(), "sandbox", {
+      ...options(),
+      timeoutMs: 10_000,
+    });
+
+    expect(installed).toMatchObject({ ok: true, value: { changed: [] } });
+  });
+});
+
+describe("a package-cache archive's round trip", () => {
+  const cache = () => join(directory, "bun-cache");
+
+  /** What the image's own install left in Bun's cache. */
+  async function image() {
+    for (const entry of ["react@19", "@types/react@19"]) {
+      await mkdir(join(cache(), entry), { recursive: true });
+      await writeFile(join(cache(), entry, "kept"), "the image's");
+    }
+  }
+
+  async function installedWithScripts(manager: LocalSandbox) {
+    await writeFile(join(project, "package.json"), '{"scripts":{"postinstall":"node gen.js"}}\n');
+    await sh("git add . && git commit -q -m Scripts");
+    // The template's own cache: there before the install, so not the install's to archive. Its
+    // `@types` scope is the one the install adds a package to.
+    await image();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const installed = await installDependencies(manager, "sandbox", {
+      ...options(),
+      timeoutMs: 10_000,
+    });
+    expect(installed).toMatchObject({ ok: true, value: { exitCode: 0, cache: "packages" } });
+  }
+
+  it("carries the packages an install downloaded, so the next one needs no network", async () => {
+    const manager = new LocalSandbox();
+    await installedWithScripts(manager);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const archive = await archivePackageCache(manager, "sandbox", {
+      ...options(),
+      maxBytes: 1 << 20,
+    });
+    if (!archive.ok) throw new Error(archive.error.message);
+
+    // Only what the install downloaded: nothing every sandbox already has, in its scopes or out.
+    await writeFile(join(directory, "packages.tgz"), archive.value);
+    expect(await sh(`tar -tzf ${join(directory, "packages.tgz")} | grep -c react || true`)).toBe(
+      "0",
+    );
+
+    // A fresh sandbox: the image's cache and nothing the project downloaded.
+    await rm(cache(), { recursive: true });
+    await rm(join(project, "node_modules"), { recursive: true });
+    await image();
+    expect(
+      await installDependencies(manager, "sandbox", {
+        ...options(),
+        offline: true,
+        timeoutMs: 1e4,
+      }),
+    ).toMatchObject({ ok: true, value: { exitCode: 1 } });
+
+    await stageDependencyArchive(manager, "other", archive.value, { scratch });
+    expect(await extractPackageCache(manager, "other", options())).toEqual({
+      ok: true,
+      value: undefined,
+    });
+    const offline = await installDependencies(manager, "sandbox", {
+      ...options(),
+      offline: true,
+      timeoutMs: 10_000,
+    });
+
+    expect(offline).toMatchObject({ ok: true, value: { exitCode: 0 } });
+    expect(await sh("ls -A", cache())).toBe(
+      ["@types", "left-pad.npm", "left-pad@1", "react@19"].join("\n"),
+    );
+    // A scope the sandbox already had gains the new package beside its own.
+    expect(await sh("ls -A", join(cache(), "@types"))).toBe("debug@1\nreact@19");
+    // An entry the sandbox already had is left as it was.
+    expect(await readFile(join(cache(), "react@19", "kept"), "utf8")).toBe("the image's");
+    expect(await readFile(join(cache(), "@types", "react@19", "kept"), "utf8")).toBe("the image's");
+    expect(await sh(`ls -A ${scratch} | grep -c -e incoming -e '^new$' || true`)).toBe("0");
+  });
+
+  it("is refused when the install downloaded nothing", async () => {
+    const manager = new LocalSandbox();
+    await mkdir(join(cache(), "left-pad@1"), { recursive: true });
+    await writeFile(join(cache(), "left-pad@1", "index.js"), "cached");
+    await writeFile(join(cache(), "left-pad.npm"), "");
+    await writeFile(join(directory, "install-hook.sh"), ":");
+    // The shim always "downloads"; an install whose every package was already cached does not.
+    await writeFile(
+      join(shims, "bun"),
+      (await readFile(join(shims, "bun"), "utf8")).replace(
+        /\*\) mkdir -p "\$cache\/left-pad@1"[^;]*;;/,
+        "*) ;;",
+      ),
+    );
+    await installedWithScripts(manager);
+
+    const archive = await archivePackageCache(manager, "sandbox", {
+      ...options(),
+      maxBytes: 1 << 20,
+    });
+
+    expect(archive.ok).toBe(false);
+  });
+
+  it("is refused over the bound, leaving nothing behind", async () => {
+    const manager = new LocalSandbox();
+    await installedWithScripts(manager);
+
+    const archive = await archivePackageCache(manager, "sandbox", { ...options(), maxBytes: 10 });
+
+    expect(archive.ok).toBe(false);
+    expect(await sh(`ls -A ${scratch} | grep -c outgoing || true`)).toBe("0");
+  });
+
+  it("keeps an entry the cache already has, rather than moving the archive's inside it", async () => {
+    const manager = new LocalSandbox();
+    await mkdir(join(cache(), "react@19"), { recursive: true });
+    await writeFile(join(cache(), "react@19", "kept"), "the image's");
+    const packed = join(directory, "packed");
+    await mkdir(join(packed, "react@19"), { recursive: true });
+    await mkdir(join(packed, "left-pad@1"), { recursive: true });
+    await writeFile(join(packed, "react@19", "kept"), "the archive's");
+    await sh(`tar -czf ${join(directory, "packages.tgz")} react@19 left-pad@1`, packed);
+    await stageDependencyArchive(
+      manager,
+      "sandbox",
+      new Uint8Array(await readFile(join(directory, "packages.tgz"))),
+      { scratch },
+    );
+
+    expect(await extractPackageCache(manager, "sandbox", options())).toEqual({
+      ok: true,
+      value: undefined,
+    });
+    expect(await sh("ls -A", cache())).toBe("left-pad@1\nreact@19");
+    expect(await sh("ls -A", join(cache(), "react@19"))).toBe("kept");
+    expect(await readFile(join(cache(), "react@19", "kept"), "utf8")).toBe("the image's");
+  });
+
+  it("leaves the package cache alone when the archive is corrupt", async () => {
+    const manager = new LocalSandbox();
+    await mkdir(join(cache(), "react@19"), { recursive: true });
+    await stageDependencyArchive(manager, "sandbox", new TextEncoder().encode("not a tarball"), {
+      scratch,
+    });
+
+    const extracted = await extractPackageCache(manager, "sandbox", options());
+
+    expect(extracted).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+    expect(await sh("ls -A", cache())).toBe("react@19");
   });
 });
 
@@ -458,7 +646,7 @@ it("installDependencies reports no key when the install failed", async () => {
     timeoutMs: 10_000,
   });
 
-  expect(installed).toMatchObject({ ok: true, value: { exitCode: 3, cacheable: false } });
+  expect(installed).toMatchObject({ ok: true, value: { exitCode: 3, cache: null } });
   // No record of a successful install, so nothing can be archived from this tree.
   await expect(readFile(join(scratch, "installed"))).rejects.toThrow();
 });

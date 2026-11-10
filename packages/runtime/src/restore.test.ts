@@ -15,6 +15,9 @@ import {
   INCOMING_ARCHIVE,
   INSTALL_COMMAND,
   installedWith,
+  OFFLINE_INSTALL_COMMAND,
+  PACKAGE_ARCHIVE_COMMAND,
+  PACKAGE_EXTRACT_COMMAND,
   scriptDependencies,
 } from "@nap/sandbox/testing/script-dependencies";
 import { RESTORE_COMMAND, restored } from "@nap/sandbox/testing/script-git";
@@ -152,11 +155,18 @@ async function seedSnapshot(bytes: Uint8Array = BUNDLE): Promise<void> {
   await snapshots.record({ projectId: PROJECT, key: KEY, gitSha: SHA });
 }
 
-/** An archive stored by an earlier reopen whose install read `inputs`. */
-async function seedArchive(inputs: string = PROJECT_INPUTS): Promise<void> {
+/** An archive of `kind` stored by an earlier reopen whose install read `inputs`. */
+async function seedArchive(
+  inputs: string = PROJECT_INPUTS,
+  kind: "node_modules" | "packages" = "node_modules",
+): Promise<void> {
   await objects.put(
     DEPENDENCIES,
-    encodeDependencyArchive(dependencyCacheKey(TEMPLATE_INPUTS, inputs), FAKE_DEPENDENCY_ARCHIVE),
+    encodeDependencyArchive(
+      dependencyCacheKey(TEMPLATE_INPUTS, inputs),
+      kind,
+      FAKE_DEPENDENCY_ARCHIVE,
+    ),
   );
 }
 
@@ -269,6 +279,7 @@ describe("a project that added a dependency", () => {
     if (!stored.ok) throw new Error("expected an archive to be stored");
     expect(decodeDependencyArchive(stored.value)).toEqual({
       key: dependencyCacheKey(TEMPLATE_INPUTS, PROJECT_INPUTS),
+      kind: "node_modules",
       archive: FAKE_DEPENDENCY_ARCHIVE,
     });
   });
@@ -308,7 +319,7 @@ describe("a project that added a dependency", () => {
     ["an envelope that does not parse", new TextEncoder().encode("garbage")],
     [
       "an envelope with nothing after it",
-      encodeDependencyArchive("f".repeat(64), new Uint8Array()),
+      encodeDependencyArchive("f".repeat(64), "node_modules", new Uint8Array()),
     ],
   ])("installs when the stored archive is %s", async (_, bytes) => {
     await seedSnapshot();
@@ -386,7 +397,7 @@ describe("a project that added a dependency", () => {
     // It rewrote the lockfile, or ran a script that could read anything: the key would lie.
     await seedSnapshot();
     restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
-    sandbox.script(INSTALL_COMMAND, installedWith(false));
+    sandbox.script(INSTALL_COMMAND, installedWith(null));
 
     const opened = await open();
     if (!opened.ok) throw new Error("expected the open to succeed");
@@ -441,6 +452,121 @@ describe("a project that added a dependency", () => {
   });
 });
 
+describe("a project whose install runs scripts or reads local packages", () => {
+  // Its node_modules cannot be cached under a key of its inputs, because the scripts read anything.
+  // Bun's package cache can: a reopen restores it and installs offline, and the scripts run again
+  // against the restored tree, as they would in any install.
+
+  it("stores the packages the install downloaded, not the tree it left", async () => {
+    await seedSnapshot();
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    sandbox.script(INSTALL_COMMAND, installedWith("packages"));
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    expect(opened.value).toMatchObject({ installed: true, cachedDependencies: false });
+    expect(await opened.value.dependencyCacheWrite).toBe(true);
+    const stored = await objects.get(DEPENDENCIES);
+    if (!stored.ok) throw new Error("expected an archive to be stored");
+    expect(decodeDependencyArchive(stored.value)).toMatchObject({
+      key: dependencyCacheKey(TEMPLATE_INPUTS, PROJECT_INPUTS),
+      kind: "packages",
+    });
+    expect(commandsMatching(opened.value.sandboxId, PACKAGE_ARCHIVE_COMMAND)).toHaveLength(1);
+    expect(commandsMatching(opened.value.sandboxId, ARCHIVE_COMMAND)).toEqual([]);
+  });
+
+  it("reopens from them with an offline install, and stores nothing new", async () => {
+    await seedSnapshot();
+    await seedArchive(PROJECT_INPUTS, "packages");
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    sandbox.script(INSTALL_COMMAND, installedWith("packages"));
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    expect(opened.value).toMatchObject({
+      restored: true,
+      warning: null,
+      installed: true,
+      cachedDependencies: true,
+    });
+    expect(commandsMatching(opened.value.sandboxId, PACKAGE_EXTRACT_COMMAND)).toHaveLength(1);
+    expect(commandsMatching(opened.value.sandboxId, EXTRACT_COMMAND)).toEqual([]);
+    const installs = commandsMatching(opened.value.sandboxId, INSTALL_COMMAND);
+    expect(installs).toHaveLength(1);
+    expect(installs[0]).toMatch(OFFLINE_INSTALL_COMMAND);
+    expect(opened.value.dependencyCacheWrite).toBeUndefined();
+  });
+
+  it("installs from the network when the offline install fails, and stores afresh", async () => {
+    await seedSnapshot();
+    await seedArchive(PROJECT_INPUTS, "packages");
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    sandbox.script(INSTALL_COMMAND, installedWith("packages"));
+    sandbox.script(OFFLINE_INSTALL_COMMAND, { exitCode: 1, stderr: "offline: missing" });
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    expect(opened.value).toMatchObject({
+      installed: true,
+      cachedDependencies: false,
+      warning: null,
+    });
+    const installs = commandsMatching(opened.value.sandboxId, INSTALL_COMMAND);
+    expect(installs).toHaveLength(2);
+    expect(installs[1]).not.toMatch(OFFLINE_INSTALL_COMMAND);
+    expect(await opened.value.dependencyCacheWrite).toBe(true);
+  });
+
+  it("installs from the network when the package cache will not extract", async () => {
+    await seedSnapshot();
+    await seedArchive(PROJECT_INPUTS, "packages");
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    sandbox.script(PACKAGE_EXTRACT_COMMAND, { exitCode: 2, stderr: "gzip: unexpected end" });
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    expect(opened.value).toMatchObject({ installed: true, cachedDependencies: false });
+    const installs = commandsMatching(opened.value.sandboxId, INSTALL_COMMAND);
+    expect(installs).toHaveLength(1);
+    expect(installs[0]).not.toMatch(OFFLINE_INSTALL_COMMAND);
+  });
+});
+
+describe("an install that rewrites committed files", () => {
+  it("opens the project with a warning naming them, and stores nothing", async () => {
+    // The tree cannot be both the committed one and the one whose dependencies work: the install
+    // decided otherwise. It keeps the working install and says which files moved.
+    await seedSnapshot();
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    sandbox.script(INSTALL_COMMAND, installedWith(null, ["bun.lock", "src/generated.ts"]));
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    expect(opened.value).toMatchObject({ restored: true, installed: true });
+    expect(opened.value.warning).toMatch(/bun\.lock/);
+    expect(opened.value.warning).toMatch(/src\/generated\.ts/);
+    expect(opened.value.dependencyCacheWrite).toBeUndefined();
+  });
+
+  it("says so after an offline install from the package cache too", async () => {
+    await seedSnapshot();
+    await seedArchive(PROJECT_INPUTS, "packages");
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+    sandbox.script(INSTALL_COMMAND, installedWith(null, ["src/generated.ts"]));
+
+    const opened = await open();
+    if (!opened.ok) throw new Error("expected the open to succeed");
+
+    expect(opened.value).toMatchObject({ installed: true, cachedDependencies: true });
+    expect(opened.value.warning).toMatch(/src\/generated\.ts/);
+  });
+});
 describe("an archive that is slow to arrive", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -630,6 +756,17 @@ describe("how many round trips a reopen makes", () => {
     await open();
 
     expect(calls).toEqual(["create", "writeFileBytes", "exec"]);
+  });
+
+  it("is six when the project installs offline from its package cache", async () => {
+    await seedSnapshot();
+    await seedArchive(PROJECT_INPUTS, "packages");
+    restoreReads(TEMPLATE_INPUTS, PROJECT_INPUTS);
+
+    await open();
+
+    expect(calls).toHaveLength(6);
+    expect(calls.filter((call) => call === "exec")).toHaveLength(3);
   });
 
   it("is five when the project's dependencies come from its archive", async () => {

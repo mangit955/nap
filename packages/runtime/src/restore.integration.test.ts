@@ -18,7 +18,7 @@
  */
 
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
-import { encodeDependencyArchive } from "@nap/sandbox/dependency-cache";
+import { decodeDependencyArchive, encodeDependencyArchive } from "@nap/sandbox/dependency-cache";
 import { E2BSandboxManager } from "@nap/sandbox/e2b-sandbox-manager";
 import { commitAll, currentSha } from "@nap/sandbox/git";
 import { NAP_TEMPLATE, TEMPLATE_FILES, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
@@ -195,7 +195,7 @@ it("installs rather than breaking the project when the stored archive will not e
   const key = (JSON.parse(header) as { key: string }).key;
   await objects.put(
     dependenciesKey(PROJECT),
-    encodeDependencyArchive(key, new TextEncoder().encode("not a tarball")),
+    encodeDependencyArchive(key, "node_modules", new TextEncoder().encode("not a tarball")),
   );
 
   const opened = await openProject({ sandbox: manager, objects, snapshots, projectId: PROJECT });
@@ -239,3 +239,66 @@ it("falls back to a fresh template when the stored bundle is not a bundle", asyn
   const listing = await sh(opened.value.sandboxId, "git ls-files");
   for (const file of TEMPLATE_FILES) expect(listing).toContain(file);
 });
+
+it("reopens a project whose install runs a script from its package cache, running the script again", async () => {
+  // A root postinstall reads a committed file, so the tree it leaves cannot be cached. What the
+  // install downloaded can, and an offline install from it runs the script on the tree it opens.
+  const scripted = "6a7b8c9d-0e1f-4a2b-8c3d-4e5f60718293";
+  const store = new InMemoryObjectStore();
+  const rows = new InMemorySnapshotStore();
+  const sandboxId = await create();
+  await manager.writeFile(
+    sandboxId,
+    `${TEMPLATE_WORKDIR}/gen.cjs`,
+    'require("fs").writeFileSync("generated.txt", "from " + require("fs").readFileSync("schema.txt", "utf8"));\n',
+  );
+  await manager.writeFile(sandboxId, `${TEMPLATE_WORKDIR}/schema.txt`, "A\n");
+  await sh(
+    sandboxId,
+    "echo generated.txt >> .gitignore && npm pkg set scripts.postinstall='node gen.cjs'",
+  );
+  // A scoped package too, in a scope the image's own cache already has.
+  await sh(sandboxId, `bun add ${ADDED} @types/ms@0.7.34`);
+  const committed = await commitAll(manager, sandboxId, "A project with a postinstall");
+  if (!committed.ok) throw new Error(`could not commit: ${committed.error.message}`);
+  const torn = await tearDownProject({
+    sandbox: manager,
+    objects: store,
+    snapshots: rows,
+    projectId: scripted,
+    sandboxId,
+  });
+  if (!torn.ok) throw new Error(`could not tear the project down: ${torn.error.message}`);
+
+  const first = await openProject({
+    sandbox: manager,
+    objects: store,
+    snapshots: rows,
+    projectId: scripted,
+  });
+  if (!first.ok) throw new Error(`could not open the project: ${first.error.message}`);
+  created.push(first.value.sandboxId);
+  expect(first.value).toMatchObject({ installed: true, cachedDependencies: false, warning: null });
+  expect(await first.value.dependencyCacheWrite).toBe(true);
+  const stored = await store.get(dependenciesKey(scripted));
+  if (!stored.ok) throw new Error("the first reopen stored no archive");
+  expect(decodeDependencyArchive(stored.value)?.kind).toBe("packages");
+  console.log(`package archive: ${stored.value.length} bytes`);
+
+  const started = performance.now();
+  const second = await openProject({
+    sandbox: manager,
+    objects: store,
+    snapshots: rows,
+    projectId: scripted,
+  });
+  if (!second.ok) throw new Error(`could not reopen the project: ${second.error.message}`);
+  console.log(`reopen from the package cache: ${Math.round(performance.now() - started)}ms`);
+  created.push(second.value.sandboxId);
+
+  expect(second.value).toMatchObject({ installed: true, cachedDependencies: true, warning: null });
+  expect(await sh(second.value.sandboxId, "cat generated.txt")).toBe("from A\n");
+  await sh(second.value.sandboxId, `node -e "require.resolve('tiny-invariant')"`);
+  await sh(second.value.sandboxId, "test -f node_modules/@types/ms/package.json");
+  expect(await sh(second.value.sandboxId, "git status --porcelain --untracked-files=all")).toBe("");
+}, 600_000);
