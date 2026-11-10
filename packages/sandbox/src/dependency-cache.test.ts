@@ -128,9 +128,24 @@ describe("installDependencies", () => {
     expect(manager.execs(sandboxId)).toHaveLength(1);
     expect(install?.options).toMatchObject({ signal, stopOnGiveUp: true, timeoutMs: 1234 });
     expect(install?.command).toMatch(
-      /git status --porcelain[\s\S]*bun install &&[\s\S]*git status/,
+      /git status --porcelain[\s\S]*bun install --backend=copyfile &&[\s\S]*git status/,
     );
     expect(install?.command).not.toMatch(/--offline/);
+  });
+
+  it.each([
+    ["online", false],
+    ["offline", true],
+  ])("copies files out of Bun's cache rather than linking them, %s", async (_, offline) => {
+    // Linked, a script that edits a dependency's file in place edits the cache's copy too, and a
+    // package archive made from that cache hands the edit to the next reopen, which applies its
+    // script on top: a tree no fresh install would produce.
+    const { manager, sandboxId } = await sandboxed();
+    manager.script(/bun install/, { exitCode: 0, stdout: "" });
+
+    await installDependencies(manager, sandboxId, { offline, timeoutMs: 1 });
+
+    expect(manager.commands(sandboxId)[0]).toMatch(/bun install[^&]* --backend=copyfile &&/);
   });
 
   it("installs offline from the package cache, with the lockfile frozen, when asked", async () => {
@@ -139,7 +154,9 @@ describe("installDependencies", () => {
 
     await installDependencies(manager, sandboxId, { offline: true, timeoutMs: 1 });
 
-    expect(manager.commands(sandboxId)[0]).toMatch(/bun install --offline --frozen-lockfile &&/);
+    expect(manager.commands(sandboxId)[0]).toMatch(
+      /bun install --offline --frozen-lockfile --backend=copyfile &&/,
+    );
   });
 
   it.each([

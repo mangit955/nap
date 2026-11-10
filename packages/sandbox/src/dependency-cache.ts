@@ -274,6 +274,11 @@ export type InstalledDependencies = {
  * `offline` installs from Bun's package cache alone, as restored by `extractPackageCache`, with the
  * lockfile frozen so that nothing can be resolved differently from how it was online.
  *
+ * Either way files are copied out of the cache, never linked. On Linux Bun hardlinks by default,
+ * and a lifecycle script that edits a dependency's file in place would then edit the cache's copy
+ * too: `archivePackageCache` would store the edit, and the next reopen would apply the script again
+ * on top of it, producing a tree no fresh install would.
+ *
  * None of this changes whether it installed: the checks are outside the install's own `&&` chain,
  * so the exit code is the install's, as it was before.
  */
@@ -290,7 +295,8 @@ export async function installDependencies(
   const eligibility = `node -e ${shellQuote(ELIGIBILITY)}`;
   const clean = `test -z "$(${INPUTS_STATUS})" && test -z "$(${TRACKED_STATUS} 2>&1)"`;
   const install =
-    options.offline === true ? "bun install --offline --frozen-lockfile" : "bun install";
+    (options.offline === true ? "bun install --offline --frozen-lockfile" : "bun install") +
+    " --backend=copyfile";
   const result = await manager.exec(
     sandboxId,
     `cd ${p.cwd} && mkdir -p ${p.scratch} && rm -f ${p.installed} ${p.scripted} ${p.downloads} && ` +
