@@ -11,6 +11,11 @@
  * project's sessions" cannot drift from what actually happened, while a `last_active_at`
  * column is a second source of truth that goes stale the first time a code path forgets it.
  *
+ * **Viewing is reported, not counted as activity.** A tab somebody is looking at writes no event,
+ * so the store also says when a viewer last signalled — and leaves what that is worth to the sweep.
+ * It cannot be folded into the activity above: that is the clock the sweep's hard cap is measured
+ * from, and a viewer moving it would let one forgotten tab keep a sandbox alive forever.
+ *
  * Deliberately not part of `SessionStore`, and deliberately not project CRUD. It is the slice
  * a reaper needs and nothing more — a wider interface would mean every caller holding a fake
  * had to implement creating, renaming and archiving to test a sweep.
@@ -26,7 +31,18 @@ export type IdleProject = {
    */
   sessionIds: string[];
   lastActiveAt: string;
+  /**
+   * When somebody last signalled they were looking at the project, or null if nobody has since
+   * the column existed. Not activity — see the top of this file.
+   */
+  viewedAt: string | null;
 };
+
+/**
+ * The most often a project's viewer signal is written, however many tabs on however many pods are
+ * sending one. Well inside the idle limit, so throttling costs the sweep no precision it uses.
+ */
+export const VIEWER_SIGNAL_INTERVAL_MS = 60_000;
 
 export interface ProjectSandboxStore {
   /** Projects holding a sandbox whose most recent activity is older than `cutoff`. */
@@ -57,4 +73,15 @@ export interface ProjectSandboxStore {
     sandboxId: string,
     snapshotKey: string | null,
   ): Promise<boolean>;
+
+  /**
+   * Records that somebody is looking at the project `sessionId` belongs to, right now.
+   *
+   * Throttled here, to one write per `VIEWER_SIGNAL_INTERVAL_MS` per project, rather than by any
+   * caller: the row is shared by every tab on every pod, so only the store can see them all. A
+   * project holding no sandbox, or a session nobody knows, records nothing — there is nothing to
+   * keep warm. **Authorizes nothing**: the caller must already have established the viewer may
+   * read this session, which on `/ws` is the socket's own check.
+   */
+  recordViewer(sessionId: string): Promise<void>;
 }

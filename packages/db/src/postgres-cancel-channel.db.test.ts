@@ -12,10 +12,11 @@
 
 import { randomUUID } from "node:crypto";
 import { LEASE_RENEWAL_INTERVAL_MS } from "@nap/shared/lease-windows";
+import { type Logger, setRootLogger } from "@nap/shared/logging";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { afterEach, describe, expect, inject, it } from "vitest";
-import { PostgresCancelChannel } from "./postgres-cancel-channel.ts";
+import { afterEach, describe, expect, inject, it, vi } from "vitest";
+import { CANCEL_CHANNEL, PostgresCancelChannel } from "./postgres-cancel-channel.ts";
 import { PostgresNotifyTransport } from "./postgres-notify-transport.ts";
 import { PostgresTurnQueue } from "./postgres-turn-queue.ts";
 import { users } from "./schema.ts";
@@ -153,6 +154,25 @@ describe("PostgresCancelChannel over two connections", () => {
       .toBeGreaterThan(0);
     const [after] = await backendsNamed(worker.notifier, worker.name);
     expect(after?.pid).not.toBe(before?.pid);
+  });
+
+  it("says so when it comes back, because postgres.js does not", async () => {
+    // A cancel sent while the socket was down is found at the next renewal, so nothing is lost for
+    // good. What would be lost is knowing it happened: the driver re-issues the LISTEN in silence.
+    const warn = vi.fn();
+    const quiet = () => {};
+    const logger: Logger = { debug: quiet, info: quiet, warn, error: quiet, child: () => logger };
+    setRootLogger(logger);
+    const reconnects = () =>
+      warn.mock.calls.filter(([fields]) => fields?.channel === CANCEL_CHANNEL).length;
+    const worker = replica();
+    await worker.channel.listen(() => {});
+    expect(reconnects()).toBe(0);
+    const [before] = await backendsNamed(worker.notifier, worker.name);
+
+    await worker.notifier`select pg_terminate_backend(${before?.pid ?? 0})`;
+
+    await expect.poll(reconnects, { timeout: 4_000, interval: 50 }).toBe(1);
   });
 
   it("is sent through the pool, so an announcing process holds no listener at all", async () => {

@@ -449,6 +449,46 @@ describe("frames from the client", () => {
 
     expect(socket.sent).toEqual([]);
   });
+
+  it("hands a viewing signal to whoever records it, and says nothing back", async () => {
+    // The socket already proved who is on the other end; this only says they are looking.
+    const viewed = vi.fn();
+    const socket = new FakeSocket();
+    const stream = openEventStream({
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      sessionId: SESSION,
+      afterSeq: 0,
+      socket,
+      onViewing: viewed,
+    });
+    await stream.ready;
+    socket.clear();
+
+    stream.onMessage('{"type":"viewing"}');
+
+    expect(viewed).toHaveBeenCalledOnce();
+    expect(socket.sent).toEqual([]);
+  });
+
+  it("does not take a pong for a viewer", async () => {
+    // A hidden tab still answers the heartbeat, which is exactly why the socket being open
+    // cannot be what keeps a sandbox warm.
+    const viewed = vi.fn();
+    const stream = openEventStream({
+      store: new InMemoryEventStore(),
+      bus: new InMemoryEventBus(),
+      sessionId: SESSION,
+      afterSeq: 0,
+      socket: new FakeSocket(),
+      onViewing: viewed,
+    });
+    await stream.ready;
+
+    stream.onMessage('{"type":"pong"}');
+
+    expect(viewed).not.toHaveBeenCalled();
+  });
 });
 
 describe("close", () => {
@@ -673,7 +713,7 @@ const oldEvent = <T extends string, P extends z.ZodType>(type: T, payload: P) =>
     createdAt: z.iso.datetime(),
     payload,
   });
-// Every usage-bearing event as an open tab from before the split parses it.
+// The usage-bearing events as an open tab that did not ask for the split parses them.
 const OldUsageFrame = z.strictObject({
   type: z.literal("event"),
   event: z.discriminatedUnion("type", [
@@ -773,7 +813,12 @@ describe("the usage cache split", () => {
     {
       ...at,
       type: "project.renamed",
-      payload: { name: "Team Standup Streaks", source: "model", model: "m", usage: CACHED },
+      payload: {
+        name: "Dark mode toggle",
+        source: "model",
+        model: "openai/gpt-5-mini",
+        usage: CACHED,
+      },
     },
   ];
   const repairPrompt: PendingEvent = {
@@ -863,9 +908,9 @@ describe("the usage cache split", () => {
         }))
           expect(OldUsageFrame.safeParse(JSON.parse(raw)).success).toBe(!usageCacheSplit);
       }
-      // Every path: each usage event replayed, buffered and live, then once more on reconnect.
+      // Every path: each one replayed, buffered and live, then again on reconnect.
       expect(socket.events.filter((event) => event.type !== "user.message")).toHaveLength(
-        3 * usageEvents.length,
+        usageEvents.length * 3,
       );
       expect(reconnected.events).toHaveLength(usageEvents.length);
       // The repair projection is decided by its own flag, whatever this one says.
@@ -876,7 +921,7 @@ describe("the usage cache split", () => {
       // The log itself keeps the split; only what a legacy socket is sent loses it.
       const durable = await store.readFrom(SESSION, 0);
       expect(durable.filter((event) => event.type !== "user.message").map(usageOf)).toEqual(
-        Array(4 * usageEvents.length).fill(CACHED),
+        Array(usageEvents.length * 4).fill(CACHED),
       );
     },
   );

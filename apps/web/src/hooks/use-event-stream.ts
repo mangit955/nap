@@ -13,6 +13,13 @@
  * counter; one that never replies is closed after the heartbeat timeout, reconnects, and does
  * it again forever. The reply is the difference between a live stream and a loop.
  *
+ * **It also says whether anybody is looking** — only while the page is visible, which a pong
+ * cannot say because a background tab answers the heartbeat too. That is what keeps the server's
+ * idle sweep from reaping the sandbox of someone reading their code or using the preview. It says
+ * so the moment a socket opens and the moment the page becomes visible, not only beside the next
+ * pong: the first ping is half a minute away, and someone who has just come back to a project is
+ * exactly who a sweep in that half minute would otherwise take the sandbox from.
+ *
  * **Events are committed in batches, never one per frame.** The server sends a frame per stored
  * event, and every commit re-runs each derivation of the whole log above this hook — so a commit
  * per frame made opening a session of N events cost N² work, and painted the transcript a piece
@@ -150,6 +157,16 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let delayMs: number = BACKOFF.initialMs;
     let abandoned = false;
+    // The socket that has opened and not yet closed, if any. Distinct from `socket`, which is
+    // the latest one *attempted*: sending on a socket still connecting throws, and one that has
+    // dropped, with a reconnect or a ticket still pending, has nobody on the other end.
+    let live: StreamSocket | undefined;
+
+    const sayViewing = (): void => {
+      if (live !== undefined && document.visibilityState === "visible")
+        live.send(JSON.stringify({ type: "viewing" }));
+    };
+    document.addEventListener("visibilitychange", sayViewing);
 
     // Accepted, in order, and not yet committed. Local to this effect, so a session switch or an
     // unmount drops it along with the socket — nothing of one session can land in the next.
@@ -199,6 +216,8 @@ export function useEventStream(options: EventStreamOptions): EventStream {
         // server that refuses connections into a tight loop.
         delayMs = BACKOFF.initialMs;
         setStatus("open");
+        live = current;
+        sayViewing();
       });
 
       current.addEventListener("message", (raw) => {
@@ -208,6 +227,8 @@ export function useEventStream(options: EventStreamOptions): EventStream {
 
         if (frame.type === "ping") {
           current.send(JSON.stringify({ type: "pong" }));
+          if (document.visibilityState === "visible")
+            current.send(JSON.stringify({ type: "viewing" }));
           return;
         }
         // The log has been delivered in full — everything the server had when this connection
@@ -223,9 +244,9 @@ export function useEventStream(options: EventStreamOptions): EventStream {
           setReplayed(true);
           return;
         }
-        // An `error` frame is the server rejecting something this client sent. Nothing here
-        // sends anything but pongs, so there is nothing to retry — dropping it keeps a server
-        // complaint from tearing down a working stream.
+        // An `error` frame is the server rejecting something this client sent — a pong, or a
+        // `viewing` an older server does not know yet. Neither is worth a retry, and dropping it
+        // keeps a server complaint from tearing down a working stream.
         if (frame.type !== "event") return;
 
         const event = frame.event;
@@ -238,6 +259,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       });
 
       current.addEventListener("close", () => {
+        if (live === current) live = undefined;
         if (abandoned) return;
         // What arrived before the drop was accepted, and the reconnect resumes after it, so it
         // must not wait on a `ready` that this socket will never send.
@@ -259,6 +281,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       // Everything the connection owns goes away with the component: a pending retry that
       // outlives it reopens a socket nobody is listening to, once per navigation.
       abandoned = true;
+      document.removeEventListener("visibilitychange", sayViewing);
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       if (flushTimer !== undefined) clearTimeout(flushTimer);
       accepted = [];

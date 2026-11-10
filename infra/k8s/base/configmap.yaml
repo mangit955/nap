@@ -53,6 +53,9 @@ data:
   NAP_REAP_IDLE_MINUTES: "10"
   NAP_REAP_INTERVAL_SECONDS: "60"
   NAP_SANDBOX_TTL_MINUTES: "30"
+  # The most a project that is only being looked at keeps its sandbox past its last turn: the
+  # ceiling on what a visible tab nobody is sitting at can cost. At least NAP_REAP_IDLE_MINUTES.
+  NAP_VIEWER_KEEP_WARM_MINUTES: "60"
   NAP_JANITOR_INTERVAL_SECONDS: "15"
 
   # How many queued turns one worker runs at once — a property of the pod, not a ceiling on spend.

@@ -464,7 +464,10 @@ export function SessionList({
   const activeRef = useRef(activeProjectId);
   activeRef.current = activeProjectId;
   const mac = useMemo(isMacPlatform, []);
-  useEffect(() => {
+  // A layout effect, so the shortcuts listen from the commit that draws the rows. A passive
+  // effect after a commit that no event caused (the first page of sessions arriving) runs on a
+  // later task, and a key pressed in between found rows on screen and nothing listening.
+  useLayoutEffect(() => {
     if (!live) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const hide = () => {

@@ -47,6 +47,11 @@ describe("client frames", () => {
     expect(ClientFrameSchema.safeParse({ type: "pong" }).success).toBe(true);
   });
 
+  it("accepts a viewing signal, and nothing riding along on it", () => {
+    expect(ClientFrameSchema.safeParse({ type: "viewing" }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({ type: "viewing", projectId: "p" }).success).toBe(false);
+  });
+
   it("rejects anything else", () => {
     expect(ClientFrameSchema.safeParse({ type: "event", event: EVENT }).success).toBe(false);
     expect(ClientFrameSchema.safeParse({ type: "pong", extra: 1 }).success).toBe(false);

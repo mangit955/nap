@@ -331,6 +331,25 @@ describe("putting projects away", () => {
     ).toThrow(/NAP_REAP_IDLE_MINUTES/);
   });
 
+  it("keeps a viewed project warm for at most an hour past its last turn, by default", () => {
+    expect(parseEnv(REQUIRED).NAP_VIEWER_KEEP_WARM_MINUTES).toBe(60);
+    expect(
+      parseEnv({ ...REQUIRED, NAP_VIEWER_KEEP_WARM_MINUTES: "120" }).NAP_VIEWER_KEEP_WARM_MINUTES,
+    ).toBe(120);
+  });
+
+  it("refuses a viewer cap shorter than the idle limit, which would do nothing at all", () => {
+    // A project is only a candidate once its last turn is past the idle limit, so a cap inside
+    // it never spares anybody: the configuration reads as a fix and reaps viewers as before.
+    // Equal is allowed, and is how the deployment switches viewing off.
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_REAP_IDLE_MINUTES: "10", NAP_VIEWER_KEEP_WARM_MINUTES: "5" }),
+    ).toThrow(/NAP_VIEWER_KEEP_WARM_MINUTES/);
+    expect(
+      parseEnv({ ...REQUIRED, NAP_REAP_IDLE_MINUTES: "10", NAP_VIEWER_KEEP_WARM_MINUTES: "10" }),
+    ).toMatchObject({ NAP_VIEWER_KEEP_WARM_MINUTES: 10 });
+  });
+
   it("requires somewhere to put the bytes", () => {
     // A server that can destroy sandboxes but not snapshot them is worse than one that does
     // neither, so these become required in the task that first reads them.

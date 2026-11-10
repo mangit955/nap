@@ -175,6 +175,14 @@ export function Sandbox() {
       </P>
 
       <P>
+        Idle means nobody is using it, and reading code or clicking round the preview writes nothing
+        to the log. So an open workspace tab keeps saying, only while it is visible, that somebody
+        is looking. That is recorded at most once a minute, and keeps the sandbox and its provider
+        deadline alive. A visible tab nobody is sitting at would say so forever, so looking alone
+        keeps a sandbox only up to a fixed ceiling past the project&rsquo;s last turn.
+      </P>
+
+      <P>
         A project in that state is <Term>put away</Term>: not an error and not an empty project, but
         the state a project spends most of its life in. The bytes and the bookkeeping are separate
         ports because they fail independently, and teardown ordering is only expressible if they do.

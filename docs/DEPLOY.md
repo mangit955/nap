@@ -425,6 +425,17 @@ script finds all three services live at it, reuses them, and deploys the web at 
 not use the manual release script for this change, since it deploys the worker first. See
 [ADR-0031](adr/0031-the-turn-budget-is-denominated-in-what-is-billed.md).
 
+## Viewer keep-warm rollout
+
+Migration `0023` adds a nullable `projects.viewed_at`. It is one `ALTER` on one table with no
+default, so it rewrites nothing and cannot deadlock the way `0021` can, though it does queue behind
+a long transaction on `projects`. The normal worker-first release is the right order. The
+migration runs first. An old API or reaper never reads the column. A new reaper reads `null` until
+a new API writes it, and reaps exactly as before. The web goes last, so no tab sends `viewing` to
+an API that does not know it. If one does, during a manual deploy, that API answers with an
+`error` frame, which the client ignores. Nothing breaks, and the project is reaped as it was
+before the change.
+
 ## First deployment
 
 ### 1. A production database
@@ -598,6 +609,12 @@ is affordable, and they are worth setting deliberately rather than inheriting:
 - `NAP_REAP_IDLE_MINUTES=10` — how long an abandoned project keeps costing money. The same
   tick reconciles the ceiling, so a slot leaked by a crash comes back within minutes rather
   than waiting for a deploy.
+- `NAP_VIEWER_KEEP_WARM_MINUTES=60` — the most a project that is only being *looked at* keeps
+  its sandbox past its last turn. A visible workspace tab counts as activity, so somebody reading
+  their code or using the preview is not reaped mid-session; a visible tab nobody is sitting at
+  counts too, and this is what bounds it. Worst case per sandbox is this long past the last turn,
+  plus one reaper tick; a tab that goes hidden or closes earlier is reaped one idle limit after its
+  last signal, as before. Must be at least `NAP_REAP_IDLE_MINUTES`; equal to it turns viewing off.
 - `NAP_WORKER_CONCURRENCY=25` — how many queued turns *one worker* runs at once. Not a
   ceiling on spend, which is what the three above are: turn it down when a pod is the
   bottleneck, not when the bill is. A turn that cannot be claimed waits in `turn_requests`
