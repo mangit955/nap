@@ -13,9 +13,12 @@
  * counter; one that never replies is closed after the heartbeat timeout, reconnects, and does
  * it again forever. The reply is the difference between a live stream and a loop.
  *
- * **Beside the pong, it says whether anybody is looking** — only while the page is visible, which
- * a pong cannot say because a background tab answers the heartbeat too. That is what keeps the
- * server's idle sweep from reaping the sandbox of someone reading their code or using the preview.
+ * **It also says whether anybody is looking** — only while the page is visible, which a pong
+ * cannot say because a background tab answers the heartbeat too. That is what keeps the server's
+ * idle sweep from reaping the sandbox of someone reading their code or using the preview. It says
+ * so the moment a socket opens and the moment the page becomes visible, not only beside the next
+ * pong: the first ping is half a minute away, and someone who has just come back to a project is
+ * exactly who a sweep in that half minute would otherwise take the sandbox from.
  *
  * The socket is created through an injected factory so the reconnect curve can be tested in
  * milliseconds against a fake, with no network anywhere near the suite.
@@ -139,6 +142,16 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let delayMs: number = BACKOFF.initialMs;
     let abandoned = false;
+    // The socket that has opened and not yet closed, if any. Distinct from `socket`, which is
+    // the latest one *attempted*: sending on a socket still connecting throws, and one that has
+    // dropped, with a reconnect or a ticket still pending, has nobody on the other end.
+    let live: StreamSocket | undefined;
+
+    const sayViewing = (): void => {
+      if (live !== undefined && document.visibilityState === "visible")
+        live.send(JSON.stringify({ type: "viewing" }));
+    };
+    document.addEventListener("visibilitychange", sayViewing);
 
     const connect = (): void => {
       if (abandoned) return;
@@ -169,6 +182,8 @@ export function useEventStream(options: EventStreamOptions): EventStream {
         // server that refuses connections into a tight loop.
         delayMs = BACKOFF.initialMs;
         setStatus("open");
+        live = current;
+        sayViewing();
       });
 
       current.addEventListener("message", (raw) => {
@@ -205,6 +220,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       });
 
       current.addEventListener("close", () => {
+        if (live === current) live = undefined;
         if (abandoned) return;
         setStatus("reconnecting");
         retryTimer = setTimeout(connect, delayMs);
@@ -223,6 +239,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       // Everything the connection owns goes away with the component: a pending retry that
       // outlives it reopens a socket nobody is listening to, once per navigation.
       abandoned = true;
+      document.removeEventListener("visibilitychange", sayViewing);
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       socket?.close();
     };

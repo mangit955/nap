@@ -246,13 +246,13 @@ describe("heartbeat", () => {
     // this reply the stream dies every two and a half minutes and reconnects forever.
     const net = sockets();
     render(net);
+    act(() => net.latest.open());
+    // Whatever the socket said on opening is not a reply to anything.
+    const before = net.latest.sent.length;
 
-    act(() => {
-      net.latest.open();
-      net.latest.deliver({ type: "ping" });
-    });
+    act(() => net.latest.deliver({ type: "ping" }));
 
-    expect(net.latest.frames[0]).toEqual({ type: "pong" });
+    expect(net.latest.frames.slice(before)[0]).toEqual({ type: "pong" });
   });
 
   it("says somebody is looking, beside the pong, while the page is visible", () => {
@@ -267,7 +267,8 @@ describe("heartbeat", () => {
       net.latest.deliver({ type: "ping" });
     });
 
-    expect(net.latest.frames).toEqual([{ type: "pong" }, { type: "viewing" }]);
+    // The first is the socket opening; the pair after it is the reply to the ping.
+    expect(net.latest.frames).toEqual([{ type: "viewing" }, { type: "pong" }, { type: "viewing" }]);
   });
 
   it("only answers the heartbeat while the page is hidden", () => {
@@ -288,12 +289,125 @@ describe("heartbeat", () => {
   it("says nothing in reply to an event", () => {
     const net = sockets();
     render(net);
+    act(() => net.latest.open());
+    const before = [...net.latest.sent];
+
+    act(() => net.latest.deliver({ type: "event", event: event(1, "one") }));
+
+    expect(net.latest.sent).toEqual(before);
+  });
+});
+
+describe("saying somebody is looking without waiting for a ping", () => {
+  /*
+   * The first ping is half a minute after a socket opens. Someone who has just opened a project,
+   * or come back to its tab, is exactly who a sweep in that half minute would take the sandbox
+   * from — so the signal goes out on opening and on becoming visible, not only beside a pong.
+   */
+  function visibility(initial: DocumentVisibilityState) {
+    return vi.spyOn(document, "visibilityState", "get").mockReturnValue(initial);
+  }
+  function becomeVisible(spy: ReturnType<typeof visibility>) {
+    spy.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+  }
+
+  it("says so the moment a visible tab's socket opens", () => {
+    visibility("visible");
+    const net = sockets();
+    render(net);
+
+    act(() => net.latest.open());
+
+    expect(net.latest.frames).toEqual([{ type: "viewing" }]);
+  });
+
+  it("says nothing on opening while hidden, then says so on becoming visible", () => {
+    const spy = visibility("hidden");
+    const net = sockets();
+    render(net);
+
+    act(() => net.latest.open());
+    expect(net.latest.sent).toEqual([]);
+
+    act(() => becomeVisible(spy));
+
+    expect(net.latest.frames).toEqual([{ type: "viewing" }]);
+  });
+
+  it("says nothing on becoming hidden", () => {
+    const spy = visibility("visible");
+    const net = sockets();
+    render(net);
+    act(() => net.latest.open());
 
     act(() => {
-      net.latest.open();
-      net.latest.deliver({ type: "event", event: event(1, "one") });
+      spy.mockReturnValue("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
     });
 
+    expect(net.latest.frames).toEqual([{ type: "viewing" }]);
+  });
+
+  it("says nothing on a socket that has not opened yet", () => {
+    // A socket still connecting throws on `send`; this one has nobody listening yet anyway.
+    const spy = visibility("hidden");
+    const net = sockets();
+    render(net);
+
+    act(() => becomeVisible(spy));
+    expect(net.latest.sent).toEqual([]);
+
+    act(() => net.latest.open());
+    expect(net.latest.frames).toEqual([{ type: "viewing" }]);
+  });
+
+  it("says nothing on a dropped socket, nor on its replacement before that opens", () => {
+    vi.useFakeTimers();
+    const spy = visibility("visible");
+    const net = sockets();
+    render(net);
+    act(() => net.latest.open());
+    const dropped = net.latest;
+    act(() => dropped.drop());
+
+    act(() => becomeVisible(spy));
+    expect(dropped.frames).toEqual([{ type: "viewing" }]);
+
+    act(() => void vi.advanceTimersByTime(BACKOFF.initialMs));
+    expect(net.opened).toHaveLength(2);
+    act(() => becomeVisible(spy));
+    expect(net.latest.sent).toEqual([]);
+    expect(dropped.frames).toEqual([{ type: "viewing" }]);
+
+    act(() => net.latest.open());
+    expect(net.latest.frames).toEqual([{ type: "viewing" }]);
+  });
+
+  it("stops listening once the component goes away", () => {
+    const spy = visibility("visible");
+    const net = sockets();
+    const { unmount } = render(net);
+    act(() => net.latest.open());
+
+    unmount();
+    act(() => becomeVisible(spy));
+
+    expect(net.latest.frames).toEqual([{ type: "viewing" }]);
+  });
+
+  it("speaks only for the current session once the session changes", () => {
+    const spy = visibility("visible");
+    const net = sockets();
+    const { rerender } = render(net);
+    act(() => net.latest.open());
+    const previous = net.latest;
+
+    rerender({ id: OTHER_SESSION });
+    act(() => becomeVisible(spy));
+
+    expect(previous.frames).toEqual([{ type: "viewing" }]);
+    expect(net.latest).not.toBe(previous);
     expect(net.latest.sent).toEqual([]);
   });
 });
@@ -473,6 +587,34 @@ describe("connecting with a ticket", () => {
 
     await vi.waitFor(() => expect(net.opened).toHaveLength(1));
     expect(new URL(net.latest.url).searchParams.has("ticket")).toBe(false);
+  });
+
+  it("says nothing on a dropped socket while the next ticket is still being asked for", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const net = sockets();
+    let release: (ticket: string) => void = () => {};
+    const fetchTicket = vi.fn<() => Promise<string | undefined>>();
+    fetchTicket
+      .mockResolvedValueOnce("first")
+      .mockImplementationOnce(() => new Promise<string>((resolve) => (release = resolve)));
+    renderTicketed(net, fetchTicket);
+
+    await vi.waitFor(() => expect(net.opened).toHaveLength(1));
+    const dropped = net.latest;
+    act(() => dropped.open());
+    act(() => dropped.drop());
+    await vi.waitFor(() => expect(fetchTicket).toHaveBeenCalledTimes(2), {
+      timeout: BACKOFF.initialMs * 4,
+    });
+
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    expect(dropped.frames).toEqual([{ type: "viewing" }]);
+    expect(net.opened).toHaveLength(1);
+
+    release("second");
+    await vi.waitFor(() => expect(net.opened).toHaveLength(2));
+    act(() => net.latest.open());
+    expect(net.latest.frames).toEqual([{ type: "viewing" }]);
   });
 
   it("opens nothing if the component went away while it was asking", async () => {

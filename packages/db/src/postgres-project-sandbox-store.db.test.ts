@@ -278,7 +278,11 @@ describe("recordViewer", () => {
       await new PostgresProjectSandboxStore(drizzle(podA)).recordViewer(sessionId);
       const seen = await new PostgresProjectSandboxStore(drizzle(reaper)).idleSince(CUTOFF);
 
-      expect(seen.find((p) => p.projectId === projectId)?.viewedAt).not.toBeNull();
+      // The row must be there at all: a missing project would read as `undefined`, which is not
+      // null either, and a sweep that never saw the project is exactly the failure being guarded.
+      const found = seen.find((p) => p.projectId === projectId);
+      expect(found).toBeDefined();
+      expect(Date.parse(found?.viewedAt ?? "")).toBeGreaterThan(Date.now() - 60_000);
     } finally {
       await podA.end();
       await reaper.end();

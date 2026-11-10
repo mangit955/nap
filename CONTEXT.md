@@ -195,11 +195,12 @@ starting immediately afterwards loses its sandbox and is restored from the snaps
 took. Holding a lock across a teardown instead would let a wedged sweep block turns.
 
 **Viewer** — somebody with a project's workspace open in a *visible* tab, which says so over its
-`/ws` socket beside each heartbeat reply (`projects.viewed_at`, written at most once a minute). A
-viewer is **activity, not busy**: it keeps the idle sweep off the project and the provider's
-deadline pushed back, for at most `NAP_VIEWER_KEEP_WARM_MINUTES` past the project's last real
-activity, but never stops a close or a delete. A connected socket alone is not a viewer, because a
-background tab answers the heartbeat too.
+`/ws` socket when it opens, when the tab becomes visible, and beside each heartbeat reply
+(`projects.viewed_at`, written at most once a minute). A viewer is **activity, not busy**: it
+keeps the idle sweep off the project and the provider's deadline pushed back, for at most
+`NAP_VIEWER_KEEP_WARM_MINUTES` past the project's last real activity, but never stops a close or a
+delete. A connected socket alone is not a viewer, because a background tab answers the heartbeat
+too.
 
 **Drain** — what a worker does between `SIGTERM` and exiting: stop claiming, keep renewing the
 leases it holds, and wait for the turns already running. Bounded by the **drain timeout**, past

@@ -50,9 +50,10 @@ export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 export const ClientFrameSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("pong") }),
   /**
-   * Somebody is looking at this session's project right now: sent beside a `pong`, and only while
-   * the page is visible. A pong alone cannot say that — a hidden tab answers the heartbeat too —
-   * and it is what keeps a sandbox from being reaped out from under the person using it.
+   * Somebody is looking at this session's project right now: sent only while the page is visible,
+   * when the socket opens, when the page becomes visible, and beside each `pong`. A pong alone
+   * cannot say that — a hidden tab answers the heartbeat too — and it is what keeps a sandbox from
+   * being reaped out from under the person using it.
    *
    * Nothing rides on it, the session included: the socket it arrives on already names one, and
    * has already established the sender may read it.
