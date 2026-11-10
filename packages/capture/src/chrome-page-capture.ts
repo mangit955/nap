@@ -65,8 +65,15 @@ export class ChromePageCapture implements PageCapture {
     const height = options.height ?? DEFAULT_HEIGHT;
     const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+    const { signal } = options;
     let browser: Awaited<ReturnType<typeof launch>> | undefined;
+    // Closing the browser is what makes an abort land: every page call waiting on it rejects at
+    // once. Before the launch has finished there is nothing to close, so the launch's own answer
+    // is checked against the signal straight after.
+    const abandon = () => void browser?.close().catch(() => {});
+    signal?.addEventListener("abort", abandon, { once: true });
     try {
+      if (signal?.aborted) return { ok: false, error: abandoned() };
       browser = await launch({
         executablePath: this.#executablePath,
         headless: true,
@@ -74,6 +81,7 @@ export class ChromePageCapture implements PageCapture {
         // one only ever loads a page we are already running for the user.
         args: ["--no-sandbox", "--disable-dev-shm-usage", "--hide-scrollbars"],
       });
+      if (signal?.aborted) return { ok: false, error: abandoned() };
 
       const page = await browser.newPage();
       await page.setViewport({ width, height });
@@ -83,15 +91,25 @@ export class ChromePageCapture implements PageCapture {
       await page.goto(url, { waitUntil: "networkidle2", timeout });
       await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
 
-      return { ok: true, value: await page.screenshot({ type: "png" }) };
+      const png = await page.screenshot({ type: "png" });
+      if (signal?.aborted) return { ok: false, error: abandoned() };
+      return { ok: true, value: png };
     } catch (error) {
-      return { ok: false, error: describe(error) };
+      // A page call the abort cut short throws whatever the closed connection says, which would
+      // otherwise read as a browser that cannot be launched at all.
+      return { ok: false, error: signal?.aborted ? abandoned() : describe(error) };
     } finally {
+      signal?.removeEventListener("abort", abandon);
       // Best effort: a browser that cannot be closed is a leaked process, not a failed capture,
       // and reporting it as the second would lose a screenshot that already succeeded.
       await browser?.close().catch(() => {});
     }
   }
+}
+
+/** The caller stopped waiting, which says nothing about the page and nothing about this machine. */
+function abandoned(): PageCaptureError {
+  return { code: "timeout", message: "the capture was abandoned" };
 }
 
 /**

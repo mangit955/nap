@@ -41,10 +41,21 @@ Making the snapshot safe outside the lease would mean a second, durable claim on
 
 The template declares `typecheck` and no `lint`, so a fresh project gets nothing from this. It applies once a project adds a lint script that qualifies.
 
+### D4: Inside a job, no round waits for a picture, and each waits for the snapshot before it (amended 2026-11-09)
+
+D1 left one cost inside a job's repair rounds: the lane had no deadline of its own, so a browser that never answered kept its place for good. At the default bound of one, that is the last picture the worker ever takes.
+
+- **A repair does not begin until the round before it has been snapshotted, or has failed to be.** The snapshot starts as soon as the round's checks have been run, and the job waits for it before it starts a repair, publishes, or returns. A job that passed, or has spent its repairs, is reported closed before that wait, so the person watching is not held by it. Letting a repair run while the round before it uploads was tried and reverted. A worker can die outright, with no `finally` run, and a repair that had committed by then would leave the newest durable snapshot older than both rounds. Overlapping the two safely needs a durable record of a pending snapshot that the reaper reconciles. That is a follow-up.
+- **The picture is asked for once per job, at its close**, if any round of it committed. Before this, a job whose last round committed nothing got no picture, although an earlier round had changed the app.
+- **Every shot has a deadline (two minutes by default), and a shutdown aborts what is left after its grace.** `PageCapture` takes an `AbortSignal`, and the Chrome adapter closes its browser when the signal fires. The lane races each shot against its own abort, so a shot that ignores the signal still gives its browser's place back at once. It stores nothing, unless its upload had already begun. A put cannot be called back, so that upload goes on holding its project's place, and the project's next shot waits for it to land rather than being overwritten by it. Those stranded uploads count against the queue's bound, so a store that stops answering costs cards rather than memory.
+
+The alternative of moving the last snapshot off the lease is still D2's answer: it needs a durable claim of its own that the sweep, a restore and the next turn all respect.
+
 ## Consequences
 
 - A follow-up message waits for verification and the snapshot, but no longer for a browser.
 - A card can be one turn stale, or keep the previous picture when a project is closed within seconds of its last turn. That was already possible when a capture failed.
+- A job's repairs still wait for a backup between attempts, which is the price of every commit being durable before the next one is made.
 - `BoundedPageCapture` is gone. The lane's bound replaces it, and it starts work without yielding, so no permit can be handed out twice.
 - Reversing D1 means awaiting the shot inside `#photograph` again. Reversing D2 needs the second claim described above.
 
@@ -52,4 +63,5 @@ The template declares `typecheck` and no `lint`, so a fresh project gets nothing
 
 - **A delete can leave an orphaned thumbnail.** If a project is deleted in the moment between a shot's last workspace check and the end of its upload, the upload can complete after the delete has removed the key. Nothing serves that object, but nothing removes it either.
 - **The workspace state compares paths, not content.** It is built from `git status --porcelain`, so a further edit to a file that was already dirty when the picture was asked for is not seen, and a picture of that edit can be stored.
+- **An upload that never answers holds its project's place until the worker restarts.** The R2 client sets no request timeouts, so a put can stay pending indefinitely, and enough of them stop that worker taking thumbnails at all. Snapshots under the lease share the same client and hang the same way. The fix is request timeouts on the R2 client, left as a follow-up.
 - **Two checks at once may be too much for 1 GB.** A killed check is run again on its own, but the OOM killer may pick the dev server instead, and then the preview probe after the checks fails and is charged to the project. This is unmeasured.
