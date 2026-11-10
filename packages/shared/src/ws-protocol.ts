@@ -44,11 +44,21 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
 /**
- * Client → server. A union with one member today: the client is a reader, and the only thing
- * it has to say is that it is still there. Anything it might say later is additive.
+ * Client → server. The client is a reader, so all it ever says is that it is still there, and
+ * whether anybody is looking. Anything it might say later is additive.
  */
 export const ClientFrameSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("pong") }),
+  /**
+   * Somebody is looking at this session's project right now: sent only while the page is visible,
+   * when the socket opens, when the page becomes visible, and beside each `pong`. A pong alone
+   * cannot say that — a hidden tab answers the heartbeat too — and it is what keeps a sandbox from
+   * being reaped out from under the person using it.
+   *
+   * Nothing rides on it, the session included: the socket it arrives on already names one, and
+   * has already established the sender may read it.
+   */
+  z.strictObject({ type: z.literal("viewing") }),
 ]);
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 

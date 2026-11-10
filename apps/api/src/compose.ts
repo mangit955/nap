@@ -114,6 +114,7 @@ export type NapConfig = Pick<
   | "NAP_DRAIN_TIMEOUT_SECONDS"
   | "NAP_CAPTURE_CONCURRENCY"
   | "NAP_REAP_IDLE_MINUTES"
+  | "NAP_VIEWER_KEEP_WARM_MINUTES"
   | "NAP_REAP_INTERVAL_SECONDS"
   | "NAP_JANITOR_INTERVAL_SECONDS"
 >;
@@ -629,6 +630,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
       sessions: deps.sessions,
       upgradeWebSocket: deps.upgradeWebSocket,
       ...(deps.auth === undefined ? {} : { tickets: deps.auth.streamTickets }),
+      // The same store the reaper's sweep reads, so a viewer on this pod is seen from that one.
+      viewers: deps.projectSandboxes,
     },
     files: { sessions: deps.sessions, sandbox: deps.sandbox },
     ...(deps.providerAccounts === undefined
@@ -795,6 +798,13 @@ export function composeNap(deps: NapDeps): ComposedNap {
             // an id nothing in the database ever recorded. See `reconcileCapacity`.
             ...(deps.reconcile === undefined ? {} : { reconcile: deps.reconcile }),
             idleMs: config.NAP_REAP_IDLE_MINUTES * 60 * 1000,
+            // Somebody looking at their project is activity too, for at most the cap past its last
+            // real activity; kept warm to the sandbox's own lifetime, which outlasts the idle limit
+            // so a viewer leaving is caught here, with a snapshot, rather than by the provider.
+            viewers: {
+              capMs: config.NAP_VIEWER_KEEP_WARM_MINUTES * 60 * 1000,
+              keepAliveMs: config.NAP_SANDBOX_TTL_MINUTES * 60 * 1000,
+            },
             // The same question the close and delete routes ask, of the same rows: a project is
             // busy while any of its sessions holds a lease, wherever the worker holding it is.
             isBusy: (project) => occupied(project.projectId, project.sessionIds),

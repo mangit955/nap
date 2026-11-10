@@ -277,6 +277,17 @@ const BaseSchema = z.object({
   NAP_REAP_IDLE_MINUTES: z.coerce.number().int().positive().default(10),
   NAP_REAP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
   NAP_SANDBOX_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+  /**
+   * The longest somebody merely looking at a project keeps its sandbox, counted from the project's
+   * last real activity — a turn, or anything else that writes to its log.
+   *
+   * A visible tab keeps a project off the idle sweep, so a person reading their code or clicking
+   * round the preview does not come back to a restore. But a visible tab nobody is sitting at
+   * signals forever, and this is what turns that into a bounded bill: past it, the project is
+   * reaped however recently a tab said it was looking. Must be at least the idle limit, below
+   * which it could never spare anybody; equal to it switches viewing off.
+   */
+  NAP_VIEWER_KEEP_WARM_MINUTES: z.coerce.number().int().positive().default(60),
 
   /**
    * How often to look for turns whose worker died holding their lease.
@@ -551,6 +562,16 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       code: "custom",
       path: ["NAP_REAP_IDLE_MINUTES"],
       message: `must be less than NAP_SANDBOX_TTL_MINUTES (${env.NAP_SANDBOX_TTL_MINUTES}), or sandboxes expire before they are snapshotted`,
+    });
+  }
+
+  // Shorter than the idle limit, the cap is passed before a project is ever a candidate, so it
+  // spares nobody — a setting that reads as the fix and reaps every viewer exactly as before.
+  if (env.NAP_VIEWER_KEEP_WARM_MINUTES < env.NAP_REAP_IDLE_MINUTES) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_VIEWER_KEEP_WARM_MINUTES"],
+      message: `must be at least NAP_REAP_IDLE_MINUTES (${env.NAP_REAP_IDLE_MINUTES}), or viewing never keeps a project warm; set it equal to switch viewing off`,
     });
   }
 });

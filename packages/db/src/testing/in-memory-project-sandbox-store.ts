@@ -10,7 +10,11 @@
  * derives it from the event log and a fake that faked the log too would be testing itself.
  */
 
-import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
+import {
+  type IdleProject,
+  type ProjectSandboxStore,
+  VIEWER_SIGNAL_INTERVAL_MS,
+} from "@nap/shared/ports/project-sandbox-store";
 
 export type SeedProject = {
   projectId: string;
@@ -21,6 +25,8 @@ export type SeedProject = {
   snapshotKey?: string;
   /** When this project last did anything, as an ISO string. */
   lastActiveAt: string;
+  /** When a viewer last signalled, as an ISO string. Absent means nobody has. */
+  viewedAt?: string;
 };
 
 type ProjectRow = {
@@ -28,20 +34,29 @@ type ProjectRow = {
   sandboxId: string | null;
   sessionIds: string[];
   lastActiveAt: string;
+  viewedAt: string | null;
   snapshotKey: string | null;
+};
+
+export type InMemoryProjectSandboxStoreOptions = {
+  /** The clock `recordViewer` stamps and throttles by, so a test can cross the minute exactly. */
+  now?: () => number;
 };
 
 export class InMemoryProjectSandboxStore implements ProjectSandboxStore {
   readonly #projects = new Map<string, ProjectRow>();
+  readonly #now: () => number;
   #failure: Error | undefined;
 
-  constructor(seed: SeedProject[] = []) {
+  constructor(seed: SeedProject[] = [], options: InMemoryProjectSandboxStoreOptions = {}) {
+    this.#now = options.now ?? Date.now;
     for (const project of seed) {
       this.#projects.set(project.projectId, {
         projectId: project.projectId,
         sandboxId: project.sandboxId ?? null,
         sessionIds: project.sessionIds ?? [],
         lastActiveAt: project.lastActiveAt,
+        viewedAt: project.viewedAt ?? null,
         snapshotKey: project.snapshotKey ?? null,
       });
     }
@@ -78,10 +93,24 @@ export class InMemoryProjectSandboxStore implements ProjectSandboxStore {
         sandboxId: row.sandboxId,
         sessionIds: [...row.sessionIds],
         lastActiveAt: row.lastActiveAt,
+        viewedAt: row.viewedAt,
       });
     }
 
     return idle;
+  }
+
+  async recordViewer(sessionId: string): Promise<void> {
+    const now = this.#now();
+    for (const row of this.#projects.values()) {
+      if (!row.sessionIds.includes(sessionId)) continue;
+      // The same three conditions as the real statement's `where`: see the port.
+      if (row.sandboxId === null) return;
+      if (row.viewedAt !== null && Date.parse(row.viewedAt) >= now - VIEWER_SIGNAL_INTERVAL_MS)
+        return;
+      this.#projects.set(row.projectId, { ...row, viewedAt: new Date(now).toISOString() });
+      return;
+    }
   }
 
   /** Names a machine on the project, as a turn does once it has created one. */

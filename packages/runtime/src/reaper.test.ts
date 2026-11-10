@@ -8,7 +8,7 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { scriptGit } from "@nap/sandbox/testing/script-git";
 import type { IdleProject } from "@nap/shared/ports/project-sandbox-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sweepIdleProjects } from "./reaper.ts";
 
 const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
@@ -22,6 +22,10 @@ const IDLE_MS = 10 * 60 * 1000;
 const HOUR_AGO_MS = NOW - 60 * 60 * 1000;
 const HOUR_AGO = new Date(HOUR_AGO_MS).toISOString();
 const MINUTE_AGO = new Date(NOW - 60 * 1000).toISOString();
+/** How long viewing alone may keep a sandbox after its last real activity. */
+const VIEWER_CAP_MS = 90 * 60 * 1000;
+/** What a kept-warm sandbox's provider deadline is pushed out to: the sandbox TTL. */
+const KEEP_ALIVE_MS = 30 * 60 * 1000;
 
 let sandbox: InMemorySandboxManager;
 let objects: InMemoryObjectStore;
@@ -65,6 +69,7 @@ function sweep(
       ? {}
       : { reconcile: { reconciler: overrides.reconcile, inventory: sandbox } }),
     isBusy: overrides.isBusy ?? (async () => false),
+    viewers: { capMs: VIEWER_CAP_MS, keepAliveMs: KEEP_ALIVE_MS },
     now: () => NOW,
     announce: { events, bus: new InMemoryEventBus() },
   });
@@ -120,6 +125,116 @@ describe("reaping an idle project", () => {
 
     expect(result.reaped).toEqual([]);
     expect(objects.keys()).toEqual([]);
+    await expect(sandbox.resume(sandboxId)).resolves.toMatchObject({ ok: true });
+  });
+});
+
+describe("a project somebody is looking at", () => {
+  /** The project from `beforeEach`, last active `lastActiveMs` ago and viewed `viewedMs` ago. */
+  function viewed(viewedMs: number, lastActiveMs = 60 * 60 * 1000): void {
+    projects = new InMemoryProjectSandboxStore([
+      {
+        projectId: PROJECT,
+        sandboxId,
+        sessionIds: [SESSION],
+        lastActiveAt: new Date(NOW - lastActiveMs).toISOString(),
+        viewedAt: new Date(NOW - viewedMs).toISOString(),
+      },
+    ]);
+  }
+
+  it("is kept warm while its viewer is still there", async () => {
+    // The bug this exists for: somebody clicking round their app in the preview for ten minutes
+    // writes no event, and used to come back to a restore that could include a `bun install`.
+    viewed(60 * 1000);
+
+    const result = await sweep();
+
+    expect(result.keptWarm).toEqual([PROJECT]);
+    expect(result.reaped).toEqual([]);
+    expect(snapshots.all()).toEqual([]);
+    await expect(sandbox.resume(sandboxId)).resolves.toMatchObject({ ok: true });
+  });
+
+  it("has its provider deadline pushed back, or the provider kills what the sweep spared", async () => {
+    // E2B's timer runs from the last turn's keepalive, not from anything a viewer does.
+    viewed(60 * 1000);
+
+    await sweep();
+
+    expect(sandbox.timeoutOf(sandboxId)).toBe(KEEP_ALIVE_MS);
+  });
+
+  it("never shortens a deadline something longer already set", async () => {
+    // `extendTimeout` *replaces* a deadline, so keeping warm with it could cut short the longer
+    // one a turn's verification asked for. Keeping warm only ever lengthens.
+    await sandbox.extendTimeout(sandboxId, 2 * KEEP_ALIVE_MS);
+    viewed(60 * 1000);
+
+    await sweep();
+
+    expect(sandbox.timeoutOf(sandboxId)).toBe(2 * KEEP_ALIVE_MS);
+  });
+
+  it("keeps the capacity its sandbox occupies counted", async () => {
+    // A warm sandbox is billed exactly like a busy one, so its slot of the ceiling stays taken.
+    const capacity = new InMemorySandboxCapacity();
+    const reserved = await capacity.reserve({ projectId: PROJECT, userId: USER });
+    if (reserved.ok) await capacity.activate(reserved.value.id, sandboxId);
+    viewed(60 * 1000);
+
+    await sweep({ capacity });
+
+    expect(capacity.held()).toHaveLength(1);
+  });
+
+  it("is reaped once its viewer has been gone for the idle limit", async () => {
+    // A tab that went hidden, closed or lost its network stops signalling; that silence is
+    // judged by the same limit as any other.
+    viewed(IDLE_MS + 60 * 1000);
+
+    const result = await sweep();
+
+    expect(result.keptWarm).toEqual([]);
+    expect(result.reaped).toEqual([PROJECT]);
+  });
+
+  it("is reaped at the hard cap however continuously it is viewed", async () => {
+    // A visible tab nobody is sitting at signals forever. The cap is what bounds the bill.
+    viewed(60 * 1000, VIEWER_CAP_MS + 60 * 1000);
+
+    const result = await sweep();
+
+    expect(result.keptWarm).toEqual([]);
+    expect(result.reaped).toEqual([PROJECT]);
+  });
+
+  it("is released like any other when the provider already killed its sandbox", async () => {
+    // Keeping warm a sandbox that is gone would leave the project naming it, and its slot
+    // counted, until the viewer left.
+    await sandbox.destroy(sandboxId);
+    viewed(60 * 1000);
+
+    const result = await sweep();
+
+    expect(result.keptWarm).toEqual([]);
+    expect(result.abandoned).toEqual([PROJECT]);
+    expect(projects.get(PROJECT)?.sandboxId).toBeNull();
+  });
+
+  it("is left alone and reported when the provider could not be reached", async () => {
+    // Not evidence the sandbox is gone, and a viewer is still looking at it: destroying it
+    // over one failed request is the bug again. The next tick tries again.
+    vi.spyOn(sandbox, "resume").mockResolvedValueOnce({
+      ok: false,
+      error: { code: "unavailable", message: "E2B is down" },
+    });
+    viewed(60 * 1000);
+
+    const result = await sweep();
+
+    expect(result.reaped).toEqual([]);
+    expect(result.failed).toMatchObject([{ projectId: PROJECT, reason: "keep_warm_failed" }]);
     await expect(sandbox.resume(sandboxId)).resolves.toMatchObject({ ok: true });
   });
 });

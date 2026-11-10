@@ -246,6 +246,75 @@ describe("GET /ws", () => {
   });
 });
 
+describe("a viewer on /ws", () => {
+  /** A socket opened on `sessionId` by the default caller, with viewing recorded into `viewed`. */
+  async function connect(sessionId: string, owner: string = FAKE_OWNER) {
+    const viewed: string[] = [];
+    const upgrader = new FakeUpgrader();
+    const res = await app({
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        sessions: new InMemorySessionStore([
+          { sessionId: SESSION, projectId: "project-1", userId: owner },
+        ]),
+        upgradeWebSocket: upgrader.upgrade,
+        viewers: {
+          recordViewer: async (id) => {
+            viewed.push(id);
+          },
+        },
+      },
+    }).request(`/ws?sessionId=${sessionId}`);
+    const events = upgrader.calls[0];
+    const socket = fakeSocket();
+    events?.onOpen?.(new Event("open"), socket);
+    const send = (data: string) =>
+      events?.onMessage?.(new MessageEvent("message", { data }), socket);
+    return { res, viewed, send, upgraded: events !== undefined };
+  }
+
+  it("records a viewing signal against the socket's own session", async () => {
+    const { viewed, send } = await connect(SESSION);
+
+    send('{"type":"viewing"}');
+
+    expect(viewed).toEqual([SESSION]);
+  });
+
+  it("does not let one connection record more than once a minute", async () => {
+    const { viewed, send } = await connect(SESSION);
+
+    send('{"type":"viewing"}');
+    send('{"type":"viewing"}');
+    send('{"type":"viewing"}');
+
+    expect(viewed).toEqual([SESSION]);
+  });
+
+  it("records nothing for a heartbeat alone", async () => {
+    // A hidden tab still answers pings; only a visible one says it is looking.
+    const { viewed, send } = await connect(SESSION);
+
+    send('{"type":"pong"}');
+
+    expect(viewed).toEqual([]);
+  });
+
+  it("never lets somebody keep a project they do not own warm", async () => {
+    // Authorized exactly as the socket is, because it *is* the socket: a session that is not the
+    // caller's is refused before any upgrade, so there is nothing to send a signal down.
+    const { res, viewed, upgraded } = await connect(
+      SESSION,
+      "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a",
+    );
+
+    expect(res.status).toBe(404);
+    expect(upgraded).toBe(false);
+    expect(viewed).toEqual([]);
+  });
+});
+
 describe("stream tickets", () => {
   /*
    * In production the page reaches this API through the web app's own origin, so the session

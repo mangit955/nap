@@ -27,7 +27,7 @@ import type { SteerQueue } from "@nap/shared/ports/steer-queue";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
 import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import type { WSEvents } from "hono/ws";
+import { WSContext, type WSEvents } from "hono/ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { encryptionKeyFrom } from "./account/secret-box.ts";
 import { composeNap, type NapDeps } from "./compose.ts";
@@ -57,6 +57,7 @@ const CONFIG: NapDeps["config"] = {
   NAP_MAX_SANDBOXES_TOTAL: 10,
   NAP_SANDBOX_TTL_MINUTES: 30,
   NAP_REAP_IDLE_MINUTES: 10,
+  NAP_VIEWER_KEEP_WARM_MINUTES: 60,
   NAP_REAP_INTERVAL_SECONDS: 60,
   NAP_JANITOR_INTERVAL_SECONDS: 60,
   NAP_WORKER_CONCURRENCY: 4,
@@ -562,6 +563,52 @@ describe("composeNap", () => {
     expect(accepted.status).toBe(202);
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(queue.inFlight).toBe(1);
+  });
+
+  it("keeps warm a project a socket on another process says somebody is looking at", async () => {
+    // The two halves of the fix live in different processes: the API pod holding the socket
+    // records the viewer, and the reaper reads it. What they share is the store, which in a
+    // deployment is Postgres; here it is one fake handed to both compositions.
+    const sandbox = turnableSandbox();
+    const created = await sandbox.create(PROJECT);
+    if (!created.ok) throw new Error("could not create a sandbox");
+    const projectSandboxes = new InMemoryProjectSandboxStore([
+      {
+        projectId: PROJECT,
+        sandboxId: created.value.id,
+        sessionIds: [SESSION],
+        // Past the idle limit and inside the cap: only a viewer can keep it now.
+        lastActiveAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      },
+    ]);
+    const sockets: WSEvents[] = [];
+    const api = compose({
+      role: "api",
+      sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]),
+      projectSandboxes,
+      sandbox,
+      upgradeWebSocket: async (_c: unknown, events: WSEvents) => {
+        sockets.push(events);
+        return new Response(null);
+      },
+    });
+    await api.app.request(`/ws?sessionId=${SESSION}`);
+    const socket = new WSContext({ send: () => {}, close: () => {}, readyState: 1 });
+    sockets[0]?.onOpen?.(new Event("open"), socket);
+    sockets[0]?.onMessage?.(new MessageEvent("message", { data: '{"type":"viewing"}' }), socket);
+
+    compose({
+      role: "reaper",
+      projectSandboxes,
+      sandbox,
+      config: { ...CONFIG, NAP_REAP_INTERVAL_SECONDS: 0.01 },
+    });
+
+    // The provider's deadline pushed out to the sandbox's lifetime, and the project still holding it.
+    await expect
+      .poll(() => sandbox.timeoutOf(created.value.id), { timeout: 2000 })
+      .toBe(CONFIG.NAP_SANDBOX_TTL_MINUTES * 60 * 1000);
+    expect(projectSandboxes.get(PROJECT)?.sandboxId).toBe(created.value.id);
   });
 
   it("announces a swept project's stopped preview on the bus the sockets are on", async () => {

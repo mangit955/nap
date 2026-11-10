@@ -227,6 +227,8 @@ beforeAll(async () => {
     snapshots,
     idleMs: 0,
     isBusy: async () => false,
+    // Nobody is looking: no socket in this test ever signals.
+    viewers: { capMs: 0, keepAliveMs: 30 * 60 * 1000 },
   });
 
   snapshotKey = (await snapshots.latestFor(projectId))?.key ?? "";

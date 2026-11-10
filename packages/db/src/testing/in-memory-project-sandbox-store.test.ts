@@ -12,7 +12,7 @@ describe("finding idle projects", () => {
     ]);
 
     await expect(store.idleSince(CUTOFF)).resolves.toEqual([
-      { projectId: "p1", sandboxId: "sb1", sessionIds: ["s1"], lastActiveAt: OLD },
+      { projectId: "p1", sandboxId: "sb1", sessionIds: ["s1"], lastActiveAt: OLD, viewedAt: null },
     ]);
   });
 
@@ -102,5 +102,52 @@ describe("releasing a sandbox", () => {
     await expect(store.releaseSandbox("p1", "sb1", "k")).rejects.toThrow(/connection terminated/);
     // Nothing was recorded, so the sweep can try again next time round.
     expect(store.get("p1")?.sandboxId).toBe("sb1");
+  });
+});
+
+describe("recording a viewer", () => {
+  const NOW = Date.parse("2026-08-09T12:00:00.000Z");
+
+  function store(now: () => number) {
+    return new InMemoryProjectSandboxStore(
+      [{ projectId: "p1", sandboxId: "sb1", sessionIds: ["s1", "s2"], lastActiveAt: OLD }],
+      { now },
+    );
+  }
+
+  it("reports when a session's viewer last signalled, without moving its activity", async () => {
+    const projects = store(() => NOW);
+
+    await projects.recordViewer("s2");
+
+    await expect(projects.idleSince(CUTOFF)).resolves.toMatchObject([
+      { projectId: "p1", lastActiveAt: OLD, viewedAt: new Date(NOW).toISOString() },
+    ]);
+  });
+
+  it("writes at most once a minute per project, as the real statement does", async () => {
+    let clock = NOW;
+    const projects = store(() => clock);
+    await projects.recordViewer("s1");
+
+    clock = NOW + 59_000;
+    await projects.recordViewer("s2");
+    expect(projects.get("p1")?.viewedAt).toBe(new Date(NOW).toISOString());
+
+    clock = NOW + 61_000;
+    await projects.recordViewer("s1");
+    expect(projects.get("p1")?.viewedAt).toBe(new Date(NOW + 61_000).toISOString());
+  });
+
+  it("records nothing for a project with no sandbox, or a session it does not know", async () => {
+    const projects = new InMemoryProjectSandboxStore(
+      [{ projectId: "p1", sessionIds: ["s1"], lastActiveAt: OLD }],
+      { now: () => NOW },
+    );
+
+    await projects.recordViewer("s1");
+    await projects.recordViewer("nobody");
+
+    expect(projects.get("p1")?.viewedAt).toBeNull();
   });
 });

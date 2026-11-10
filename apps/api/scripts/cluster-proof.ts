@@ -106,6 +106,7 @@ const CONFIG: NapConfig = {
   NAP_MAX_SANDBOXES_TOTAL: tunable("NAP_MAX_SANDBOXES_TOTAL", 50),
   NAP_SANDBOX_TTL_MINUTES: 30,
   NAP_REAP_IDLE_MINUTES: 29,
+  NAP_VIEWER_KEEP_WARM_MINUTES: 60,
   NAP_REAP_INTERVAL_SECONDS: 60,
   // The one sweep that matters here, and it is left fast: a rolling restart of the workers is
   // exactly when a turn's worker disappears, and the janitor is what tells the socket about it.

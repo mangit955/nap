@@ -8,13 +8,22 @@
  * that is wrong the first time a code path forgets to write it, and the event log cannot
  * forget: writing events is what a turn *is*.
  *
+ * **Viewing is a column, because it has no event.** A tab somebody is looking at writes nothing
+ * to the log, so `recordViewer` stamps `viewed_at` — and only that: moving `updated_at` instead
+ * would make a viewer indistinguishable from a turn, and the sweep's cap on how long viewing alone
+ * keeps a sandbox is measured from exactly that difference.
+ *
  * One query per sweep rather than one per project. There are only ever as many candidates as
  * there are running sandboxes, and the aggregate is what lets the reaper hold no state at all
  * between ticks.
  */
 
-import type { IdleProject, ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import {
+  type IdleProject,
+  type ProjectSandboxStore,
+  VIEWER_SIGNAL_INTERVAL_MS,
+} from "@nap/shared/ports/project-sandbox-store";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { events, projects, sessions } from "./schema.ts";
 
@@ -37,6 +46,7 @@ export class PostgresProjectSandboxStore implements ProjectSandboxStore {
           string[]
         >`coalesce(array_agg(distinct ${sessions.id}) filter (where ${sessions.id} is not null), '{}')`,
         lastActiveAt: sql<Date>`greatest(${projects.updatedAt}, max(${events.createdAt}))`,
+        viewedAt: projects.viewedAt,
       })
       .from(projects)
       .leftJoin(sessions, eq(sessions.projectId, projects.id))
@@ -54,7 +64,30 @@ export class PostgresProjectSandboxStore implements ProjectSandboxStore {
       sandboxId: row.sandboxId ?? "",
       sessionIds: row.sessionIds,
       lastActiveAt: new Date(row.lastActiveAt).toISOString(),
+      viewedAt: row.viewedAt === null ? null : row.viewedAt.toISOString(),
     }));
+  }
+
+  async recordViewer(sessionId: string): Promise<void> {
+    // One statement, and the throttle is its `where`: every tab on every pod is sending these, so
+    // a check in any one process's memory could never see the others. Postgres's clock on both
+    // sides of the comparison, so pods with drifting clocks still agree on what a minute is.
+    await this.#db
+      .update(projects)
+      .set({ viewedAt: sql`now()` })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, sessionId),
+          eq(projects.id, sessions.projectId),
+          // Nothing to keep warm, and put-away projects are most of what people have open.
+          isNotNull(projects.sandboxId),
+          or(
+            isNull(projects.viewedAt),
+            sql`${projects.viewedAt} < now() - make_interval(secs => ${VIEWER_SIGNAL_INTERVAL_MS / 1000})`,
+          ),
+        ),
+      );
   }
 
   async releaseSandbox(

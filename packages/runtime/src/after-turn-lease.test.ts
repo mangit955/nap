@@ -166,6 +166,7 @@ describe("a photograph still being taken", () => {
       snapshots,
       idleMs: 1,
       isBusy: (project) => queue.anyLeased(project.sessionIds),
+      viewers: { capMs: 60 * 60 * 1000, keepAliveMs: 30 * 60 * 1000 },
     });
 
     expect(swept.reaped).toEqual([PROJECT_ID]);
