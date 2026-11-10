@@ -11,9 +11,13 @@
  *
  * Reconnecting silently is a mixed blessing: the channel comes back on its own, and nothing
  * tells the process it ever went away. `PostgresNotifyEventBus` covers that with its own
- * heartbeat rather than reaching in here for a socket's state.
+ * heartbeat rather than reaching in here for a socket's state. What this does add is a warning
+ * each time a `LISTEN` is re-issued, because anything sent while the socket was down was missed,
+ * and each channel's fallback covers that — the catch-up poll, the claim poll, the lease
+ * renewal — only more slowly. Without the line, an outage shows only as everything being slow.
  */
 
+import { getLogger } from "@nap/shared/logging";
 import type { Sql } from "postgres";
 import type { NotificationHandler, NotifyTransport, Unlisten } from "./notify-transport.ts";
 
@@ -41,7 +45,17 @@ export class PostgresNotifyTransport implements NotifyTransport {
   }
 
   async listen(channel: string, handler: NotificationHandler): Promise<Unlisten> {
-    const subscription = await this.#listener.listen(channel, handler);
+    // postgres.js calls `onlisten` when the LISTEN first answers and again after every reconnect.
+    let answered = false;
+    const subscription = await this.#listener.listen(channel, handler, () => {
+      if (answered) {
+        getLogger().warn(
+          { channel },
+          "the listener reconnected; notifications sent while it was down were missed",
+        );
+      }
+      answered = true;
+    });
     return async () => {
       await subscription.unlisten();
     };
