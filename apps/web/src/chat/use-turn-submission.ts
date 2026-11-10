@@ -33,7 +33,7 @@ import {
   TurnAcceptanceSchema,
   TurnRequestStatusSchema,
 } from "@nap/shared/ports/turn-queue";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { requestFailureCopy } from "../errors/failure-copy.ts";
@@ -130,6 +130,38 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * A prompt somebody else already admitted — the dashboard, starting a project — handed over so it
+ * is shown and retired exactly like one sent from here. Display only: nothing re-sends it.
+ */
+export type AcceptedPrompt = {
+  sessionId: string;
+  requestId: string;
+  text: string;
+  attachments?: MediaAttachment[] | undefined;
+};
+
+/** Whether the log has written down the accepted request: its prompt, its steer or its end. */
+function acknowledged(events: readonly StoredEvent[], pending: PendingSubmission | undefined) {
+  if (pending?.kind !== "accepted") return false;
+  return events.some(
+    (event) =>
+      event.sessionId === pending.sessionId &&
+      // A steer is acknowledged by any record of it — waiting, read, or given back — or by the
+      // turn it became, which carries its id.
+      (((event.type === "steer.received" ||
+        event.type === "steer.applied" ||
+        event.type === "steer.dropped") &&
+        event.payload.steerId === pending.requestId) ||
+        (event.turnId === pending.requestId &&
+          (event.type === "user.message" ||
+            event.type === "test.started" ||
+            event.type === "turn.failed" ||
+            event.type === "turn.completed" ||
+            (pending.text === "/compact" && event.type === "compaction.started")))),
+  );
+}
+
 export function useTurnSubmission(options: {
   sessionId: string | undefined;
   events: readonly StoredEvent[];
@@ -137,11 +169,27 @@ export function useTurnSubmission(options: {
   connectionStatus?: StreamStatus;
   replayed?: boolean;
   fetchJson?: FetchJson;
+  /** Read once, on mount: a prompt to treat as this hook's own accepted request. */
+  accepted?: AcceptedPrompt | undefined;
 }): TurnSubmission {
   const { sessionId, events, baseUrl = DEFAULT_BASE_URL } = options;
   const fetchJson = options.fetchJson ?? credentialedFetch;
 
-  const [pending, setPending] = useState<PendingSubmission>();
+  const [pending, setPending] = useState<PendingSubmission | undefined>(() => {
+    const accepted = options.accepted;
+    return accepted === undefined
+      ? undefined
+      : {
+          purpose: "message",
+          key: Symbol(),
+          sessionId: accepted.sessionId,
+          text: accepted.text,
+          attachments: accepted.attachments,
+          afterCompaction: false,
+          kind: "accepted",
+          requestId: accepted.requestId,
+        };
+  });
   const [activity, setActivity] = useState<{
     sessionId: string;
     idleThroughSeq: number;
@@ -170,26 +218,15 @@ export function useTurnSubmission(options: {
 
   // Admission's ID also names the first turn. Text is not an identity across clients.
   // Read the whole replay so an event arriving before the POST response still acknowledges it.
+  // Worked out while rendering, not only in the effect that forgets it: the render that brings
+  // the log's copy would otherwise draw it beside the optimistic one until that effect ran.
+  const arrived = useMemo(() => acknowledged(events, pending), [events, pending]);
   useEffect(() => {
-    if (pending?.kind !== "accepted") return;
-    const arrived = events.some(
-      (event) =>
-        event.sessionId === pending.sessionId &&
-        // A steer is acknowledged by any record of it — waiting, read, or given back — or by the
-        // turn it became, which carries its id.
-        (((event.type === "steer.received" ||
-          event.type === "steer.applied" ||
-          event.type === "steer.dropped") &&
-          event.payload.steerId === pending.requestId) ||
-          (event.turnId === pending.requestId &&
-            (event.type === "user.message" ||
-              event.type === "test.started" ||
-              event.type === "turn.failed" ||
-              event.type === "turn.completed" ||
-              (pending.text === "/compact" && event.type === "compaction.started")))),
-    );
-    if (arrived) setPending((current) => (current?.key === pending.key ? undefined : current));
-  }, [events, pending]);
+    if (!arrived || pending === undefined) return;
+    const { key } = pending;
+    setPending((current) => (current?.key === key ? undefined : current));
+  }, [arrived, pending]);
+  const waiting = arrived ? undefined : pending;
 
   // A cancelled queued row never produces a user.message. Only that exact row's terminal
   // status can settle it; the active compaction's failure says nothing about a later prompt.
@@ -439,18 +476,24 @@ export function useTurnSubmission(options: {
   };
 
   const observation = activity?.sessionId === sessionId ? activity : undefined;
-  const turn = inFlightTurn(
-    events.filter((event) => event.sessionId === sessionId),
-    observation?.idleThroughSeq,
-  );
-  const testIsRunning =
-    turn !== undefined &&
-    events.some(
-      (event) =>
-        event.sessionId === sessionId &&
-        event.turnId === turn.turnId &&
-        event.type === "test.started",
+  // Both read the whole log, and this hook renders for reasons that are not the log — a pending
+  // message, a status change — so they are kept until the log or the boundary moves.
+  const idleBoundary = observation?.idleThroughSeq;
+  const { turn, testIsRunning } = useMemo(() => {
+    const turn = inFlightTurn(
+      events.filter((event) => event.sessionId === sessionId),
+      idleBoundary,
     );
+    const testIsRunning =
+      turn !== undefined &&
+      events.some(
+        (event) =>
+          event.sessionId === sessionId &&
+          event.turnId === turn.turnId &&
+          event.type === "test.started",
+      );
+    return { turn, testIsRunning };
+  }, [events, sessionId, idleBoundary]);
 
   return {
     submit,
@@ -458,18 +501,18 @@ export function useTurnSubmission(options: {
     startTest,
     cancel,
     pending:
-      pending?.sessionId === sessionId && pending?.purpose === "message" ? pending.text : undefined,
+      waiting?.sessionId === sessionId && waiting?.purpose === "message" ? waiting.text : undefined,
     pendingSteer:
-      pending?.sessionId === sessionId && pending?.purpose === "steer" ? pending.text : undefined,
-    pendingAttachments: pending?.sessionId === sessionId ? pending?.attachments : undefined,
-    pendingAfterCompaction: pending?.sessionId === sessionId && pending?.afterCompaction === true,
+      waiting?.sessionId === sessionId && waiting?.purpose === "steer" ? waiting.text : undefined,
+    pendingAttachments: waiting?.sessionId === sessionId ? waiting?.attachments : undefined,
+    pendingAfterCompaction: waiting?.sessionId === sessionId && waiting?.afterCompaction === true,
     running:
-      (pending !== undefined && pending.sessionId === sessionId) ||
+      (waiting !== undefined && waiting.sessionId === sessionId) ||
       observation?.active === true ||
       turn !== undefined,
     testPhase: testIsRunning
       ? "running"
-      : pending?.sessionId === sessionId && pending?.purpose === "test"
+      : waiting?.sessionId === sessionId && waiting?.purpose === "test"
         ? "starting"
         : "idle",
     startedAt: turn?.startedAt,

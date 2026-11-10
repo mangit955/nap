@@ -20,8 +20,9 @@ import type { PlanActions } from "../chat/agent-cards.tsx";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript, type RetryHandler } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
-import type { FirstPrompt } from "../chat/first-prompt.ts";
+import { type FirstPrompt, peekFirstPrompt } from "../chat/first-prompt.ts";
 import { modelInUse } from "../chat/model-picker.tsx";
+import { peekStartedPrompt, takeStartedPrompt } from "../chat/started-prompt.ts";
 import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
@@ -85,11 +86,13 @@ export function ChatPane({
   active?: boolean;
   events: readonly StoredEvent[];
   /**
-   * The log has not arrived yet, which is *not* the same as there being none.
+   * The log has not arrived in full yet, which is *not* the same as there being none.
    *
    * Without it this pane greets a project with forty turns in it by inviting the user to
    * describe an app — the empty state is the honest answer to "no events" and the wrong answer
-   * to "no events yet", and nothing in a list of events distinguishes the two.
+   * to "no events yet", and nothing in a list of events distinguishes the two. It holds the
+   * skeleton over a log that has partly arrived too: drawing a replay as it lands painted the
+   * transcript a piece at a time, with the scroll position chasing it.
    */
   loading?: boolean;
   pending?: string | undefined;
@@ -202,7 +205,7 @@ export function ChatPane({
             className="chat-scroller nap-scroll relative h-full overflow-y-auto overflow-x-hidden focus-visible:outline-accent"
             style={{ paddingBottom: composerHeight, scrollPaddingBottom: composerHeight }}
           >
-            {empty && loading ? (
+            {loading && pending === undefined && pendingSteer === undefined ? (
               <TranscriptSkeleton />
             ) : empty ? (
               <EmptyState />
@@ -416,6 +419,23 @@ export function LiveChatPane({
 }) {
   const { events, replayed } = log;
   const injected = fetchJson === undefined ? {} : { fetchJson };
+  /**
+   * The prompt the dashboard started this project with, already admitted as its first request.
+   *
+   * Peeked while rendering, which may happen twice, and taken once in an effect. The submission
+   * hook adopts it as a request it had sent itself, so it is drawn at once and retired by that
+   * request's identity — its `user.message`, or its end without one — and is never sent again.
+   * Its session is known from the dashboard's receipt before the project record says so, which
+   * is what lets the bubble be drawn while that record is still on its way.
+   */
+  const [started] = useState(() =>
+    projectId === undefined ? undefined : peekStartedPrompt(projectId),
+  );
+  useEffect(() => {
+    if (projectId !== undefined) takeStartedPrompt(projectId);
+  }, [projectId]);
+  // Belongs to the project this pane was first drawn for, and to no other it is handed later.
+  const handedOver = started?.projectId === projectId ? started : undefined;
   const {
     submit,
     startTest,
@@ -431,10 +451,11 @@ export function LiveChatPane({
     openedAt,
     error,
   } = useTurnSubmission({
-    sessionId,
+    sessionId: sessionId ?? handedOver?.sessionId,
     events,
     connectionStatus: log.status,
     replayed,
+    accepted: handedOver,
     ...injected,
   });
   const reportActivity = useEffectEvent((activity: TurnActivity) => onActivity?.(activity));
@@ -448,8 +469,22 @@ export function LiveChatPane({
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
-  const [model, setModel] = useState<string | undefined>(undefined);
+  const [model, setModel] = useState<string | undefined>(() => handedOver?.model);
   const [firstPrompt, setFirstPrompt] = useState<FirstPrompt>();
+  /**
+   * The front page's prompt, shown from the first frame, before there is a session to send it to.
+   *
+   * Read without taking it — sending it is still `useFirstPrompt`'s, once — and cleared in the
+   * same batch as the send that sets the submission's own pending message, so the two are never
+   * on screen together. From there the submission hook replaces it with the log's copy as it
+   * does for any message.
+   */
+  const [early, setEarly] = useState(() =>
+    // A started prompt is the one on its way: the front page's would be a second bubble.
+    projectId === undefined || handedOver !== undefined
+      ? undefined
+      : peekFirstPrompt(projectId)?.text,
+  );
 
   // Through the same submission path as the input, so the front page's first message is an
   // ordinary turn — same optimistic message, same rate limit, same refusal wording.
@@ -460,6 +495,7 @@ export function LiveChatPane({
       // The dashboard's selected model is part of its first prompt. Put it in the workspace
       // state before sending, so the composer stays truthful for the turns that follow.
       if (firstModel !== undefined) setModel(firstModel);
+      setEarly(undefined);
       setFirstPrompt({ text: message, model: firstModel, attachments });
       void submit(message, firstModel, attachments).then((accepted) => {
         if (accepted) setFirstPrompt(undefined);
@@ -477,8 +513,8 @@ export function LiveChatPane({
         events={events}
         // Nothing has been asked for yet when there is no session: the project record is still on
         // its way, so the log this pane will show has not even been subscribed to.
-        loading={sessionId === undefined || (!replayed && events.length === 0)}
-        pending={pending}
+        loading={sessionId === undefined || !replayed}
+        pending={pending ?? early}
         pendingSteer={pendingSteer}
         pendingAttachments={pendingAttachments}
         pendingAfterCompaction={pendingAfterCompaction}

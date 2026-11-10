@@ -27,6 +27,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { readProject } from "./project-prefetch.ts";
 
 export type ProjectsStatus = "loading" | "ready" | "error";
 
@@ -356,7 +357,8 @@ export function useProject(
 
     void (async () => {
       try {
-        const response = await fetchJson(`${baseUrl}/projects/${projectId}`);
+        // The frame may have asked already, while the session was still being checked.
+        const response = await readProject(`${baseUrl}/projects/${projectId}`, fetchJson);
         if (abandoned) return;
 
         if (response.status === 404) {

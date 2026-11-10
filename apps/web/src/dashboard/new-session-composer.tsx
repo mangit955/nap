@@ -7,6 +7,7 @@ import { SessionStartedSchema, SessionStartSchema } from "@nap/shared/session-st
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
+import { handOffStartedPrompt } from "../chat/started-prompt.ts";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { type RepositoryChoice, RepositoryPicker } from "../github/repository-picker.tsx";
@@ -274,6 +275,19 @@ export function NewSessionComposer({
       await persistenceFor(value).tail;
       await store.current.remove(ownerId, value.id);
       sessionStorage.removeItem(pointer);
+      // The server has admitted the prompt; the workspace has nothing to show for it until the
+      // log is replayed. Hand it the prompt to draw meanwhile — for display, named by the request
+      // it was admitted as, and never to send again.
+      const prompt = parsed.data.prompt;
+      if (prompt !== undefined)
+        handOffStartedPrompt({
+          projectId: result.projectId,
+          sessionId: result.sessionId,
+          requestId: result.requestId,
+          text: prompt.message,
+          ...(prompt.attachments === undefined ? {} : { attachments: prompt.attachments }),
+          ...(prompt.model === undefined ? {} : { model: prompt.model }),
+        });
       router.push(`/p/${result.projectId}`);
     } catch (error) {
       setError(

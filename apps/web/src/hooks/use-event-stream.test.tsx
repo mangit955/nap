@@ -2,7 +2,7 @@ import type { NapEvent } from "@nap/shared/events";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sockets } from "../testing/fake-socket.ts";
-import { BACKOFF, useEventStream } from "./use-event-stream.ts";
+import { BACKOFF, LIVE_BATCH_MS, useEventStream } from "./use-event-stream.ts";
 
 /**
  * A `.tsx` file with no JSX in it, deliberately: the `web` vitest project globs `*.test.tsx`,
@@ -90,6 +90,7 @@ describe("connecting", () => {
       net.latest.open();
       net.latest.deliver({ type: "event", event: event(1, "one") });
       net.latest.deliver({ type: "event", event: event(2, "two") });
+      net.latest.deliver({ type: "ready" });
     });
 
     expect(result.current.events.map((e) => e.seq)).toEqual([1, 2]);
@@ -137,6 +138,7 @@ describe("reconnecting", () => {
       // A server replaying one event further back than needed must not double it.
       net.latest.deliver({ type: "event", event: event(2, "two") });
       net.latest.deliver({ type: "event", event: event(3, "three") });
+      net.latest.deliver({ type: "ready" });
     });
 
     expect(result.current.events.map((e) => e.seq)).toEqual([1, 2, 3]);
@@ -202,6 +204,7 @@ describe("what it accepts", () => {
       net.latest.deliver({ type: "event", event: event(2, "two") });
       net.latest.deliver({ type: "event", event: event(2, "two again") });
       net.latest.deliver({ type: "event", event: event(1, "one again") });
+      net.latest.deliver({ type: "ready" });
     });
 
     expect(result.current.events.map((e) => e.seq)).toEqual([1, 2]);
@@ -217,6 +220,7 @@ describe("what it accepts", () => {
       net.latest.open();
       net.latest.deliver({ type: "event", event: event(1, "mine") });
       net.latest.deliver({ type: "event", event: event(2, "theirs", OTHER_SESSION) });
+      net.latest.deliver({ type: "ready" });
     });
 
     expect(result.current.events.map((e) => e.payload)).toEqual([{ text: "mine" }]);
@@ -232,12 +236,33 @@ describe("what it accepts", () => {
       net.latest.deliver('{"type":"unknown"}');
       net.latest.deliver({ type: "error", message: "seq: must be a non-negative integer" });
       net.latest.deliver({ type: "event", event: event(1, "still working") });
+      net.latest.deliver({ type: "ready" });
     });
 
     expect(result.current.events.map((e) => e.seq)).toEqual([1]);
     expect(result.current.status).toBe("open");
     expect(net.latest.closed).toBe(false);
   });
+});
+
+it("refuses an event frame whose event breaks the contract", () => {
+  // The frame parses as JSON and says it is an event, which is all the checks above it look at.
+  // Only the schema stands between a broken event and a transcript that renders it — and taking
+  // its `seq` would then drop the real event with that number as a duplicate.
+  const net = sockets();
+  const { result } = render(net);
+
+  act(() => {
+    net.latest.open();
+    net.latest.deliver(JSON.stringify({ type: "event", event: { ...event(1, "x"), payload: {} } }));
+    net.latest.deliver(
+      JSON.stringify({ type: "event", event: { ...event(1, "x"), createdAt: "yesterday" } }),
+    );
+    net.latest.deliver({ type: "event", event: event(1, "the real one") });
+    net.latest.deliver({ type: "ready" });
+  });
+
+  expect(result.current.events.map((e) => e.payload)).toEqual([{ text: "the real one" }]);
 });
 
 describe("heartbeat", () => {
@@ -531,6 +556,7 @@ it("retains opted-in repair ownership while advancing the replay cursor", () => 
   act(() => {
     net.latest.open();
     net.latest.deliver({ type: "event", event: repair });
+    net.latest.deliver({ type: "ready" });
   });
   expect(result.current.events).toEqual([repair]);
   expect(result.current.lastSeq).toBe(1);
@@ -631,5 +657,126 @@ describe("connecting with a ticket", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(net.opened).toHaveLength(0);
+  });
+});
+
+describe("committing the log in batches", () => {
+  /*
+   * The server sends one frame per stored event, and replay is every stored event. Committing
+   * each one re-ran every derivation of the whole log, so opening a session of N events cost
+   * N² work before the first useful paint. These count renders, because a render is the unit
+   * that every derivation above this hook pays for.
+   */
+  function counted(net: ReturnType<typeof sockets>, sessionId: string = SESSION) {
+    const renders = { count: 0 };
+    const hook = renderHook(
+      ({ id }: { id: string }) => {
+        renders.count += 1;
+        return useEventStream({ sessionId: id, baseUrl: URL_BASE, createSocket: net.createSocket });
+      },
+      { initialProps: { id: sessionId } },
+    );
+    return { ...hook, renders };
+  }
+
+  const many = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, i) => event(from + i, `event ${from + i}`));
+
+  it.each([10, 500])(
+    "commits a replay of %i events once, when the server says it is complete",
+    (size) => {
+      const net = sockets();
+      const { result, renders } = counted(net);
+      act(() => net.latest.open());
+      const before = renders.count;
+
+      // One `act` per frame, as a browser dispatches one task per message: inside a single
+      // `act` React would batch them all anyway, and the count would prove nothing.
+      for (const e of many(1, size)) act(() => net.latest.deliver({ type: "event", event: e }));
+      // Nothing is drawn from a log that is still arriving.
+      expect(renders.count).toBe(before);
+      expect(result.current.events).toEqual([]);
+
+      act(() => net.latest.deliver({ type: "ready" }));
+
+      expect(renders.count).toBe(before + 1);
+      expect(result.current.events.map((e) => e.seq)).toEqual(many(1, size).map((e) => e.seq));
+      expect(result.current.lastSeq).toBe(size);
+      expect(result.current.replayed).toBe(true);
+    },
+  );
+
+  it("batches live events, and still delivers every one in order", () => {
+    vi.useFakeTimers();
+    const net = sockets();
+    const { result, renders } = counted(net);
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+    });
+    const before = renders.count;
+
+    for (const e of many(1, 20)) act(() => net.latest.deliver({ type: "event", event: e }));
+    expect(renders.count).toBe(before);
+    act(() => void vi.advanceTimersByTime(LIVE_BATCH_MS));
+    expect(renders.count).toBe(before + 1);
+
+    for (const e of many(21, 25)) act(() => net.latest.deliver({ type: "event", event: e }));
+    act(() => void vi.advanceTimersByTime(LIVE_BATCH_MS));
+
+    expect(renders.count).toBe(before + 2);
+    expect(result.current.events.map((e) => e.seq)).toEqual(many(1, 25).map((e) => e.seq));
+    expect(result.current.lastSeq).toBe(25);
+  });
+
+  it("neither drops nor doubles events when the connection drops mid-replay", () => {
+    vi.useFakeTimers();
+    const net = sockets();
+    const { result } = counted(net);
+    act(() => {
+      net.latest.open();
+      for (const e of many(1, 3)) net.latest.deliver({ type: "event", event: e });
+      net.latest.drop();
+    });
+    // Resumes after what it received, not after what it had drawn.
+    act(() => void vi.advanceTimersByTime(BACKOFF.initialMs));
+    expect(net.seqOf(1)).toBe("3");
+
+    act(() => {
+      net.latest.open();
+      // A replay overlapping by one, then the rest of it.
+      for (const e of many(3, 6)) net.latest.deliver({ type: "event", event: e });
+      net.latest.deliver({ type: "ready" });
+    });
+
+    expect(result.current.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(result.current.replayed).toBe(true);
+  });
+
+  it("leaves nothing from the previous session behind, buffered or scheduled", () => {
+    vi.useFakeTimers();
+    const net = sockets();
+    const { result, rerender } = counted(net);
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+      // One live event waiting on its batch, and a replay that never finished on a socket
+      // the switch is about to close.
+      net.latest.deliver({ type: "event", event: event(1, "previous, live") });
+    });
+    const previous = net.latest;
+
+    rerender({ id: OTHER_SESSION });
+    act(() => {
+      previous.deliver({ type: "event", event: event(2, "previous, late") });
+      previous.deliver({ type: "ready" });
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: event(1, "next", OTHER_SESSION) });
+      net.latest.deliver({ type: "ready" });
+    });
+    act(() => void vi.advanceTimersByTime(LIVE_BATCH_MS * 4));
+
+    expect(result.current.events.map((e) => e.payload)).toEqual([{ text: "next" }]);
+    expect(result.current.lastSeq).toBe(1);
   });
 });

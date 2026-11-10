@@ -24,7 +24,7 @@ import {
   FileListingSchema,
 } from "@nap/shared/files-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { changeCount } from "./changed-paths.ts";
 
@@ -34,6 +34,9 @@ import { changeCount } from "./changed-paths.ts";
  * a test could stub one and miss the other.
  */
 export type FetchJson = (url: string, init?: RequestInit) => Promise<Response>;
+
+/** How long the listing waits for the log to go quiet before walking the sandbox again. */
+export const LISTING_DEBOUNCE_MS = 400;
 
 export type LoadStatus = "idle" | "loading" | "ready" | "error";
 
@@ -51,9 +54,16 @@ export type ProjectFiles = {
 };
 
 export function useProjectFiles(
-  options: Request & { events: readonly StoredEvent[] },
+  options: Request & {
+    events: readonly StoredEvent[];
+    /**
+     * Whether the log has been delivered in full. Nothing is listed before it has: the replay
+     * lands as one batch, and listing ahead of it would only be listing again a moment later.
+     */
+    replayed: boolean;
+  },
 ): ProjectFiles {
-  const { sessionId, events, baseUrl = DEFAULT_BASE_URL } = options;
+  const { sessionId, events, replayed, baseUrl = DEFAULT_BASE_URL } = options;
   const fetchJson = options.fetchJson ?? defaultFetch;
 
   const [listing, setListing] = useState<FileListing | undefined>(undefined);
@@ -66,29 +76,64 @@ export function useProjectFiles(
    * a *new filesystem*, and the moment the endpoint stops answering `ready: false` — without it
    * the tree sits on that answer until the agent happens to write something.
    */
-  const staleness = stalenessOf(events);
+  const staleness = useMemo(() => stalenessOf(events), [events]);
 
-  // `fetchJson` is deliberately not a dependency: an inline arrow is a new function on every
-  // render, and refetching the whole project each time is not what a caller means by passing
-  // one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  /**
+   * Everything asked for the session on screen, abandoned together when it changes: the requests
+   * in the air are aborted and their answers dropped, so nothing of one project lands in the next.
+   */
+  const scope = useRef<AbortController | undefined>(undefined);
+  /** Whether this session has been listed yet. The first listing is not debounced. */
+  const listed = useRef(false);
+  /** Requests are numbered as they are sent, and only an answer newer than the last shown is. */
+  const sent = useRef(0);
+  const shown = useRef(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: another server is another scope too
   useEffect(() => {
+    listed.current = false;
     if (sessionId === undefined) {
       setStatus("idle");
       setListing(undefined);
       return;
     }
-
-    let abandoned = false;
+    const controller = new AbortController();
+    scope.current = controller;
     setStatus("loading");
+    setListing(undefined);
+    return () => {
+      controller.abort();
+      scope.current = undefined;
+    };
+  }, [sessionId, baseUrl]);
 
-    void (async () => {
+  /*
+   * Asks again when the project moved — once the log has stopped moving it for a moment.
+   *
+   * A trailing debounce rather than one request per change: a turn writing twenty files is one
+   * listing, not twenty walks of the sandbox. Answers can come back in any order, so each is
+   * numbered and an older one arriving late is dropped rather than shown over a newer one. And
+   * the tree keeps what it has while it asks: "loading" is for a tree with nothing to show.
+   */
+  // `fetchJson` is deliberately not a dependency: an inline arrow is a new function on every
+  // render, and refetching the whole project each time is not what a caller means by passing
+  // one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above; `staleness` is the trigger
+  useEffect(() => {
+    const controller = scope.current;
+    if (sessionId === undefined || !replayed || controller === undefined) return;
+
+    const ask = async () => {
+      listed.current = true;
+      const mine = ++sent.current;
       const result = await load(
         fetchJson,
         `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/files`,
         FileListingSchema,
+        controller.signal,
       );
-      if (abandoned) return;
+      if (controller.signal.aborted || mine < shown.current) return;
+      shown.current = mine;
 
       if (result === undefined) {
         setStatus("error");
@@ -97,13 +142,15 @@ export function useProjectFiles(
       }
       setListing(result);
       setStatus("ready");
-    })();
-
-    return () => {
-      // A response for a session the pane has left must not land in the pane it moved to.
-      abandoned = true;
     };
-  }, [sessionId, baseUrl, staleness]);
+
+    if (!listed.current) {
+      void ask();
+      return;
+    }
+    const timer = setTimeout(() => void ask(), LISTING_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [sessionId, baseUrl, staleness, replayed]);
 
   return { listing, status };
 }
@@ -160,7 +207,7 @@ export function useFileContent(
    */
   const inFlight = useRef(new Map<string, Promise<FileContent | undefined>>());
 
-  const staleness = stalenessOf(events);
+  const staleness = useMemo(() => stalenessOf(events), [events]);
 
   // Emptied during render rather than in an effect: an effect runs *after* the one below, so a
   // stale entry would be served for a frame before being thrown away — and that frame is what
@@ -299,9 +346,10 @@ async function load<T>(
   fetchJson: FetchJson,
   url: string,
   schema: { safeParse: (value: unknown) => { success: boolean; data?: T } },
+  signal?: AbortSignal,
 ): Promise<T | undefined> {
   try {
-    const response = await fetchJson(url);
+    const response = await (signal === undefined ? fetchJson(url) : fetchJson(url, { signal }));
     if (!response.ok) return undefined;
 
     const parsed = schema.safeParse(await response.json());

@@ -3,7 +3,15 @@
 import type { ComputerStream } from "@nap/shared/computer-access";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { ArrowLeft, ArrowRight, ExternalLink, Maximize2 } from "lucide-react";
-import { type CSSProperties, type RefObject, useCallback, useId, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type RefObject,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { LitBox } from "../glow/lit-box.tsx";
 import { RimGlow } from "../glow/rim-glow.tsx";
@@ -90,7 +98,12 @@ export function ComputerPane({
   const frameRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef<HTMLButtonElement>(null);
   useAiPulse({ ref: liveRef, paletteRef: liveRef, pulseMs: 1600, gapMs: 3400 });
-  const frames = events.filter((event) => event.type === "computer.screenshot");
+  // Kept with the log: the pane re-renders every second while a desktop starts, and on every
+  // move of the pointer along the timeline, neither of which changes what is in it.
+  const frames = useMemo(
+    () => events.filter((event) => event.type === "computer.screenshot"),
+    [events],
+  );
   const max = events.at(-1)?.seq ?? 0;
   const cursor = selectedSeq ?? max;
   const frame = frames.findLast((event) => event.seq <= cursor);
@@ -134,7 +147,10 @@ export function ComputerPane({
     },
     [source],
   );
-  const status = events.findLast((event) => event.type === "computer.status");
+  const status = useMemo(
+    () => events.findLast((event) => event.type === "computer.status"),
+    [events],
+  );
   const starting =
     selectedSeq === null &&
     status?.type === "computer.status" &&

@@ -26,30 +26,37 @@ export function TranscriptSkeleton() {
       aria-label="Loading this conversation"
       className="flex flex-col gap-5 px-4 py-4"
     >
-      <div aria-hidden="true" className="flex flex-col gap-5">
-        <div className="flex justify-end">
-          <span className="nap-skeleton h-8 w-[55%] rounded-2xl rounded-br-md" />
-        </div>
+      <TranscriptBlocks />
+    </div>
+  );
+}
 
-        <div className="flex flex-col gap-2">
-          {PROSE.slice(0, 3).map((width) => (
-            <span key={width} className={`nap-skeleton h-3 rounded-md ${width}`} />
-          ))}
-        </div>
+/** The blocks alone, hidden from a reader, for a placeholder that announces itself elsewhere. */
+export function TranscriptBlocks() {
+  return (
+    <div aria-hidden="true" className="flex flex-col gap-5">
+      <div className="flex justify-end">
+        <span className="nap-skeleton h-8 w-[55%] rounded-2xl rounded-br-md" />
+      </div>
 
-        {/* Where the folded run of tool calls sits — the one block with a border, since that
+      <div className="flex flex-col gap-2">
+        {PROSE.slice(0, 3).map((width) => (
+          <span key={width} className={`nap-skeleton h-3 rounded-md ${width}`} />
+        ))}
+      </div>
+
+      {/* Where the folded run of tool calls sits — the one block with a border, since that
             card is the only bordered thing in the transcript. */}
-        <span className="nap-skeleton h-11 w-full rounded-xl border border-edge" />
+      <span className="nap-skeleton h-11 w-full rounded-xl border border-edge" />
 
-        <div className="flex justify-end">
-          <span className="nap-skeleton h-8 w-[38%] rounded-2xl rounded-br-md" />
-        </div>
+      <div className="flex justify-end">
+        <span className="nap-skeleton h-8 w-[38%] rounded-2xl rounded-br-md" />
+      </div>
 
-        <div className="flex flex-col gap-2">
-          {PROSE.slice(1).map((width) => (
-            <span key={width} className={`nap-skeleton h-3 rounded-md ${width}`} />
-          ))}
-        </div>
+      <div className="flex flex-col gap-2">
+        {PROSE.slice(1).map((width) => (
+          <span key={width} className={`nap-skeleton h-3 rounded-md ${width}`} />
+        ))}
       </div>
     </div>
   );

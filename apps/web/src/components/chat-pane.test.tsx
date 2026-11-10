@@ -63,11 +63,25 @@ describe("ChatPane", () => {
     expect(screen.queryByRole("list", { name: /example prompts/i })).not.toBeInTheDocument();
   });
 
-  it("never covers a conversation it already has", () => {
-    // A reconnect mid-session must not replace what is on screen with a placeholder.
+  it("holds the skeleton over a log that has only partly arrived", () => {
+    // Drawing the first events of a replay painted the transcript a piece at a time, with the
+    // scroll position chasing it. A reconnect does not land here: once a log has been delivered,
+    // `loading` stays false across dropped connections (`useEventStream`'s `replayed`).
     render(<ChatPane events={[message]} loading />);
 
-    expect(screen.getByRole("log", { name: /transcript/i })).toHaveTextContent("Added App.tsx.");
+    expect(screen.getByRole("status", { name: /loading this conversation/i })).toBeInTheDocument();
+    expect(screen.queryByRole("log", { name: /transcript/i })).toBeNull();
+  });
+
+  it("shows a message on its way rather than a skeleton", () => {
+    // A new project's first prompt is on screen before its log has even been asked for.
+    render(<ChatPane events={[]} loading pending="Build a habit tracker" />);
+
+    expect(
+      within(screen.getByRole("region", { name: "Conversation" })).getByText(
+        "Build a habit tracker",
+      ),
+    ).toBeVisible();
     expect(screen.queryByRole("status", { name: /loading this conversation/i })).toBeNull();
   });
 

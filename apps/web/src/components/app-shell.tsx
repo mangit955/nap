@@ -229,6 +229,7 @@ export function AppShell({
   const files = useProjectFiles({
     sessionId,
     events: log.events,
+    replayed: log.replayed,
     ...(fetchJson === undefined ? {} : { fetchJson }),
   });
 
@@ -262,7 +263,10 @@ export function AppShell({
   const visiblePanel = panels.layout.open;
   const tests = useMemo(() => foldAppTests(log.events), [log.events]);
   const [turnActivity, setTurnActivity] = useState<TurnActivity | null>(null);
-  const computerBusy = computerIsBusy({ sessionId, events: log.events, activity: turnActivity });
+  const computerBusy = useMemo(
+    () => computerIsBusy({ sessionId, events: log.events, activity: turnActivity }),
+    [sessionId, log.events, turnActivity],
+  );
   const [recordingPosition, setRecordingPosition] = useState<{
     sessionId: string;
     turnId: string | null;

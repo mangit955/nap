@@ -15,13 +15,17 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { handOffStartedPrompt } from "../chat/started-prompt.ts";
 import { PREVIEW_TITLE } from "../components/preview-pane.tsx";
+import { LISTING_DEBOUNCE_MS } from "../files/use-project-files.ts";
+import { LIVE_BATCH_MS } from "../hooks/use-event-stream.ts";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 
 const PROJECT_A = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const PROJECT_B = "4e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const BETA_TURN = "8d2e3f40-5b6c-4d7e-9f0a-1b2c3d4e5f60";
+const ALPHA_REQUEST = "9e3f4a51-6c7d-4e8f-8a1b-2c3d4e5f6a71";
 
 let currentParams: { projectId?: string } = {};
 vi.mock("next/navigation", () => ({
@@ -85,6 +89,12 @@ let holdAlpha: boolean;
  */
 let heldForA: string[];
 let answeredForA: string[];
+/** The session of every listing asked for, in order. */
+let listings: string[];
+/** Every POST, in order: a started prompt must never add one. */
+let posted: string[];
+/** When set, every project record waits for it — the record still on its way. */
+let recordHeld: Promise<void> | undefined;
 
 /** Holds a read for A when the test asks for it, and records that it did. */
 async function maybeHold(project: Project, what: string): Promise<void> {
@@ -97,13 +107,17 @@ async function maybeHold(project: Project, what: string): Promise<void> {
 // The project record is addressed by project, the files by session — the same split the API
 // makes — so each is routed on the id its real endpoint carries.
 const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => {
-  if (init?.method === "POST") return json({ opened: true }, 202);
+  if (init?.method === "POST") {
+    posted.push(url);
+    return json({ opened: true }, 202);
+  }
   const { pathname, searchParams } = new URL(url);
 
   const bySession = Object.values(PROJECTS).find((project) =>
     pathname.startsWith(`/sessions/${project.sessionId}/`),
   );
   if (bySession !== undefined && pathname.endsWith("/files")) {
+    listings.push(bySession.sessionId);
     await maybeHold(bySession, "listing");
     return json({ ready: true, files: [bySession.file], truncated: false });
   }
@@ -123,6 +137,7 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
     | keyof typeof PROJECTS
     | undefined;
   if (id === undefined) return json({ error: "not found" }, 404);
+  await recordHeld;
   return json({
     projectId: id,
     name: PROJECTS[id].name,
@@ -184,6 +199,9 @@ beforeEach(() => {
   holdAlpha = false;
   heldForA = [];
   answeredForA = [];
+  listings = [];
+  posted = [];
+  recordHeld = undefined;
 });
 
 describe("switching projects in place", () => {
@@ -277,6 +295,121 @@ describe("switching projects in place", () => {
     expect(betaFiles().getByRole("button", { name: "BetaOnly.tsx" })).toBeVisible();
     expectNothingOfAlpha();
     expect(net.opened.filter((socket) => !socket.closed)).toEqual([beta]);
+  });
+
+  it("leaves nothing of the last project waiting to land: no buffered frame, no timer, no listing", async () => {
+    // What batching added is state that waits: a replay held until `ready`, live frames held for
+    // a frame, a listing held for its debounce. Every one of them belongs to A's mount, and a
+    // switch in the middle of all three must take them with it.
+    const view = render(workspace(PROJECT_A));
+    const alpha = await replayAlpha();
+    expect(
+      await within(screen.getByRole("region", { name: "Conversation" })).findByText("Alpha reply"),
+    ).toBeVisible();
+    await waitFor(() => expect(listings).toEqual([SESSION_ID]));
+
+    await act(async () => {
+      alpha.deliver({
+        type: "event",
+        event: ev("agent.message", { text: "Alpha late reply" }, 5),
+      });
+      alpha.deliver({
+        type: "event",
+        event: ev(
+          "file.changed",
+          { path: "src/AlphaOnly.tsx", changeType: "modified", diff: "" },
+          6,
+        ),
+      });
+    });
+    view.rerender(workspace(PROJECT_B));
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+    const beta = net.latest;
+    await act(async () => {
+      beta.open();
+      // Half a replay, then a frame for the wrong session: neither may be drawn yet, or ever.
+      const scope = { sessionId: OTHER_SESSION_ID, turnId: BETA_TURN };
+      beta.deliver({ type: "event", event: ev("user.message", { text: "Beta prompt" }, 1, scope) });
+      alpha.deliver({ type: "event", event: ev("agent.message", { text: "Alpha after" }, 7) });
+    });
+    expect(within(screen.getByRole("main")).queryByText("Beta prompt")).toBeNull();
+    await act(async () => {
+      // Finished, so a running turn on screen could only be A's.
+      const scope = { sessionId: OTHER_SESSION_ID, turnId: BETA_TURN };
+      beta.deliver({ type: "event", event: ev("turn.started", { source: "user" }, 2, scope) });
+      beta.deliver({
+        type: "event",
+        event: ev(
+          "turn.completed",
+          { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 10, commitSha: null },
+          3,
+          scope,
+        ),
+      });
+      beta.deliver({ type: "ready" });
+    });
+    expect(
+      await within(screen.getByRole("region", { name: "Conversation" })).findByText("Beta prompt"),
+    ).toBeVisible();
+
+    // Past every batch and every debounce A had scheduled.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, LISTING_DEBOUNCE_MS + LIVE_BATCH_MS * 4));
+    });
+    expect(within(screen.getByRole("main")).queryByText("Alpha late reply")).toBeNull();
+    expect(within(screen.getByRole("main")).queryByText("Alpha after")).toBeNull();
+    expectNothingOfAlpha();
+    expect(listings).toEqual([SESSION_ID, OTHER_SESSION_ID]);
+  });
+
+  it("shows a started prompt before A's record or log, and none of it in B", async () => {
+    // The dashboard admitted this prompt as A's first request and opened A. Nothing of it is in
+    // the workspace until the log is replayed, so the dashboard hands it over to draw meanwhile.
+    handOffStartedPrompt({
+      projectId: PROJECT_A,
+      sessionId: SESSION_ID,
+      requestId: ALPHA_REQUEST,
+      text: "Alpha started",
+    });
+    const record = gate();
+    recordHeld = record.wait;
+    const conversation = () => within(screen.getByRole("region", { name: "Conversation" }));
+
+    const view = render(workspace(PROJECT_A));
+    expect(await conversation().findByText("Alpha started")).toBeVisible();
+    expect(net.opened).toHaveLength(0);
+
+    // The record answers and the log is subscribed to, but its replay has not finished.
+    await act(async () => {
+      record.open();
+    });
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    const alpha = net.latest;
+    await act(async () => {
+      alpha.open();
+      alpha.deliver({
+        type: "event",
+        event: ev("user.message", { text: "Alpha started" }, 1, { turnId: ALPHA_REQUEST }),
+      });
+    });
+    expect(conversation().getAllByText("Alpha started")).toHaveLength(1);
+
+    // The replay ends with the request's own prompt in it: still one.
+    await act(async () => {
+      alpha.deliver({ type: "ready" });
+    });
+    expect(conversation().getAllByText("Alpha started")).toHaveLength(1);
+    expect(posted.filter((url) => url.includes("/turns"))).toEqual([]);
+
+    view.rerender(workspace(PROJECT_B));
+    expect(within(screen.getByRole("main")).queryByText("Alpha started")).toBeNull();
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(within(screen.getByRole("main")).queryByText("Alpha started")).toBeNull();
+    expect(posted.filter((url) => url.includes("/turns"))).toEqual([]);
   });
 
   it("keeps the sidebar mounted across the switch", async () => {
