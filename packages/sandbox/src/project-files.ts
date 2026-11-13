@@ -51,9 +51,9 @@ export type ProjectListing = {
   /** Project-root-relative, sorted. */
   paths: string[];
   /**
-   * Whether the entry limit kept back a file the listing had. `listTree` may cap a very large tree
-   * itself, without saying so, but only one many times larger than this limit — so a cut there is
-   * a cut here too, and reported.
+   * Whether the entry limit kept back a file the listing had. The shell adapter rejects listings
+   * that reach its raw byte ceiling, because an incomplete input cannot preserve shallow files
+   * or tell this caller what was excluded before the entry limit is applied.
    */
   truncated: boolean;
 };

@@ -52,10 +52,8 @@ export type FileTreeDigestOptions = {
  * The walk and its limits are the ones that used to make a sandbox call per folder, now reading
  * folders out of a single listing (`walkBreadthFirst`). What that listing holds is not quite what
  * the old walk saw: a repository's gitignored files are left out by design, the fallback for a
- * workspace without git lists regular files only — no symlinks — and a listing cut at its byte
- * ceiling is whatever the command printed first rather than the shallowest files: from git, every
- * tracked file before any untracked one, each in git's own order; from the fallback, the order the
- * directories hold.
+ * workspace without git lists regular files only — no symlinks. A listing that reaches its raw
+ * byte ceiling is unavailable rather than a partial prefix that could hide shallow files.
  */
 export async function buildFileTreeDigest(
   sandbox: SandboxManager,

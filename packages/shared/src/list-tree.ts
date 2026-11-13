@@ -19,9 +19,9 @@
  * moved file twice. The git branch therefore prints what the index has that the disk does not
  * first, then an empty record — two NULs in a row, which no path can produce — then the listing,
  * and the parser takes the first part away from the second. Deleted paths come first so that the
- * byte ceiling, which cuts from the end, can only ever cut the listing — and within the listing,
- * the files the project tracks come before the ones it does not, so the ceiling cuts untracked
- * files before any tracked one.
+ * byte ceiling, which cuts from the end, can only ever cut the listing. A command that reaches
+ * the ceiling is rejected: partial input cannot preserve the caller's breadth-first preference
+ * or tell it how much of the project is missing after exclusions.
  */
 
 import type { ExecResult, SandboxError, SandboxManager } from "./ports/sandbox-manager.ts";
@@ -31,7 +31,7 @@ import { shellQuote } from "./shell.ts";
 /**
  * A ceiling on what one listing may print. Roughly twenty thousand paths: an imported monorepo
  * can hold far more, and a listing that size is a megabyte of transfer for a digest that shows
- * two hundred of them. A cut listing is still a listing — the parser drops the partial tail.
+ * two hundred of them. Reaching it makes the listing unavailable rather than silently partial.
  */
 const MAX_OUTPUT_BYTES = 1_048_576;
 
@@ -120,6 +120,17 @@ export async function listTreeViaExec(
       error: {
         code: ran.value.exitCode < 0 ? "exec_failed" : "file_not_found",
         message: `cannot list ${root}: exit ${ran.value.exitCode} ${ran.value.stderr.trim()}`,
+      },
+    };
+  }
+  // Count UTF-8 bytes, as `head -c` does. Exclusions and breadth-first selection happen after
+  // this bound, so even complete records at the ceiling cannot be trusted as a project listing.
+  if (new TextEncoder().encode(ran.value.stdout).byteLength >= MAX_OUTPUT_BYTES) {
+    return {
+      ok: false,
+      error: {
+        code: "unavailable",
+        message: `cannot list ${root}: listing reached its ${MAX_OUTPUT_BYTES}-byte limit`,
       },
     };
   }

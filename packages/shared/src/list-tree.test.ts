@@ -168,6 +168,51 @@ describe("listTreeViaExec", () => {
     expect(result.ok).toBe(false);
   });
 
+  it.each(["x", "é"])(
+    "rejects a listing at its raw byte ceiling, including multibyte paths (%s)",
+    async (character) => {
+      // Complete NUL-separated records can still hide the rest of the project. The byte bound
+      // applies before exclusions, so none of the surviving records need be project files.
+      const ceiling = 1_048_576;
+      const stem = "dist/";
+      const remaining = ceiling - stem.length - 1;
+      const stdout = `${stem}${character.repeat(Math.floor(remaining / Buffer.byteLength(character)))}${"x".repeat(
+        remaining % Buffer.byteLength(character),
+      )}\0`;
+      expect(Buffer.byteLength(stdout)).toBe(ceiling);
+
+      const result = await listTreeViaExec(
+        { exec: async () => ({ ok: true, value: { exitCode: 0, stdout, stderr: "" } }) },
+        "sbx",
+        root,
+        { exclude: EXCLUDE, timeoutMs: 10_000 },
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "unavailable",
+          message: expect.stringContaining("listing reached its 1048576-byte limit"),
+        },
+      });
+    },
+  );
+
+  it("accepts a complete listing just below the raw byte ceiling", async () => {
+    const kept = "\0kept.ts\0";
+    const stdout = `dist/${"x".repeat(1_048_575 - 5 - kept.length)}${kept}`;
+    expect(Buffer.byteLength(stdout)).toBe(1_048_575);
+
+    const result = await listTreeViaExec(
+      { exec: async () => ({ ok: true, value: { exitCode: 0, stdout, stderr: "" } }) },
+      "sbx",
+      root,
+      { exclude: EXCLUDE, timeoutMs: 10_000 },
+    );
+
+    expect(result).toEqual({ ok: true, value: [`${root}/kept.ts`] });
+  });
+
   it("passes the caller's timeout to the sandbox, and has it stop the listing at the deadline", async () => {
     let seen: ExecOptions | undefined;
     await listTreeViaExec(
