@@ -48,9 +48,9 @@ Consecutive calls that change nothing run at once: reads, listings, globs, searc
 
 Verified against real `bash` on macOS (where `/bin/sh` is bash and there is no `setsid`) and on Debian (dash and `setsid`, as on E2B). The Debian run found that dash rejects `kill -- -PID`, which had left a stopped shell's children running. Not yet run on a real E2B sandbox.
 
-### D5: A file is read before it changes
+### D5: Whole-file replacements require a read; exact edits check current text
 
-A per-turn ledger records what the turn has read or written. `edit_file` and `write_file` refuse to change an existing file the turn has not seen. The refusal costs one read; the error it prevents is a confident edit against text that is not there, or a whole file overwritten unseen. `apply_patch` is exempt: its context lines are its own check. Reads return numbered lines and take an offset and limit.
+A per-turn ledger records what the turn has read or written whole. `write_file` refuses to overwrite an existing file the turn has not seen, and `edit_file` requires that knowledge for `replace_all`, whose match count may have changed. A unique exact edit needs no read: it checks the text against the current file, and refuses stale or ambiguous matches. It decodes UTF-8 strictly and preserves a BOM, so editing cannot silently re-encode unmatched bytes in a binary file. An edit does not make an unread file known. `apply_patch` checks its context lines and similarly remembers only files it creates or already knew, including across moves. Reads return numbered lines and take an offset and limit.
 
 ### D6: Plans and questions are events; a question ends the turn
 

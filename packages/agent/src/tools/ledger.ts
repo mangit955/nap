@@ -9,7 +9,8 @@
  * - `write_file` replaces all of it, so an existing file must be known. Refusing costs one
  *   `read_file`; allowing it costs whatever the file held.
  * - `edit_file` replaces only `old_string`, which must be in the file *now*, byte for byte, exactly
- *   once. That match is the guard, and it needs no read: text from a stale memory is not there and
+ *   once, and refuses files that cannot round-trip through UTF-8 without changing other bytes.
+ *   That match is the guard, and it needs no read: text from a stale memory is not there and
  *   the edit is refused with the advice to read. Demanding a read as well would cost a follow-up
  *   turn a full-context round trip before its first edit and add nothing — the gate never proved
  *   the model saw the edited lines, since reading any part of a file counts.

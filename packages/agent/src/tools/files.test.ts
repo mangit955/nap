@@ -90,6 +90,43 @@ describe("the rule that a file is read before it changes", () => {
     expect(events.filter((event) => event.type === "file.changed")).toHaveLength(1);
   });
 
+  it.each([false, true])(
+    "refuses non-UTF8 edits without changing bytes, even when the file is known: %s",
+    async (known) => {
+      const before = Uint8Array.from([255, 0, ...new TextEncoder().encode("old-marker")]);
+      await manager.writeFileBytes(sandboxId, APP, before);
+      if (known) await run("read_file", { path: APP });
+
+      const result = await run("edit_file", {
+        path: APP,
+        old_string: "old-marker",
+        new_string: "new-marker",
+      });
+
+      expect(result.ok).toBe(false);
+      expect(await manager.readFileBytes(sandboxId, APP)).toEqual({ ok: true, value: before });
+      expect(events.filter((event) => event.type === "file.changed")).toEqual([]);
+    },
+  );
+
+  it("preserves the UTF8 BOM and unmatched Unicode bytes when editing an unread file", async () => {
+    const before = "\uFEFFconst name = 'café';\n\uFFFD\u0000 keep\n";
+    await manager.writeFileBytes(sandboxId, APP, new TextEncoder().encode(before));
+
+    const result = await run("edit_file", {
+      path: APP,
+      old_string: "café",
+      new_string: "你好",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await manager.readFileBytes(sandboxId, APP)).toEqual({
+      ok: true,
+      value: new TextEncoder().encode("\uFEFFconst name = '你好';\n\uFFFD\u0000 keep\n"),
+    });
+    expect(events.filter((event) => event.type === "file.changed")).toHaveLength(1);
+  });
+
   it("refuses a stale edit to an unread file with the guidance to read it, and changes nothing", async () => {
     await manager.writeFile(sandboxId, APP, "const a = 3;\n");
 
