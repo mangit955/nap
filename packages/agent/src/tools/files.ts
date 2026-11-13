@@ -77,11 +77,21 @@ export async function editFile(
   args: ToolArgs<"edit_file">,
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
-  const read = await ctx.sandbox.readFile(ctx.sandboxId, args.path);
+  const read = await ctx.sandbox.readFileBytes(ctx.sandboxId, args.path);
   if (!read.ok) return failed(read.error);
-  if (ctx.ledger !== undefined && !ctx.ledger.knows(args.path)) return unread(args.path, "editing");
+  // Lossy decoding would rewrite unmatched bytes too. Keep a UTF8 BOM as part of the text.
+  let before: string;
+  try {
+    before = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(read.value);
+  } catch {
+    return { ok: false, output: `Cannot edit ${args.path}: the file is not valid UTF-8 text.` };
+  }
+  // An unread file may still be edited once, at text that is there exactly once — see the
+  // ledger. Every occurrence is another matter: how many there are now is what it cannot know.
+  const known = ctx.ledger === undefined || ctx.ledger.knows(args.path);
+  if (args.replace_all === true && !known)
+    return unread(args.path, "replacing every occurrence in");
 
-  const before = read.value;
   const occurrences = before.split(args.old_string).length - 1;
 
   if (occurrences === 0) {
@@ -95,7 +105,7 @@ export async function editFile(
     // wrong edit is harder to notice than a refused one.
     return {
       ok: false,
-      output: `That text appears ${occurrences} times in ${args.path}. Include enough surrounding lines to identify the one you mean, or set replace_all to change all ${occurrences}.`,
+      output: `That text appears ${occurrences} times in ${args.path}. Include enough surrounding lines to identify the one you mean, or ${known ? "" : "read the file and "}set replace_all to change all ${occurrences}.`,
     };
   }
 
@@ -106,6 +116,8 @@ export async function editFile(
   const written = await ctx.sandbox.writeFile(ctx.sandboxId, args.path, after);
   if (!written.ok) return failed(written.error);
 
+  // Not remembered: an edit proves the turn knew the text it matched, not the rest of the file,
+  // so an unread file stays unread and overwriting it still needs a read.
   emitChange(ctx, args.path, before, after);
   return {
     ok: true,

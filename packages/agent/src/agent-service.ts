@@ -1,5 +1,5 @@
 import { estimateContextTokens, isUsableSummary } from "@nap/shared/compaction";
-import { pruneComputerImages } from "@nap/shared/computer-context";
+import { pruneComputerImages, pruneComputerImagesInBatches } from "@nap/shared/computer-context";
 import { skillsDiscoveredPayload } from "@nap/shared/skills";
 
 /**
@@ -915,6 +915,8 @@ class Turn {
     });
     this.#lastCompactionStep = this.#budget.spent().steps;
     if (result.ok) {
+      // A compaction has just replaced the conversation, so no cached prefix is lost by cutting
+      // straight down to the kept frames.
       this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(result.messages));
       for (const hook of this.#hooks) hook.compacted?.();
       this.#nativeContext = native !== undefined;
@@ -1014,7 +1016,13 @@ class Turn {
     this.#messages.push({ role: "assistant", content: assistant });
     // Every result in one message: see the note at the top of this file.
     this.#messages.push({ role: "user", content: results });
-    this.#messages.splice(0, this.#messages.length, ...pruneComputerImages(this.#messages));
+    // In batches, not one frame per round: each frame turned to text costs a re-write of the
+    // whole turn's cached conversation (see COMPUTER_IMAGES_HIGH_WATER).
+    this.#messages.splice(
+      0,
+      this.#messages.length,
+      ...pruneComputerImagesInBatches(this.#messages),
+    );
 
     this.#awaiting = outcomes.find((outcome) => outcome.ok && outcome.awaits !== undefined)?.awaits;
     return outcomes.some((outcome) => outcome.endsTurn === true) ? "ended" : "continue";

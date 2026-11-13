@@ -16,10 +16,17 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { stubSandbox } from "@nap/context/testing/stub-sandbox";
+import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
+import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMPUTER_IMAGES_HIGH_WATER, COMPUTER_IMAGES_KEPT } from "@nap/shared/computer-context";
 import type { NapEvent, PromptSource } from "@nap/shared/events";
 import type { BuiltContext, JobContext } from "@nap/shared/ports/context-engine";
+import type { LLMMessage } from "@nap/shared/ports/llm-provider";
+import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it } from "vitest";
+import { NapAgentService } from "./agent-service.ts";
 import { toRequestParams } from "./claude-provider.ts";
+import { ScriptedLLMProvider } from "./testing/scripted-llm-provider.ts";
 import { toolsetFor } from "./tools/toolset.ts";
 
 const SESSION = "6f1c1d3e-2b7a-4c5e-8f9a-0d1e2f3a4b5c";
@@ -221,3 +228,94 @@ describe("the prefix a turn caches, the next turn reads", () => {
     }
   });
 });
+
+/**
+ * The same guard inside one turn. Every request's conversation must open the next request's
+ * byte for byte, or the whole rest of it is written to the cache again at the write price. Old
+ * screenshots have to go — an image is about a thousand tokens — but each one turned into text
+ * partway up the conversation is exactly such a rewrite, so they go in batches.
+ */
+describe("the prefix a computer step caches, the next step reads", () => {
+  it("is rewritten only at a batch cut, with the images and the pairs intact", async () => {
+    const steps = 12;
+    const sandbox = new InMemorySandboxManager();
+    const created = await sandbox.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+    const provider = new ScriptedLLMProvider([
+      [
+        ...Array.from({ length: steps }, (_, i) => ({
+          toolCalls: [
+            { id: `screen-${i}`, name: "computer", input: { actions: [{ action: "screenshot" }] } },
+          ],
+        })),
+        { text: "Looked." },
+      ],
+    ]);
+    await new NapAgentService({ provider, retryDelayMs: 0 }).runTurn({
+      sessionId: SESSION,
+      turnId: "7c9b1a52-8d3e-4f21-a0c4-1b2d3e4f5a6b",
+      sandboxId: created.value.id,
+      sandbox,
+      model: "openai/gpt-5.6-luna",
+      context: {
+        systemPrompt: "Check the page.",
+        messages: [{ role: "user", content: "Look at the page a few times." }],
+        estimatedTokens: 10,
+      },
+      onEvent: () => {},
+      computer: {
+        desktop: new FakeSandboxDesktop({
+          bytes: new Uint8Array([255, 216, 255, 217]),
+          width: 1024,
+          height: 768,
+        }),
+        objects: new InMemoryObjectStore(),
+        projectId: "project",
+        devServerUrl: "http://localhost:5173",
+        beforeStore: async () => {},
+      },
+    });
+
+    const rendered = provider.requests.map((request) =>
+      unmarked(toRequestParams(request).messages),
+    );
+    expect(rendered).toHaveLength(steps + 1);
+    const rewritten: number[] = [];
+    rendered.forEach((messages, index) => {
+      const previous = rendered[index - 1];
+      if (
+        previous !== undefined &&
+        JSON.stringify(messages.slice(0, previous.length)) !== JSON.stringify(previous)
+      )
+        rewritten.push(index);
+    });
+    // Request n carries n frames until one too many, then the newest few; then it refills.
+    const gap = COMPUTER_IMAGES_HIGH_WATER - COMPUTER_IMAGES_KEPT + 1;
+    const cuts: number[] = [];
+    for (let at = COMPUTER_IMAGES_HIGH_WATER + 1; at <= steps; at += gap) cuts.push(at);
+    expect(rewritten).toEqual(cuts);
+
+    for (const request of provider.requests) {
+      expect(framesIn(request.messages)).toBeLessThanOrEqual(COMPUTER_IMAGES_HIGH_WATER);
+      const blocks = request.messages.flatMap((message) =>
+        Array.isArray(message.content) ? message.content : [],
+      );
+      expect(
+        blocks.flatMap((block) => (block.type === "tool_result" ? [block.toolCallId] : [])),
+      ).toEqual(blocks.flatMap((block) => (block.type === "tool_use" ? [block.id] : [])));
+    }
+    // The frames were really sent: the request before the first cut carried the full batch.
+    expect(framesIn(provider.requests[COMPUTER_IMAGES_HIGH_WATER]?.messages ?? [])).toBe(
+      COMPUTER_IMAGES_HIGH_WATER,
+    );
+  });
+});
+
+function framesIn(messages: readonly LLMMessage[]): number {
+  return messages
+    .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+    .flatMap((block) =>
+      block.type === "tool_result" && Array.isArray(block.content) ? block.content : [],
+    )
+    .filter((child) => child.type === "image").length;
+}
