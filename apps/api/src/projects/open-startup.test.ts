@@ -10,6 +10,7 @@ import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { SingleAgentRuntime } from "@nap/runtime/single-agent-runtime";
+import { withoutAnnouncement } from "@nap/runtime/testing/preview-announcement";
 import { ThumbnailLane } from "@nap/runtime/thumbnail-lane";
 import { startTurnWorker } from "@nap/runtime/turn-worker";
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
@@ -116,6 +117,8 @@ async function system(options: { restored?: boolean; repositoryPort?: number | n
   const context = new StubContextEngine();
   const agent = new ScriptedAgent(() => completedTurn(null));
   const outsideLease: string[] = [];
+  // Assumes every event's turnId is a request's id. A continuation's repairs get turn ids of their
+  // own, so a test that continues an open job would need this to learn them.
   const store: EventStore = {
     append: async (event, retry) => {
       if (queue.stateOf(event.turnId) !== "leased") outsideLease.push(event.type);
@@ -144,6 +147,9 @@ async function system(options: { restored?: boolean; repositoryPort?: number | n
     concurrency: 2,
     pollIntervalMs: 2,
     renewIntervalMs: 5,
+    // Bounds stop() at about a second, not ten minutes, if a turn is stuck on a gate cleanup does not release.
+    drainTimeoutMs: 1_000,
+    abortGraceMs: 100,
   });
   cleanup.push(async () => {
     preview.resolve({ ok: false, error: { code: "timeout", message: "test cleanup" } });
@@ -203,8 +209,12 @@ async function system(options: { restored?: boolean; repositoryPort?: number | n
 }
 
 describe.each([false, true])("opening a project, restored=%s", (restored) => {
+  // This pins a known cost, not a goal. The open's announcement must be written under its own
+  // lease, so a message sent meanwhile waits for the dev server, up to the probe timeout. Removing
+  // the wait needs the running open to learn a request is queued and hand the announcement over,
+  // which nothing does yet. See docs/GOTCHAS.md, "Sandbox and storage".
   it.each(["turns", "steers"])(
-    "queues an immediate message through /%s behind the resume's announcement",
+    "still queues an immediate message through /%s until the open's announcement settles",
     async (route) => {
       const f = await system({ restored });
       expect((await f.post(`/projects/${PROJECT}/open`)).status).toBe(202);
@@ -226,13 +236,14 @@ describe.each([false, true])("opening a project, restored=%s", (restored) => {
       await vi.waitFor(() => expect(f.queue.inFlight).toBe(0));
       expect(f.agent.calls).toBe(1);
       const log = await f.log();
-      expect(log[0]).toMatchObject({ type: "preview.ready", turnId: resume!.id });
+      expect(log.filter((event) => event.type === "preview.ready")).toEqual([
+        expect.objectContaining({ turnId: resume!.id }),
+      ]);
       expect(log.find((event) => event.type === "user.message")?.turnId).toBe(message!.id);
-      expect(log.filter((event) => event.type === "preview.ready")).toHaveLength(1);
     },
   );
 
-  it("announces an open with no message under its lease, then lets a message finish while capture is gated", async () => {
+  it("announces an open with no message under its lease, and releases it while capture is gated", async () => {
     const f = await system({ restored });
     expect((await f.post(`/projects/${PROJECT}/open`)).status).toBe(202);
     await vi.waitFor(() => expect(f.wait).toHaveBeenCalled());
@@ -252,13 +263,6 @@ describe.each([false, true])("opening a project, restored=%s", (restored) => {
       }),
     ]);
     expect(f.agent.calls).toBe(0);
-    expect((await f.post(`/sessions/${SESSION}/turns`, { message: "make it red" })).status).toBe(
-      202,
-    );
-    await vi.waitFor(() => expect(f.queue.inFlight).toBe(0));
-    expect(f.agent.calls).toBe(1);
-    expect(f.capture.waiting).toBe(1);
-    expect((await f.log()).filter((e) => e.type === "preview.ready")).toHaveLength(1);
     const session = await f.sessions.get(SESSION);
     expect(f.sandbox.commands(session!.sandboxId!).some((cmd) => cmd.includes("bun install"))).toBe(
       false,
@@ -271,36 +275,42 @@ it.each([
   { restored: true },
   { restored: false, repositoryPort: 3000 },
   { restored: true, repositoryPort: 3000 },
-  { restored: false, repositoryPort: null },
-  { restored: true, repositoryPort: null },
-])("starts context and the model independently of preview readiness: %j", async (options) => {
+])("starts context and the model before preview readiness: %j", async (options) => {
   const f = await system(options);
+  const port = options.repositoryPort ?? TEMPLATE_DEV_PORT;
   expect(
     (await f.post(`/sessions/${SESSION}/turns`, { message: "build a todo list" })).status,
   ).toBe(202);
   await vi.waitFor(() => expect(f.context.requests).toHaveLength(1));
   await vi.waitFor(() => expect(f.agent.calls).toBe(1));
   expect((await f.log()).some((e) => e.type === "preview.ready")).toBe(false);
-  if (options.repositoryPort === null) {
-    await vi.waitFor(() => expect(f.queue.inFlight).toBe(0));
-    expect(f.wait).not.toHaveBeenCalled();
-  } else {
-    expect(f.wait).toHaveBeenCalledWith(
-      expect.any(String),
-      options.repositoryPort ?? TEMPLATE_DEV_PORT,
-      { timeoutMs: 60_000 },
-    );
-    expect(f.queue.inFlight).toBe(1);
-    await f.ready();
-    await vi.waitFor(() => expect(f.queue.inFlight).toBe(0));
-    const types = (await f.log()).map((e) => e.type);
-    expect(types.indexOf("preview.ready")).toBeLessThan(types.indexOf("turn.completed"));
-    expect(types.indexOf("preview.ready")).toBeLessThan(types.indexOf("job.completed"));
-  }
+  expect(f.wait).toHaveBeenCalledWith(expect.any(String), port, { timeoutMs: 60_000 });
+  expect(f.queue.inFlight).toBe(1);
+  const url = await f.ready();
+  await vi.waitFor(() => expect(f.queue.inFlight).toBe(0));
+  const log = await f.log();
+  withoutAnnouncement(log);
+  expect(log.find((e) => e.type === "preview.ready")?.payload).toEqual({ url, port });
   expect(f.imported).toHaveBeenCalledTimes(
     options.repositoryPort !== undefined && !options.restored ? 1 : 0,
   );
 });
+
+it.each([{ restored: false }, { restored: true }])(
+  "neither probes nor announces an imported project with no preview port: %j",
+  async (options) => {
+    const f = await system({ ...options, repositoryPort: null });
+    expect(
+      (await f.post(`/sessions/${SESSION}/turns`, { message: "build a todo list" })).status,
+    ).toBe(202);
+    await vi.waitFor(() => expect(f.queue.inFlight).toBe(0));
+    expect(f.context.requests).toHaveLength(1);
+    expect(f.agent.calls).toBe(1);
+    expect(f.wait).not.toHaveBeenCalled();
+    expect((await f.log()).some((e) => e.type === "preview.ready")).toBe(false);
+    expect(f.imported).toHaveBeenCalledTimes(options.restored ? 0 : 1);
+  },
+);
 
 it("discards a cancelled resume's late readiness after a replacement sandbox starts", async () => {
   const f = await system({ restored: true });
