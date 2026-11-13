@@ -2,6 +2,7 @@ import { TurnAcceptanceSchema, TurnRequestStatusSchema } from "@nap/shared/ports
 import { useCallback, useEffect, useReducer, useState } from "react";
 import { z } from "zod";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { startPollLoop } from "../hooks/poll-loop.ts";
 
 const receiptSchema = TurnAcceptanceSchema.pick({ requestId: true });
 const refusalSchema = z.object({ error: z.string() });
@@ -152,27 +153,32 @@ export function usePublicationAdmission(options: {
     [key, baseUrl, sessionId, fetchJson, reload],
   );
 
+  // Every second while the request is pending: it is work somebody just asked for, and the card
+  // re-arms its controls the moment it ends. Parked while the tab is hidden (see `startPollLoop`),
+  // since nobody can see the card, and asked at once when it is shown again.
   useEffect(() => {
     if (!requestId) return;
     void reload();
-    let stopped = false;
     let controller: AbortController | undefined;
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      const request = new AbortController();
-      controller = request;
-      deadline = setTimeout(() => request.abort(), 5000);
-      await check(request.signal, false);
-      clearTimeout(deadline);
-      if (!stopped) timer = setTimeout(() => void poll(), 1000);
-    };
-    timer = setTimeout(() => void poll(), 1000);
+    const poll = startPollLoop({
+      firstDelayMs: 1000,
+      read: async () => {
+        const request = new AbortController();
+        controller = request;
+        deadline = setTimeout(() => request.abort(), 5000);
+        try {
+          await check(request.signal, false);
+        } finally {
+          clearTimeout(deadline);
+        }
+        return 1000;
+      },
+    });
     return () => {
-      stopped = true;
+      poll.stop();
       controller?.abort();
       clearTimeout(deadline);
-      clearTimeout(timer);
     };
   }, [requestId, check, reload]);
 

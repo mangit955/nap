@@ -37,6 +37,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import { requestFailureCopy } from "../errors/failure-copy.ts";
+import { type PollLoop, startPollLoop } from "../hooks/poll-loop.ts";
 import type { StreamStatus } from "../hooks/use-event-stream.ts";
 import { buildTranscript } from "./transcript.ts";
 import { inFlightTurn } from "./working-state.ts";
@@ -87,6 +88,22 @@ export type TurnActivity = Pick<TurnSubmission, "running" | "idleThroughSeq"> & 
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+/**
+ * How long the activity read waits while anything is running, queued or being admitted: Stop has
+ * to appear, and go away, within about this long of the server deciding.
+ */
+export const ACTIVITY_BUSY_MS = 1000;
+/**
+ * …and while nothing is. All a read can still discover then is another client's request that no
+ * worker has claimed — a claimed one writes its prompt to the log first, and the log moving
+ * brings the next read forward — so it is worth a slow look rather than a fast one. Focus and a
+ * tab becoming visible read at once, which is when someone who started work elsewhere comes back.
+ */
+export const ACTIVITY_IDLE_MS = 15_000;
+
+/** The server's last answer about this session, and the idle prefix it has vouched for so far. */
+type Activity = { sessionId: string; idleThroughSeq: number; active: boolean };
 
 type PendingSubmission = {
   purpose: "message" | "test" | "steer";
@@ -190,11 +207,14 @@ export function useTurnSubmission(options: {
           requestId: accepted.requestId,
         };
   });
-  const [activity, setActivity] = useState<{
-    sessionId: string;
-    idleThroughSeq: number;
-    active: boolean;
-  }>();
+  const [activity, setActivity] = useState<Activity>();
+  // The read compares against this rather than calling the updater form: an unchanged answer
+  // must not schedule a render at all, and the poll answers unchanged nearly every time.
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
+  // Read by the poll to choose its next wait; written below, once `running` is known.
+  const runningRef = useRef(false);
+  const pollRef = useRef<PollLoop | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const active = useRef<symbol | undefined>(undefined);
   const sessionRef = useRef(sessionId);
@@ -213,6 +233,7 @@ export function useTurnSubmission(options: {
     active.current = undefined;
     setPending(undefined);
     setError(undefined);
+    activityRef.current = undefined;
     setActivity(undefined);
   }, [sessionId]);
 
@@ -272,8 +293,14 @@ export function useTurnSubmission(options: {
     };
   }, [baseUrl, pending]);
 
-  // One bounded read loop serves both controls and the elapsed clock. Only an idle
+  // One bounded read loop serves the controls, and through `startedAt` the turn the elapsed clock
+  // counts from — the clock itself ticks locally and never waits on this. Only an idle
   // observation retires history, and only up to its server-verified event cursor.
+  //
+  // Fast while anything runs, slow while nothing does, parked while the tab is hidden (see
+  // `startPollLoop`). Mount, admission, reconnect and replay restart it at the fast delay, and the
+  // log moving brings the next read forward, so the back-off never delays an answer that
+  // something on screen is waiting for.
   const pendingKey = pending?.key;
   // biome-ignore lint/correctness/useExhaustiveDependencies: admission and reconnect/replay changes invalidate outstanding observations even without a new event cursor.
   useEffect(() => {
@@ -281,12 +308,12 @@ export function useTurnSubmission(options: {
     let stopped = false;
     let controller: AbortController | undefined;
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    let timer: ReturnType<typeof setTimeout>;
-    const reconcile = async (): Promise<void> => {
+    const reconcile = async (): Promise<number> => {
       controller = new AbortController();
       const request = controller;
       const generation = active.current;
       const observedCursor = cursorRef.current;
+      let observedActive = false;
       deadline = setTimeout(() => request.abort(), 5000);
       try {
         const response = await fetchRef.current(
@@ -306,36 +333,51 @@ export function useTurnSubmission(options: {
           parsed.data.throughSeq >= observedCursor
         ) {
           const observation = parsed.data;
-          setActivity((previous) => ({
+          observedActive = observation.active;
+          const previous =
+            activityRef.current?.sessionId === sessionId ? activityRef.current : undefined;
+          const next = {
             sessionId,
             active: observation.active,
             idleThroughSeq: Math.max(
-              previous?.sessionId === sessionId ? previous.idleThroughSeq : 0,
+              previous?.idleThroughSeq ?? 0,
               observation.active ? 0 : observation.throughSeq,
             ),
-          }));
+          };
+          if (previous?.active !== next.active || previous.idleThroughSeq !== next.idleThroughSeq) {
+            activityRef.current = next;
+            setActivity(next);
+          }
         }
       } catch {
         // Failure establishes no new idle prefix. Retain any earlier observed active work.
       } finally {
         clearTimeout(deadline);
-        if (!stopped)
-          timer = setTimeout(() => {
-            void reconcile();
-          }, 1000);
       }
+      // From this answer and the last render, not from state this answer has yet to render. A read
+      // the log overtook was thrown away above; whatever overtook it is on screen as `running`.
+      return observedActive || runningRef.current ? ACTIVITY_BUSY_MS : ACTIVITY_IDLE_MS;
     };
     // Coalesce mount/replay/admission updates without issuing a read per streamed event.
-    timer = setTimeout(() => {
-      void reconcile();
-    }, 1000);
+    const poll = startPollLoop({ read: reconcile, firstDelayMs: ACTIVITY_BUSY_MS });
+    pollRef.current = poll;
     return () => {
       stopped = true;
+      poll.stop();
+      if (pollRef.current === poll) pollRef.current = undefined;
       controller?.abort();
-      clearTimeout(timer);
       clearTimeout(deadline);
     };
   }, [baseUrl, sessionId, pendingKey, options.connectionStatus, options.replayed]);
+
+  // New events are when the answer is likeliest to have changed. Brought forward, never pushed
+  // back, so a turn streaming events cannot postpone the read it is waiting on.
+  const nudgedAt = useRef(cursor);
+  useEffect(() => {
+    if (nudgedAt.current === cursor) return;
+    nudgedAt.current = cursor;
+    pollRef.current?.soon(ACTIVITY_BUSY_MS);
+  }, [cursor]);
 
   const admit = async (
     intent:
@@ -495,6 +537,12 @@ export function useTurnSubmission(options: {
     return { turn, testIsRunning };
   }, [events, sessionId, idleBoundary]);
 
+  const running =
+    (waiting !== undefined && waiting.sessionId === sessionId) ||
+    observation?.active === true ||
+    turn !== undefined;
+  runningRef.current = running;
+
   return {
     submit,
     idleThroughSeq: observation?.idleThroughSeq ?? 0,
@@ -506,10 +554,7 @@ export function useTurnSubmission(options: {
       waiting?.sessionId === sessionId && waiting?.purpose === "steer" ? waiting.text : undefined,
     pendingAttachments: waiting?.sessionId === sessionId ? waiting?.attachments : undefined,
     pendingAfterCompaction: waiting?.sessionId === sessionId && waiting?.afterCompaction === true,
-    running:
-      (waiting !== undefined && waiting.sessionId === sessionId) ||
-      observation?.active === true ||
-      turn !== undefined,
+    running,
     testPhase: testIsRunning
       ? "running"
       : waiting?.sessionId === sessionId && waiting?.purpose === "test"
