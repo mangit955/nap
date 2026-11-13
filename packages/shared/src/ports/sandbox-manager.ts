@@ -127,7 +127,7 @@ export interface SandboxManager {
    * anything reaches the model. Lists what is on disk, so a file deleted but not yet committed is
    * absent; leaves out what git ignores when `root` is a repository; and never returns a path with
    * a segment named in `exclude` — nor spends time descending into one. Not a promise of every
-   * file: an implementation may cap a very large tree, and a symlink may or may not be listed.
+   * file: an implementation may reject a very large tree, and a symlink may or may not be listed.
    */
   listTree(
     sandboxId: string,

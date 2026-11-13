@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listTreeCommand, listTreeViaExec, parseListTree } from "./list-tree.ts";
+import { listTreeCommand, listTreeViaExec, parseListTree, walkBreadthFirst } from "./list-tree.ts";
 import type {
   ExecOptions,
   ExecResult,
@@ -168,6 +168,51 @@ describe("listTreeViaExec", () => {
     expect(result.ok).toBe(false);
   });
 
+  it.each(["x", "é"])(
+    "rejects a listing at its raw byte ceiling, including multibyte paths (%s)",
+    async (character) => {
+      // Complete NUL-separated records can still hide the rest of the project. The byte bound
+      // applies before exclusions, so none of the surviving records need be project files.
+      const ceiling = 1_048_576;
+      const stem = "dist/";
+      const remaining = ceiling - stem.length - 1;
+      const stdout = `${stem}${character.repeat(Math.floor(remaining / Buffer.byteLength(character)))}${"x".repeat(
+        remaining % Buffer.byteLength(character),
+      )}\0`;
+      expect(Buffer.byteLength(stdout)).toBe(ceiling);
+
+      const result = await listTreeViaExec(
+        { exec: async () => ({ ok: true, value: { exitCode: 0, stdout, stderr: "" } }) },
+        "sbx",
+        root,
+        { exclude: EXCLUDE, timeoutMs: 10_000 },
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "unavailable",
+          message: expect.stringContaining("listing reached its 1048576-byte limit"),
+        },
+      });
+    },
+  );
+
+  it("accepts a complete listing just below the raw byte ceiling", async () => {
+    const kept = "\0kept.ts\0";
+    const stdout = `dist/${"x".repeat(1_048_575 - 5 - kept.length)}${kept}`;
+    expect(Buffer.byteLength(stdout)).toBe(1_048_575);
+
+    const result = await listTreeViaExec(
+      { exec: async () => ({ ok: true, value: { exitCode: 0, stdout, stderr: "" } }) },
+      "sbx",
+      root,
+      { exclude: EXCLUDE, timeoutMs: 10_000 },
+    );
+
+    expect(result).toEqual({ ok: true, value: [`${root}/kept.ts`] });
+  });
+
   it("passes the caller's timeout to the sandbox, and has it stop the listing at the deadline", async () => {
     let seen: ExecOptions | undefined;
     await listTreeViaExec(
@@ -203,5 +248,68 @@ describe("parseListTree", () => {
 
   it("quotes the root, so a path with a quote in it cannot escape the command", () => {
     expect(listTreeCommand("/tmp/it's", [])).toContain("cd '/tmp/it'\\''s'");
+  });
+});
+
+describe("walkBreadthFirst", () => {
+  const ROOT = "/home/user/app";
+  const at = (...relative: string[]) => relative.map((path) => `${ROOT}/${path}`);
+
+  it("takes files shallowest first, each folder's in order, whatever order they were listed in", () => {
+    const listing = at("src/b/deep.ts", "z.ts", "src/main.ts", "a.ts", "src/b/c/deeper.ts");
+
+    expect(walkBreadthFirst(ROOT, listing, { maxEntries: 10 })).toEqual({
+      paths: at("a.ts", "z.ts", "src/main.ts", "src/b/deep.ts", "src/b/c/deeper.ts"),
+      truncated: false,
+    });
+    expect(walkBreadthFirst(ROOT, [...listing].reverse(), { maxEntries: 10 }).paths).toEqual(
+      walkBreadthFirst(ROOT, listing, { maxEntries: 10 }).paths,
+    );
+  });
+
+  it("never lets a deep file displace a shallow one when the cap bites, and says it bit", () => {
+    // Listed deepest first, the order a git index can hand back a nested package.
+    const listing = at("a/b/c/d/e/f.ts", "a/b/c/d/e.ts", "a/b/c/d.ts", "a/b/c.ts", "a.ts", "b.ts");
+
+    expect(walkBreadthFirst(ROOT, listing, { maxEntries: 3 })).toEqual({
+      paths: at("a.ts", "b.ts", "a/b/c.ts"),
+      truncated: true,
+    });
+  });
+
+  it("does not report a cut when the cap is exactly the project", () => {
+    expect(walkBreadthFirst(ROOT, at("a.ts", "src/b.ts"), { maxEntries: 2 })).toEqual({
+      paths: at("a.ts", "src/b.ts"),
+      truncated: false,
+    });
+  });
+
+  it("stops at a depth limit when given one, and says what it left out", () => {
+    const listing = at("a.ts", "src/b.ts", "src/c/d.ts");
+
+    expect(walkBreadthFirst(ROOT, listing, { maxEntries: 10, maxDepth: 1 })).toEqual({
+      paths: at("a.ts", "src/b.ts"),
+      truncated: true,
+    });
+  });
+
+  it("ignores what is not under the root, and a root given with a trailing slash", () => {
+    const listing = [...at("a.ts"), "/home/user/other/b.ts", "/home/user/application.ts"];
+
+    expect(walkBreadthFirst(`${ROOT}/`, listing, { maxEntries: 10 })).toEqual({
+      paths: at("a.ts"),
+      truncated: false,
+    });
+  });
+
+  it("counts a path listed twice once", () => {
+    expect(walkBreadthFirst(ROOT, at("a.ts", "a.ts"), { maxEntries: 1 })).toEqual({
+      paths: at("a.ts"),
+      truncated: false,
+    });
+  });
+
+  it("answers an empty listing with nothing, uncut", () => {
+    expect(walkBreadthFirst(ROOT, [], { maxEntries: 10 })).toEqual({ paths: [], truncated: false });
   });
 });
