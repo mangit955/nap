@@ -441,7 +441,7 @@ class Turn {
         });
 
       if (result.type === "refusal") {
-        if (this.#fallBack()) {
+        if (this.#fallBack("declined")) {
           this.#resumeAfter(shown);
           continue;
         }
@@ -460,6 +460,14 @@ class Turn {
             this.#request.signal,
           );
           if (!waited) return this.#fail("cancelled", "The turn was cancelled.");
+          this.#resumeAfter(shown);
+          continue;
+        }
+        // Still not there after every retry: the model is unavailable, and the turn can go on
+        // elsewhere under the refusal fallback's rules. Never on a failure that is not
+        // `retryable` — a rejected key or a malformed request fails the same way on any model,
+        // and moving would tell the person their model was the problem.
+        if (result.retryable && this.#fallBack("unavailable")) {
           this.#resumeAfter(shown);
           continue;
         }
@@ -610,11 +618,12 @@ class Turn {
   }
 
   /**
-   * Moves the turn to the fallback model after a refusal, at most once, and only on the
+   * Moves the turn to the fallback model after a refusal, or after its model stayed unavailable
+   * through every retry — at most once per turn whichever the reason, and only on the
    * deployment's account. Says so in the platform's voice: the person should know which model
    * wrote what follows.
    */
-  #fallBack(): boolean {
+  #fallBack(why: "declined" | "unavailable"): boolean {
     const fallback = this.#options.fallbackModel;
     if (
       this.#fellBack ||
@@ -642,7 +651,11 @@ class Turn {
     const toolset = this.#toolsetOptions();
     this.#tools = toolsetFor(toolset);
     this.#offered = toolNamesFor(toolset);
-    this.#notice(`The selected model declined this request, so ${fallback} is continuing it.`);
+    this.#notice(
+      why === "declined"
+        ? `The selected model declined this request, so ${fallback} is continuing it.`
+        : `The selected model is not responding, so ${fallback} is continuing it.`,
+    );
     return true;
   }
 

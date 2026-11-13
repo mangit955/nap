@@ -30,7 +30,12 @@
  * with no network — the same arrangement the E2B adapter uses.
  */
 
-import Anthropic, { APIConnectionError, APIError, RateLimitError } from "@anthropic-ai/sdk";
+import Anthropic, {
+  APIConnectionError,
+  APIError,
+  type Middleware,
+  RateLimitError,
+} from "@anthropic-ai/sdk";
 import type {
   BilledWeights,
   LLMContentBlock,
@@ -61,7 +66,11 @@ export type AnthropicClient = {
       // `| undefined` explicitly: under exactOptionalPropertyTypes an absent signal and
       // one passed as undefined are different types, and a request without a signal is
       // the normal case.
-      options?: { signal?: AbortSignal | undefined },
+      options?: {
+        signal?: AbortSignal | undefined;
+        /** Per-request wrappers around the HTTP exchange; the idle watch reads the body here. */
+        middleware?: ReadonlyArray<Middleware> | undefined;
+      },
     ): {
       /**
        * The SDK's own event emitter. Both events hand over `(delta, snapshot)` — the piece
@@ -82,6 +91,8 @@ export type ClaudeProviderOptions = {
   apiKey?: string;
   /** Injected so the retry tests do not spend their backoff in real time. */
   sleep?: (ms: number) => Promise<void>;
+  /** How long a stream may stay silent before it is abandoned. Defaults to `STREAM_IDLE_TIMEOUT_MS`. */
+  idleTimeoutMs?: number;
   /**
    * A different model, effort or output ceiling than the defaults below.
    *
@@ -169,6 +180,52 @@ export const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 500;
 
 /**
+ * How long a model stream may go without a single byte arriving before it is abandoned and tried
+ * again.
+ *
+ * The SDK's own `timeout` cannot do this: it bounds the wait for a response's *headers* and is
+ * cleared the moment they arrive, so a stream that goes quiet after opening was waited on for as
+ * long as the socket stayed up — through every attempt.
+ *
+ * **Bytes, not the events a listener sees.** A model thinking without a summary, or writing a
+ * large tool call's arguments (the API buffers each argument until it is whole), sends nothing a
+ * listener can see for minutes at a time — only `ping` events, which the SDK's decoder drops
+ * before any listener runs, or a proxy's keep-alive comments, which it never parses at all. Every
+ * one of those is a byte on the response body, so counting bytes is what tells a model that is
+ * busy from a connection that is gone. The cost of that choice: an upstream that hangs while a
+ * proxy in front of it keeps the connection warm is not caught here, and nothing short of a
+ * ceiling on total time could catch it without also cutting off a long, honest answer.
+ *
+ * Ninety seconds, because anything a server or proxy sends to keep a connection alive comes well
+ * inside the sixty seconds an idle load balancer allows, and the margin is cheap: what a stall
+ * costs is bounded by `WORST_CASE_STALLED_CALL_MS` below either way.
+ */
+export const STREAM_IDLE_TIMEOUT_MS = 90_000;
+
+/**
+ * The longest one `complete` call can spend on a model that has stopped answering: every attempt
+ * runs out its idle window, with the ordinary backoff between them. Steady streaming is not
+ * bounded by time at all — a long answer is bounded by its output ceiling instead.
+ */
+export const WORST_CASE_STALLED_CALL_MS =
+  MAX_ATTEMPTS * STREAM_IDLE_TIMEOUT_MS + BASE_BACKOFF_MS * (2 ** (MAX_ATTEMPTS - 1) - 1);
+
+/**
+ * A stream this provider abandoned because nothing arrived for the idle window.
+ *
+ * Its own type, because the SDK reports the abort that ends a stalled stream exactly as it reports
+ * a person cancelling the turn — `APIUserAbortError` either way — and the two must never be
+ * confused: one is the model being unavailable and worth another attempt, the other is somebody
+ * asking for the work to stop.
+ */
+class StreamStalledError extends Error {
+  constructor(idleMs: number) {
+    super(`The model stopped responding: nothing arrived for ${idleMs / 1_000} seconds.`);
+    this.name = "StreamStalledError";
+  }
+}
+
+/**
  * How long to wait when the model itself is throttled, rather than the connection being unlucky.
  *
  * Half a second is the right scale for a dropped socket and two orders of magnitude too small
@@ -205,6 +262,7 @@ const defaultSleep = (ms: number): Promise<void> =>
  * just spends money on the same answer.
  */
 export function isRetryable(cause: unknown): boolean {
+  if (cause instanceof StreamStalledError) return true;
   if (cause instanceof RateLimitError) return true;
   if (cause instanceof APIConnectionError) return true;
   if (cause instanceof APIError) {
@@ -427,6 +485,7 @@ export function toTurnResult(message: AnthropicMessage): LLMTurnResult {
 export class ClaudeProvider implements LLMProvider {
   readonly #client: AnthropicClient;
   readonly #sleep: (ms: number) => Promise<void>;
+  readonly #idleTimeoutMs: number;
   readonly #config: ModelConfig;
   /**
    * One client per credential, kept for the life of the process.
@@ -457,6 +516,7 @@ export class ClaudeProvider implements LLMProvider {
       // attempt count triple what it says.
       new Anthropic({ apiKey: options.apiKey, maxRetries: 0 });
     this.#sleep = options.sleep ?? defaultSleep;
+    this.#idleTimeoutMs = options.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
     this.#createClient = options.createClient ?? createClientFor;
   }
 
@@ -480,7 +540,7 @@ export class ClaudeProvider implements LLMProvider {
     const weights = billedWeightsFor(toOpenRouterModel(options.model ?? this.#config.model));
     return new ClaudeTurn(
       this.#clientFor(options.credentials),
-      this.#sleep,
+      { sleep: this.#sleep, idleTimeoutMs: this.#idleTimeoutMs },
       { ...this.#config, model },
       weights,
     );
@@ -537,9 +597,69 @@ export function toModelId(
   return platform === "anthropic" ? toDirectAnthropicModel(model) : model;
 }
 
+/**
+ * One attempt's idle window: the signal its stream is opened with, and the `touch` that every sign
+ * of life calls to start the window again.
+ *
+ * Armed before the request is sent, so a connection that never answers at all is caught by the
+ * same window as one that answers and then goes quiet. The turn's own signal is folded in, so a
+ * cancel still ends the stream at once — and `stalled` is never true of an attempt the turn
+ * cancelled, whichever of the two fired first.
+ */
+function watchIdle(idleMs: number, cancel: AbortSignal | undefined) {
+  const own = new AbortController();
+  let fired = false;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const touch = () => {
+    // A late chunk after the attempt is over must not leave a timer armed behind it.
+    if (stopped) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      fired = true;
+      own.abort();
+    }, idleMs);
+  };
+  touch();
+  return {
+    signal: cancel === undefined ? own.signal : AbortSignal.any([cancel, own.signal]),
+    touch,
+    stalled: () => fired && cancel?.aborted !== true,
+    stop: () => {
+      stopped = true;
+      clearTimeout(timer);
+    },
+  };
+}
+
+/**
+ * Calls `touch` for every chunk of the response body, and once when the headers arrive.
+ *
+ * Request middleware rather than a custom `fetch` on the client, because the window belongs to one
+ * attempt and a client is shared by every turn in the process. The body is handed on unchanged:
+ * the SDK still decodes it, and this only watches it go past.
+ */
+function touchOnEveryChunk(touch: () => void): Middleware {
+  return async (request, next) => {
+    const response = await next(request);
+    touch();
+    if (response.body === null) return response;
+    const watched = response.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          touch();
+          controller.enqueue(chunk);
+        },
+      }),
+    );
+    return new Response(watched, response);
+  };
+}
+
 class ClaudeTurn implements LLMTurn {
   readonly #client: AnthropicClient;
   readonly #sleep: (ms: number) => Promise<void>;
+  readonly #idleTimeoutMs: number;
   readonly #config: ModelConfig;
   /** An own property rather than a getter, so a wrapper spreading this turn keeps it. */
   readonly billedWeights: BilledWeights;
@@ -547,12 +667,13 @@ class ClaudeTurn implements LLMTurn {
 
   constructor(
     client: AnthropicClient,
-    sleep: (ms: number) => Promise<void>,
+    timing: { sleep: (ms: number) => Promise<void>; idleTimeoutMs: number },
     config: ModelConfig,
     billedWeights: BilledWeights,
   ) {
     this.#client = client;
-    this.#sleep = sleep;
+    this.#sleep = timing.sleep;
+    this.#idleTimeoutMs = timing.idleTimeoutMs;
     this.#config = config;
     this.billedWeights = billedWeights;
   }
@@ -567,37 +688,19 @@ class ClaudeTurn implements LLMTurn {
       // first word, and the words already shown cannot be taken back, so the person would read
       // the opening twice. The caller knows what was shown and can ask for only the rest.
       let shown = false;
+      const idle = watchIdle(this.#idleTimeoutMs, request.signal);
       try {
-        const stream = this.#client.messages.stream(body, { signal: request.signal });
-        // Subscribed per attempt rather than once, because each attempt is its own stream.
-        // A retried attempt therefore re-sends the reasoning from the beginning — the model
-        // is genuinely thinking again, and a repeated thought is a better answer than a turn
-        // that falls silent the moment the first attempt is dropped.
-        if (request.onThinkingDelta !== undefined) {
-          const forward = request.onThinkingDelta;
-          stream.on("thinking", (delta) => forward(delta));
-        }
-        if (request.onTextDelta !== undefined) {
-          const forward = request.onTextDelta;
-          stream.on("text", (delta) => {
-            shown = true;
-            forward(delta);
-          });
-        }
-        if (request.onToolCallStart !== undefined) {
-          const forward = request.onToolCallStart;
-          stream.on("streamEvent", (event) => {
-            if (event.type === "content_block_start" && event.content_block.type === "tool_use")
-              forward();
-          });
-        }
-        const message = await stream.finalMessage();
+        const message = await this.#stream(body, request, idle, () => {
+          shown = true;
+        });
         return this.#record(toTurnResult(message));
       } catch (cause) {
-        lastError = cause;
-        if (!isRetryable(cause) || shown) break;
+        // The SDK reports the abort that ends a stalled stream exactly as it reports a cancel, so
+        // the watch says which it was — and a cancelled turn is never retried, whatever fired.
+        lastError = idle.stalled() ? new StreamStalledError(this.#idleTimeoutMs) : cause;
+        if (request.signal?.aborted === true || !isRetryable(lastError) || shown) break;
         if (attempt < MAX_ATTEMPTS) {
-          const base = isThrottled(cause) ? RATE_LIMIT_BACKOFF_MS : BASE_BACKOFF_MS;
+          const base = isThrottled(lastError) ? RATE_LIMIT_BACKOFF_MS : BASE_BACKOFF_MS;
           await this.#sleep(base * 2 ** (attempt - 1));
         }
       }
@@ -613,6 +716,50 @@ class ClaudeTurn implements LLMTurn {
 
   usage(): TokenUsage {
     return this.#usage;
+  }
+
+  /**
+   * One attempt: opens the stream under its idle window, forwards what the caller asked to hear,
+   * and resolves to the assembled message. The window is disarmed however the attempt ends, so
+   * none is left running through the backoff before the next one.
+   */
+  async #stream(
+    body: Anthropic.MessageStreamParams,
+    request: LLMRequest,
+    idle: ReturnType<typeof watchIdle>,
+    onShown: () => void,
+  ): Promise<AnthropicMessage> {
+    try {
+      const stream = this.#client.messages.stream(body, {
+        signal: idle.signal,
+        middleware: [touchOnEveryChunk(idle.touch)],
+      });
+      // Every event is a sign of life too. The body watch already sees the bytes behind it on a
+      // real client; this is what keeps a client without a body — a stub — honest about it.
+      stream.on("streamEvent", (event) => {
+        idle.touch();
+        if (event.type === "content_block_start" && event.content_block.type === "tool_use")
+          request.onToolCallStart?.();
+      });
+      // Subscribed per attempt rather than once, because each attempt is its own stream.
+      // A retried attempt therefore re-sends the reasoning from the beginning — the model
+      // is genuinely thinking again, and a repeated thought is a better answer than a turn
+      // that falls silent the moment the first attempt is dropped.
+      if (request.onThinkingDelta !== undefined) {
+        const forward = request.onThinkingDelta;
+        stream.on("thinking", (delta) => forward(delta));
+      }
+      if (request.onTextDelta !== undefined) {
+        const forward = request.onTextDelta;
+        stream.on("text", (delta) => {
+          onShown();
+          forward(delta);
+        });
+      }
+      return await stream.finalMessage();
+    } finally {
+      idle.stop();
+    }
   }
 
   #record(result: LLMTurnResult): LLMTurnResult {

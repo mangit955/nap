@@ -705,14 +705,19 @@ describe("ClaudeProvider", () => {
     });
 
     it("forwards the abort signal to the call", async () => {
+      // Folded into the attempt's own signal, which its idle window also aborts — so what is
+      // asserted is that the caller's cancel reaches the call, not which object carries it.
       const client = stubClient([message()]);
       const controller = new AbortController();
 
       await provider(client)
         .startTurn()
         .complete(request({ signal: controller.signal }));
+      const sent = (client.calls[0]?.options as { signal?: AbortSignal } | undefined)?.signal;
+      expect(sent?.aborted).toBe(false);
+      controller.abort();
 
-      expect(client.calls[0]?.options).toMatchObject({ signal: controller.signal });
+      expect(sent?.aborted).toBe(true);
     });
   });
 

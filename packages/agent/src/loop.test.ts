@@ -397,6 +397,88 @@ describe("recovering", () => {
     expect(payloads("turn.failed")).toEqual([expect.objectContaining({ reason: "refusal" })]);
   });
 
+  const UNAVAILABLE = { error: { message: "529 overloaded", retryable: true } };
+
+  it("continues on the fallback model when its own model stays unavailable, and says so", async () => {
+    const { agent, provider } = run([[UNAVAILABLE, UNAVAILABLE], [{ text: "Done." }]], {
+      fallbackModel: "openai/gpt-5.6-luna",
+    });
+
+    await agent.runTurn(request({ model: "anthropic/claude-opus-5" }));
+
+    // Only after the longer wait: a throttled minute is the common case, and the person picked
+    // the model they are on.
+    expect(provider.turnOptions.map((options) => options.model)).toEqual([
+      "anthropic/claude-opus-5",
+      "openai/gpt-5.6-luna",
+    ]);
+    expect(types()).toEqual([
+      "turn.started",
+      "system.notice",
+      "system.notice",
+      "agent.message",
+      "turn.completed",
+    ]);
+    expect(payloads("system.notice")[1]).toEqual(
+      expect.objectContaining({ text: expect.stringMatching(/openai\/gpt-5\.6-luna/) }),
+    );
+  });
+
+  it("never falls back on a failure no model could fix", async () => {
+    // A rejected key, a malformed request, a budget: the fallback would fail the same way, and
+    // the person would be told the model was the problem.
+    const { agent, provider } = run([[{ error: { message: "bad tools", retryable: false } }]], {
+      fallbackModel: "openai/gpt-5.6-luna",
+    });
+
+    await agent.runTurn(request({ model: "anthropic/claude-opus-5" }));
+
+    expect(provider.turnOptions).toHaveLength(1);
+    expect(payloads("turn.failed")).toEqual([expect.objectContaining({ reason: "internal" })]);
+  });
+
+  it("falls back at most once, and then says the model was unavailable", async () => {
+    const { agent, provider } = run([[UNAVAILABLE, UNAVAILABLE], [UNAVAILABLE]], {
+      fallbackModel: "openai/gpt-5.6-luna",
+    });
+
+    await agent.runTurn(request({ model: "anthropic/claude-opus-5" }));
+
+    expect(provider.turnOptions).toHaveLength(2);
+    expect(payloads("turn.failed")).toEqual([
+      expect.objectContaining({ reason: "model_unavailable" }),
+    ]);
+  });
+
+  it("says the model was unavailable when there is no fallback to move to", async () => {
+    const { agent, provider } = run([[UNAVAILABLE, UNAVAILABLE]]);
+
+    await agent.runTurn(request({ model: "anthropic/claude-opus-5" }));
+
+    expect(provider.turnOptions).toHaveLength(1);
+    expect(payloads("turn.failed")).toEqual([
+      expect.objectContaining({ reason: "model_unavailable" }),
+    ]);
+  });
+
+  it("never moves a person's own key to a model they did not choose when theirs is unavailable", async () => {
+    const { agent, provider } = run([[UNAVAILABLE, UNAVAILABLE]], {
+      fallbackModel: "openai/gpt-5.6-luna",
+    });
+
+    await agent.runTurn(
+      request({
+        model: "anthropic/claude-opus-5",
+        credentials: { platform: "anthropic", apiKey: "sk-test" },
+      }),
+    );
+
+    expect(provider.turnOptions).toHaveLength(1);
+    expect(payloads("turn.failed")).toEqual([
+      expect.objectContaining({ reason: "model_unavailable" }),
+    ]);
+  });
+
   /** Everything the log says the model wrote, joined the way the transcript joins it. */
   function written(): string {
     return payloads("agent.message")
@@ -447,6 +529,24 @@ describe("recovering", () => {
 
     expect(written()).toBe("Sure, here it is.");
     expect(provider.requests[1]?.messages.at(-2)).toEqual({ role: "assistant", content: "Sure, " });
+  });
+
+  it("hands the fallback the part of an unavailable model's reply that was already shown", async () => {
+    const { agent, provider } = run(
+      [
+        [UNAVAILABLE, { streamedText: ["Half of it, "], error: UNAVAILABLE.error }],
+        [{ streamedText: ["then the rest."], text: "then the rest." }],
+      ],
+      { fallbackModel: "openai/gpt-5.6-luna" },
+    );
+
+    await agent.runTurn(request({ model: "anthropic/claude-opus-5" }));
+
+    expect(written()).toBe("Half of it, then the rest.");
+    expect(provider.requests[2]?.messages.at(-2)).toEqual({
+      role: "assistant",
+      content: "Half of it, ",
+    });
   });
 
   it("bills the refused model and the fallback both", async () => {
