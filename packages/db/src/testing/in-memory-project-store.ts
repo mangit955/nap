@@ -15,7 +15,11 @@
  * project, which is precisely the bug those tests exist to catch.
  */
 
-import type { ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
+import type {
+  ProjectStore,
+  ProjectSummary,
+  RunningSandboxes,
+} from "@nap/shared/ports/project-store";
 
 /**
  * The owner a seeded project gets when a test does not care who it belongs to — which is most
@@ -125,12 +129,13 @@ export class InMemoryProjectStore implements ProjectStore {
    * ownership filter above is real: a fake that answered `0` would make every quota test pass
    * against a check that never refuses anybody.
    */
-  async countRunningSandboxes(userId?: string): Promise<number> {
+  async countRunningSandboxes(userId: string): Promise<RunningSandboxes> {
     this.#throwIfFailing();
-    return [...this.#projects.values()].filter(
-      (project) =>
-        project.sandboxId !== null && (userId === undefined || project.userId === userId),
-    ).length;
+    const running = [...this.#projects.values()].filter((project) => project.sandboxId !== null);
+    return {
+      mine: running.filter((project) => project.userId === userId).length,
+      everyone: running.length,
+    };
   }
 
   #throwIfFailing(): void {

@@ -252,3 +252,38 @@ describe("sweeping", () => {
     expect(await rate.check(ada)).toMatchObject({ allowed: false });
   });
 });
+
+describe("what a check costs", () => {
+  it("takes the lock, then counts and records in one statement under it", async () => {
+    // Admission waits on every statement here, and the lock has to stay a statement of its own:
+    // a statement's snapshot is taken before any lock it asks for is granted, so a count folded
+    // into the lock's statement could miss a turn committed while it waited. Count and insert can
+    // share one, because by then the lock is held.
+    const sent: string[] = [];
+    const counting = postgres(inject("postgresUrl"), {
+      max: 1,
+      debug: (_connection, query) => sent.push(query.trim().split(/\s+/)[0] ?? ""),
+    });
+    try {
+      const counted = new PostgresTurnRateLimiter(drizzle(counting), {
+        limit: 1,
+        windowMs: HOUR_MS,
+        tier: "free",
+      });
+      const ada = await seedUser();
+      // The driver's one-off type lookup on a new connection is not the limiter's to count.
+      await counting`select 1`;
+      sent.length = 0;
+
+      expect(await counted.check(ada)).toEqual({ allowed: true });
+      expect(sent).toEqual(["begin", "select", "with", "commit"]);
+
+      sent.length = 0;
+      expect(await counted.check(ada)).toMatchObject({ allowed: false });
+      expect(sent).toEqual(["begin", "select", "with", "commit"]);
+      expect(await rowsFor(ada)).toBe(1);
+    } finally {
+      await counting.end();
+    }
+  });
+});

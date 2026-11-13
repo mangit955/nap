@@ -59,31 +59,40 @@ export class PostgresTurnRateLimiter implements TurnRateLimiter {
         sql`select pg_advisory_xact_lock(hashtext(${`nap:turn-rate:${tier}:${userId}`}))`,
       );
 
-      // One statement for both answers. `wait` is null when nothing is in the window, which is
-      // exactly the case where it is not read — and it is the whole seconds until the *oldest*
-      // row inside the window leaves it, which is when a slot opens.
+      // Counted and recorded in one statement, which is the same decision the two statements it
+      // replaced made: the lock above is already held, so this statement's snapshot is taken
+      // after every admission ahead of it in the lock has committed, and the insert only happens
+      // when the count it sees is under the limit. **The lock cannot join this statement**: a
+      // statement's snapshot is taken before any lock it asks for is granted, so the count would
+      // miss a turn committed while it waited — exactly the overshoot the lock is for.
+      //
+      // `wait` is null when nothing is in the window, which is exactly the case where it is not
+      // read — and it is the whole seconds until the *oldest* row inside the window leaves it,
+      // which is when a slot opens.
       const [state] = await tx.execute<{ used: number; wait: number | null }>(sql`
-        select
-          count(*)::int as used,
-          ceil(extract(epoch from (min(at) + ${window}::interval - now())))::int as wait
-        from turn_rate_events
-        where user_id = ${userId}::uuid
-          and tier = ${tier}
-          and at > now() - ${window}::interval
+        with state as (
+          select
+            count(*)::int as used,
+            ceil(extract(epoch from (min(at) + ${window}::interval - now())))::int as wait
+          from turn_rate_events
+          where user_id = ${userId}::uuid
+            and tier = ${tier}
+            and at > now() - ${window}::interval
+        ), recorded as (
+          insert into turn_rate_events (user_id, tier)
+          select ${userId}::uuid, ${tier} from state where used < ${this.#limit.limit}
+        )
+        select used, wait from state
       `);
 
       const used = Number(state?.used ?? 0);
 
       if (used >= this.#limit.limit) {
-        // Nothing is written on this path, which is the property the whole design turns on.
+        // Nothing was written on this path, which is the property the whole design turns on.
         // `wait` cannot be null here — a row was counted — but a floor of one second is right
         // regardless: `Retry-After: 0` invites an immediate, futile retry.
         return { allowed: false, retryAfterSeconds: Math.max(1, Number(state?.wait ?? 1)) };
       }
-
-      await tx.execute(sql`
-        insert into turn_rate_events (user_id, tier) values (${userId}::uuid, ${tier})
-      `);
 
       return { allowed: true };
     });

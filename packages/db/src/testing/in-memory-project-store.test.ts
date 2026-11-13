@@ -104,3 +104,17 @@ describe("ownership", () => {
     await expect(store.get("p1", FAKE_OWNER)).resolves.not.toBeNull();
   });
 });
+
+describe("countRunningSandboxes", () => {
+  it("counts this person's running projects and everybody's, ignoring ones with no sandbox", async () => {
+    const store = new InMemoryProjectStore([
+      { ...project({ projectId: "mine-running", sandboxId: "sbx-1" }) },
+      { ...project({ projectId: "mine-idle", sandboxId: null }) },
+      { ...project({ projectId: "theirs-running", sandboxId: "sbx-2" }), userId: "somebody-else" },
+    ]);
+
+    expect(await store.countRunningSandboxes(FAKE_OWNER)).toEqual({ mine: 1, everyone: 2 });
+    expect(await store.countRunningSandboxes("somebody-else")).toEqual({ mine: 1, everyone: 2 });
+    expect(await store.countRunningSandboxes("nobody")).toEqual({ mine: 0, everyone: 2 });
+  });
+});

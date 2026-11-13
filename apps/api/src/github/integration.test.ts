@@ -202,6 +202,7 @@ async function fixture() {
     projectId: binding.projectId,
     userId,
     sandboxId: null,
+    projectName: "Imported app",
   };
   const transport = new GitHubTransport();
   const broker = new RecordingBroker(transport.branches);

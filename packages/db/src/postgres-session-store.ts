@@ -33,6 +33,9 @@ export class PostgresSessionStore implements SessionStore {
         // column every route addressed by a session id has to authorize against.
         userId: projects.userId,
         sandboxId: projects.sandboxId,
+        // Free for the same reason: admission names a project after its first prompt, and this
+        // is the row that says whether it still has the placeholder.
+        projectName: projects.name,
       })
       .from(sessions)
       .innerJoin(projects, eq(sessions.projectId, projects.id))

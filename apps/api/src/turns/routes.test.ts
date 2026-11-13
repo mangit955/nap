@@ -65,10 +65,15 @@ function app(
         keys: async () => OPENROUTER_KEY,
         freeModel: FREE_MODEL,
         defaultModel: ALLOWED[0] ?? "",
-        sessions: new InMemorySessionStore([
-          { sessionId: SESSION, projectId: "project-1" },
-          { sessionId: SOMEBODY_ELSES, projectId: "project-2", userId: "somebody-else" },
-        ]),
+        // Linked to the project store, so the name the route reads off the session is the
+        // project's, exactly as the real join hands it over.
+        sessions: new InMemorySessionStore(
+          [
+            { sessionId: SESSION, projectId: "project-1" },
+            { sessionId: SOMEBODY_ELSES, projectId: "project-2", userId: "somebody-else" },
+          ],
+          { projects },
+        ),
       },
     }),
     registry,
@@ -1051,6 +1056,31 @@ describe("naming a project after its first prompt", () => {
     expect((await chosen.get("project-1", FAKE_OWNER))?.name).toBe(UNTITLED_PROJECT);
   });
 
+  it("names the project while the turn is being queued, not before", async () => {
+    // Both have to land before the 202, and neither waits on the other: the name is cosmetic and
+    // the queue is the durable half, so running them one after the other only made the person wait.
+    const queue = new InMemoryTurnQueue();
+    let releaseRename = () => {};
+    const projects = unnamedProject();
+    const rename = projects.rename.bind(projects);
+    projects.rename = async (...args) => {
+      await new Promise<void>((resolve) => {
+        releaseRename = resolve;
+      });
+      return await rename(...args);
+    };
+    const { app: hono } = app(queue, new TurnRegistry(), silent(), projects);
+
+    const response = post(hono, `/sessions/${SESSION}/turns`, {
+      message: "Build a small to-do app for me.",
+    });
+
+    await vi.waitFor(() => expect(queue.enqueued).toHaveLength(1));
+    releaseRename();
+    expect((await response).status).toBe(202);
+    expect((await projects.get("project-1", FAKE_OWNER))?.name).toBe("Small To-do App");
+  });
+
   it("does not name a project when the turn was refused", async () => {
     // A malformed request is not a first prompt, and naming a project after one would leave a
     // title nobody asked for on a turn that never ran.
@@ -1175,4 +1205,70 @@ it("queues only an approved completed job for app testing, with no client prompt
     (await post(f.app, `/sessions/${SESSION}/tests`, { jobId, model: "anthropic/claude-opus-5" }))
       .status,
   ).toBe(409);
+});
+
+describe("admission's lookups", () => {
+  /** An app whose session lookup waits until released, and whose key lookup is `keys`. */
+  function heldApp(keys: (userId: string) => Promise<typeof OPENROUTER_KEY | null>) {
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }]);
+    let releaseSession = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseSession = resolve;
+    });
+    const get = sessions.get.bind(sessions);
+    sessions.get = async (sessionId) => {
+      await held;
+      return await get(sessionId);
+    };
+    const hono = createApp({
+      logger: silent(),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
+      stream: {
+        store: new InMemoryEventStore(),
+        bus: new InMemoryEventBus(),
+        upgradeWebSocket: async () => new Response(null),
+      },
+      turns: {
+        queue,
+        registry: new TurnRegistry(),
+        projects: unnamedProject(),
+        allowedModels: ALLOWED,
+        keys,
+        freeModel: FREE_MODEL,
+        defaultModel: ALLOWED[0] ?? "",
+        sessions,
+      },
+    });
+    return { hono, queue, releaseSession };
+  }
+
+  it("asks whose key pays while the session is still being looked up", async () => {
+    // Two lookups that depend only on who is asking, so the second waiting for the first was a
+    // round trip somebody sat through for nothing.
+    const keys = vi.fn(async () => OPENROUTER_KEY);
+    const { hono, queue, releaseSession } = heldApp(keys);
+
+    const response = post(hono, `/sessions/${SESSION}/turns`, { message: "a timer" });
+
+    await vi.waitFor(() => expect(keys).toHaveBeenCalledExactlyOnceWith(FAKE_OWNER));
+    expect(queue.enqueued).toHaveLength(0);
+    releaseSession();
+    expect((await response).status).toBe(202);
+    // Started early, and still asked only once.
+    expect(keys).toHaveBeenCalledTimes(1);
+  });
+
+  it("still answers a session that is not the caller's with a 404 when the key lookup fails", async () => {
+    // Started early, the key lookup must not change which refusal comes first: a stranger's
+    // session is a 404 whatever else went wrong, never a 500 that says the session was there.
+    const { hono, releaseSession } = heldApp(async () => {
+      throw new Error("the key store is down");
+    });
+    releaseSession();
+
+    const response = await post(hono, `/sessions/${UNKNOWN}/turns`, { message: "a timer" });
+
+    expect(response.status).toBe(404);
+  });
 });

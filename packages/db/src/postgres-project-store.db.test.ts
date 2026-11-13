@@ -262,3 +262,25 @@ describe("ownership", () => {
     expect(await db.select().from(projects).where(eq(projects.id, theirs))).toHaveLength(1);
   });
 });
+
+describe("countRunningSandboxes", () => {
+  it("answers both of the quota's questions — this person's and everybody's — in one call", async () => {
+    // The container is shared, so "everybody" is whatever the suite has running; what is asserted
+    // is how each count moves, which no other file can disturb.
+    const me = await seedUser();
+    const stranger = await seedUser();
+    await seedProject({ userId: me, sandboxId: `sbx-${randomUUID()}` });
+    await seedProject({ userId: me, sandboxId: `sbx-${randomUUID()}` });
+    await seedProject({ userId: me, sandboxId: null });
+    const before = await store.countRunningSandboxes(me);
+
+    await seedProject({ userId: stranger, sandboxId: `sbx-${randomUUID()}` });
+    const after = await store.countRunningSandboxes(me);
+
+    expect(before.mine).toBe(2);
+    expect(before.everyone).toBeGreaterThanOrEqual(2);
+    // Somebody else's sandbox is everybody's and not mine.
+    expect(after).toEqual({ mine: 2, everyone: before.everyone + 1 });
+    expect(await store.countRunningSandboxes(stranger)).toMatchObject({ mine: 1 });
+  });
+});

@@ -118,13 +118,14 @@ describe("sessions_project_id", () => {
 });
 
 describe("projects_running_sandbox", () => {
-  it("serves the sandbox quota's counts", async () => {
+  it("serves the sandbox quota's counts, both of them in one statement", async () => {
     const store = new PostgresProjectStore(db);
-    const plan = await plansOf(async () => {
-      await store.countRunningSandboxes(userId);
-      await store.countRunningSandboxes();
-    });
+    const statements = await sentBy(() => store.countRunningSandboxes(userId));
+    const plan = await plansOf(() => store.countRunningSandboxes(userId));
 
+    // Admission asks this on a project's first turn, so a second statement is a second round trip
+    // on the path a person is waiting on.
+    expect(statements).toHaveLength(1);
     expect(plan).toContain("projects_running_sandbox");
     expect(plan).not.toContain("Seq Scan on projects");
   });

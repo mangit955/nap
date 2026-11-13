@@ -67,8 +67,8 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
   const queue = new InMemoryTurnQueue();
   const projects = new InMemoryProjectStore();
   const records = new Map<string, SessionRecord>();
-  const putProject = (record: SessionRecord, name: string) => {
-    records.set(record.sessionId, record);
+  const putProject = (record: Omit<SessionRecord, "projectName">, name: string) => {
+    records.set(record.sessionId, { ...record, projectName: name });
     projects.put({
       ...record,
       name,

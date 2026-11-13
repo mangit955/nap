@@ -46,6 +46,9 @@ export type ProjectSummary = {
   sessionIds: string[];
 };
 
+/** The sandbox quota's two counts; see `ProjectStore.countRunningSandboxes`. */
+export type RunningSandboxes = { mine: number; everyone: number };
+
 /**
  * Every method takes the user whose projects these are, and none of them is optional.
  *
@@ -103,17 +106,19 @@ export interface ProjectStore {
   delete(projectId: string, userId: string): Promise<boolean>;
 
   /**
-   * How many projects have a sandbox serving them right now — this user's, or everyone's when
-   * `userId` is omitted.
+   * How many projects have a sandbox serving them right now: this user's, and everyone's.
    *
-   * A count rather than a list because the caller is a quota check and nothing else: handing
+   * Both at once because the one caller, the sandbox quota, needs both on the path a person is
+   * waiting on, and asked separately they were two round trips one after the other.
+   *
+   * Counts rather than lists because the caller is a quota check and nothing else: handing
    * back the rows would invite somebody to render another user's project names, which is the
-   * one thing the global variant must never enable.
+   * one thing the global count must never enable.
    *
    * `projects.sandbox_id` is non-null exactly while a sandbox serves the project, so this needs
    * no bookkeeping of its own — the column the reaper and the runtime already maintain *is* the
    * answer. It follows that a sandbox reclaimed behind our back still counts until something
    * notices, which makes the quota err towards refusing rather than overspending.
    */
-  countRunningSandboxes(userId?: string): Promise<number>;
+  countRunningSandboxes(userId: string): Promise<RunningSandboxes>;
 }
