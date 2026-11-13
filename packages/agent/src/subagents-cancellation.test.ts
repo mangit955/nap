@@ -148,21 +148,23 @@ describe("mutating helper cancellation", () => {
     const entered = gate();
     const held = gate();
     const read = sandbox.readFile.bind(sandbox);
+    const readBytes = sandbox.readFileBytes.bind(sandbox);
     const write = sandbox.writeFile.bind(sandbox);
-    let firstReads = 0;
     let pending = false;
     const writes: string[] = [];
+    const holdRead = async () => {
+      pending = true;
+      entered.release();
+      await held.promise;
+      pending = false;
+    };
     sandbox.readFile = async (id, path) => {
-      if (path === FIRST) {
-        firstReads += 1;
-        if (heldAt === "pre-read" && firstReads === (tool === "edit_file" ? 2 : 1)) {
-          pending = true;
-          entered.release();
-          await held.promise;
-          pending = false;
-        }
-      }
+      if (path === FIRST && heldAt === "pre-read" && tool !== "edit_file") await holdRead();
       return read(id, path);
+    };
+    sandbox.readFileBytes = async (id, path) => {
+      if (path === FIRST && heldAt === "pre-read" && tool === "edit_file") await holdRead();
+      return readBytes(id, path);
     };
     sandbox.writeFile = async (id, path, contents) => {
       writes.push(path);

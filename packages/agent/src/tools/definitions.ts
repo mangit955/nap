@@ -171,11 +171,11 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   computer:
     "Operate the project app on its 1024×768 desktop when you need to see or exercise its UI. Actions run in order and return one final screenshot. Use read_dom and console for observations. No JavaScript execution is available.",
   read_file:
-    "Read a file from the project, with line numbers. You must read a file in this turn before editing or overwriting it. For a large file, read the part you need with offset and limit.",
+    "Read a file from the project, with line numbers. Read a file in this turn before overwriting it or using replace_all on it, and whenever you are not sure what it holds now. For a large file, read the part you need with offset and limit.",
   write_file:
     "Create a file, or replace one entirely. Use this for new files; prefer edit_file when changing part of an existing one, because this overwrites everything. An existing file must have been read first.",
   edit_file:
-    "Replace an exact stretch of text in a file you have read this turn. old_string must match the file byte for byte and appear exactly once, so include enough surrounding lines to be unambiguous — or set replace_all to change every occurrence, such as when renaming.",
+    "Replace an exact stretch of text in a file. old_string must match the file as it is now, byte for byte, and appear exactly once, so include enough surrounding lines to be unambiguous; if you are not sure the file still holds it, read the file first. replace_all changes every occurrence, such as when renaming, and needs the file read this turn.",
   apply_patch: `Edit, create, move or delete files with one patch. Prefer it when a change touches several places or several files.\n${PATCH_FORMAT}`,
   list_files:
     "List the direct contents of one directory. Call this when you need to know what exists before reading or creating files.",
