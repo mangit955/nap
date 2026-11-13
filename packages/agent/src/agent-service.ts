@@ -1016,8 +1016,8 @@ class Turn {
     this.#messages.push({ role: "assistant", content: assistant });
     // Every result in one message: see the note at the top of this file.
     this.#messages.push({ role: "user", content: results });
-    // In batches, not one frame per round: each frame turned to text rewrites the cached
-    // conversation from that point on (see COMPUTER_IMAGES_HIGH_WATER).
+    // In batches, not one frame per round: each frame turned to text costs a re-write of the
+    // whole turn's cached conversation (see COMPUTER_IMAGES_HIGH_WATER).
     this.#messages.splice(
       0,
       this.#messages.length,

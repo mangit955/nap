@@ -7,19 +7,20 @@ export const COMPUTER_IMAGES_KEPT = 3;
  * The most computer screenshots a request ever carries. One past it cuts back to
  * {@link COMPUTER_IMAGES_KEPT} in one go.
  *
- * Why there is a gap at all: turning an old screenshot into text rewrites the conversation from
- * that point on, and the cache prices a rewrite at its write rate rather than its read rate. Cut
- * one frame per step and every computer step past the third rewrites the last few steps; cut in
- * batches and that happens once every `HIGH_WATER - KEPT + 1` screenshots, at the price of
- * re-reading a couple more frames from the cache in between.
+ * Why there is a gap at all: a request reads the cache only where an earlier request wrote an
+ * entry — the end of each request, and the markers at the start of the turn. Turning an old
+ * screenshot into text changes bytes that every in-turn entry covers, so the request that does it
+ * reads up to the turn's start and re-writes the whole turn's conversation at the write price.
+ * Cut one frame per round and that happens on every computer step past the third; cut in batches
+ * and it happens once every `HIGH_WATER - KEPT + 1` screenshots, for the price of re-reading a few
+ * more frames from the cache in between.
  *
- * Why it is not larger: the request that cuts can only reuse the cache entry written just before
- * the oldest frame it drops, and the API looks back at most 20 blocks for one. A step adds up to
- * three — its prose, its tool calls, its results — so a cut reaching `HIGH_WATER + 1` steps back
- * stays within 18. One more and a turn with prose on every step would rewrite everything since
- * the turn's previous breakpoint at each cut.
+ * Why six: it is the knee. Against cutting every round it removes over half of what a long run of
+ * computer steps is billed for input; each further pair of frames saves a tenth or less on top,
+ * while every request carries them, and each one is charged at the image estimate against the
+ * context ceiling — a ceiling a cheap turn may set at forty thousand.
  */
-export const COMPUTER_IMAGES_HIGH_WATER = 5;
+export const COMPUTER_IMAGES_HIGH_WATER = 6;
 
 /** Screenshots inside tool results: the only images this module ever removes. */
 export function countComputerImages(messages: readonly LLMMessage[]): number {
