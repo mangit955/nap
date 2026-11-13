@@ -186,8 +186,13 @@ function expectNothingOfAlpha() {
   expect(within(main).queryByRole("region", { name: "src/AlphaOnly.tsx (read-only)" })).toBeNull();
   expect(within(main).queryByText("Alpha board")).toBeNull();
   expect(within(main).queryByRole("button", { name: "Stop" })).toBeNull();
-  expect(document.querySelector('iframe[src*="alpha"]')).toBeNull();
-  expect(document.querySelector(`img[src*="${PROJECT_A}"]`)).toBeNull();
+  for (const frame of screen.queryAllByTitle(PREVIEW_TITLE)) {
+    expect(frame).not.toHaveAttribute("src", expect.stringContaining("alpha"));
+  }
+  // Alt text also finds a stale snapshot hidden from the accessibility tree.
+  for (const snapshot of screen.queryAllByAltText(/last snapshot/i)) {
+    expect(snapshot).not.toHaveAttribute("src", expect.stringContaining(PROJECT_A));
+  }
 }
 
 beforeEach(() => {

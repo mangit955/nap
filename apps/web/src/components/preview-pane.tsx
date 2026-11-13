@@ -22,7 +22,7 @@ import { Pane } from "./pane.tsx";
  * all take that path, and an ordinary event arriving does *not*. Remounting on every event would
  * reload the user's app each time the agent spoke.
  *
- * **A new frame is never shown before it has loaded.** A fresh frame is blank until its server
+ * **A new frame waits for load, bounded by a timeout.** A fresh frame is blank until its server
  * answers, which after a restore is seconds of white. So a new frame loads out of sight, and what
  * stands in front of it depends on who asked for it — see `useFrameSwap`.
  *

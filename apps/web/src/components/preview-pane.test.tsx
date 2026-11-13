@@ -425,9 +425,17 @@ describe("starting up", () => {
 
       rerender(<PreviewPane projectId={B} phase={running("https://5173-beta.e2b.dev", 2)} />);
 
-      expect(document.querySelector('iframe[src*="alpha"]')).toBeNull();
+      expect(
+        screen
+          .queryAllByTitle(PREVIEW_TITLE)
+          .filter((node) => node.getAttribute("src")?.includes("alpha")),
+      ).toHaveLength(0);
       act(() => vi.advanceTimersByTime(SWAP_TIMEOUT_MS));
-      expect(document.querySelector('iframe[src*="alpha"]')).toBeNull();
+      expect(
+        screen
+          .queryAllByTitle(PREVIEW_TITLE)
+          .filter((node) => node.getAttribute("src")?.includes("alpha")),
+      ).toHaveLength(0);
       expect(frame()).toHaveAttribute("src", "https://5173-beta.e2b.dev");
     } finally {
       vi.useRealTimers();
