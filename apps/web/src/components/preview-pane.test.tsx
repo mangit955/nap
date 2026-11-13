@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectPhase } from "../projects/project-phase.ts";
-import { PREVIEW_TITLE, PreviewPane } from "./preview-pane.tsx";
+import { PREVIEW_TITLE, PreviewPane, SWAP_TIMEOUT_MS } from "./preview-pane.tsx";
 
 /**
  * What each phase looks like on screen.
@@ -166,19 +166,139 @@ describe("the frame itself", () => {
   });
 });
 
-describe("reloading", () => {
-  it("replaces the frame when a new preview is announced", () => {
-    // A cross-origin frame cannot be told to reload from this side; the only way is to throw the
-    // element away and make a new one. So the test is about the node's identity — and the `seq` is
-    // what says "a different announcement" rather than "the same one, mentioned again".
-    const { rerender } = render(<PreviewPane phase={running()} />);
-    const before = frame();
+describe("a new announcement", () => {
+  // A restarted dev server or a recreated sandbox announces a new address, and the frame has to
+  // be replaced to follow it. Replaced naively, the pane is white until the new server answers —
+  // seconds, after a restore. So the new frame loads out of sight and the old one stays up.
+  //
+  // jsdom never fires `load` on a frame by itself, so every load here is the test's decision.
 
-    rerender(<PreviewPane phase={running("https://5173-abc.e2b.dev", 3)} />);
+  const PROJECT = "p-1";
+  const at = (seq: number) => running(`https://5173-v${seq}.e2b.dev`, seq);
+  const pane = (phase: ProjectPhase) => <PreviewPane projectId={PROJECT} phase={phase} />;
+  const frames = () => screen.queryAllByTitle(PREVIEW_TITLE);
+  const frameFor = (seq: number) =>
+    frames().find((node) => node.getAttribute("src") === `https://5173-v${seq}.e2b.dev`);
 
-    expect(frame()).not.toBe(before);
-    expect(frame()).toBeInTheDocument();
+  /** A pane whose first frame has loaded, so what follows is a replacement and not a first load. */
+  function showing(seq: number) {
+    const view = render(pane(at(seq)));
+    const first = frameFor(seq);
+    if (first === undefined) throw new Error("no first frame");
+    fireEvent.load(first);
+    return view;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
+
+  it("keeps the old frame up until the new one has loaded, then removes it", () => {
+    const { rerender } = showing(2);
+    const old = frameFor(2);
+
+    rerender(pane(at(3)));
+
+    expect(frames()).toHaveLength(2);
+    expect(old).toBeVisible();
+    const next = frameFor(3);
+    expect(next).not.toBeVisible();
+
+    fireEvent.load(next as HTMLElement);
+
+    expect(frames()).toHaveLength(1);
+    expect(old).not.toBeInTheDocument();
+    // The same element, not a new one at the same address: anything else loads the app twice.
+    expect(frames()[0]).toBe(next);
+    expect(next).toBeVisible();
+  });
+
+  it("takes the old frame out of reach while it is being replaced, and says so", () => {
+    // It may be the address of a sandbox that no longer exists: a click must not land on it and a
+    // reader must not be sent into it, and what is on screen must not pass for the live app.
+    const { rerender } = showing(2);
+    const old = frameFor(2);
+    expect(old).not.toHaveAttribute("inert");
+    expect(old).not.toHaveAttribute("aria-hidden");
+
+    rerender(pane(at(3)));
+
+    expect(old).toHaveAttribute("inert");
+    expect(old).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("status")).toHaveTextContent(/updating the preview/i);
+
+    fireEvent.load(frameFor(3) as HTMLElement);
+
+    expect(frameFor(3)).not.toHaveAttribute("inert");
+    expect(frameFor(3)).not.toHaveAttribute("aria-hidden");
+    expect(screen.queryByText(/updating the preview/i)).toBeNull();
+  });
+
+  it("swaps anyway when the new frame never says it loaded", () => {
+    vi.useFakeTimers();
+    const { rerender } = showing(2);
+
+    rerender(pane(at(3)));
+    act(() => vi.advanceTimersByTime(SWAP_TIMEOUT_MS - 1));
+    expect(frames()).toHaveLength(2);
+
+    act(() => vi.advanceTimersByTime(1));
+
+    expect(frames()).toHaveLength(1);
+    expect(frameFor(3)).toBeVisible();
+    expect(frameFor(3)).not.toHaveAttribute("inert");
+  });
+
+  it("draws the app on white once it has loaded, and not a moment before", () => {
+    // White is what an app that sets no background of its own has always rendered on, so a loaded
+    // frame keeps it. A frame shown before it has loaded — the timeout's doing — shows the pane
+    // through it instead, because white there is exactly the flash this pane exists to avoid.
+    vi.useFakeTimers();
+    const { rerender } = showing(2);
+    expect(frameFor(2)).toHaveStyle({ backgroundColor: "rgb(255, 255, 255)" });
+
+    rerender(pane(at(3)));
+    act(() => vi.advanceTimersByTime(SWAP_TIMEOUT_MS));
+    expect(frameFor(3)).toBeVisible();
+    expect(frameFor(3)).not.toHaveStyle({ backgroundColor: "rgb(255, 255, 255)" });
+
+    fireEvent.load(frameFor(3) as HTMLElement);
+    expect(frameFor(3)).toHaveStyle({ backgroundColor: "rgb(255, 255, 255)" });
+  });
+
+  it("never holds more than two frames, and ends on the newest", () => {
+    // Each announcement supersedes the one still loading; only the frame on screen is kept.
+    const { rerender } = showing(2);
+
+    for (const seq of [3, 4, 5]) {
+      rerender(pane(at(seq)));
+      expect(frames().length).toBeLessThanOrEqual(2);
+      expect(frameFor(2)).toBeVisible();
+    }
+    expect(frameFor(3)).toBeUndefined();
+    expect(frameFor(4)).toBeUndefined();
+
+    fireEvent.load(frameFor(5) as HTMLElement);
+
+    expect(frames()).toHaveLength(1);
+    expect(frameFor(5)).toBeVisible();
+  });
+
+  it("leaves no timer behind when the pane goes away mid-swap", () => {
+    vi.useFakeTimers();
+    const { rerender, unmount } = showing(2);
+    rerender(pane(at(3)));
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("reloading on purpose", () => {
+  // A reload and a change of page are things the user asked for, so they look like what they
+  // are: the frame goes at once and a loading state stands in for it. Holding the old page up
+  // would make the button look as if it had done nothing.
 
   it("keeps the same frame when nothing about the preview changed", () => {
     // The log delivers a new array on every event, so the phase is recomputed constantly.
@@ -191,27 +311,37 @@ describe("reloading", () => {
     expect(frame()).toBe(before);
   });
 
-  it("replaces the frame when the bar asks for a reload", () => {
-    // The button lives in the workspace's top bar now — it counts, and this pane's frame is
-    // keyed on the count, because a cross-origin frame cannot be told to reload any other way.
+  it("replaces the frame at once when the bar asks for a reload, and shows it reloading", () => {
+    // The button lives in the workspace's top bar — it counts, and this pane's frame is keyed on
+    // the count, because a cross-origin frame cannot be told to reload any other way.
     const { rerender } = render(<PreviewPane phase={running()} reloads={0} />);
     const before = frame();
+    fireEvent.load(before as HTMLElement);
 
     rerender(<PreviewPane phase={running()} reloads={1} />);
 
-    expect(frame()).not.toBe(before);
+    expect(before).not.toBeInTheDocument();
+    expect(screen.getAllByTitle(PREVIEW_TITLE)).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent(/loading the preview/i);
+
+    fireEvent.load(frame() as HTMLElement);
+
+    expect(screen.queryByText(/loading the preview/i)).toBeNull();
+    expect(frame()).toBeVisible();
   });
 
-  it("sends the frame to the page the bar names", () => {
+  it("sends the frame to the page the bar names, the same way", () => {
     const { rerender } = render(<PreviewPane phase={running()} route="/" />);
     const before = frame();
+    fireEvent.load(before as HTMLElement);
 
     rerender(<PreviewPane phase={running()} route="/pricing" />);
 
     expect(frame()).toHaveAttribute("src", "https://5173-abc.e2b.dev/pricing");
     // A different page is a different page: the frame has to be replaced, not merely re-src'd,
     // or an app that has navigated itself since would ignore the change.
-    expect(frame()).not.toBe(before);
+    expect(before).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/loading the preview/i);
   });
 
   it("offers no reload control when there is nothing to reload", () => {
@@ -221,6 +351,89 @@ describe("reloading", () => {
   });
 });
 
+describe("starting up", () => {
+  const A = "project-a";
+  const B = "project-b";
+  const pictureOf = (projectId: string) => ({
+    projectId,
+    src: `https://api.test/projects/${projectId}/thumbnail?v=1`,
+  });
+  const snapshot = () => screen.queryByRole("img", { name: /last snapshot/i });
+
+  it("shows the project's last picture, marked as not live, under the loader", () => {
+    render(<PreviewPane projectId={A} phase={{ kind: "starting" }} thumbnail={pictureOf(A)} />);
+
+    const picture = snapshot();
+    expect(picture).toHaveAttribute("src", pictureOf(A).src);
+    fireEvent.load(picture as HTMLElement);
+
+    expect(screen.getByText(/not live/i)).toBeVisible();
+    // The wait is still what the pane is about: the picture is behind it, not instead of it.
+    expect(screen.getByText(/starting the dev server/i)).toBeVisible();
+  });
+
+  it("falls back to the plain loader when there is no picture to show", () => {
+    // The ordinary case for a project that has never finished a turn: the route answers 404.
+    render(<PreviewPane projectId={A} phase={{ kind: "starting" }} thumbnail={pictureOf(A)} />);
+
+    fireEvent.error(snapshot() as HTMLElement);
+
+    expect(snapshot()).toBeNull();
+    expect(screen.queryByText(/not live/i)).toBeNull();
+    expect(screen.getByText(/starting the dev server/i)).toBeVisible();
+  });
+
+  it("keeps the start-up screen over the first frame until that frame has loaded", () => {
+    const { rerender } = render(
+      <PreviewPane projectId={A} phase={{ kind: "starting" }} thumbnail={pictureOf(A)} />,
+    );
+
+    rerender(<PreviewPane projectId={A} phase={running()} thumbnail={pictureOf(A)} />);
+
+    expect(frame()).not.toBeVisible();
+    expect(screen.getByText(/starting the dev server/i)).toBeVisible();
+
+    fireEvent.load(frame() as HTMLElement);
+
+    expect(frame()).toBeVisible();
+    expect(screen.queryByText(/starting the dev server/i)).toBeNull();
+    expect(snapshot()).toBeNull();
+  });
+
+  it("never shows one project's picture for another", () => {
+    // A caller whose record has not caught up with a switch still hands over the last project's
+    // picture. The pane is told which project it is showing, and refuses anyone else's.
+    const { rerender } = render(
+      <PreviewPane projectId={A} phase={{ kind: "starting" }} thumbnail={pictureOf(A)} />,
+    );
+    expect(snapshot()).toHaveAttribute("src", pictureOf(A).src);
+
+    rerender(<PreviewPane projectId={B} phase={{ kind: "starting" }} thumbnail={pictureOf(A)} />);
+    expect(snapshot()).toBeNull();
+
+    rerender(<PreviewPane projectId={B} phase={{ kind: "starting" }} thumbnail={pictureOf(B)} />);
+    expect(snapshot()).toHaveAttribute("src", pictureOf(B).src);
+  });
+
+  it("never holds one project's frame up while another's loads", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(
+        <PreviewPane projectId={A} phase={running("https://5173-alpha.e2b.dev", 2)} />,
+      );
+      fireEvent.load(frame() as HTMLElement);
+
+      rerender(<PreviewPane projectId={B} phase={running("https://5173-beta.e2b.dev", 2)} />);
+
+      expect(document.querySelector('iframe[src*="alpha"]')).toBeNull();
+      act(() => vi.advanceTimersByTime(SWAP_TIMEOUT_MS));
+      expect(document.querySelector('iframe[src*="alpha"]')).toBeNull();
+      expect(frame()).toHaveAttribute("src", "https://5173-beta.e2b.dev");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 describe("the pane itself", () => {
   it("keeps its landmark in every state", () => {
     const { rerender } = show({ kind: "idle" });

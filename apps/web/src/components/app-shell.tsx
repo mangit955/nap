@@ -17,6 +17,7 @@ import { ComputerPane } from "../computer/computer-pane.tsx";
 import { ComputerNavigation } from "../computer/navigation.tsx";
 import { RecordingNavigation } from "../computer/recording-navigation.tsx";
 import { type RecordingView, RecordingViewer } from "../computer/recording-viewer.tsx";
+import { thumbnailUrl } from "../dashboard/thumbnail-url.ts";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import { ProjectGitHubControl } from "../github/project-github.tsx";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
@@ -429,6 +430,12 @@ export function AppShell({
               <PreviewPane
                 phase={phase}
                 previewRequired={previewRequired}
+                projectId={projectId}
+                // The dashboard's picture, from the same route and at the same version. Only from a
+                // record that is this project's, so a stale one can never lend its picture to B.
+                {...(project?.projectId === projectId
+                  ? { thumbnail: { projectId, src: thumbnailUrl(projectId, project.updatedAt) } }
+                  : {})}
                 route={route}
                 reloads={reloads}
                 onResume={() => void resume()}
