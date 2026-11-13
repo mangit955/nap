@@ -1,0 +1,2 @@
+CREATE INDEX "projects_running_sandbox" ON "projects" USING btree ("sandbox_id") WHERE "projects"."sandbox_id" is not null;--> statement-breakpoint
+CREATE INDEX "sessions_project_id" ON "sessions" USING btree ("project_id");

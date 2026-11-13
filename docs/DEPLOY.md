@@ -44,10 +44,10 @@ processes on it. What is different here, and why:
   migration commits moments later, every event append waits, and reads carry on. Only then does
   it take its brief locks on `users` (for a foreign key), `repository_jobs` and `projects`; the
   `ALTER TABLE`s also stop reads (the sidebar, admission, the claim), which is why they come last.
-  `0022` alters `projects` again in the same transaction, just as briefly. An index on
-  `sessions(project_id)` is deliberately left to a later release's own migration: an append
-  updates `sessions` before it inserts into `events`, so building that index here, after the
-  `events` scans, deadlocks with any append waiting on them. Appends no longer cycle with it, but
+  `0022` alters `projects` again in the same transaction, just as briefly. The index on
+  `sessions(project_id)` was left out of that release on purpose: an append
+  updates `sessions` before it inserts into `events`, so building that index there, after the
+  `events` scans, would have deadlocked with any append waiting on them. Appends no longer cycle with it, but
   deletes that cascade into `events` still do. A project deleted during the scans (deleting a
   session deletes its project) holds `projects` until the trailing `ALTER TABLE "projects"`
   deadlocks with it. A user deleted then holds `users` until the `navigation_settings` foreign key
@@ -60,6 +60,19 @@ processes on it. What is different here, and why:
   default) after it starts waiting, so a delete that began waiting less than that before those
   `ALTER`s is the one aborted instead. The migration then commits, and the person retries the
   delete.
+- **`0024` is that index, in a release of its own, with `projects`' index built first.** It builds
+  `projects_running_sandbox` (partial, `where sandbox_id is not null`) and then
+  `sessions_project_id`, each under a SHARE lock held until the migration commits. Reads carry on;
+  writes to `projects` wait for both builds, and writes to `sessions`, including every event
+  append's `head_seq` bump, wait for the second. Both tables are small beside `events`, so that is
+  a pause, not an outage. **The order is what keeps it deadlock-free.** Every transaction that
+  writes both tables writes `projects` first: creating a project and its session, and a delete
+  cascading from `users` or `projects` into `sessions`. A migration that locked `sessions` first
+  could hold it while such a delete held `projects`, and each would wait on the other. In this
+  order a writer either finishes before the migration reaches its table or waits behind it. It
+  takes no lock on `events`, so it cannot cycle with an append the way `0021` could. This holds
+  only while it migrates alone: a database still behind `0021` takes that release's locks in the
+  same transaction first, and the warning above applies.
 - **The release that added the sidebar card's fields and model titles (`0021`, `0022`) is read
   strictly by what it replaces.** Event payloads and the session list are strict schemas, so a
   browser tab opened before the deploy, and an API or reaper pod not yet rolled, reject what the
