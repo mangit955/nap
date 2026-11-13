@@ -92,6 +92,12 @@ do not change, until the window or a compaction drops it.
 offered it, so a model that calls it anyway gets an immediate refusal saying so and a round trip is
 gone. The tool's description says it is only for a turn a person started, in bytes every turn shares.
 
+**Within a turn the conversation was not quite append-only either.** Old computer screenshots
+became text one per round, so each computer step past the third rewrote the turn from its oldest
+kept frame onward. They are now cut in batches ([ADR-0018](0018-the-agent-gets-a-computer.md),
+amendment to D5), and `cache-prefix.test.ts` asserts that across a run of screenshot steps the
+conversation one request sent opens the next byte for byte, except at those cuts.
+
 **App-test turns still declare a different set**, read-only by design, so an app test's own requests
 and the person's turn after it miss the history cache. Declaring every tool and refusing all but the
 test's at execution would fix it and touch the app test's look-but-don't-touch guarantee, so it needs

@@ -1,5 +1,6 @@
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { COMPUTER_IMAGES_HIGH_WATER, COMPUTER_IMAGES_KEPT } from "@nap/shared/computer-context";
 import { NapEventSchema } from "@nap/shared/events";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { DesktopAction } from "@nap/shared/ports/sandbox-desktop";
@@ -200,11 +201,11 @@ it("admits annotations only through a test-mode handler and keeps them in batch 
   expect(desktop.actions).toHaveLength(1);
 });
 
-it("feeds back only three recent screenshots and strips computer images supplied by history", async () => {
+it("feeds back recent screenshots, cut in batches, and strips computer images supplied by history", async () => {
   const { context, events } = fixture();
   const provider = new ScriptedLLMProvider([
     [
-      ...Array.from({ length: 5 }, (_, i) => ({
+      ...Array.from({ length: COMPUTER_IMAGES_HIGH_WATER + 3 }, (_, i) => ({
         toolCalls: [{ ...call([{ action: "screenshot" }]), id: `screen${i}` }],
       })),
       {},
@@ -256,9 +257,16 @@ it("feeds back only three recent screenshots and strips computer images supplied
           ? block.content.filter((child) => child.type === "image")
           : [],
       ),
-    ).toHaveLength(Math.min(provider.requests.indexOf(request), 3));
+    ).toHaveLength(framesSentWith(provider.requests.indexOf(request)));
   }
 });
+
+/** Request n follows n screenshots: all of them up to the mark, then the newest few, refilling. */
+function framesSentWith(screenshots: number): number {
+  if (screenshots <= COMPUTER_IMAGES_HIGH_WATER) return screenshots;
+  const gap = COMPUTER_IMAGES_HIGH_WATER - COMPUTER_IMAGES_KEPT + 1;
+  return COMPUTER_IMAGES_KEPT + ((screenshots - COMPUTER_IMAGES_HIGH_WATER - 1) % gap);
+}
 
 it("checks test expectations before input and announces observations only after stored frames", async () => {
   const { context, desktop, events, objects } = fixture();
