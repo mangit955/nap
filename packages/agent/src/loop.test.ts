@@ -397,6 +397,58 @@ describe("recovering", () => {
     expect(payloads("turn.failed")).toEqual([expect.objectContaining({ reason: "refusal" })]);
   });
 
+  /** Everything the log says the model wrote, joined the way the transcript joins it. */
+  function written(): string {
+    return payloads("agent.message")
+      .map((payload) => (payload as { text: string }).text)
+      .join("");
+  }
+
+  it("asks for the rest of a reply a failed stream had already shown, never the whole of it again", async () => {
+    const { agent, provider } = run([
+      [
+        {
+          streamedText: ["Here is the plan. "],
+          error: { message: "socket hang up", retryable: true },
+        },
+        { streamedText: ["Step one is the header."], text: "Step one is the header." },
+      ],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(written()).toBe("Here is the plan. Step one is the header.");
+    const retried = provider.requests[1]?.messages ?? [];
+    expect(retried.at(-2)).toEqual({ role: "assistant", content: "Here is the plan. " });
+    expect(textOf(retried.at(-1))).toMatch(/stopped partway/);
+    expect(types().at(-1)).toBe("turn.completed");
+  });
+
+  it("asks again from the start when the failed stream had shown nothing", async () => {
+    const { agent, provider } = run([
+      [{ error: { message: "socket hang up", retryable: true } }, { text: "Done." }],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(provider.requests[1]?.messages).toEqual(provider.requests[0]?.messages);
+  });
+
+  it("hands the fallback the part of a refused reply that was already shown", async () => {
+    const { agent, provider } = run(
+      [
+        [{ streamedText: ["Sure, "], refusal: true }],
+        [{ streamedText: ["here it is."], text: "here it is." }],
+      ],
+      { fallbackModel: "openai/gpt-5.6-luna" },
+    );
+
+    await agent.runTurn(request({ model: "anthropic/claude-opus-5" }));
+
+    expect(written()).toBe("Sure, here it is.");
+    expect(provider.requests[1]?.messages.at(-2)).toEqual({ role: "assistant", content: "Sure, " });
+  });
+
   it("bills the refused model and the fallback both", async () => {
     const { agent } = run(
       [

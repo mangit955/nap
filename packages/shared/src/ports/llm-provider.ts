@@ -112,6 +112,10 @@ export type LLMRequest = {
    * separate from the assembled `text` below because that only exists once the call is over.
    * A caller taking this must not also print the assembled text: the same words would
    * arrive twice.
+   *
+   * Once any of it has been delivered, a provider does not retry that request itself: a retry
+   * writes the answer again from its first word, and these words cannot be taken back. It returns
+   * the failure instead, and the caller — which knows what was shown — asks for the rest.
    */
   onTextDelta?: ((delta: string) => void) | undefined;
   /**

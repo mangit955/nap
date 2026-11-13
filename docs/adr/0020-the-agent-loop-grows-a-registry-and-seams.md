@@ -72,6 +72,7 @@ The context engine offers helpers only to imported repositories. A Nap project i
 - **A retryable failure gets one more attempt after a longer wait.** The provider's own retries are already spent and are sized for a dropped connection, not a throttled minute. The wait is announced and cancellable.
 - **A refusal can continue on `NAP_FALLBACK_MODEL`.** Once per turn, only on the deployment's account, announced as a `system.notice`, and billed with the model it replaced.
 - **A reply cut off at the output limit gets asked for the rest**, at most twice.
+- **A step that failed after showing prose is continued, not repeated** (amended 2026-11-13). The provider no longer retries an attempt once it has shown prose. Before either re-ask above, the agent puts the shown words into the conversation and asks for the rest, so nothing is written to the log twice.
 - **Malformed arguments** were already an error result, never a failed turn.
 
 ### D9: Project rules arrive with the first result in their directory

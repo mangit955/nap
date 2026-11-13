@@ -562,6 +562,11 @@ class ClaudeTurn implements LLMTurn {
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+      // Whether this attempt has handed the caller any of the answer's prose. Once it has, a
+      // failure is not retried here: a retry is a new stream that writes the answer from its
+      // first word, and the words already shown cannot be taken back, so the person would read
+      // the opening twice. The caller knows what was shown and can ask for only the rest.
+      let shown = false;
       try {
         const stream = this.#client.messages.stream(body, { signal: request.signal });
         // Subscribed per attempt rather than once, because each attempt is its own stream.
@@ -574,7 +579,10 @@ class ClaudeTurn implements LLMTurn {
         }
         if (request.onTextDelta !== undefined) {
           const forward = request.onTextDelta;
-          stream.on("text", (delta) => forward(delta));
+          stream.on("text", (delta) => {
+            shown = true;
+            forward(delta);
+          });
         }
         if (request.onToolCallStart !== undefined) {
           const forward = request.onToolCallStart;
@@ -587,7 +595,7 @@ class ClaudeTurn implements LLMTurn {
         return this.#record(toTurnResult(message));
       } catch (cause) {
         lastError = cause;
-        if (!isRetryable(cause)) break;
+        if (!isRetryable(cause) || shown) break;
         if (attempt < MAX_ATTEMPTS) {
           const base = isThrottled(cause) ? RATE_LIMIT_BACKOFF_MS : BASE_BACKOFF_MS;
           await this.#sleep(base * 2 ** (attempt - 1));

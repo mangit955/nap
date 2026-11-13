@@ -334,6 +334,40 @@ describe("ClaudeProvider", () => {
       expect(client.calls).toHaveLength(2);
     });
 
+    it("hands a failure back rather than retrying once the person has read part of the answer", async () => {
+      // A retry is a new stream that writes the answer from its first word, and words already
+      // handed over cannot be taken back: retrying here would print the opening twice. The
+      // caller knows what was shown and can ask for the rest instead.
+      const client = stubClient([
+        { deltas: [{ event: "text", text: "Here is the plan. " }], message: rateLimited() },
+        message(),
+      ]);
+      const seen: string[] = [];
+
+      const result = await provider(client)
+        .startTurn()
+        .complete(request({ onTextDelta: (delta) => seen.push(delta) }));
+
+      expect(result).toMatchObject({ type: "error", retryable: true });
+      expect(client.calls).toHaveLength(1);
+      expect(seen).toEqual(["Here is the plan. "]);
+    });
+
+    it("still retries an attempt that handed over only reasoning, or prose nobody was given", async () => {
+      const client = stubClient([
+        { deltas: [{ event: "thinking", text: "hmm" }], message: rateLimited() },
+        { deltas: [{ event: "text", text: "unheard" }], message: rateLimited() },
+        message(),
+      ]);
+
+      const result = await provider(client)
+        .startTurn()
+        .complete(request({ onThinkingDelta: () => {} }));
+
+      expect(result.type).toBe("message");
+      expect(client.calls).toHaveLength(3);
+    });
+
     it("does not retry a request the server rejected as malformed", async () => {
       const client = stubClient([new BadRequestError(400, undefined, "bad tools", new Headers())]);
 
