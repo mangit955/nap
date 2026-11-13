@@ -90,6 +90,39 @@ describe("diagnosePreview", () => {
   });
 });
 
+describe("diagnosePreview, cancelled", () => {
+  it("stops waiting for the public URL when the signal fires, and probes nothing after", async () => {
+    const { sandbox, sandboxId } = await sandboxWith({ serving: false });
+    sandbox.waitForPreview = () => new Promise(() => {});
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 10);
+
+    const diagnosis = await diagnosePreview(sandbox, sandboxId, PORT, {
+      signal: controller.signal,
+    });
+
+    expect(diagnosis.state).toBe("unreachable");
+    expect(sandbox.commands(sandboxId)).toEqual([]);
+  });
+
+  it("never reads a probe the signal cut short as an application that did not start", async () => {
+    // Doubt resolves towards infrastructure, and a diagnosis nobody finished is all doubt.
+    const { sandbox, sandboxId } = await sandboxWith({ serving: false });
+    const controller = new AbortController();
+    sandbox.script(/curl/, () => {
+      controller.abort();
+      return { exitCode: CURL_COULD_NOT_CONNECT };
+    });
+
+    const diagnosis = await diagnosePreview(sandbox, sandboxId, PORT, {
+      signal: controller.signal,
+    });
+
+    expect(sandbox.execs(sandboxId)[0]?.options.signal).toBe(controller.signal);
+    expect(diagnosis.state).toBe("unreachable");
+  });
+});
+
 describe("portListeningProbe", () => {
   it("asks about loopback inside the sandbox, not about the public address", () => {
     expect(portListeningProbe(PORT)).toContain("http://127.0.0.1:5173/");

@@ -8,6 +8,7 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { CHECK_TIMEOUT_MS, VERIFICATION_ROUND_LIMIT_MS } from "@nap/shared/command-windows";
 import { describe, expect, it } from "vitest";
 import { CHECK_NAMES, type DiscoveredCheck } from "./discover-checks.ts";
+import { CURL_COULD_NOT_CONNECT } from "./preview.ts";
 import { runChecks } from "./run-checks.ts";
 
 const PORT = 5173;
@@ -646,6 +647,53 @@ describe("cancelling a run of checks", () => {
     expect(sandbox.commands(sandboxId)).toEqual([]);
     expect(result.verdict).toBe("errored");
     expect(outcomes(result)).toEqual([["preview", "absent"]]);
+  });
+
+  it("stops waiting for the preview the moment the signal fires", async () => {
+    // The wait for the public URL runs to the runtime's preview timeout, and the turn's lease, and
+    // whatever message is queued behind it, would wait it out after somebody pressed Stop.
+    const { sandbox, sandboxId } = await sandboxWith();
+    sandbox.waitForPreview = () => new Promise(() => {});
+    const controller = new AbortController();
+
+    const running = runChecks(sandbox, sandboxId, [], {
+      preview: { port: PORT },
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 10);
+    const result = await Promise.race([
+      running,
+      new Promise<"still waiting">((resolve) => setTimeout(() => resolve("still waiting"), 1_000)),
+    ]);
+
+    expect(result).not.toBe("still waiting");
+    if (result === "still waiting") return;
+    expect(result.verdict).toBe("errored");
+    expect(outcomes(result)).toEqual([["preview", "absent"]]);
+    expect(result.checks[0]?.detail).toBe("cancelled while it was running");
+    // Nor is the port probed afterwards, for nobody.
+    expect(sandbox.commands(sandboxId)).toEqual([]);
+  });
+
+  it("gives the in-sandbox probe the signal, and does not read a cancelled probe as a broken app", async () => {
+    // "Nothing is listening" is the one preview answer that opens a repair turn, and a job somebody
+    // has just stopped must not get one.
+    const { sandbox, sandboxId } = await sandboxWith();
+    const controller = new AbortController();
+    sandbox.script(/curl/, () => {
+      controller.abort();
+      return { exitCode: CURL_COULD_NOT_CONNECT };
+    });
+
+    const result = await runChecks(sandbox, sandboxId, [], {
+      preview: { port: PORT },
+      signal: controller.signal,
+    });
+
+    expect(sandbox.execs(sandboxId)[0]?.options.signal).toBe(controller.signal);
+    expect(result.verdict).toBe("errored");
+    expect(outcomes(result)).toEqual([["preview", "absent"]]);
+    expect(result.checks[0]?.detail).toBe("cancelled while it was running");
   });
 
   it("does not blame the project for a check the cancel killed", async () => {

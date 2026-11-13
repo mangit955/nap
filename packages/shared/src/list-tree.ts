@@ -19,9 +19,9 @@
  * moved file twice. The git branch therefore prints what the index has that the disk does not
  * first, then an empty record — two NULs in a row, which no path can produce — then the listing,
  * and the parser takes the first part away from the second. Deleted paths come first so that the
- * byte ceiling, which cuts from the end, can only ever cut the listing — and within the listing,
- * the files the project tracks come before the ones it does not, so the ceiling cuts untracked
- * files before any tracked one.
+ * byte ceiling, which cuts from the end, can only ever cut the listing. A command that reaches
+ * the ceiling is rejected: partial input cannot preserve the caller's breadth-first preference
+ * or tell it how much of the project is missing after exclusions.
  */
 
 import type { ExecResult, SandboxError, SandboxManager } from "./ports/sandbox-manager.ts";
@@ -31,7 +31,7 @@ import { shellQuote } from "./shell.ts";
 /**
  * A ceiling on what one listing may print. Roughly twenty thousand paths: an imported monorepo
  * can hold far more, and a listing that size is a megabyte of transfer for a digest that shows
- * two hundred of them. A cut listing is still a listing — the parser drops the partial tail.
+ * two hundred of them. Reaching it makes the listing unavailable rather than silently partial.
  */
 const MAX_OUTPUT_BYTES = 1_048_576;
 
@@ -123,5 +123,81 @@ export async function listTreeViaExec(
       },
     };
   }
+  // Count UTF-8 bytes, as `head -c` does. Exclusions and breadth-first selection happen after
+  // this bound, so even complete records at the ceiling cannot be trusted as a project listing.
+  if (new TextEncoder().encode(ran.value.stdout).byteLength >= MAX_OUTPUT_BYTES) {
+    return {
+      ok: false,
+      error: {
+        code: "unavailable",
+        message: `cannot list ${root}: listing reached its ${MAX_OUTPUT_BYTES}-byte limit`,
+      },
+    };
+  }
   return { ok: true, value: parseListTree(root, ran.value.stdout, options.exclude) };
+}
+
+/** The files a bounded walk kept, and whether it left any of the listing out. */
+export type BreadthFirstListing = {
+  /** Absolute, in the order the walk took them: shallowest first, each folder's sorted. */
+  paths: string[];
+  /** Whether a limit kept back a file the listing had. */
+  truncated: boolean;
+};
+
+/**
+ * At most `maxEntries` files of a `listTree` answer, chosen as a walk folder by folder would have
+ * chosen them: every file one level down before any two levels down, each folder's in
+ * `localeCompare` order. So a shallow file is never displaced by a deep one when the cap bites,
+ * and the same project gives the same answer whatever order the sandbox listed it in.
+ *
+ * Shared because the model's digest and the files panel both need exactly this and used to walk
+ * the sandbox for it, a call per folder. What each leaves out is decided by the `exclude` it gives
+ * `listTree`, not here: the port promises an excluded segment never comes back.
+ *
+ * `maxDepth` counts folders below the root: 0 is the root's own files. Absent, depth is no limit.
+ */
+export function walkBreadthFirst(
+  root: string,
+  listing: readonly string[],
+  limits: { maxEntries: number; maxDepth?: number },
+): BreadthFirstListing {
+  const base = root.endsWith("/") ? root.slice(0, -1) : root;
+  const prefix = `${base}/`;
+  /** Folder → its children, each marked as a folder or not. */
+  const folders = new Map<string, Map<string, boolean>>();
+  let files = 0;
+
+  for (const path of new Set(listing)) {
+    if (!path.startsWith(prefix)) continue;
+    files += 1;
+    const segments = path.slice(prefix.length).split("/");
+    let folder = base;
+    for (const [index, segment] of segments.entries()) {
+      const child = `${folder}/${segment}`;
+      const children = folders.get(folder) ?? new Map<string, boolean>();
+      children.set(child, index < segments.length - 1);
+      folders.set(folder, children);
+      folder = child;
+    }
+  }
+
+  const maxDepth = limits.maxDepth ?? Number.POSITIVE_INFINITY;
+  const paths: string[] = [];
+  let queue = [base];
+
+  for (let depth = 0; depth <= maxDepth && queue.length > 0; depth += 1) {
+    const next: string[] = [];
+    for (const folder of queue) {
+      const children = [...(folders.get(folder) ?? [])].sort(([a], [b]) => a.localeCompare(b));
+      for (const [child, isFolder] of children) {
+        if (isFolder) next.push(child);
+        else if (paths.length < limits.maxEntries) paths.push(child);
+      }
+    }
+    if (paths.length >= limits.maxEntries) break;
+    queue = next;
+  }
+
+  return { paths, truncated: paths.length < files };
 }

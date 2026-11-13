@@ -44,8 +44,8 @@ export type VerifyTurnOptions = {
   /** How long to give the public preview URL before probing the port from inside. */
   previewTimeoutMs?: number;
   /**
-   * Cancelling the turn stops the check that is running and any still to come. The preview wait is
-   * not interrupted: it is skipped if the signal has already fired, and once begun it runs out.
+   * Cancelling the turn stops the check that is running and any still to come, the preview probe
+   * included, and records each as cancelled rather than failed.
    */
   signal?: AbortSignal | undefined;
 };

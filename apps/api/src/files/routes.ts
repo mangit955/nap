@@ -8,7 +8,7 @@ import { GitScopeSchema } from "@nap/shared/git-protocol";
  * concern. Both are read-only: nothing here writes to a sandbox, and the agent remains the
  * only thing that changes a project.
  *
- * The listing is one bounded walk per request rather than a call per opened directory. A tree
+ * The listing is one bounded sandbox call per request rather than a call per opened directory. A tree
  * that had to fetch each folder as it opened could not highlight a file three levels down
  * without a chain of round trips, and highlighting what just changed is the point of showing
  * the tree at all.

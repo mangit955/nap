@@ -112,6 +112,37 @@ describe("GET /sessions/:sessionId/files", () => {
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
   });
+
+  it("503s when the listing does not answer in time, rather than showing an empty project", async () => {
+    sandbox.listTree = async () => ({
+      ok: false,
+      error: { code: "timeout", message: "listing timed out" },
+    });
+
+    const res = await app().request(`/sessions/${SESSION}/files`);
+
+    expect(res.status).toBe(503);
+  });
+
+  it("asks the sandbox for the whole tree in one call", async () => {
+    // The panel requests this on open and after every file change, and it used to cost a round
+    // trip per folder, made one after another.
+    const asked: string[] = [];
+    for (const method of ["listTree", "listFiles", "exec", "readFile"] as const) {
+      const original = sandbox[method].bind(sandbox) as (...args: unknown[]) => unknown;
+      Object.assign(sandbox, {
+        [method]: (...args: unknown[]) => {
+          asked.push(method);
+          return original(...args);
+        },
+      });
+    }
+
+    const res = await app().request(`/sessions/${SESSION}/files`);
+
+    expect(res.status).toBe(200);
+    expect(asked).toEqual(["listTree"]);
+  });
 });
 
 describe("GET /sessions/:sessionId/file", () => {
