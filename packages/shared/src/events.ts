@@ -333,7 +333,11 @@ export const NapEventSchema = z.discriminatedUnion("type", [
     /** Unified diff, produced by the write tools. */
     diff: z.string(),
   }),
-  /** One chunk of a `run_command` stream. Ordering is carried by `seq`, not by this event. */
+  /**
+   * A piece of a `run_command` stream. Ordering is carried by `seq`, not by this event. A piece
+   * is not one write by the process: output is coalesced on its way to the log, so only the
+   * concatenation of a call's pieces means anything.
+   */
   event("command.output", {
     toolCallId: z.string().min(1),
     stream: z.enum(["stdout", "stderr"]),

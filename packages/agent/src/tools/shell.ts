@@ -22,6 +22,7 @@ import { shellQuote } from "@nap/shared/shell";
 import { inspectCommand } from "../safety/commands.ts";
 import { emit, failed, type ToolContext, type ToolOutcome } from "./context.ts";
 import { PROJECT_ROOT, type ToolArgs } from "./definitions.ts";
+import { CommandOutputStream } from "./output-stream.ts";
 
 /** Outside the project, so nothing here is committed, snapshotted or verified. */
 export const SHELL_ROOT = "/tmp/nap-shells";
@@ -63,17 +64,20 @@ export async function runCommand(
   const timeoutMs = (args.timeout_seconds ?? 60) * 1_000;
 
   if (ctx.signal?.aborted) return { ok: false, output: "Cancelled before running the command." };
-  const executed = await ctx.sandbox.exec(
-    ctx.sandboxId,
-    command,
-    (chunk) => {
-      emit(ctx, {
-        type: "command.output",
-        payload: { toolCallId: call.id, stream: chunk.stream, chunk: chunk.data },
-      });
-    },
-    { signal: ctx.signal, timeoutMs },
-  );
+  // Coalesced rather than one event per chunk; see ./output-stream.ts. Closed in `finally`, so
+  // whatever was printed is in the log before this call's result whichever way the call ended.
+  const output = new CommandOutputStream((stream, chunk) => {
+    emit(ctx, { type: "command.output", payload: { toolCallId: call.id, stream, chunk } });
+  });
+  let executed: Awaited<ReturnType<typeof ctx.sandbox.exec>>;
+  try {
+    executed = await ctx.sandbox.exec(ctx.sandboxId, command, (chunk) => output.push(chunk), {
+      signal: ctx.signal,
+      timeoutMs,
+    });
+  } finally {
+    output.close();
+  }
   if (!executed.ok) {
     if (executed.error.code === "timeout")
       return {
