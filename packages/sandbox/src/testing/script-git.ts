@@ -76,3 +76,15 @@ export function scriptGit(
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${sha}\n` })
     .script(BUNDLE_COMMAND, bundled("refs/heads/main", bundle));
 }
+
+/** Matches the one command `restoreBundle` sends once the bundle is uploaded. */
+export const RESTORE_COMMAND = /git bundle verify/;
+
+/**
+ * That command's answer when it was given a probe: what the probe printed on the tree being
+ * replaced, then on the restored one. Answering with stdout alone reports nothing either way, which
+ * a caller deciding something from the probe must treat as "cannot tell".
+ */
+export function restored(before: string, after: string = before): ScriptedExecResponse {
+  return { exitCode: 0, stdout: `${before}\n${after}\n` };
+}

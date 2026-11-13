@@ -359,6 +359,8 @@ the work has got.
 
 **Snapshot** — the archived filesystem of a put-away project; what a restore rebuilds from.
 
+**Dependency archive** — what a restore's own install left, stored beside the project's snapshot under a key of exactly what decided it: its `node_modules`, or, when the install ran lifecycle scripts or read local packages, the packages Bun downloaded, which a later restore installs from offline. A cache, never a source of truth: a restore uses it only on an exact key match and installs on anything else. Not part of the *snapshot*, which holds only what git does. See ADR-0032.
+
 **Thumbnail lane** — where a project's dashboard picture is taken, after the turn that asked for it
 has given its lease back. Best-effort and bounded by dropping: a picture that is late, skipped or
 kept from the turn before is a stale card and nothing more. It never keeps a sandbox alive or makes

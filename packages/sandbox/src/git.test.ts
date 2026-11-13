@@ -231,17 +231,30 @@ describe("bundle", () => {
 });
 
 describe("restoreBundle", () => {
-  it("writes the bundle, then fetches, resets and cleans in order", async () => {
+  it("restores in one round trip after the upload: verify, clone, swap, reset, clean, in order", async () => {
+    // Every command is a round trip to the sandbox, and a reopened project waits for all of them.
     const manager = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
     const { sandboxId } = await gitSandbox(manager);
 
     const result = await restoreBundle(manager, sandboxId, new Uint8Array([9, 8, 7]));
 
-    expect(result.ok).toBe(true);
+    expect(result).toEqual({ ok: true, value: { probe: null } });
     const commands = gitCommands(manager, sandboxId);
-    expect(commands[0]).toContain("clone --mirror");
-    expect(commands[2]).toContain("git reset --hard HEAD");
-    expect(commands[3]).toContain("git clean -fd");
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatch(
+      /git bundle verify[\s\S]*clone --mirror[\s\S]*rm -rf \.git[\s\S]*git reset --hard HEAD[\s\S]*git clean -fd/,
+    );
+  });
+
+  it("joins every step with &&, so a failing one stops the steps after it", async () => {
+    const manager = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+    const { sandboxId } = await gitSandbox(manager);
+
+    await restoreBundle(manager, sandboxId, new Uint8Array([9]));
+
+    // A `;` anywhere would let `rm -rf .git` run after a failed verify, and destroy the template's
+    // repository on the strength of a bundle git had refused.
+    expect(gitCommands(manager, sandboxId)[0]).not.toContain(";");
   });
 
   it("writes the payload as the bytes themselves, with nothing to decode in the sandbox", async () => {
@@ -265,9 +278,40 @@ describe("restoreBundle", () => {
 
     await restoreBundle(manager, sandboxId, new Uint8Array([1]));
 
-    const clean = gitCommands(manager, sandboxId).find((c) => c.includes("git clean"));
-    expect(clean).toBeDefined();
-    expect(clean).not.toContain("-x");
+    const clean = gitCommands(manager, sandboxId)[0]?.match(/git clean[^&]*/)?.[0];
+    expect(clean).toBe("git clean -fd");
+  });
+
+  it("runs a probe on the old tree and the new one, in the same round trip, and hands back both", async () => {
+    const manager = new InMemorySandboxManager();
+    manager.script(/git bundle verify/, { exitCode: 0, stdout: "before-line\nafter-line\n" });
+    const { sandboxId } = await gitSandbox(manager);
+
+    const result = await restoreBundle(manager, sandboxId, new Uint8Array([1]), {
+      probe: "echo probed",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      value: { probe: { before: "before-line", after: "after-line" } },
+    });
+    const [command] = gitCommands(manager, sandboxId);
+    expect(command?.indexOf("$(echo probed)")).toBeLessThan(
+      command?.indexOf("git bundle verify") ?? -1,
+    );
+    expect(command?.lastIndexOf("$(echo probed)")).toBeGreaterThan(
+      command?.indexOf("git clean") ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("hands back empty probe lines rather than inventing them when nothing was printed", async () => {
+    const manager = new InMemorySandboxManager();
+    manager.script(/git bundle verify/, { exitCode: 0 });
+    const { sandboxId } = await gitSandbox(manager);
+
+    const result = await restoreBundle(manager, sandboxId, new Uint8Array([1]), { probe: "true" });
+
+    expect(result).toEqual({ ok: true, value: { probe: { before: "", after: "" } } });
   });
 
   it("reports a corrupt bundle as exec_failed", async () => {
