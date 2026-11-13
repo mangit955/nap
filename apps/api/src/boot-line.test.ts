@@ -42,6 +42,9 @@ const ENV = {
   NAP_EVENT_BUS: "postgres",
   NAP_MODEL: "openai/gpt-5.6-luna",
   NAP_EFFORT: "medium",
+  NAP_API_DB_POOL_SIZE: 10,
+  NAP_REAPER_DB_POOL_SIZE: 4,
+  NAP_WORKER_CONCURRENCY: 25,
 } as Env;
 
 describe("the boot line", () => {
@@ -62,5 +65,19 @@ describe("the boot line", () => {
       // Whatever the entrypoint added, alongside rather than instead of the shared fields.
       concurrency: 25,
     });
+  });
+
+  it("says how many database connections this process may open", () => {
+    // What a deployment's connection budget is summed from, readable off each process's logs
+    // rather than worked out again from its environment.
+    const logger = recorder();
+
+    announce({ env: ENV, role: "worker", logger }, "worker claiming", {});
+    announce({ env: ENV, role: "api", logger }, "api listening", {});
+    announce({ env: ENV, role: "reaper", logger }, "reaper sweeping", {});
+
+    expect(
+      logger.lines.map((line) => (line.fields as { databasePool?: number }).databasePool),
+    ).toEqual([27, 10, 4]);
   });
 });

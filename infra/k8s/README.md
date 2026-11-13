@@ -51,6 +51,13 @@ pointed at `cluster-proof.ts`, `imagePullPolicy: Never`, the in-cluster Postgres
 Ingress with no TLS. Two copies of those would drift, and both overlays' value depends on it being
 the same deployment underneath.
 
+That Postgres runs with `max_connections=400`, not the default 100. At its autoscalers' maximums
+the load overlay is six API pods and eight workers, each worker pooling a connection per concurrent
+turn, and with a rollout's second copy of each that is 342 connections. `test/connection-budget.test.ts`
+reads the number from `postgres.yaml` and fails when either overlay stops fitting it. A real
+cluster's database has its own limit, which nothing here can read: do the same sum against it
+before raising a replica count or `NAP_WORKER_CONCURRENCY`.
+
 ## proof/
 
 ```bash

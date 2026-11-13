@@ -319,6 +319,27 @@ const BaseSchema = z.object({
   NAP_WORKER_CONCURRENCY: z.coerce.number().int().positive().default(25),
 
   /**
+   * How many database connections each process may open: one setting per process, because the
+   * three share one environment and need very different numbers. A pool is a ceiling, not a
+   * reservation, but postgres.js keeps a connection once it has opened one, so a process that was
+   * busy once holds its whole pool. What every process holds together, rollouts included, has to
+   * fit the database's `max_connections`; `test/connection-budget.test.ts` checks that for every
+   * deployment this repo describes. See `apps/api/src/database-pool.ts` for the arithmetic.
+   *
+   * The API's ten is what the load baseline measured it with (`docs/scaling-baseline.md`).
+   */
+  NAP_API_DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  /**
+   * The worker's, which runs `NAP_WORKER_CONCURRENCY` turns whose appends, renewals and
+   * announcements all share it. Absent means that concurrency plus a little room for what is not a
+   * turn; set, it must be more than the concurrency, or turns holding a connection each could
+   * leave a lease renewal with none, and a renewal that waits long enough loses its lease.
+   */
+  NAP_WORKER_DB_POOL_SIZE: z.coerce.number().int().positive().optional(),
+  /** The reaper's. It sweeps one project at a time, so a few is plenty. */
+  NAP_REAPER_DB_POOL_SIZE: z.coerce.number().int().positive().default(4),
+
+  /**
    * How often an idle worker asks the queue for work while it can hear claim wake-ups.
    *
    * Everything that makes a request claimable announces it, so an idle worker claims in
@@ -382,6 +403,39 @@ const BaseSchema = z.object({
    */
   NAP_CHROME_PATH: z.string().min(1).optional(),
 });
+
+/**
+ * A worker's pool must be bigger than the number of turns it runs. A function rather than a line
+ * in `EnvSchema`, so the settings a deployment test reads (`PoolEnvSchema`) are held to the same
+ * rule as a booting process.
+ */
+function refineWorkerPool(
+  env: Pick<z.infer<typeof BaseSchema>, "NAP_WORKER_DB_POOL_SIZE" | "NAP_WORKER_CONCURRENCY">,
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    env.NAP_WORKER_DB_POOL_SIZE !== undefined &&
+    env.NAP_WORKER_DB_POOL_SIZE <= env.NAP_WORKER_CONCURRENCY
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NAP_WORKER_DB_POOL_SIZE"],
+      message: `must be more than NAP_WORKER_CONCURRENCY (${env.NAP_WORKER_CONCURRENCY}), or turns holding a connection each leave lease renewals none; unset it to derive one`,
+    });
+  }
+}
+
+/**
+ * The settings that decide how many connections a process opens, and nothing else: what a test of
+ * a deployment's connection budget can parse out of a file that sets only some of them.
+ */
+export const PoolEnvSchema = BaseSchema.pick({
+  NAP_API_DB_POOL_SIZE: true,
+  NAP_WORKER_DB_POOL_SIZE: true,
+  NAP_REAPER_DB_POOL_SIZE: true,
+  NAP_WORKER_CONCURRENCY: true,
+  NAP_EVENT_BUS: true,
+}).superRefine(refineWorkerPool);
 
 /**
  * The credentials the chosen platform needs, and only those.
@@ -564,6 +618,8 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
       message: `must be less than NAP_SANDBOX_TTL_MINUTES (${env.NAP_SANDBOX_TTL_MINUTES}), or sandboxes expire before they are snapshotted`,
     });
   }
+
+  refineWorkerPool(env, ctx);
 
   // Shorter than the idle limit, the cap is passed before a project is ever a candidate, so it
   // spares nobody — a setting that reads as the fix and reaps every viewer exactly as before.

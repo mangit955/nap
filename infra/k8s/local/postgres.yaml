@@ -49,6 +49,11 @@ spec:
           # The tag the development compose file and the db suite's container both pin. Three
           # places agreeing about what Postgres does is the point.
           image: postgres:17-alpine
+          # Past Postgres's default of 100, which the load overlay's processes outgrow at its
+          # autoscalers' maximums: eight workers each pool a connection per concurrent turn.
+          # `test/connection-budget.test.ts` reads this number and fails if the overlays do not
+          # fit it, rollouts included.
+          args: ["-c", "max_connections=400"]
           env:
             - name: POSTGRES_USER
               value: nap

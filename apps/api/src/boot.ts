@@ -64,6 +64,7 @@ import { createKeyVerifier } from "./account/routes.ts";
 import { encryptionKeyFrom } from "./account/secret-box.ts";
 import { createAuth } from "./auth/auth.ts";
 import { type ComposedNap, composeNap, type NapRole } from "./compose.ts";
+import { databasePoolSize } from "./database-pool.ts";
 import { type Env, EnvValidationError, parseEnv } from "./env.ts";
 import { GitHubApp } from "./github/app.ts";
 import { githubConfigFromEnv } from "./github/config.ts";
@@ -150,7 +151,9 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
   setRootLogger(logger);
 
   // One pool for the process; the stores are handed a database rather than opening their own.
-  const { db, client } = createDatabase(env.DATABASE_URL);
+  // Sized by role, because a worker running many turns and an API serving short requests need
+  // very different numbers out of one shared connection limit — see `database-pool.ts`.
+  const { db, client } = createDatabase(env.DATABASE_URL, { max: databasePoolSize(role, env) });
 
   const events = new PostgresEventStore(db);
 

@@ -19,7 +19,10 @@ export type Database = {
 };
 
 export type CreateDatabaseOptions = {
-  /** Pool size. The default suits one API process; a script wants far fewer. */
+  /**
+   * Pool size. The default is the API's; each process passes its own from
+   * `apps/api/src/database-pool.ts`, and a script wants far fewer.
+   */
   max?: number;
 };
 

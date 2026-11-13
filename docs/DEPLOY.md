@@ -84,6 +84,21 @@ processes on it. What is different here, and why:
 - **One database URL serves both connections.** Render Postgres has no pooler in front of it, so
   `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` are the same internal connection string, and the
   database accepts no connections from outside Render.
+- **A hundred connections, and the three processes have to share them twice.** Every Render
+  Postgres plan under 8 GB of memory, `free` included, allows 100 connections, and Postgres keeps
+  3 of those for superusers. Each process opens its own pool (`NAP_API_DB_POOL_SIZE`,
+  `NAP_WORKER_DB_POOL_SIZE`, `NAP_REAPER_DB_POOL_SIZE`) plus a `LISTEN` connection, and the reaper
+  one more for its lock. postgres.js keeps a connection once it opens one, so a busy pool stays
+  full. A release starts each new process before the old one stops, and a draining worker can
+  still be holding its pool while the API and the reaper roll, so for a while there are two of
+  everything. As deployed: 11 (API) + 28 (worker) + 6 (reaper) = 45, twice over plus the
+  migration's one is 91 of 97. **A second worker does not fit**: it makes 119, and a refused
+  connection lands on whatever asked last, a turn mid-write or the release's own migration.
+  Scaling the worker means a plan with 200 connections (8 GB or more), smaller pools, or a pooler
+  in front with `NAP_LISTEN_DATABASE_URL` on the direct endpoint. `test/connection-budget.test.ts`
+  does this sum from `render.yaml` and the pool rule, and fails when the deployment stops fitting.
+  The pool rule itself is in `apps/api/src/database-pool.ts`; each process logs its pool size on
+  its boot line as `databasePool`.
 - **The worker is the 2 GB plan.** It runs Chromium for the preview screenshots; the Kubernetes
   manifests request 1 GiB for the same process, and 512 MB is where it runs out.
 - **GitHub Actions releases production after CI passes on `main`.** Render's own auto-deploys
@@ -633,6 +648,12 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   bottleneck, not when the bill is. A turn that cannot be claimed waits in `turn_requests`
   rather than being refused, so this changes latency and never who gets in. The default is
   derived in `docs/scaling-baseline.md` and deliberately below what that run licenses.
+- `NAP_API_DB_POOL_SIZE=10`, `NAP_WORKER_DB_POOL_SIZE` (unset: `NAP_WORKER_CONCURRENCY` + 2),
+  `NAP_REAPER_DB_POOL_SIZE=4`: how many database connections each process may open. Not a
+  ceiling on spend, but they share one: the database's connection limit, which a rollout needs
+  twice (see [Render](#render)). The worker's must be more than its concurrency or it refuses to
+  boot, since every turn may be mid-transaction at once and its lease renewals still need a
+  connection. Raising `NAP_WORKER_CONCURRENCY` raises the worker's pool with it.
 - `NAP_CAPTURE_CONCURRENCY=1` — how many browsers a worker may have open at once. Every
   committed turn asks for a picture unless it was stopped or has a repair still to come, so
   this is *not* the worker's concurrency: unbounded it
