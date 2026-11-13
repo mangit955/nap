@@ -16,12 +16,15 @@
  * - `replace_all` changes every occurrence, and how many there are now is exactly what an unread
  *   file can have changed — so it needs the file known.
  * - `apply_patch` updates by context, like an edit, and needs no read either. Its deletions are not
- *   gated, as a command's `rm` is not: removing a file is a decision about the file, not a claim
- *   about what it holds.
+ *   gated: the command guard lets `rm` remove any project file, and a command reports no
+ *   `file.changed`, so a gate here would only steer deletions to the one path nobody sees.
  *
  * Known means read this turn, or written whole by it: created, or overwritten after a read. An
  * edit or a patch hunk proves only the lines it matched, so it never makes an unread file known.
- * Per turn, never carried across: between two turns anything may have changed.
+ * Per turn, never carried across — not even for a file whose bytes are what the turn last saw. A
+ * finished turn's reads and large arguments are emptied from every later context (`makeStale` in
+ * the context engine), so an earlier turn's knowledge is no longer in front of the model, and a
+ * ledger that remembered it would let `write_file` overwrite a file the model can no longer see.
  */
 
 import { posix } from "node:path";

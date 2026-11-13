@@ -1,8 +1,11 @@
+import { NapContextEngine, STALE_TOOL_OUTPUT } from "@nap/context/context-engine";
+import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { stubSandbox } from "@nap/context/testing/stub-sandbox";
 import { E2BSandboxDesktop } from "@nap/sandbox/e2b-sandbox-desktop";
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { isolatedDesktop } from "@nap/sandbox/testing/isolated-desktop";
-import { NapEventSchema, type NapEventType } from "@nap/shared/events";
+import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { LLMContentBlock, LLMMessage, LLMToolCall } from "@nap/shared/ports/llm-provider";
@@ -1479,5 +1482,56 @@ describe("a follow-up turn's first change", () => {
     expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "App\n" });
     expect(await manager.readFile(sandboxId, OTHER)).toEqual({ ok: true, value: "other\n" });
     expect(types().at(-1)).toBe("turn.completed");
+  });
+});
+
+describe("what one turn read, the next", () => {
+  /**
+   * Even with the file unchanged. The next turn's context empties what the earlier one read, so
+   * a ledger carried across turns — keyed by path, or by the file's bytes — would let the model
+   * overwrite a file whose contents are no longer in front of it.
+   */
+  it("does not count as known, because the next turn's context no longer holds it", async () => {
+    const NEXT = "8d0c2b63-9e4f-4a32-b1d5-2c3e4f5a6b7c";
+    const { agent, provider } = run([
+      [{ toolCalls: [call("read_file", { path: APP }, "read")] }, { text: "Read it." }],
+      [
+        { toolCalls: [call("write_file", { path: APP, contents: "rewritten\n" }, "write")] },
+        { text: "Done." },
+      ],
+    ]);
+    const asked = {
+      type: "user.message",
+      sessionId: SESSION_ID,
+      turnId: TURN_ID,
+      createdAt: "2026-11-13T12:00:00.000Z",
+      payload: { text: "Look at App.tsx." },
+    } as const;
+    await agent.runTurn(request());
+    const history: NapEvent[] = [asked, ...events].map((event, index) =>
+      NapEventSchema.parse({ ...event, seq: index + 1 }),
+    );
+    events = [];
+
+    const context = await new NapContextEngine().build({
+      sessionId: SESSION_ID,
+      sandboxId,
+      userMessage: "Now rewrite it.",
+      model: "openai/gpt-5.6-luna",
+      history,
+      sandbox: stubSandbox([APP]),
+      memory: new NoopMemoryProvider(),
+    });
+    // The same service, the file untouched since it was read: only the turn is new.
+    await agent.runTurn(request({ turnId: NEXT, context }));
+
+    const earlierRead = (provider.requests[2]?.messages ?? [])
+      .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+      .find((block) => block.type === "tool_result" && block.toolCallId === "read");
+    expect(earlierRead).toMatchObject({ content: STALE_TOOL_OUTPUT });
+    expect(payloads("tool.result")).toEqual([
+      expect.objectContaining({ toolCallId: "write", ok: false }),
+    ]);
+    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "app\n" });
   });
 });

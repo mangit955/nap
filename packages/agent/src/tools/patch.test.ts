@@ -249,6 +249,7 @@ describe("apply_patch", () => {
       [APP, "modified"],
       [`${PROJECT_ROOT}/src/old.ts`, "deleted"],
     ]);
+    // src/old.ts was never read, and deleting it needs no read — deliberately, see the ledger.
     // A file the patch created whole is known. One it updated without reading is not: the
     // hunks prove only the lines they quote, so overwriting it still needs a read.
     expect(ledger.knows(`${PROJECT_ROOT}/src/Hello.tsx`)).toBe(true);
