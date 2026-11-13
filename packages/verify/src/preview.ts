@@ -54,6 +54,12 @@ export type PreviewDiagnosis =
 export type DiagnosePreviewOptions = {
   /** How long to wait for the public URL before probing from inside. */
   timeoutMs?: number;
+  /**
+   * Stops the diagnosis waiting: the wait for the public URL is abandoned, the probe inside is
+   * not started, or is given the signal if it already has been. What comes back then is
+   * `unreachable`, because a diagnosis nobody finished has learned nothing about the app.
+   */
+  signal?: AbortSignal | undefined;
 };
 
 export async function diagnosePreview(
@@ -64,14 +70,23 @@ export async function diagnosePreview(
 ): Promise<PreviewDiagnosis> {
   // `waitForPreview` rather than `getPreviewUrl`: the second only composes an address and
   // says nothing about whether anything answers at it.
-  const served = await sandbox.waitForPreview(
-    sandboxId,
-    port,
-    options.timeoutMs ? { timeoutMs: options.timeoutMs } : {},
+  const { signal } = options;
+  // Raced rather than handed the signal: the port's wait takes none. What is left behind is a
+  // poll from this side that runs out on its own and whose answer nobody reads.
+  const served = await unlessAborted(
+    sandbox.waitForPreview(
+      sandboxId,
+      port,
+      options.timeoutMs ? { timeoutMs: options.timeoutMs } : {},
+    ),
+    signal,
   );
-  if (served.ok) return { state: "serving", url: served.value };
+  if (served?.ok === true) return { state: "serving", url: served.value };
+  if (served === null || signal?.aborted) return CANCELLED;
 
-  const probe = await sandbox.exec(sandboxId, portListeningProbe(port));
+  // No `stopOnGiveUp`: curl's own `--max-time` already ends it within seconds.
+  const probe = await sandbox.exec(sandboxId, portListeningProbe(port), undefined, { signal });
+  if (signal?.aborted) return CANCELLED;
 
   if (!probe.ok) {
     return {
@@ -106,4 +121,22 @@ export async function diagnosePreview(
       `port ${port} is listening inside the sandbox but the preview URL did not answer ` +
       `(${served.error.code}: ${served.error.message})`,
   };
+}
+
+const CANCELLED: PreviewDiagnosis = {
+  state: "unreachable",
+  detail: "cancelled before the preview could be diagnosed",
+};
+
+/** The work's answer, or `null` the moment the signal fires, whichever comes first. */
+function unlessAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T | null> {
+  if (signal === undefined) return work;
+  // Abandoned unread either way below, so a rejection must not go unhandled.
+  work.catch(() => {});
+  if (signal.aborted) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const abandon = () => resolve(null);
+    signal.addEventListener("abort", abandon, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abandon));
+  });
 }

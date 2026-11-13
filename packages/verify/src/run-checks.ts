@@ -77,10 +77,8 @@ export type RunChecksOptions = {
    */
   preview?: PreviewProbe;
   /**
-   * Cancelling this stops the running check and starts nothing further.
-   *
-   * The preview wait is not interrupted: it is skipped if the signal has already fired, and once
-   * begun it runs to its own limit.
+   * Cancelling this stops the running check and starts nothing further, the preview probe included:
+   * its wait for the public URL is abandoned and its in-sandbox probe is given the signal.
    */
   signal?: AbortSignal | undefined;
 };
@@ -128,7 +126,7 @@ export async function runChecks(
       ran.push({ name: PREVIEW_CHECK_NAME, outcome: "absent", detail: CANCELLED_BEFORE_RUNNING });
       stopped = { verdict: "errored", by: PREVIEW_CHECK_NAME };
     } else {
-      const attempt = await probePreview(sandbox, sandboxId, options.preview);
+      const attempt = await probePreview(sandbox, sandboxId, options.preview, options.signal);
       ran.push(attempt.check);
       stopped = attempt.stopped;
     }
@@ -218,7 +216,7 @@ async function runOne(
   // non-zero, and a check saying no is what opens a repair turn.
   if (signal?.aborted && !(result.ok && result.value.exitCode === 0)) {
     return {
-      check: { name: check.name, outcome: "absent", detail: "cancelled while it was running" },
+      check: { name: check.name, outcome: "absent", detail: CANCELLED_WHILE_RUNNING },
       stopped: { verdict: "errored", by: check.name },
     };
   }
@@ -266,18 +264,26 @@ async function probePreview(
   sandbox: SandboxManager,
   sandboxId: string,
   preview: PreviewProbe,
+  signal: AbortSignal | undefined,
 ): Promise<Attempt> {
-  const diagnosis = await diagnosePreview(
-    sandbox,
-    sandboxId,
-    preview.port,
-    preview.timeoutMs === undefined ? {} : { timeoutMs: preview.timeoutMs },
-  );
+  const diagnosis = await diagnosePreview(sandbox, sandboxId, preview.port, {
+    ...(preview.timeoutMs === undefined ? {} : { timeoutMs: preview.timeoutMs }),
+    signal,
+  });
 
   if (diagnosis.state === "serving") {
     return {
       check: { name: PREVIEW_CHECK_NAME, outcome: "passed", detail: "serving" },
       stopped: undefined,
+    };
+  }
+
+  // As for a command: unless it had already answered yes, a cancel is why it stopped — and "nothing
+  // is listening" after a Stop would otherwise open a repair turn on a job somebody just ended.
+  if (signal?.aborted) {
+    return {
+      check: { name: PREVIEW_CHECK_NAME, outcome: "absent", detail: CANCELLED_WHILE_RUNNING },
+      stopped: { verdict: "errored", by: PREVIEW_CHECK_NAME },
     };
   }
 
@@ -296,6 +302,8 @@ async function probePreview(
 }
 
 const CANCELLED_BEFORE_RUNNING = "not run: cancelled first";
+
+const CANCELLED_WHILE_RUNNING = "cancelled while it was running";
 
 const notDeclared = (name: CheckName) => `the project declares no ${name} script`;
 
