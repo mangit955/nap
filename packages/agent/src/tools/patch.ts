@@ -208,7 +208,12 @@ function find(
   return undefined;
 }
 
-type Planned = { path: string; before: string | null; after: string | null };
+/**
+ * `known` is whether the turn may count the written file as one it has seen whole: true for a
+ * file the patch creates, and for an update only when the turn already knew the file — hunks prove
+ * only the lines they quote (see the ledger).
+ */
+type Planned = { path: string; before: string | null; after: string | null; known: boolean };
 
 export async function applyPatch(
   args: ToolArgs<"apply_patch">,
@@ -232,17 +237,19 @@ export async function applyPatch(
     if (section.kind === "add") {
       if (existing !== null)
         return refuse(`${path} already exists. Update it instead of adding it.`);
-      planned.push({ path, before: null, after: section.contents });
+      planned.push({ path, before: null, after: section.contents, known: true });
       continue;
     }
     if (existing === null) return refuse(`${path} does not exist.`);
     if (section.kind === "delete") {
-      planned.push({ path, before: existing, after: null });
+      planned.push({ path, before: existing, after: null, known: false });
       continue;
     }
     const applied = applyHunks(existing, section.hunks);
     if (!applied.ok) return refuse(`${path}: ${applied.error}`);
-    if (section.moveTo === null) planned.push({ path, before: existing, after: applied.value });
+    const known = ctx.ledger === undefined || ctx.ledger.knows(path);
+    if (section.moveTo === null)
+      planned.push({ path, before: existing, after: applied.value, known });
     else {
       const target = resolve(section.moveTo);
       if (planned.some((change) => change.path === target))
@@ -250,8 +257,8 @@ export async function applyPatch(
       const occupied = await ctx.sandbox.readFile(ctx.sandboxId, target);
       if (occupied.ok) return refuse(`${target} already exists, so ${path} cannot move there.`);
       if (occupied.error.code !== "file_not_found") return failed(occupied.error);
-      planned.push({ path: target, before: null, after: applied.value });
-      planned.push({ path, before: existing, after: null });
+      planned.push({ path: target, before: null, after: applied.value, known });
+      planned.push({ path, before: existing, after: null, known: false });
     }
   }
 
@@ -274,7 +281,7 @@ export async function applyPatch(
     } else {
       const written = await ctx.sandbox.writeFile(ctx.sandboxId, change.path, change.after);
       if (!written.ok) return stopped(failed(written.error).output);
-      ctx.ledger?.remember(change.path);
+      if (change.known) ctx.ledger?.remember(change.path);
     }
     emitChange(ctx, change.path, change.before, change.after);
     completed.push(

@@ -75,15 +75,85 @@ describe("read_file", () => {
 });
 
 describe("the rule that a file is read before it changes", () => {
-  it("refuses to edit a file this turn has not read, and changes nothing", async () => {
+  it("applies a unique exact edit to a file this turn has not read", async () => {
+    // The match is the guard: text that is still there, once, is what the model meant.
     await manager.writeFile(sandboxId, APP, "const a = 1;\n");
 
-    const result = await run("edit_file", { path: APP, old_string: "1", new_string: "2" });
+    const result = await run("edit_file", {
+      path: APP,
+      old_string: "const a = 1;",
+      new_string: "const a = 2;",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "const a = 2;\n" });
+    expect(events.filter((event) => event.type === "file.changed")).toHaveLength(1);
+  });
+
+  it("refuses a stale edit to an unread file with the guidance to read it, and changes nothing", async () => {
+    await manager.writeFile(sandboxId, APP, "const a = 3;\n");
+
+    const result = await run("edit_file", {
+      path: APP,
+      old_string: "const a = 1;",
+      new_string: "const a = 2;",
+    });
 
     expect(result.ok).toBe(false);
-    expect(result.output).toMatch(/Read .* before editing/);
-    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "const a = 1;\n" });
+    expect(result.output).toMatch(/Nothing in .* matches[\s\S]*Read the file/);
+    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "const a = 3;\n" });
     expect(events.filter((event) => event.type === "file.changed")).toEqual([]);
+  });
+
+  it("refuses replace_all on a file this turn has not read, and changes nothing", async () => {
+    // How many matches there are now is exactly what an unread file can have changed.
+    await manager.writeFile(sandboxId, APP, "red red red\n");
+
+    const result = await run("edit_file", {
+      path: APP,
+      old_string: "red",
+      new_string: "blue",
+      replace_all: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/Read .* before replacing every occurrence/);
+    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "red red red\n" });
+    expect(events.filter((event) => event.type === "file.changed")).toEqual([]);
+  });
+
+  it("asks for more context, or a read before replace_all, when an unread file has several matches", async () => {
+    await manager.writeFile(sandboxId, APP, "red red\n");
+
+    const result = await run("edit_file", { path: APP, old_string: "red", new_string: "blue" });
+
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/appears 2 times.*read the file.*replace_all/i);
+    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "red red\n" });
+  });
+
+  it("does not count a file it edited unread as known: overwriting it still needs a read", async () => {
+    await manager.writeFile(sandboxId, APP, "const a = 1;\nprecious\n");
+    const edited = await run("edit_file", {
+      path: APP,
+      old_string: "const a = 1;",
+      new_string: "const a = 2;",
+    });
+
+    const overwritten = await run("write_file", { path: APP, contents: "replaced\n" });
+    const all = await run("edit_file", {
+      path: APP,
+      old_string: "a",
+      new_string: "b",
+      replace_all: true,
+    });
+
+    expect([edited.ok, overwritten.ok, all.ok]).toEqual([true, false, false]);
+    expect(overwritten.output).toMatch(/Read .* before overwriting/);
+    expect(await manager.readFile(sandboxId, APP)).toEqual({
+      ok: true,
+      value: "const a = 2;\nprecious\n",
+    });
   });
 
   it("refuses to overwrite a file this turn has not read", async () => {

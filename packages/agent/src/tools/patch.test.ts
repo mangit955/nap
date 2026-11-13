@@ -249,9 +249,34 @@ describe("apply_patch", () => {
       [APP, "modified"],
       [`${PROJECT_ROOT}/src/old.ts`, "deleted"],
     ]);
-    // What a patch wrote is known to the turn; what it deleted is not.
-    expect(ledger.knows(APP)).toBe(true);
+    // A file the patch created whole is known. One it updated without reading is not: the
+    // hunks prove only the lines they quote, so overwriting it still needs a read.
+    expect(ledger.knows(`${PROJECT_ROOT}/src/Hello.tsx`)).toBe(true);
+    expect(ledger.knows(APP)).toBe(false);
     expect(ledger.knows(`${PROJECT_ROOT}/src/old.ts`)).toBe(false);
+  });
+
+  it("keeps a file it updated known, and carries that to where it moved, only if it was read", async () => {
+    ledger.remember(APP);
+    const updated = await patch(`*** Update File: ${APP}`, "@@", "-  return null;", "+  return 1;");
+    expect(updated.ok).toBe(true);
+    expect(ledger.knows(APP)).toBe(true);
+
+    const moved = await patch(
+      `*** Update File: ${APP}`,
+      "*** Move to: src/Main.tsx",
+      "@@",
+      "-  return 1;",
+      "+  return 2;",
+      "*** Update File: src/old.ts",
+      "*** Move to: src/new.ts",
+      "@@",
+      "-old",
+      "+new",
+    );
+    expect(moved.ok).toBe(true);
+    expect(ledger.knows(`${PROJECT_ROOT}/src/Main.tsx`)).toBe(true);
+    expect(ledger.knows(`${PROJECT_ROOT}/src/new.ts`)).toBe(false);
   });
 
   it("moves a file, writing the new path and removing the old", async () => {

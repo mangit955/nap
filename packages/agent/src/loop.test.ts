@@ -1450,3 +1450,34 @@ describe("steering", () => {
     expect(turn.takes()).toBe(0);
   });
 });
+
+describe("a follow-up turn's first change", () => {
+  // A fresh turn knows nothing of the files yet: this is the turn after the one that read them.
+  it("edits from what it remembers without a read round trip, and still cannot overwrite blind", async () => {
+    const { agent, provider } = run([
+      [
+        {
+          toolCalls: [
+            call("edit_file", { path: APP, old_string: "app\n", new_string: "App\n" }, "edit"),
+            call("write_file", { path: OTHER, contents: "clobbered\n" }, "write"),
+          ],
+        },
+        { text: "Done." },
+      ],
+    ]);
+
+    await agent.runTurn(request());
+
+    expect(
+      payloads("tool.call").map((payload) => (payload as { toolName: string }).toolName),
+    ).toEqual(["edit_file", "write_file"]);
+    expect(payloads("tool.result")).toEqual([
+      expect.objectContaining({ toolCallId: "edit", ok: true }),
+      expect.objectContaining({ toolCallId: "write", ok: false }),
+    ]);
+    expect(provider.requests).toHaveLength(2);
+    expect(await manager.readFile(sandboxId, APP)).toEqual({ ok: true, value: "App\n" });
+    expect(await manager.readFile(sandboxId, OTHER)).toEqual({ ok: true, value: "other\n" });
+    expect(types().at(-1)).toBe("turn.completed");
+  });
+});
