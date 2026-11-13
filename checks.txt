@@ -1,0 +1,202 @@
+Verification evidence
+
+Initial head 83f738f43b95c49822f97d5247d7154b1851b370
+Base 4de3797ae606cba50639cd65c2e7e14c306091b4
+Reviewed snapshot debc9171b195269a78a82c198dcfb743819241f9
+macOS; Bun 1.4.2; Node v26.12.0; Vitest 4.1.10; OrbStack Docker.
+No --real, paid sandbox/model call, stress or resource exhaustion experiment.
+All commands under shared run_check.py lock and finite deadlines.
+
+
+test: exit 0
+ Test Files  516 passed | 1 skipped (517)
+      Tests  7792 passed | 23 skipped (7815)
+Type Errors  no errors
+   Duration  80.71s (transform 8.66s, setup 12.55s, import 48.96s, tests 290.98s, environment 49.62s, typecheck 184ms)
+
+final-test: exit 0
+ Test Files  516 passed | 1 skipped (517)
+      Tests  7792 passed | 23 skipped (7815)
+Type Errors  no errors
+   Duration  79.97s (transform 8.77s, setup 12.51s, import 48.97s, tests 291.46s, environment 49.76s, typecheck 178ms)
+
+typecheck: exit 0
+@nap/bench:typecheck: $ tsc --noEmit
+@nap/context:typecheck: $ tsc --noEmit
+@nap/sandbox:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    14 cached, 14 total
+  Time:    28ms >>> FULL TURBO
+
+
+lint: exit 0
+         92 │ + ············held?.state·!==·"leased"·||
+     94  93 │               held.leaseOwner !== actor.lease.owner ||
+     95  94 │               held.cancelRequested
+  
+
+Checked 1441 files in 522ms. No fixes applied.
+Found 2 warnings.
+Found 2 infos.
+
+build: exit 0
+@nap/web:build: ○  (Static)   prerendered as static content
+@nap/web:build: ƒ  (Dynamic)  server-rendered on demand
+@nap/web:build: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    5.3s 
+
+
+amended-focused: exit 0
+ Test Files  2 passed (2)
+      Tests  36 passed (36)
+   Duration  2.44s (transform 386ms, setup 120ms, import 689ms, tests 1.77s, environment 451ms)
+
+amended-typecheck: exit 0
+@nap/api:typecheck: $ tsc --noEmit
+@nap/web:typecheck: cache miss, executing 371f3b6dd5f4ec70
+@nap/web:typecheck: $ tsc --noEmit
+
+ Tasks:    14 successful, 14 total
+Cached:    13 cached, 14 total
+  Time:    885ms 
+
+
+amended-lint: exit 0
+         92 │ + ············held?.state·!==·"leased"·||
+     94  93 │               held.leaseOwner !== actor.lease.owner ||
+     95  94 │               held.cancelRequested
+  
+
+Checked 1441 files in 472ms. No fixes applied.
+Found 2 warnings.
+Found 2 infos.
+
+Mutation guards, each restored byte-for-byte after execution:
+
+Mutation 1: exit 1
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > a new announcement > keeps the old frame up until the new one has loaded, then removes it
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > a new announcement > takes the old frame out of reach while it is being replaced, and says so
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > a new announcement > swaps anyway when the new frame never says it loaded
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > a new announcement > never holds more than two frames, and ends on the newest
+
+Mutation 2: exit 1
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > a new announcement > swaps anyway when the new frame never says it loaded
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > a new announcement > draws the app on white once it has loaded, and not a moment before
+
+Mutation 3: exit 1
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > starting up > never shows one project's picture for another
+
+Mutation 4: exit 1
+ FAIL  |web| apps/web/src/components/preview-pane.test.tsx > a new announcement > never holds more than two frames, and ends on the newest
+
+
+Final additional-base synchronization checks
+Snapshot 0f82e910e4e0737745618120471ebde20f95f632
+Tree 54150bc887aa8993325aa2c418a46fc46c2ecb3d
+Base e6d04b1013750fc43dee1eb93345fff5b6f3aac3
+Environment unchanged: macOS, Bun1.4.2, Node26.12.0, OrbStack; worker env limits unset.
+
+finish-test: ['bun', 'run', 'test']; exit 0
+Not implemented: navigation to another Document
+
+ Test Files  516 passed | 1 skipped (517)
+      Tests  7822 passed | 23 skipped (7845)
+Type Errors  no errors
+   Start at  01:28:58
+   Duration  79.81s (transform 9.47s, setup 11.96s, import 49.18s, tests 291.88s, environment 47.23s, typecheck 174ms)
+
+
+finish-typecheck: ['bun', 'run', 'typecheck']; exit 0
+
+ Tasks:    14 successful, 14 total
+Cached:    13 cached, 14 total
+  Time:    993ms 
+
+
+finish-lint: ['bun', 'run', 'lint']; exit 0
+  
+
+Checked 1442 files in 562ms. No fixes applied.
+Found 2 warnings.
+Found 2 infos.
+
+finish-build: ['bun', 'run', 'build']; exit 0
+@nap/web:build: ƒ  (Dynamic)  server-rendered on demand
+@nap/web:build: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    3.213s 
+
+
+finish-collection: ['bunx', 'vitest', 'list', '--project', 'web']; exit 0
+[web] apps/web/src/workspace/project-switch.test.tsx > switching projects in place > shows the next project with nothing left of the last one
+[web] apps/web/src/workspace/project-switch.test.tsx > switching projects in place > shows the next project's last picture while it opens, and never the last one's
+[web] apps/web/src/workspace/project-switch.test.tsx > switching projects in place > leaves nothing of the last project waiting to land: no buffered frame, no timer, no listing
+[web] apps/web/src/workspace/project-switch.test.tsx > switching projects in place > shows a started prompt before A's record or log, and none of it in B
+[web] apps/web/src/workspace/project-switch.test.tsx > switching projects in place > keeps the sidebar mounted across the switch
+[web] apps/web/src/components/preview-pane.test.tsx > the phases > explains that a repository has no preview instead of claiming its server is starting
+[web] apps/web/src/components/preview-pane.test.tsx > the phases > invites a first prompt before anything has been asked for
+[web] apps/web/src/components/preview-pane.test.tsx > the phases > says the app is starting while the sandbox comes up
+[web] apps/web/src/components/preview-pane.test.tsx > the phases > waits, rather than inviting a prompt, while a running project's log arrives
+[web] apps/web/src/components/preview-pane.test.tsx > the phases > shows the app once the sandbox is serving
+[web] apps/web/src/components/preview-pane.test.tsx > the phases > says what failed and what to do about it
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > takes the dead app off the screen and offers the way back
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > says the files are safe, because that is the question being asked
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > offers no reload or open control, since there is nothing behind them
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > asks to be resumed exactly once per press
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > cannot be pressed again while it comes back up
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > counts how long the wait has been going on
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > waits with the ghost rather than a spinner
+[web] apps/web/src/components/preview-pane.test.tsx > a project that has been put away > shows a refusal next to the button that caused it
+[web] apps/web/src/components/preview-pane.test.tsx > the frame itself > is sandboxed, and keeps its own origin rather than this page's
+[web] apps/web/src/components/preview-pane.test.tsx > a new announcement > keeps the old frame up until the new one has loaded, then removes it
+[web] apps/web/src/components/preview-pane.test.tsx > a new announcement > takes the old frame out of reach while it is being replaced, and says so
+[web] apps/web/src/components/preview-pane.test.tsx > a new announcement > swaps anyway when the new frame never says it loaded
+[web] apps/web/src/components/preview-pane.test.tsx > a new announcement > draws the app on white once it has loaded, and not a moment before
+[web] apps/web/src/components/preview-pane.test.tsx > a new announcement > never holds more than two frames, and ends on the newest
+[web] apps/web/src/components/preview-pane.test.tsx > a new announcement > leaves no timer behind when the pane goes away mid-swap
+[web] apps/web/src/components/preview-pane.test.tsx > reloading on purpose > keeps the same frame when nothing about the preview changed
+[web] apps/web/src/components/preview-pane.test.tsx > reloading on purpose > replaces the frame at once when the bar asks for a reload, and shows it reloading
+[web] apps/web/src/components/preview-pane.test.tsx > reloading on purpose > sends the frame to the page the bar names, the same way
+[web] apps/web/src/components/preview-pane.test.tsx > reloading on purpose > offers no reload control when there is nothing to reload
+[web] apps/web/src/components/preview-pane.test.tsx > starting up > shows the project's last picture, marked as not live, under the loader
+[web] apps/web/src/components/preview-pane.test.tsx > starting up > falls back to the plain loader when there is no picture to show
+[web] apps/web/src/components/preview-pane.test.tsx > starting up > keeps the start-up screen over the first frame until that frame has loaded
+[web] apps/web/src/components/preview-pane.test.tsx > starting up > never shows one project's picture for another
+[web] apps/web/src/components/preview-pane.test.tsx > starting up > never holds one project's frame up while another's loads
+[web] apps/web/src/components/preview-pane.test.tsx > the pane itself > keeps its landmark in every state
+
+Fresh final ready-overlap DOM evidence (local fake, final snapshot0f82e910; headless Chrome after two shared-browser capture failures)
+{
+  "ms": 1505.199999988079,
+  "ready2At": 1001.7999999970198,
+  "frames": [
+    {
+      "src": "http://localhost:4599/v2/d2500",
+      "opacity": "1",
+      "inert": false,
+      "ariaHidden": null
+    },
+    {
+      "src": "http://localhost:4599/v2/d2500",
+      "opacity": "0",
+      "inert": true,
+      "ariaHidden": "true"
+    },
+    {
+      "src": "http://localhost:4599/v1/d2500",
+      "opacity": "1",
+      "inert": true,
+      "ariaHidden": "true"
+    }
+  ],
+  "statuses": [
+    "Updating the preview\u2026"
+  ]
+}
+Recorded 50 actual CDP JPEG frames over 4.899800062179565 seconds.

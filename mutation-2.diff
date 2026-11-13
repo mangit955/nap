@@ -1,0 +1,17 @@
+diff --git a/apps/web/src/components/preview-pane.tsx b/apps/web/src/components/preview-pane.tsx
+index 03937c67..ecd373ed 100644
+--- a/apps/web/src/components/preview-pane.tsx
++++ b/apps/web/src/components/preview-pane.tsx
+@@ -225,11 +225,7 @@ function useFrameSwap(target: Target | undefined) {
+   const waiting = current.incoming?.key;
+   useEffect(() => {
+     if (waiting === undefined) return;
+-    const timer = setTimeout(
+-      () => setStack((now) => takeOver(now, waiting, false)),
+-      SWAP_TIMEOUT_MS,
+-    );
+-    return () => clearTimeout(timer);
++    return;
+   }, [waiting]);
+ 
+   const loaded = (key: string) =>

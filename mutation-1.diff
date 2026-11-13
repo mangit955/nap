@@ -1,0 +1,13 @@
+diff --git a/apps/web/src/components/preview-pane.tsx b/apps/web/src/components/preview-pane.tsx
+index 03937c67..28f1f170 100644
+--- a/apps/web/src/components/preview-pane.tsx
++++ b/apps/web/src/components/preview-pane.tsx
+@@ -255,7 +255,7 @@ function advance(stack: Stack, target: Target | undefined): Stack {
+   if (latest.reloads !== target.reloads || latest.route !== target.route) return fresh("reload");
+   // Still waiting on a first frame, or a reload: the newer address keeps the same screen in front.
+   if (shown === undefined) return fresh(stack.incoming?.reveal ?? "startup");
+-  return { shown, ...fresh("swap") };
++  return { shown: { ...target, loaded: false } };
+ }
+ 
+ /**

@@ -1,0 +1,49 @@
+diff --git a/apps/web/src/components/preview-pane.tsx b/apps/web/src/components/preview-pane.tsx
+index 03937c67..3f81210a 100644
+--- a/apps/web/src/components/preview-pane.tsx
++++ b/apps/web/src/components/preview-pane.tsx
+@@ -116,7 +116,7 @@ export function PreviewPane({
+           route,
+         }
+       : undefined;
+-  const { shown, incoming, loaded } = useFrameSwap(target);
++  const { shown, incoming, trail, loaded } = useFrameSwap(target);
+ 
+   // Each thing below sits in a fixed slot, so moving between the waiting phases and the first frame
+   // of a running one does not remount the start-up screen: its clock keeps counting from when the
+@@ -140,7 +140,7 @@ export function PreviewPane({
+         "shown" and "incoming", the takeover would reuse the *old* element and point it at the new
+         address — a second load of the app the user has just waited for.
+       */}
+-      {[incoming, shown].map(
++      {[...trail, incoming, shown].map(
+         (frame) =>
+           frame !== undefined && (
+             <iframe
+@@ -200,7 +200,7 @@ type Frame = Target & { loaded: boolean };
+  * it is ready.** It also means a frame is only ever held up behind its own sandbox's newer self.
+  */
+ type Reveal = "swap" | "reload" | "startup";
+-type Stack = { shown?: Frame; incoming?: Frame & { reveal: Reveal } };
++type Stack = { shown?: Frame; incoming?: Frame & { reveal: Reveal }; trail?: Frame[] };
+ 
+ /**
+  * At most two frames: the one on screen and the newest one loading behind it.
+@@ -241,7 +241,7 @@ function useFrameSwap(target: Target | undefined) {
+       return now;
+     });
+ 
+-  return { shown: current.shown, incoming: current.incoming, loaded };
++  return { shown: current.shown, incoming: current.incoming, trail: current.trail ?? [], loaded };
+ }
+ 
+ function advance(stack: Stack, target: Target | undefined): Stack {
+@@ -255,7 +255,7 @@ function advance(stack: Stack, target: Target | undefined): Stack {
+   if (latest.reloads !== target.reloads || latest.route !== target.route) return fresh("reload");
+   // Still waiting on a first frame, or a reload: the newer address keeps the same screen in front.
+   if (shown === undefined) return fresh(stack.incoming?.reveal ?? "startup");
+-  return { shown, ...fresh("swap") };
++  return { shown, ...fresh("swap"), trail: [...(stack.trail ?? []), ...(stack.incoming ? [stack.incoming] : [])] };
+ }
+ 
+ /**

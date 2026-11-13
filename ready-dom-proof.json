@@ -1,0 +1,119 @@
+{
+  "started": 5395,
+  "samples": [
+    {
+      "label": "initial",
+      "ms": 0,
+      "frames": [
+        {
+          "src": "http://localhost:4599/v1/d2500",
+          "opacity": "1",
+          "inert": false,
+          "ariaHidden": null
+        },
+        {
+          "src": "http://localhost:4599/v1/d2500",
+          "opacity": "1",
+          "inert": false,
+          "ariaHidden": null
+        }
+      ],
+      "statuses": []
+    },
+    {
+      "label": "pending500",
+      "ms": 1502.0999999940395,
+      "frames": [
+        {
+          "src": "http://localhost:4599/v2/d2500",
+          "opacity": "1",
+          "inert": false,
+          "ariaHidden": null
+        },
+        {
+          "src": "http://localhost:4599/v2/d2500",
+          "opacity": "0",
+          "inert": true,
+          "ariaHidden": "true"
+        },
+        {
+          "src": "http://localhost:4599/v1/d2500",
+          "opacity": "1",
+          "inert": true,
+          "ariaHidden": "true"
+        }
+      ],
+      "statuses": [
+        "Updating the preview\u2026"
+      ]
+    },
+    {
+      "label": "loaded",
+      "ms": 6000.399999991059,
+      "frames": [
+        {
+          "src": "http://localhost:4599/v2/d2500",
+          "opacity": "1",
+          "inert": false,
+          "ariaHidden": null
+        },
+        {
+          "src": "http://localhost:4599/v2/d2500",
+          "opacity": "0",
+          "inert": true,
+          "ariaHidden": "true"
+        },
+        {
+          "src": "http://localhost:4599/v1/d2500",
+          "opacity": "1",
+          "inert": true,
+          "ariaHidden": "true"
+        }
+      ],
+      "statuses": [
+        "Updating the preview\u2026"
+      ]
+    }
+  ],
+  "ready2At": 1001.7999999970198,
+  "pendingCapture": {
+    "ms": 1505.199999988079,
+    "ready2At": 1001.7999999970198,
+    "frames": [
+      {
+        "src": "http://localhost:4599/v2/d2500",
+        "opacity": "1",
+        "inert": false,
+        "ariaHidden": null
+      },
+      {
+        "src": "http://localhost:4599/v2/d2500",
+        "opacity": "0",
+        "inert": true,
+        "ariaHidden": "true"
+      },
+      {
+        "src": "http://localhost:4599/v1/d2500",
+        "opacity": "1",
+        "inert": true,
+        "ariaHidden": "true"
+      }
+    ],
+    "statuses": [
+      "Updating the preview\u2026"
+    ]
+  },
+  "recording": {
+    "frames": 50,
+    "first": 1794600592.743397,
+    "last": 1794600597.643197,
+    "duration": 4.899800062179565
+  },
+  "browser": "Headless Chrome via Playwright/CDP after two shared-browser capture failures",
+  "interpretation": {
+    "scope": "Pending replacement, not full handoff",
+    "rawLabelLoaded": "Hard-coded driver sample label only, not observed load",
+    "sample6000DeltaAfterReady2Ms": 4998.5999999940395,
+    "takeoverCompletionEstablished": false
+  }
+}

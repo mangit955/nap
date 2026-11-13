@@ -1,0 +1,13 @@
+diff --git a/apps/web/src/components/preview-pane.tsx b/apps/web/src/components/preview-pane.tsx
+index 03937c67..503ef609 100644
+--- a/apps/web/src/components/preview-pane.tsx
++++ b/apps/web/src/components/preview-pane.tsx
+@@ -127,7 +127,7 @@ export function PreviewPane({
+     (shown === undefined && incoming?.reveal === "startup");
+   const reloading = shown === undefined && incoming?.reveal === "reload";
+   const replacing = shown !== undefined && incoming !== undefined;
+-  const picture = thumbnail?.projectId === projectId ? thumbnail.src : undefined;
++  const picture = thumbnail?.src;
+ 
+   return (
+     // No title bar: the workbench's tabs say which half this is, and the controls that used to
