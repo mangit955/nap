@@ -1,188 +1,182 @@
-import type { FileNode, SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxError, SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import { describe, expect, it } from "vitest";
 import { listProjectFiles } from "./project-files.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
 
 const ROOT = "/home/user/app";
-const SANDBOX = "sbx_1";
 
-function dir(path: string): FileNode {
-  return { path, type: "directory" };
-}
-
-function file(path: string): FileNode {
-  return { path, type: "file" };
-}
-
-type Listing = Record<string, FileNode[]>;
+/** One call the listing made on the sandbox, by method, with what it was given. */
+type Call = { method: string; args: unknown[] };
 
 /**
- * A listing source with holes in it. `InMemorySandboxManager` cannot fail one directory
- * while succeeding at another — its filesystem either exists or does not — and a folder
- * the walk may not read is the case that decides whether one bad directory costs the user
- * their whole file tree.
+ * The fake every other package tests against, with each call it receives written down.
+ *
+ * Recorded by method name across the whole port rather than by spying on the one method the
+ * listing is meant to use: what this guards against is a listing that goes back to asking the
+ * sandbox about one folder at a time, by whichever method, and only a record of everything shows
+ * that.
  */
-function stub(
-  listing: Listing,
-  opts: { failing?: string[]; onList?: (path: string) => void } = {},
-): Pick<SandboxManager, "listFiles"> {
-  const failing = new Set(opts.failing ?? []);
+async function workspace(files: readonly string[]) {
+  const inner = new InMemorySandboxManager();
+  const created = await inner.create("project-1");
+  if (!created.ok) throw new Error("could not create a sandbox");
+  for (const path of files) await inner.writeFile(created.value.id, `${ROOT}/${path}`, "");
 
-  return {
-    async listFiles(_sandboxId, path) {
-      opts.onList?.(path);
-      if (failing.has(path)) {
-        return { ok: false, error: { code: "unavailable", message: `cannot list ${path}` } };
-      }
-      return { ok: true, value: listing[path] ?? [] };
+  const calls: Call[] = [];
+  const sandbox = new Proxy(inner, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        calls.push({ method: String(property), args });
+        return value.apply(target, args);
+      };
     },
-  };
+  }) as SandboxManager;
+  return { sandbox, sandboxId: created.value.id, calls };
 }
 
 /** Shaped like the real template: source, assets, and the noise around them. */
-function project(): Listing {
-  return {
-    [ROOT]: [
-      dir(`${ROOT}/src`),
-      dir(`${ROOT}/node_modules`),
-      dir(`${ROOT}/.git`),
-      dir(`${ROOT}/dist`),
-      file(`${ROOT}/package.json`),
-      file(`${ROOT}/index.html`),
-    ],
-    [`${ROOT}/src`]: [
-      dir(`${ROOT}/src/components`),
-      file(`${ROOT}/src/App.tsx`),
-      file(`${ROOT}/src/main.tsx`),
-    ],
-    [`${ROOT}/src/components`]: [file(`${ROOT}/src/components/Header.tsx`)],
-    [`${ROOT}/node_modules`]: [dir(`${ROOT}/node_modules/react`)],
-    [`${ROOT}/.git`]: [file(`${ROOT}/.git/HEAD`)],
-    [`${ROOT}/dist`]: [file(`${ROOT}/dist/index.js`)],
-  };
-}
+const PROJECT = [
+  "package.json",
+  "index.html",
+  "src/App.tsx",
+  "src/main.tsx",
+  "src/components/Header.tsx",
+  "node_modules/react/index.js",
+  ".git/HEAD",
+  "dist/index.js",
+  "src/.vite/deps.json",
+];
 
-async function walk(
-  sandbox: Pick<SandboxManager, "listFiles">,
-  opts: Parameters<typeof listProjectFiles>[2] = {},
-) {
-  const result = await listProjectFiles(sandbox, SANDBOX, { root: ROOT, ...opts });
+async function list(files: readonly string[], opts: { maxEntries?: number } = {}) {
+  const { sandbox, sandboxId } = await workspace(files);
+  const result = await listProjectFiles(sandbox, sandboxId, { root: ROOT, ...opts });
   if (!result.ok) throw new Error(`expected a listing, got ${result.error.code}`);
   return result.value;
 }
 
+/** A sandbox whose one listing method fails, as a sandbox that is gone or timed out does. */
+function failing(error: SandboxError): Pick<SandboxManager, "listTree"> {
+  return { listTree: async () => ({ ok: false, error }) };
+}
+
 describe("listProjectFiles", () => {
-  it("returns every file in the project, nested ones included", async () => {
-    const listing = await walk(stub(project()));
+  it("asks the sandbox once, however many folders the project has", async () => {
+    // The point of the change: the walk this replaced was a round trip per folder, one after
+    // another, every time the files panel opened or a file changed.
+    const deep = Array.from({ length: 12 }, (_, level) => `${"d/".repeat(level)}f${level}.ts`);
+    const { sandbox, sandboxId, calls } = await workspace([...PROJECT, ...deep]);
 
-    expect(listing.paths).toContain("package.json");
-    expect(listing.paths).toContain("src/App.tsx");
-    expect(listing.paths).toContain("src/components/Header.tsx");
+    await listProjectFiles(sandbox, sandboxId, { root: ROOT });
+
+    expect(calls.map((call) => call.method)).toEqual(["listTree"]);
   });
 
-  it("reports paths relative to the project root", async () => {
-    // The browser is shown these; where the project happens to live inside the sandbox is
-    // an execution-plane detail it has no business knowing.
-    const listing = await walk(stub(project()));
+  it("asks with an explicit deadline, shorter than the provider's minute", async () => {
+    const { sandbox, sandboxId, calls } = await workspace(PROJECT);
 
-    expect(listing.paths.every((path) => !path.startsWith("/"))).toBe(true);
+    await listProjectFiles(sandbox, sandboxId, { root: ROOT });
+
+    const options = calls[0]?.args[2] as { timeoutMs: number };
+    expect(options.timeoutMs).toBeGreaterThan(0);
+    expect(options.timeoutMs).toBeLessThan(60_000);
   });
 
-  it("omits dependencies, build output and version-control internals", async () => {
-    const listing = await walk(stub(project()));
+  it("asks the sandbox to leave dependencies, build output and version control out", async () => {
+    // Asked of the sandbox rather than filtered afterwards, so a `node_modules` with a hundred
+    // thousand files is never walked or sent, not merely not shown.
+    const { sandbox, sandboxId, calls } = await workspace(PROJECT);
 
-    expect(listing.paths).not.toContain("dist/index.js");
-    expect(listing.paths.some((path) => path.startsWith("node_modules"))).toBe(false);
-    expect(listing.paths.some((path) => path.startsWith(".git"))).toBe(false);
+    await listProjectFiles(sandbox, sandboxId, { root: ROOT });
+
+    const options = calls[0]?.args[2] as { exclude: readonly string[] };
+    expect(options.exclude).toEqual(
+      expect.arrayContaining(["node_modules", ".git", "dist", ".vite", ".next", "coverage"]),
+    );
   });
 
-  it("does not descend into them either", async () => {
-    // Stronger than the previous case: a walk that read node_modules and then filtered the
-    // result would pass that one while making thousands of calls into a directory holding a
-    // hundred thousand files.
-    const listed: string[] = [];
-
-    await walk(stub(project(), { onList: (path) => listed.push(path) }));
-
-    expect(listed).toContain(`${ROOT}/src`);
-    expect(listed).not.toContain(`${ROOT}/node_modules`);
-    expect(listed).not.toContain(`${ROOT}/.git`);
+  it("returns every file of the project, relative to its root, sorted, and nothing excluded", async () => {
+    // Relative because the browser is shown these, and where the project lives inside the
+    // sandbox is an execution-plane detail it has no business knowing.
+    await expect(list(PROJECT)).resolves.toEqual({
+      paths: [
+        "index.html",
+        "package.json",
+        "src/App.tsx",
+        "src/components/Header.tsx",
+        "src/main.tsx",
+      ],
+      truncated: false,
+    });
   });
 
-  it("sorts, so the same project always answers the same way", async () => {
-    const listing = await walk(stub(project()));
+  it("lists a file however deep it is, now that depth costs nothing", async () => {
+    // The walk stopped six folders down because each folder was a round trip. A file the agent
+    // just changed eight folders down is one the panel has to be able to show.
+    const deep = "a/b/c/d/e/f/g/h/Deep.tsx";
 
-    expect(listing.paths).toEqual([...listing.paths].sort());
-  });
-
-  it("says nothing was left out when nothing was", async () => {
-    await expect(walk(stub(project()))).resolves.toMatchObject({ truncated: false });
+    await expect(list(["package.json", deep])).resolves.toEqual({
+      paths: [deep, "package.json"],
+      truncated: false,
+    });
   });
 
   it("stops at the entry limit and says so", async () => {
-    const listing = await walk(stub(project()), { maxEntries: 2 });
+    const listing = await list(PROJECT, { maxEntries: 2 });
 
     expect(listing.paths).toHaveLength(2);
     expect(listing.truncated).toBe(true);
   });
 
-  it("stops at the depth limit and says so", async () => {
-    const listing = await walk(stub(project()), { maxDepth: 1 });
+  it("keeps the shallowest files when the limit bites", async () => {
+    // `src/App.tsx` matters more than the tenth level of a nested component tree, whatever
+    // order the sandbox happened to list them in.
+    const nested = Array.from({ length: 10 }, (_, i) => `src/deep/nest/${String(i)}.tsx`);
 
-    expect(listing.paths).toContain("src/App.tsx");
-    expect(listing.paths).not.toContain("src/components/Header.tsx");
-    expect(listing.truncated).toBe(true);
+    const listing = await list([...nested, "package.json", "src/App.tsx", "src/main.tsx"], {
+      maxEntries: 3,
+    });
+
+    expect(listing).toEqual({
+      paths: ["package.json", "src/App.tsx", "src/main.tsx"],
+      truncated: true,
+    });
   });
 
   it("is bounded even when the project is not", async () => {
-    const deep: Listing = {};
-    let path = ROOT;
-    for (let i = 0; i < 500; i += 1) {
-      const child = `${path}/d${i}`;
-      deep[path] = [dir(child), file(`${path}/f${i}.ts`)];
-      path = child;
-    }
+    const deep = Array.from({ length: 300 }, (_, level) => `${"d/".repeat(level)}f${level}.ts`);
 
-    const listing = await walk(stub(deep), { maxEntries: 25 });
+    const listing = await list(deep, { maxEntries: 25 });
 
-    expect(listing.paths.length).toBeLessThanOrEqual(25);
-  });
-
-  it("keeps going when one directory cannot be read", async () => {
-    // An unreadable folder is a gap in a listing. Failing the whole request would replace a
-    // usable file tree with an error message over one directory nobody asked about.
-    const listing = await walk(stub(project(), { failing: [`${ROOT}/src`] }));
-
-    expect(listing.paths).toContain("package.json");
-    expect(listing.paths).not.toContain("src/App.tsx");
+    expect(listing.paths).toHaveLength(25);
     expect(listing.truncated).toBe(true);
   });
 
-  it("fails when the root itself cannot be read", async () => {
-    // Distinct from the case above on purpose: nothing readable means the sandbox is gone,
-    // and an empty tree would tell the user their project is empty.
-    const result = await listProjectFiles(stub({}, { failing: [ROOT] }), SANDBOX, { root: ROOT });
-
-    expect(result).toMatchObject({ ok: false, error: { code: "unavailable" } });
+  it("answers an empty project with an empty listing", async () => {
+    await expect(list([])).resolves.toEqual({ paths: [], truncated: false });
   });
 
-  it("works against a real SandboxManager", async () => {
-    // The stub above answers whatever the test wrote down. This one goes through the fake
-    // every other package tests against, which synthesizes directories from file paths —
-    // the same shape the E2B adapter is held to by the conformance suite.
-    const sandbox = new InMemorySandboxManager();
-    const created = await sandbox.create("project-1");
-    if (!created.ok) throw new Error("could not create a sandbox");
+  it("fails, rather than answering empty, when the root cannot be listed", async () => {
+    // Distinct from the case above on purpose: nothing readable means the sandbox is gone or
+    // did not answer in time, and an empty tree would tell the user their project is empty.
+    for (const error of [
+      { code: "timeout", message: "listing timed out" },
+      { code: "file_not_found", message: "no such directory" },
+    ] as const) {
+      await expect(listProjectFiles(failing(error), "sbx_1", { root: ROOT })).resolves.toEqual({
+        ok: false,
+        error,
+      });
+    }
+  });
 
-    await sandbox.writeFile(created.value.id, `${ROOT}/src/App.tsx`, "export default null;");
-    await sandbox.writeFile(created.value.id, `${ROOT}/package.json`, "{}");
-    await sandbox.writeFile(created.value.id, `${ROOT}/node_modules/react/index.js`, "");
+  it("fails when the sandbox is gone", async () => {
+    const { sandbox, sandboxId } = await workspace(PROJECT);
+    await sandbox.destroy(sandboxId);
 
-    const result = await listProjectFiles(sandbox, created.value.id, { root: ROOT });
-
-    expect(result).toEqual({
-      ok: true,
-      value: { paths: ["package.json", "src/App.tsx"], truncated: false },
+    await expect(listProjectFiles(sandbox, sandboxId, { root: ROOT })).resolves.toMatchObject({
+      ok: false,
     });
   });
 });

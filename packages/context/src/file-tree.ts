@@ -14,8 +14,9 @@
  * asked for, and the agent can always list the project itself.
  */
 
+import { walkBreadthFirst } from "@nap/shared/list-tree";
 import { getLogger } from "@nap/shared/logging";
-import type { FileNode, SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 
 /**
  * Never worth showing the model: vendored dependencies and build products it must not edit,
@@ -44,43 +45,17 @@ export type FileTreeDigestOptions = {
   maxDepth?: number;
 };
 
-function basename(path: string): string {
-  const cut = path.lastIndexOf("/");
-  return cut === -1 ? path : path.slice(cut + 1);
-}
-
-/** The listing laid back out as folders, so the walk below can read it one folder at a time. */
-function toFolders(root: string, paths: readonly string[]): Map<string, FileNode[]> {
-  const folders = new Map<string, Map<string, FileNode>>();
-  const add = (folder: string, node: FileNode): void => {
-    const children = folders.get(folder) ?? new Map<string, FileNode>();
-    children.set(node.path, node);
-    folders.set(folder, children);
-  };
-  const prefix = root.endsWith("/") ? root : `${root}/`;
-  for (const path of paths) {
-    if (!path.startsWith(prefix)) continue;
-    const segments = path.slice(prefix.length).split("/");
-    let folder = prefix.slice(0, -1);
-    for (const [index, segment] of segments.entries()) {
-      const child = `${folder}/${segment}`;
-      add(folder, { path: child, type: index === segments.length - 1 ? "file" : "directory" });
-      folder = child;
-    }
-  }
-  return new Map([...folders].map(([folder, children]) => [folder, [...children.values()]]));
-}
-
 /**
  * Breadth-first, so a shallow entry is never displaced by a deep one when the limit bites:
  * `src/App.tsx` matters more than the tenth level of a nested component tree.
  *
  * The walk and its limits are the ones that used to make a sandbox call per folder, now reading
- * folders out of a single listing. What that listing holds is not quite what the old walk saw:
- * a repository's gitignored files are left out by design, the fallback for a workspace without
- * git lists regular files only — no symlinks — and a listing cut at its byte ceiling is whatever
- * the command printed first rather than the shallowest files: from git, every tracked file before
- * any untracked one, each in git's own order; from the fallback, the order the directories hold.
+ * folders out of a single listing (`walkBreadthFirst`). What that listing holds is not quite what
+ * the old walk saw: a repository's gitignored files are left out by design, the fallback for a
+ * workspace without git lists regular files only — no symlinks — and a listing cut at its byte
+ * ceiling is whatever the command printed first rather than the shallowest files: from git, every
+ * tracked file before any untracked one, each in git's own order; from the fallback, the order the
+ * directories hold.
  */
 export async function buildFileTreeDigest(
   sandbox: SandboxManager,
@@ -102,37 +77,9 @@ export async function buildFileTreeDigest(
     getLogger().warn({ code: listed.error.code }, "the file listing was unavailable");
     return FILE_LIST_UNAVAILABLE;
   }
-  const folders = toFolders(root, listed.value);
-
-  const paths: string[] = [];
-  let queue: string[] = [root.endsWith("/") ? root.slice(0, -1) : root];
-
-  for (let depth = 0; depth <= maxDepth && queue.length > 0; depth += 1) {
-    const next: string[] = [];
-
-    for (const directory of queue) {
-      if (paths.length >= maxEntries) break;
-
-      // Sorted so the same project always renders the same bytes, which is what lets a request
-      // that carries it repeat the one before it.
-      const children = [...(folders.get(directory) ?? [])].sort((a, b) =>
-        a.path.localeCompare(b.path),
-      );
-
-      for (const child of children) {
-        if (paths.length >= maxEntries) break;
-        if (EXCLUDED.has(basename(child.path))) continue;
-
-        if (child.type === "directory") {
-          next.push(child.path);
-          continue;
-        }
-        paths.push(child.path);
-      }
-    }
-
-    queue = next;
-  }
+  // Sorted within each folder, so the same project always renders the same bytes, which is what
+  // lets a request that carries it repeat the one before it.
+  const { paths } = walkBreadthFirst(root, listed.value, { maxEntries, maxDepth });
 
   if (paths.length === 0) return "";
 
