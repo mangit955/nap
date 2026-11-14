@@ -126,9 +126,9 @@
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   /*
-   * Loaded by `next/font` in the root layout, which is what defines `--font-bricolage`. The
-   * fallback is not decoration: `display: swap` means the first paint of the landing page is
-   * set in it, and a stack ending at `sans-serif` would hand that paint to Times.
+   * Loaded by `next/font` in the root layout, which is what defines `--font-bricolage`, and not
+   * preloaded there. The fallback is not decoration: `display: swap` means a heading's first paint
+   * can be set in it, and a stack ending at `sans-serif` would hand that paint to Times.
    */
   --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
 }

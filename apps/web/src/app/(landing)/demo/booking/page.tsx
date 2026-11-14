@@ -1,4 +1,4 @@
-import { BookingPreview } from "../../../landing/booking-preview.tsx";
+import { BookingPreview } from "../../../../landing/booking-preview.tsx";
 
 export const metadata = {
   title: "Highland stays example app",

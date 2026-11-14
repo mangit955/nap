@@ -1,4 +1,4 @@
-import { LiveLanding } from "../landing/live-landing.tsx";
+import { LiveLanding } from "../../landing/live-landing.tsx";
 
 /**
  * The front door: a box to describe an app in, and — if you are signed in — everything you have
