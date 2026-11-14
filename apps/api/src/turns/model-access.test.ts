@@ -75,6 +75,60 @@ describe("with no key of their own", () => {
   });
 });
 
+describe("when the deployment names no free model", () => {
+  // The default: this deployment pays for nobody. A `:free` model costs no tokens but its turn
+  // still runs in a sandbox billed by the second, so it is refused as well.
+  const noFreeTier = (overrides: Partial<TurnAccessRequest> = {}) =>
+    ask({ freeModel: undefined, ...overrides });
+
+  it.each([
+    ["nothing named", undefined],
+    ["a :free model", "openai/gpt-oss-20b:free"],
+    ["the model a free tier would have used", "openai/gpt-5.6-luna"],
+    ["a paid model", "anthropic/claude-opus-5"],
+  ])("refuses a caller with no key who names %s", (_case, requested) => {
+    expect(resolveTurnAccess(noFreeTier({ requested }))).toMatchObject({
+      ok: false,
+      code: "byok_required",
+    });
+  });
+
+  it("still says an unknown model is unknown", () => {
+    expect(resolveTurnAccess(noFreeTier({ requested: "openai/not-a-model" }))).toMatchObject({
+      code: "model_not_allowed",
+    });
+  });
+
+  it("runs a caller with a key exactly as before, on their key", () => {
+    expect(resolveTurnAccess(noFreeTier({ key: OPENROUTER }))).toEqual({
+      ok: true,
+      model: "openai/gpt-5.6-luna",
+      credentials: OPENROUTER,
+    });
+    expect(
+      resolveTurnAccess(noFreeTier({ key: ANTHROPIC, requested: "anthropic/claude-opus-5" })),
+    ).toEqual({ ok: true, model: "anthropic/claude-opus-5", credentials: ANTHROPIC });
+  });
+
+  it("offers a caller with no key nothing", () => {
+    expect(availableModels(ALLOWED, null, undefined)).toEqual([]);
+  });
+
+  it("offers a caller with a key what it offered before", () => {
+    expect(availableModels(ALLOWED, OPENROUTER, undefined)).toEqual([...ALLOWED]);
+  });
+
+  it("agrees with what resolveTurnAccess actually allows", () => {
+    for (const key of [null, OPENROUTER, ANTHROPIC]) {
+      for (const model of ALLOWED) {
+        const offered = availableModels(ALLOWED, key, undefined).includes(model);
+        const allowed = resolveTurnAccess(noFreeTier({ key, requested: model })).ok;
+        expect(offered).toBe(allowed);
+      }
+    }
+  });
+});
+
 describe("with an OpenRouter key", () => {
   it("runs the deployment's default when nothing is named", () => {
     expect(resolveTurnAccess(ask({ key: OPENROUTER }))).toEqual({
@@ -149,11 +203,11 @@ describe("availableModels", () => {
   });
 
   it("offers everything to an OpenRouter key", () => {
-    expect(availableModels(ALLOWED, OPENROUTER)).toEqual([...ALLOWED]);
+    expect(availableModels(ALLOWED, OPENROUTER, FREE_MODEL)).toEqual([...ALLOWED]);
   });
 
   it("offers the Claude models to an Anthropic key", () => {
-    expect(availableModels(ALLOWED, ANTHROPIC)).toEqual([
+    expect(availableModels(ALLOWED, ANTHROPIC, FREE_MODEL)).toEqual([
       "anthropic/claude-sonnet-5",
       "anthropic/claude-opus-5",
     ]);
@@ -204,5 +258,29 @@ describe("who pays for a session title", () => {
     ],
   ])("%s", (_case, key, allowed, expected) => {
     expect(title(key, allowed)).toEqual(expected);
+  });
+
+  describe("when the deployment names no free model", () => {
+    const untiered = (key: ModelCredentials | null) =>
+      resolveTitleAccess({ key, allowed: ALLOWED, freeModel: undefined });
+
+    it("writes no title for a caller with no key, because nobody would pay for it", () => {
+      expect(untiered(null)).toBeNull();
+    });
+
+    it("titles on an OpenRouter key's own account, on the cheapest model it reaches", () => {
+      // A `:free` model costs that key nothing, which is the point of preferring it.
+      expect(untiered(OPENROUTER)).toEqual({
+        model: "openai/gpt-oss-20b:free",
+        credentials: OPENROUTER,
+      });
+    });
+
+    it("titles on an Anthropic key exactly as before", () => {
+      expect(untiered(ANTHROPIC)).toEqual({
+        model: "anthropic/claude-sonnet-5",
+        credentials: ANTHROPIC,
+      });
+    });
   });
 });

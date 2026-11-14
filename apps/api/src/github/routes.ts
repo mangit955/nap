@@ -255,6 +255,18 @@ export function registerGitHubRoutes(
     );
     if (!branch.ok)
       return c.json({ error: "This branch is not available in the selected repository." }, 400);
+    // The import's first start makes a sandbox, so it is admitted on a turn's terms: refused for
+    // somebody with no key on a deployment that pays for nobody, and billed to whoever would pay.
+    const key = (await deps.admission.keys?.(c.get("userId"))) ?? null;
+    const access = resolveTurnAccess({
+      requested: undefined,
+      key,
+      allowed: deps.admission.allowedModels,
+      freeModel: deps.admission.freeModel,
+      defaultModel: deps.admission.defaultModel,
+    });
+    if (!access.ok)
+      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
     const { installationId, name, baseBranch, environment, autoPublish } = input.data;
     const created = await deps.store.importRepository({
       userId: c.get("userId"),
@@ -264,7 +276,11 @@ export function registerGitHubRoutes(
       baseBranch,
       environment,
       autoPublish,
-      open: { requestId: crypto.randomUUID(), model: deps.admission.freeModel },
+      open: {
+        requestId: crypto.randomUUID(),
+        model: access.model,
+        billsToUser: access.credentials !== undefined,
+      },
     });
     if (created === null)
       return c.json({ error: "GitHub access changed. Reconnect and try again." }, 409);
@@ -367,7 +383,8 @@ export function registerGitHubRoutes(
       sessionId: binding.sessionId,
       kind: "publish",
       message: job.jobId,
-      model: deps.admission.freeModel,
+      // A publish runs no model; the column needs a value and this one is never called.
+      model: deps.admission.freeModel ?? deps.admission.defaultModel,
       billsToUser: false,
     });
     return c.json({ requestId }, 202);

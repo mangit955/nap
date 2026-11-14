@@ -141,7 +141,7 @@ describe("InMemoryGitHubStore", () => {
         baseBranch: repository.baseBranch,
         environment: repository.environment,
         autoPublish: true,
-        open: { requestId: randomUUID(), model: "test-model" },
+        open: { requestId: randomUUID(), model: "test-model", billsToUser: false },
       }),
     ).rejects.toThrow("Queue unavailable");
     expect(await store.repositoriesForInstallation(installation.installationId)).toEqual([

@@ -196,9 +196,15 @@ describe("parseEnv", () => {
 
     expect(env.NAP_FREE_TURNS_PER_HOUR).toBeLessThan(env.NAP_TURNS_PER_HOUR);
     expect(env.NAP_FREE_MAX_SANDBOXES_PER_USER).toBeLessThanOrEqual(env.NAP_MAX_SANDBOXES_PER_USER);
-    // The free model is Luna — the same as the paid default. The deployment intentionally pays
-    // for demo turns so the demo experience matches the real product.
-    expect(env.NAP_FREE_MODEL).toBe("openai/gpt-5.6-luna");
+  });
+
+  it("has no free tier unless the deployment names a free model", () => {
+    // A deployment that sets nothing pays for nobody: every model call and every sandbox is on
+    // somebody's own key. Naming one is a choice to pay for strangers, so it has to be made.
+    expect(parseEnv(REQUIRED).NAP_FREE_MODEL).toBeUndefined();
+    expect(parseEnv({ ...REQUIRED, NAP_FREE_MODEL: "openai/gpt-5.6-luna" }).NAP_FREE_MODEL).toBe(
+      "openai/gpt-5.6-luna",
+    );
   });
 
   it("refuses a free-tier sandbox cap above the machine-wide one", () => {

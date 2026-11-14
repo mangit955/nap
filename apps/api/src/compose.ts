@@ -713,11 +713,15 @@ export function composeNap(deps: NapDeps): ComposedNap {
       events: { events: deps.events, bus: deps.bus },
       // A close destroys a sandbox, so it is where that sandbox's slot comes back.
       capacity: deps.capacity,
-      // Resuming makes a sandbox, so it answers to the same ceiling a turn does.
+      // Resuming makes a sandbox, so it answers to the same ceilings a turn does.
       limits: {
         projects: deps.projects,
         sandboxes: {
           perUser: config.NAP_MAX_SANDBOXES_PER_USER,
+          total: config.NAP_MAX_SANDBOXES_TOTAL,
+        },
+        freeSandboxes: {
+          perUser: config.NAP_FREE_MAX_SANDBOXES_PER_USER,
           total: config.NAP_MAX_SANDBOXES_TOTAL,
         },
       },
@@ -875,6 +879,9 @@ export function composeNap(deps: NapDeps): ComposedNap {
         // The same function the turn route resolves access with — the queue stores only *whether*
         // the asker pays, so this is where their key is re-opened, once the request is claimed.
         credentialsFor: openCallerKey,
+        // No free model named, no free tier: what admission refuses, the worker refuses too, for
+        // the rows admitted before this deployment stopped paying for anyone.
+        paysForCallers: config.NAP_FREE_MODEL !== undefined,
         running: registry,
         ...(deps.cancels === null ? {} : { cancels: deps.cancels }),
         // Messages sent to a turn this worker runs are read from the same queue it was claimed from.

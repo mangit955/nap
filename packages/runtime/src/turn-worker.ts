@@ -133,6 +133,16 @@ export type TurnWorkerOptions = {
    */
   drainTimeoutMs?: number;
   credentialsFor?: CredentialsFor;
+  /**
+   * Whether this deployment runs anything on its own account. False means a turn, test or resume
+   * not billed to its asker is failed without running.
+   *
+   * Admission already refuses such requests when there is no free tier; this is for the rows it
+   * admitted before that, which a worker would otherwise run on the deployment's key and in a
+   * sandbox it pays for. A publish is exempt: it calls no model, and runs in the sandbox the
+   * owner's own work is already in. Absent means true, the behaviour before the switch existed.
+   */
+  paysForCallers?: boolean;
   running?: RunningTurns;
   /**
    * What makes a cancel felt before the next renewal. Only the listening half, because the route is
@@ -356,6 +366,13 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     // Read here rather than carried on the row: the queue stores *whether* the asker pays, never
     // their key, so plaintext credentials never touch the table, a query log, or a backup.
     let credentials: ModelCredentials | undefined;
+    if (!request.billsToUser && options.paysForCallers === false) {
+      logger.warn(
+        { requestId: request.id, userId: request.userId, kind: request.kind },
+        "refused a request nobody pays for: this deployment has no free tier",
+      );
+      return false;
+    }
     if (request.billsToUser) {
       const opened = (await credentialsFor?.(request.userId)) ?? null;
       if (opened === null) {

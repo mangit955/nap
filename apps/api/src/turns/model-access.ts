@@ -6,10 +6,12 @@
  * may reach, and the difference is money. Before it existed, every signed-in person could name
  * `anthropic/claude-opus-5` and the deployment paid for it.
  *
- * The rule in one sentence: **the deployment's own key buys nothing but the freeModel and
- * any :free-suffixed models.** The freeModel is the deployment's explicit demo offering —
- * it may be a paid model the deployment covers intentionally. Anything else needs a key
- * belonging to whoever is asking.
+ * The rule in one sentence: **the deployment's own key buys nothing unless it names a free model,
+ * and then nothing but that model and the :free-suffixed ones.** By default it names none, so a
+ * caller with no key of their own can start nothing — not even a `:free` model, which costs no
+ * tokens but still runs in a sandbox billed by the second. A deployment that wants a free tier
+ * sets `NAP_FREE_MODEL`, which may be a paid model it covers on purpose. Anything else needs a
+ * key belonging to whoever is asking.
  *
  * The models the deployment itself names — `NAP_FALLBACK_MODEL`, `NAP_SUBAGENT_MODEL` and the
  * Fusion sidekick, `NAP_SIDEKICK_MODEL` — also run on its key, but only inside turns it already
@@ -48,8 +50,11 @@ export type TurnAccessRequest = {
   key: CallerKey;
   /** The deployment's allowlist — every model that exists here, free and paid. */
   allowed: readonly string[];
-  /** What somebody with no key of their own runs on. The deployment pays for these turns. */
-  freeModel: string;
+  /**
+   * What somebody with no key of their own runs on, paid for by the deployment. Absent means
+   * there is no free tier, and somebody with no key is refused.
+   */
+  freeModel: string | undefined;
   /** What somebody with a key runs on when they name nothing. */
   defaultModel: string;
 };
@@ -81,15 +86,18 @@ function reachableWith(model: string, platform: ModelCredentials["platform"]): b
 /**
  * Every model this caller may name, in the allowlist's order.
  *
- * For a keyless caller, this includes the deployment's `freeModel` (always, regardless of
- * suffix) and any model that carries the `:free` suffix.
+ * For a keyless caller, this is nothing when the deployment has no free tier, and otherwise its
+ * `freeModel` (always, regardless of suffix) and any model that carries the `:free` suffix.
  */
 export function availableModels(
   allowed: readonly string[],
   key: CallerKey,
-  freeModel?: string,
+  freeModel: string | undefined,
 ): string[] {
-  if (key === null) return allowed.filter((model) => model === freeModel || isFreeModel(model));
+  if (key === null) {
+    if (freeModel === undefined) return [];
+    return allowed.filter((model) => model === freeModel || isFreeModel(model));
+  }
   return allowed.filter((model) => reachableWith(model, key.platform));
 }
 
@@ -109,6 +117,15 @@ export function resolveTurnAccess(request: TurnAccessRequest): TurnAccess {
   }
 
   if (key === null) {
+    // No free tier: everything this caller could start costs the deployment a sandbox at least.
+    if (request.freeModel === undefined) {
+      return {
+        ok: false,
+        code: "byok_required",
+        message: "This deployment runs on your own API key. Add one to start.",
+      };
+    }
+
     // No key: only the deployment's chosen free model, on the deployment's account.
     // `freeModel` is the deployment's explicit choice and is always reachable, regardless of
     // whether it carries the `:free` suffix — the suffix is OpenRouter's convention, but the
@@ -143,8 +160,10 @@ export function resolveTurnAccess(request: TurnAccessRequest): TurnAccess {
 /**
  * Who pays for a session title, and on which model (docs/adr/0031 D4): whoever would pay for this
  * caller's turn, on the cheapest model their account reaches — the deployment's free model, or,
- * for an Anthropic key, which reaches no other vendor, the first Claude model allowed. Null when
- * there is none, and the title is not written.
+ * for an Anthropic key, which reaches no other vendor, the first Claude model allowed. With no
+ * free tier an OpenRouter key takes the first `:free` model allowed, which costs it nothing. Null
+ * when there is none, and the title is not written — which is always the answer for somebody
+ * with no key on a deployment that pays for nobody.
  *
  * Decided by `resolveTurnAccess` with the model named, so the payer is the turn's own rule and a
  * title can never fall through to `defaultModel`, which is a paid model.
@@ -152,15 +171,21 @@ export function resolveTurnAccess(request: TurnAccessRequest): TurnAccess {
 export function resolveTitleAccess(request: {
   key: CallerKey;
   allowed: readonly string[];
-  freeModel: string;
+  freeModel: string | undefined;
 }): { model: string; credentials?: ModelCredentials } | null {
   const { key, allowed, freeModel } = request;
   const requested =
     key?.platform === "anthropic"
       ? allowed.find((model) => model.startsWith("anthropic/"))
-      : freeModel;
+      : (freeModel ?? (key === null ? undefined : (allowed.find(isFreeModel) ?? allowed[0])));
   if (requested === undefined) return null;
-  const access = resolveTurnAccess({ requested, key, allowed, freeModel, defaultModel: freeModel });
+  const access = resolveTurnAccess({
+    requested,
+    key,
+    allowed,
+    freeModel,
+    defaultModel: requested,
+  });
   if (!access.ok) return null;
   return access.credentials === undefined
     ? { model: access.model }

@@ -8,6 +8,7 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { SignInRequiredSchema } from "@nap/shared/api-error";
+import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -39,7 +40,13 @@ const installation = {
 };
 const repository = { id: 123, full_name: "owner/repo", default_branch: "main", private: true };
 
-function fixture() {
+/** Who pays for an import's first start: the deployment's free tier, or the caller's own key. */
+type Admission = {
+  freeModel: string | undefined;
+  keys?: () => Promise<ModelCredentials | null>;
+};
+
+function fixture(admission: Admission = { freeModel: "free" }) {
   const queue = new InMemoryTurnQueue();
   const projects = new InMemoryProjectStore();
   const store = new InMemoryGitHubStore({
@@ -143,7 +150,12 @@ function fixture() {
       projects,
       queue,
       webOrigin: config.webOrigin,
-      admission: { allowedModels: ["free"], freeModel: "free", defaultModel: "free" },
+      admission: {
+        allowedModels: ["free"],
+        freeModel: admission.freeModel,
+        defaultModel: "free",
+        ...(admission.keys === undefined ? {} : { keys: admission.keys }),
+      },
     },
   });
   const request = (path: string, body: unknown = {}, method = "POST", origin = config.webOrigin) =>
@@ -458,6 +470,22 @@ describe("repository import and access", () => {
     await readOnly.bind();
     readOnly.readOnly();
     expect((await readOnly.request("/github/import", input)).status).toBe(403);
+  });
+  it("refuses a caller with no key when the deployment pays for nobody, and queues nothing", async () => {
+    // An import's first start makes a sandbox, so it is admitted on the same terms as a turn.
+    const f = fixture({ freeModel: undefined });
+    await f.bind();
+    const refused = await f.request("/github/import", input);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: "byok_required" });
+    expect(await f.queue.claim("worker")).toBeNull();
+  });
+  it("bills an import's first start to the caller's own key when they have one", async () => {
+    const key: ModelCredentials = { platform: "openrouter", apiKey: "sk-or-theirs" };
+    const f = fixture({ freeModel: undefined, keys: async () => key });
+    await f.bind();
+    expect((await f.request("/github/import", input)).status).toBe(201);
+    expect(await f.queue.claim("worker")).toMatchObject({ kind: "resume", billsToUser: true });
   });
   it("refuses removed repository access rather than using a cached association", async () => {
     const f = fixture();

@@ -203,7 +203,7 @@ export class PostgresGitHubStore implements GitHubStore {
           kind: "resume",
           message: null,
           model: input.open.model,
-          billsToUser: false,
+          billsToUser: input.open.billsToUser,
         });
       }
       return association;

@@ -90,6 +90,19 @@ describe("refused requests", () => {
     expect(copy.action).toMatch(/put one away/i);
   });
 
+  it("offers the key form for a model that needs one, and keeps the server's reason", () => {
+    const copy = requestFailureCopy(
+      403,
+      "byok_required",
+      "This deployment runs on your own API key. Add one to start.",
+    );
+
+    expect(copy.recovery).toBe("add-key");
+    expect(copy.detail).toContain("runs on your own API key");
+    // A deployment with no free tier has no free model to pick, so the copy must not offer one.
+    expect(`${copy.title} ${copy.action}`).not.toMatch(/free model/i);
+  });
+
   it("sends an expired session to sign in rather than asking it to retry", () => {
     const copy = requestFailureCopy(401, undefined, "");
 

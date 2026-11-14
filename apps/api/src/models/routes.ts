@@ -22,8 +22,8 @@ export type ModelRouteDeps = {
   allowed: readonly string[];
   /** What a turn runs on when the asker has a key and names nothing. */
   fallback: string;
-  /** What a turn runs on when the asker has no key. Always free. */
-  freeModel: string;
+  /** What a turn runs on when the asker has no key. Absent means there is no free tier. */
+  freeModel: string | undefined;
   /**
    * The key this caller brought, if any. Absent means nobody has one — which is what an app
    * assembled without a key store means, and is the answer that offers least.

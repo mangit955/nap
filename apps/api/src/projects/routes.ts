@@ -81,7 +81,8 @@ export type ProjectRouteDeps = {
   models: {
     keys?: CallerKeys;
     allowedModels: readonly string[];
-    freeModel: string;
+    /** Absent means there is no free tier, so a caller with no key may not open anything. */
+    freeModel: string | undefined;
     defaultModel: string;
   };
   /**
@@ -107,6 +108,8 @@ export type ProjectRouteDeps = {
     /** Counting live sandboxes; the same store this module lists from. */
     projects: ProjectStore;
     sandboxes: SandboxLimits;
+    /** The tighter ceiling for somebody this deployment pays for. Absent means `sandboxes`. */
+    freeSandboxes?: SandboxLimits;
   };
   /**
    * True while a turn is running for any of these sessions.
@@ -228,6 +231,16 @@ export function registerProjectRoutes(
       return c.json({ error: "this project has no conversation to open", code: "no_session" }, 409);
     }
 
+    // What a continued job would run on, and whose account pays. Resolved here even though most
+    // opens continue nothing: the queued row carries a concrete model, and the alternative is
+    // deciding whose money to spend after the answer is already 202. First, because it also
+    // decides which sandbox ceiling applies, and because somebody this deployment will not pay
+    // for is refused whatever their quota says.
+    const access = await continueAccess(deps, c.get("userId"));
+    if (!access.ok) {
+      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
+    }
+
     if (deps.limits !== undefined) {
       const quota = await checkSandboxQuota({
         projects: deps.limits.projects,
@@ -235,21 +248,16 @@ export function registerProjectRoutes(
         // Null by definition here — the branch above returned for anything else — and passing
         // it explicitly is what makes the check actually count rather than wave this through.
         sessionSandboxId: null,
-        limits: deps.limits.sandboxes,
+        // The ceiling a turn by the same person would answer to, or opening would be a way past it.
+        limits: access.billsToUser
+          ? deps.limits.sandboxes
+          : (deps.limits.freeSandboxes ?? deps.limits.sandboxes),
       });
       if (!quota.allowed) {
         // The same status and the same `code` a refused turn carries, so the browser has one
         // branch for "you have too many projects running" rather than one per route.
         return c.json({ error: quota.message, code: "sandbox_quota_exceeded" }, 409);
       }
-    }
-
-    // What a continued job would run on, and whose account pays. Resolved here even though most
-    // opens continue nothing: the queued row carries a concrete model, and the alternative is
-    // deciding whose money to spend after the answer is already 202.
-    const access = await continueAccess(deps, c.get("userId"));
-    if (!access.ok) {
-      return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
     }
 
     // The same rule a turn follows: the request's id is the turn id its events go under, allocated

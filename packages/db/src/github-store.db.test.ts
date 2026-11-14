@@ -285,7 +285,7 @@ describe("repository ownership and import", () => {
   it("atomically admits the initial resume with an import and rolls the project back if admission fails", async () => {
     const installation = await connect();
     const input = importInput(installation);
-    const open = { requestId: randomUUID(), model: "test-model" };
+    const open = { requestId: randomUUID(), model: "test-model", billsToUser: true };
     const repository = await store.importRepository({ ...input, open });
     if (repository === null) throw new Error("Expected owned import");
     expect(
@@ -297,7 +297,7 @@ describe("repository ownership and import", () => {
         kind: "resume",
         message: null,
         model: "test-model",
-        billsToUser: false,
+        billsToUser: true,
         state: "queued",
       },
     ]);
