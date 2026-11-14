@@ -186,7 +186,13 @@ function expectNothingOfAlpha() {
   expect(within(main).queryByRole("region", { name: "src/AlphaOnly.tsx (read-only)" })).toBeNull();
   expect(within(main).queryByText("Alpha board")).toBeNull();
   expect(within(main).queryByRole("button", { name: "Stop" })).toBeNull();
-  expect(document.querySelector('iframe[src*="alpha"]')).toBeNull();
+  for (const frame of screen.queryAllByTitle(PREVIEW_TITLE)) {
+    expect(frame).not.toHaveAttribute("src", expect.stringContaining("alpha"));
+  }
+  // Alt text also finds a stale snapshot hidden from the accessibility tree.
+  for (const snapshot of screen.queryAllByAltText(/last snapshot/i)) {
+    expect(snapshot).not.toHaveAttribute("src", expect.stringContaining(PROJECT_A));
+  }
 }
 
 beforeEach(() => {
@@ -295,6 +301,31 @@ describe("switching projects in place", () => {
     expect(betaFiles().getByRole("button", { name: "BetaOnly.tsx" })).toBeVisible();
     expectNothingOfAlpha();
     expect(net.opened.filter((socket) => !socket.closed)).toEqual([beta]);
+  });
+
+  it("shows the next project's last picture while it opens, and never the last one's", async () => {
+    const snapshot = () => screen.queryByRole("img", { name: /last snapshot/i });
+    const pictureOf = (projectId: string) =>
+      expect.stringContaining(`/projects/${projectId}/thumbnail`);
+    const view = render(workspace(PROJECT_A));
+    await replayAlpha();
+    // A's picture is really on screen — jsdom never loads A's frame, so the start-up screen stays
+    // over it — which makes its absence after the switch the switch's doing.
+    await waitFor(() => expect(snapshot()).toHaveAttribute("src", pictureOf(PROJECT_A)));
+
+    const recordForB = gate();
+    recordHeld = recordForB.wait;
+    view.rerender(workspace(PROJECT_B));
+
+    // B's record is still on its way: no picture at all, rather than the one that is to hand.
+    expect(snapshot()).toBeNull();
+    expectNothingOfAlpha();
+
+    await act(async () => {
+      recordForB.open();
+    });
+    await waitFor(() => expect(snapshot()).toHaveAttribute("src", pictureOf(PROJECT_B)));
+    expectNothingOfAlpha();
   });
 
   it("leaves nothing of the last project waiting to land: no buffered frame, no timer, no listing", async () => {
