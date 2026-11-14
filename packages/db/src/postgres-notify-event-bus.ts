@@ -10,7 +10,8 @@
  * **A notification is a wake-up signal. The durable log is the delivery.** `publish` sends
  * `{sessionId, seq}` and never the event (see `event-notification.ts` for why that is not
  * negotiable); a notification for a session this process is streaming causes a read from the
- * log; the rows from that read are what subscribers are handed. Three things fall out of it:
+ * log — one read for every notification that arrived while the previous read was running, not
+ * one each; the rows from that read are what subscribers are handed. Three things fall out of it:
  *
  *  - **A missed notification costs latency, not an event.** A catch-up poll runs the same read
  *    unconditionally, so a process that dies between committing an append and sending the
@@ -114,6 +115,19 @@ export class PostgresNotifyEventBus implements EventBus {
    * later rather than a duplicate now.
    */
   #chain: Promise<void> = Promise.resolve();
+
+  /**
+   * Sessions a notification has named since the last notification-driven read was queued.
+   *
+   * A burst of N events is N notifications, and a read per notification is N queries of which
+   * all but the first return nothing — the first already read everything the rest announce. So
+   * wake-ups are collected while a read is queued or running, and answered together by the one
+   * read queued behind it: **at most one notification-driven read waits on the chain**, however
+   * many sessions and events arrive meanwhile. The cursors are untouched by this; it changes how
+   * many reads there are, never where any of them starts.
+   */
+  readonly #woken = new Set<string>();
+  #wakeQueued = false;
 
   #timer: ReturnType<typeof setInterval> | null = null;
   #unlisten: Unlisten[] = [];
@@ -261,7 +275,18 @@ export class PostgresNotifyEventBus implements EventBus {
       cursor.after = notification.seq - 1;
     }
 
-    this.#enqueue(() => this.#drain([notification.sessionId]));
+    this.#woken.add(notification.sessionId);
+    if (this.#wakeQueued) return;
+    this.#wakeQueued = true;
+    this.#enqueue(() => {
+      // Taken when the read starts, not when it was queued, so everything that arrived while it
+      // waited is in it — and cleared before the query, so whatever arrives during the query
+      // queues the next one rather than being folded into a read that has already left.
+      this.#wakeQueued = false;
+      const sessionIds = [...this.#woken];
+      this.#woken.clear();
+      return this.#drain(sessionIds);
+    });
   }
 
   #onHeartbeat(payload: string): void {

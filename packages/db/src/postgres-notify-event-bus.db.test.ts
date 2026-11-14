@@ -193,6 +193,35 @@ describe("events crossing a process boundary", () => {
     expect(received).toStrictEqual([orphan]);
   });
 
+  it("delivers a burst across sessions exactly once and in order, however its reads coalesce", async () => {
+    // Real notifications arrive in batches off the listener socket, so this is where wake-ups
+    // genuinely pile up behind an in-flight read. Concurrent appends across three sessions,
+    // then every notification at once.
+    const sessionIds = await Promise.all([seedSession(), seedSession(), seedSession()]);
+    const turnId = randomUUID();
+    const worker = await replica();
+    const socket = await replica();
+
+    const received = new Map(sessionIds.map((id) => [id, [] as StoredEvent[]]));
+    for (const [id, inbox] of received) socket.subscribe(id, (event) => inbox.push(event));
+    await socket.tick();
+
+    const appended = await Promise.all(
+      sessionIds.flatMap((id) =>
+        Array.from({ length: 20 }, (_, i) => store.append(message(id, turnId, `${i}`))),
+      ),
+    );
+    for (const stored of appended) worker.publish(stored);
+
+    await eventually(() => [...received.values()].every((inbox) => inbox.length === 20));
+
+    for (const id of sessionIds) {
+      const inbox = received.get(id) ?? [];
+      expect(inbox.map((event) => event.seq)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+      expect(inbox).toStrictEqual(await store.readFrom(id, 0));
+    }
+  });
+
   it("hears its own heartbeat over a real listener connection", async () => {
     let clock = 1000;
     const bus = await replica({ now: () => clock });

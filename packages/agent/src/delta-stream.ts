@@ -23,6 +23,10 @@
  * armed, and a delta from a transport still tearing itself down is ignored, so nothing can
  * reach the log after the step that owned it is over.
  *
+ * The thresholds are a parameter because command output takes the same path for the same
+ * reason and wants different numbers: it arrives in lines rather than tokens, nobody reads it
+ * phrase by phrase, and a build prints thousands of lines. See `tools/output-stream.ts`.
+ *
  * The scheduler is injected, so the interesting cases — a tail below both thresholds, a delta
  * that overshoots one, a window that closes with nothing else arriving, a stream ended with a
  * timer armed — are testable without a model, without waiting, and without fake global timers.
@@ -46,7 +50,10 @@ export const FLUSH_AFTER_MS = 400;
 /** Runs `run` after `ms`, and returns what cancels it. */
 export type Schedule = (run: () => void, ms: number) => () => void;
 
-const realTimers: Schedule = (run, ms) => {
+/** When a buffer is handed over: at `chars`, or `ms` after text first entered it. */
+export type FlushThresholds = { chars: number; ms: number };
+
+export const realTimers: Schedule = (run, ms) => {
   const timer = setTimeout(run, ms);
   return () => clearTimeout(timer);
 };
@@ -54,21 +61,27 @@ const realTimers: Schedule = (run, ms) => {
 export class DeltaStream {
   readonly #emit: (text: string) => void;
   readonly #schedule: Schedule;
+  readonly #thresholds: FlushThresholds;
   #buffer = "";
   /** Cancels the window the buffered text opened. Undefined whenever the buffer is empty. */
   #disarm: (() => void) | undefined;
   #ended = false;
 
-  constructor(emit: (text: string) => void, schedule: Schedule = realTimers) {
+  constructor(
+    emit: (text: string) => void,
+    schedule: Schedule = realTimers,
+    thresholds: FlushThresholds = { chars: FLUSH_AFTER_CHARS, ms: FLUSH_AFTER_MS },
+  ) {
     this.#emit = emit;
     this.#schedule = schedule;
+    this.#thresholds = thresholds;
   }
 
   push(delta: string): void {
     if (this.#ended || delta === "") return;
     this.#buffer += delta;
 
-    if (this.#buffer.length >= FLUSH_AFTER_CHARS) {
+    if (this.#buffer.length >= this.#thresholds.chars) {
       this.flush();
       return;
     }
@@ -77,7 +90,7 @@ export class DeltaStream {
     this.#disarm ??= this.#schedule(() => {
       this.#disarm = undefined;
       this.flush();
-    }, FLUSH_AFTER_MS);
+    }, this.#thresholds.ms);
   }
 
   /**

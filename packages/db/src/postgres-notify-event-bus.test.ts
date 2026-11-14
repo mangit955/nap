@@ -9,6 +9,7 @@
 
 import type { PendingEvent, StoredEvent } from "@nap/shared/ports/event-store";
 import { afterEach, describe, expect, it } from "vitest";
+import type { SessionCursors } from "./event-tail-reader.ts";
 import { PostgresNotifyEventBus } from "./postgres-notify-event-bus.ts";
 import { InMemoryEventStore } from "./testing/in-memory-event-store.ts";
 import { NotifyHub } from "./testing/in-memory-notify-transport.ts";
@@ -371,6 +372,171 @@ describe("the catch-up poll", () => {
     // the thing a per-session `readFrom` loop would quietly get wrong. See design §24, item 2.
     expect(reads).toBe(1);
     expect(inboxes.map((inbox) => inbox.length)).toEqual([1, 1]);
+  });
+});
+
+/**
+ * A reader that counts its queries and can be held mid-query, which is the only way to put a
+ * notification *during* a read rather than before or after one.
+ */
+class GatedReader {
+  readonly reads: SessionCursors[] = [];
+  #held: Promise<void> | null = null;
+  #release = () => {};
+  #failNext = false;
+
+  constructor(private readonly store: InMemoryEventStore) {}
+
+  headSeq(sessionId: string): Promise<number> {
+    return this.store.headSeq(sessionId);
+  }
+
+  async readTails(cursors: SessionCursors): Promise<StoredEvent[]> {
+    this.reads.push(new Map(cursors));
+    if (this.#held !== null) await this.#held;
+    if (this.#failNext) {
+      this.#failNext = false;
+      throw new Error("connection reset");
+    }
+    return this.store.readTails(cursors);
+  }
+
+  /** Every read from now on waits until `release`. */
+  hold(): void {
+    this.#held = new Promise((resolve) => {
+      this.#release = resolve;
+    });
+  }
+
+  release(): void {
+    this.#held = null;
+    this.#release();
+  }
+
+  failNextRead(): void {
+    this.#failNext = true;
+  }
+}
+
+async function gatedReplica(hub: NotifyHub, store: InMemoryEventStore) {
+  const reader = new GatedReader(store);
+  const bus = new PostgresNotifyEventBus({
+    reader,
+    transport: hub.connect(),
+    pollIntervalMs: 60_000,
+  });
+  await bus.start();
+  running.push(bus);
+  return { bus, reader };
+}
+
+/**
+ * Waits for every read already queued, without queuing one of its own — which `tick` would, and
+ * which would make a count of reads include the one the test asked for.
+ */
+async function drained(bus: PostgresNotifyEventBus): Promise<void> {
+  await bus.stop();
+}
+
+describe("reads a burst of notifications coalesce into", () => {
+  it("reads at most once more for any number of notifications during an in-flight read", async () => {
+    const hub = new NotifyHub();
+    const store = new InMemoryEventStore();
+    const { bus, reader } = await gatedReplica(hub, store);
+    const inbox: StoredEvent[] = [];
+    bus.subscribe(SESSION_A, (event) => inbox.push(event));
+    await bus.tick();
+    reader.reads.length = 0;
+
+    reader.hold();
+    const first = await emit(store, bus, pending(SESSION_A, "first"));
+    await tickOver();
+    // The read for `first` is in flight. Fifty more land behind it.
+    const rest: StoredEvent[] = [];
+    for (let i = 0; i < 50; i += 1) rest.push(await emit(store, bus, pending(SESSION_A, `${i}`)));
+    reader.release();
+    await drained(bus);
+
+    expect(reader.reads).toHaveLength(2);
+    expect(inbox).toEqual([first, ...rest]);
+  });
+
+  it("reads notifications across many sessions in one query", async () => {
+    const hub = new NotifyHub();
+    const store = new InMemoryEventStore();
+    const { bus, reader } = await gatedReplica(hub, store);
+    const sessions = Array.from({ length: 10 }, () => crypto.randomUUID());
+    const inboxes = new Map(sessions.map((sessionId) => [sessionId, [] as StoredEvent[]]));
+    for (const [sessionId, inbox] of inboxes)
+      bus.subscribe(sessionId, (event) => inbox.push(event));
+    await bus.tick();
+    reader.reads.length = 0;
+
+    // Held so the first read is still in flight while the rest arrive, whatever the scheduler
+    // does — otherwise how many land behind it would depend on microtask timing.
+    reader.hold();
+    const sent = new Map<string, StoredEvent[]>();
+    for (let round = 0; round < 3; round += 1)
+      for (const sessionId of sessions) {
+        const stored = await emit(store, bus, pending(sessionId, `${round}`));
+        sent.set(sessionId, [...(sent.get(sessionId) ?? []), stored]);
+      }
+    reader.release();
+    await drained(bus);
+
+    // Thirty notifications, ten sessions: the first wake-up's read runs alone, and everything
+    // that arrived behind it is one read naming every session that had something new.
+    expect(reader.reads).toHaveLength(2);
+    expect([...(reader.reads[1]?.keys() ?? [])].sort()).toEqual([...sessions].sort());
+    for (const sessionId of sessions) expect(inboxes.get(sessionId)).toEqual(sent.get(sessionId));
+  });
+
+  it("names a session woken during the in-flight read in the read after it", async () => {
+    const hub = new NotifyHub();
+    const store = new InMemoryEventStore();
+    const { bus, reader } = await gatedReplica(hub, store);
+    const a: StoredEvent[] = [];
+    const b: StoredEvent[] = [];
+    bus.subscribe(SESSION_A, (event) => a.push(event));
+    bus.subscribe(SESSION_B, (event) => b.push(event));
+    await bus.tick();
+    reader.reads.length = 0;
+
+    reader.hold();
+    const one = await emit(store, bus, pending(SESSION_A, "a"));
+    await tickOver();
+    const two = await emit(store, bus, pending(SESSION_B, "b"));
+    const three = await emit(store, bus, pending(SESSION_A, "a again"));
+    reader.release();
+    await drained(bus);
+
+    expect(reader.reads.map((cursors) => [...cursors.keys()].sort())).toEqual([
+      [SESSION_A],
+      [SESSION_A, SESSION_B].sort(),
+    ]);
+    expect(a).toEqual([one, three]);
+    expect(b).toEqual([two]);
+  });
+
+  it("keeps reading after a failed read, and delivers what that read missed", async () => {
+    const hub = new NotifyHub();
+    const store = new InMemoryEventStore();
+    const { bus, reader } = await gatedReplica(hub, store);
+    const inbox: StoredEvent[] = [];
+    bus.subscribe(SESSION_A, (event) => inbox.push(event));
+    await bus.tick();
+
+    reader.failNextRead();
+    const lost = await emit(store, bus, pending(SESSION_A, "its read failed"));
+    await tickOver();
+    expect(inbox).toEqual([]);
+
+    // The cursor did not move, so the next wake-up's read starts below the event the failed
+    // one was for — and a wedged chain would deliver neither.
+    const next = await emit(store, bus, pending(SESSION_A, "the next one"));
+    await drained(bus);
+
+    expect(inbox).toEqual([lost, next]);
   });
 });
 
