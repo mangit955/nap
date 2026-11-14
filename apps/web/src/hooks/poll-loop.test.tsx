@@ -64,7 +64,84 @@ describe("startPollLoop", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(started).toBe(1);
     release(1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started).toBe(2);
+    loop.stop();
+  });
+
+  it("keeps the earliest nudge deadline while a read is in flight, then returns to its cadence", async () => {
+    let release: (delay: number) => void = () => {};
+    const calls: number[] = [];
+    const loop = startPollLoop({
+      read: async () => {
+        calls.push(Date.now());
+        if (calls.length > 1) return 15_000;
+        return new Promise<number>((done) => {
+          release = done;
+        });
+      },
+      firstDelayMs: 1000,
+    });
     await vi.advanceTimersByTimeAsync(1000);
+    loop.soon(1000);
+    await vi.advanceTimersByTimeAsync(400);
+    loop.soon(1000);
+    release(15_000);
+    await vi.advanceTimersByTimeAsync(599);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]! - calls[0]!).toBe(1000);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toHaveLength(3);
+    loop.stop();
+  });
+
+  it("does not let an in-flight nudge postpone the read's own shorter cadence", async () => {
+    let release: (delay: number) => void = () => {};
+    let started = 0;
+    const loop = startPollLoop({
+      read: () => {
+        started += 1;
+        return new Promise<number>((done) => {
+          release = done;
+        });
+      },
+      firstDelayMs: 1000,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    loop.soon(15_000);
+    release(1000);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(started).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(started).toBe(2);
+    loop.stop();
+  });
+
+  it("parks an in-flight nudge if the page is hidden before the read settles", async () => {
+    let release: (delay: number) => void = () => {};
+    let started = 0;
+    const loop = startPollLoop({
+      read: () => {
+        started += 1;
+        return new Promise<number>((done) => {
+          release = done;
+        });
+      },
+      firstDelayMs: 1000,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    loop.soon(0);
+    setVisibility("hidden");
+    release(15_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(started).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+    setVisibility("visible");
+    await vi.advanceTimersByTimeAsync(0);
     expect(started).toBe(2);
     loop.stop();
   });
@@ -75,6 +152,7 @@ describe("startPollLoop", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(calls).toHaveLength(1);
     setVisibility("hidden");
+    expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(120_000);
     expect(calls).toHaveLength(1);
     setVisibility("visible");
@@ -158,6 +236,7 @@ describe("startPollLoop", () => {
       firstDelayMs: 1000,
     });
     await vi.advanceTimersByTimeAsync(1000);
+    loop.soon(0);
     loop.stop();
     release(1000);
     await vi.advanceTimersByTimeAsync(0);

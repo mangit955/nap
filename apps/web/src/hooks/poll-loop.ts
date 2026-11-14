@@ -16,12 +16,12 @@
  *   streamed event must not postpone a read that was about to happen — a nudge that restarted the
  *   wait would starve the loop for as long as events kept arriving.
  *
- * A read in flight is never doubled: a nudge, focus or visibility change during one is dropped,
- * because the read that is running will answer it and schedule the next. Cancelling a read is
- * the caller's — it owns the `AbortController` — and `stop` only promises that nothing runs again.
+ * A read in flight is never doubled. A nudge, focus or visibility change during one advances the
+ * next read, since the running read may have captured an older answer. The caller owns cancellation
+ * through its `AbortController`; `stop` only promises that nothing runs again.
  */
 export type PollLoop = {
-  /** Read within `withinMs` from now, unless a read is already due sooner or running. */
+  /** Bring the next read within `withinMs` from now, once any running read finishes. */
   soon: (withinMs: number) => void;
   /** Clears the timer and the listeners. A read still in flight schedules nothing. */
   stop: () => void;
@@ -39,6 +39,8 @@ export function startPollLoop(options: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   // When the scheduled read will run; Infinity while parked or between reads.
   let dueAt = Number.POSITIVE_INFINITY;
+  // Earliest nudge received during the current read; consumed once when that read settles.
+  let requestedAt = Number.POSITIVE_INFINITY;
 
   const hidden = () => document.visibilityState === "hidden";
 
@@ -66,17 +68,30 @@ export function startPollLoop(options: {
     } finally {
       inFlight = false;
     }
-    schedule(next);
+    const delay = Math.min(next, Math.max(0, requestedAt - Date.now()));
+    requestedAt = Number.POSITIVE_INFINITY;
+    schedule(delay);
   };
 
   const soon = (withinMs: number) => {
-    if (stopped || inFlight) return;
-    if (Date.now() + withinMs < dueAt) schedule(withinMs);
+    if (stopped) return;
+    const requested = Date.now() + withinMs;
+    if (inFlight) {
+      requestedAt = Math.min(requestedAt, requested);
+      return;
+    }
+    if (requested < dueAt) schedule(withinMs);
   };
 
   const now = () => soon(0);
   const onVisibility = () => {
-    if (!hidden()) now();
+    if (hidden()) {
+      clearTimeout(timer);
+      timer = undefined;
+      dueAt = Number.POSITIVE_INFINITY;
+    } else {
+      now();
+    }
   };
 
   document.addEventListener("visibilitychange", onVisibility);

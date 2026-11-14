@@ -178,6 +178,33 @@ describe("how often the session's activity is read", () => {
     expect(hook.result.current.running).toBe(true);
     hook.unmount();
   });
+
+  it.each(["visibility", "focus"])(
+    "reconciles eventless queued work on %s after an older idle read settles",
+    async (resume) => {
+      const api = server({ hold: true });
+      const { hook } = mount(api);
+      await advance(ACTIVITY_BUSY_MS);
+      expect(api.reads).toHaveLength(1);
+      if (resume === "visibility") act(() => page.set("hidden"));
+      await advance(ACTIVITY_BUSY_MS);
+      // The held response already captured idle before another client admitted this work.
+      api.state.active = true;
+      act(() => {
+        if (resume === "visibility") page.set("visible");
+        else window.dispatchEvent(new Event("focus"));
+      });
+      await advance(0);
+      expect(api.reads).toHaveLength(1);
+      await act(async () => api.release());
+      await advance(0);
+      expect(api.reads).toHaveLength(2);
+      expect(hook.result.current.running).toBe(true);
+      await advance(ACTIVITY_BUSY_MS - 1);
+      expect(api.reads).toHaveLength(2);
+      hook.unmount();
+    },
+  );
 });
 
 describe("what an answer changes", () => {
