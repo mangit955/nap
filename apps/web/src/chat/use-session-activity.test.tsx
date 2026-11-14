@@ -12,7 +12,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createApp } from "../../../api/src/app.ts";
 import { createLogger } from "../../../api/src/logger.ts";
 import { TurnRegistry } from "../../../api/src/turns/registry.ts";
-import { useTurnSubmission } from "./use-turn-submission.ts";
+import { ACTIVITY_IDLE_MS, useTurnSubmission } from "./use-turn-submission.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -534,7 +534,10 @@ it("refreshes eventless queue activity on reconnect and discards the interrupted
   await refresh();
   expect(hook.result.current.running).toBe(false);
   holdIdle = true;
-  await refresh();
+  // An idle session is re-read on the slow cadence, so the read to interrupt is that far off.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ACTIVITY_IDLE_MS);
+  });
   expect(signals).toHaveLength(1);
   expect(signals[0]?.aborted).toBe(false);
   hook.rerender("reconnecting");

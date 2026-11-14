@@ -1,16 +1,26 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, Inter, Newsreader } from "next/font/google";
+import { Bricolage_Grotesque } from "next/font/google";
 import type { ReactNode } from "react";
 import "./globals.css";
 
 /**
- * The display face, used on the landing page's headline and nowhere else.
+ * The display face: the few headings the app sets apart from its system sans — signing in,
+ * `/welcome`, the `/docs` page, and the preview pane's empty states.
  *
  * A grotesque with deliberately odd details — a wide, low-waisted `a`, a flat-topped `t`, a
  * tail on the `l` — which is exactly what a system stack cannot give a first sentence. It is
- * loaded across its whole weight axis because the treatment *is* the weight: the sentence sits
- * at 200 and one word at 600, and both have to be the same typeface or the contrast reads as a
- * fallback rather than as a choice.
+ * loaded across its whole weight axis because the treatment *is* the weight: those headings sit
+ * at 200 and the empty states at 600, and both have to be the same typeface or the contrast reads
+ * as a fallback rather than as a choice.
+ *
+ * Declared here so that `--font-display` resolves on every route that reaches for it, and **not
+ * preloaded**, because a root-layout font is preloaded on every route and most never draw it:
+ * the dashboard and the workspace fetched it on every load for a heading that only an empty
+ * preview shows. Unpreloaded, the browser fetches it the first time text is drawn in it; with
+ * `display: swap`, that text is set in Next's metric-matched fallback until it arrives, so the
+ * swap moves the line very little.
+ *
+ * The landing page's faces are in `(landing)/layout.tsx`, for the same reason.
  *
  * The rest of the app keeps the system sans. A builder UI is a frame around somebody else's
  * work, and a characterful face is the opposite of what a frame should be doing.
@@ -19,27 +29,7 @@ const display = Bricolage_Grotesque({
   subsets: ["latin"],
   variable: "--font-bricolage",
   display: "swap",
-});
-
-/**
- * The front page's two faces: a light serif for its headings and Inter for everything else on it.
- *
- * The serif is what makes the page read as editorial rather than as another dashboard — the same
- * choice the design it follows makes — and it is loaded across its optical-size axis because the
- * headings are set at display sizes, where the high-`opsz` cut is the one drawn for them. Both are
- * exposed as variables and used only under `.landing`; the app keeps its system sans.
- */
-const landingSerif = Newsreader({
-  subsets: ["latin"],
-  variable: "--font-newsreader",
-  axes: ["opsz"],
-  display: "swap",
-});
-
-const landingSans = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
+  preload: false,
 });
 
 /**
@@ -91,10 +81,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${display.variable} ${landingSerif.variable} ${landingSans.variable}`}
-    >
+    <html lang="en" className={display.variable}>
       <body>{children}</body>
     </html>
   );
