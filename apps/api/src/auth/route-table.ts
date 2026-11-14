@@ -323,9 +323,6 @@ export async function seedSandbox(): Promise<SeededSandbox> {
  */
 export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> {
   const sandbox = seeded?.sandbox ?? new InMemorySandboxManager();
-  const sessions = new InMemorySessionStore([
-    { sessionId: SESSION, projectId: PROJECT, userId: OWNER, sandboxId: seeded?.sandboxId ?? null },
-  ]);
   const projects = new InMemoryProjectStore([
     {
       projectId: PROJECT,
@@ -337,6 +334,19 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       userId: OWNER,
     },
   ]);
+  // Linked, so a session reports its project's name as the production join does; unlinked, every
+  // session is untitled and the turn routes would rename "Todo app" from whatever prompt arrives.
+  const sessions = new InMemorySessionStore(
+    [
+      {
+        sessionId: SESSION,
+        projectId: PROJECT,
+        userId: OWNER,
+        sandboxId: seeded?.sandboxId ?? null,
+      },
+    ],
+    { projects },
+  );
 
   const computerDesktop = new FakeSandboxDesktop({
     bytes: new Uint8Array(),

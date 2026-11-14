@@ -57,10 +57,11 @@ turn: 296 connections. A rollout can hold that twice, because Kubernetes leaves 
 out of `maxSurge` — every old replica can still be draining with its pool open while every
 replacement is running — so with the migration's one the budget is 593.
 `test/connection-budget.test.ts` reads the number from `postgres.yaml` and fails when either
-overlay stops fitting it. That budget is for **one rollout at a time**: start another before the
-previous generation has exited and a third set of pools joins the two. A real cluster's database
-has its own limit, which nothing here can read: do the same sum against it before raising a
-replica count or `NAP_WORKER_CONCURRENCY`.
+overlay stops fitting it, or when `cluster-proof.ts` stops sizing its pool by the rule boot uses,
+which is where those figures come from. That budget is for **one rollout at a time**: start
+another before the previous generation has exited and a third set of pools joins the two. A real
+cluster's database has its own limit, which nothing here can read: do the same sum against it
+before raising a replica count or `NAP_WORKER_CONCURRENCY`.
 
 ## proof/
 

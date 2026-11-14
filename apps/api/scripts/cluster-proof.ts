@@ -42,6 +42,8 @@ import { upgradeWebSocket, websocket } from "hono/bun";
 import { encryptionKeyFrom } from "../src/account/secret-box.ts";
 import { createAuth } from "../src/auth/auth.ts";
 import { composeNap, type NapConfig, type NapRole } from "../src/compose.ts";
+import { databasePoolSize } from "../src/database-pool.ts";
+import { PoolEnvSchema } from "../src/env.ts";
 import { createLogger } from "../src/logger.ts";
 import { createHeartbeatWriter } from "../src/worker-heartbeat.ts";
 import { fakeSandbox, HOLD_UNTIL_CANCELLED, scriptedTurn } from "./fake-turn.ts";
@@ -120,7 +122,24 @@ const CONFIG: NapConfig = {
 const which = role();
 const databaseUrl = required("DATABASE_URL");
 const logger = createLogger({ level: "info" });
-const { db, client } = createDatabase(databaseUrl);
+
+/**
+ * The pool sized by the rule boot sizes it with, because the kind clusters run this script in
+ * place of the real entrypoints and `test/connection-budget.test.ts` budgets their pods by that
+ * rule. A load run's workers would otherwise run twenty-five turns on ten connections, which is
+ * not the process they stand in for. The concurrency is the one this script runs, not the env
+ * schema's default, so the worker's pool and the refusal of a pool too small for it follow the
+ * turns this pod actually takes.
+ */
+const pool = PoolEnvSchema.safeParse({
+  ...process.env,
+  NAP_WORKER_CONCURRENCY: String(CONFIG.NAP_WORKER_CONCURRENCY),
+});
+if (!pool.success) {
+  for (const issue of pool.error.issues) console.error(`${issue.path.join(".")}: ${issue.message}`);
+  process.exit(1);
+}
+const { db, client } = createDatabase(databaseUrl, { max: databasePoolSize(which, pool.data) });
 
 const events = new PostgresEventStore(db);
 

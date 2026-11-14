@@ -164,6 +164,14 @@ describe("the connection budget", () => {
     expect(connectionBudgetViolations(processes, localPostgresMaxConnections())).toEqual([]);
   });
 
+  it("sizes the kind clusters' pools by the rule the two cases above budget them with", () => {
+    // Both overlays run `cluster-proof.ts` for every role, not the real entrypoints, so their
+    // figures above hold only while that script sizes its pool as boot does. Read as text because
+    // the script connects to a database as it is imported, so no test can load it.
+    const script = readFileSync(join(ROOT, "apps", "api", "scripts", "cluster-proof.ts"), "utf8");
+    expect(script).toMatch(/createDatabase\(\s*databaseUrl,\s*\{\s*max:\s*databasePoolSize\(/);
+  });
+
   it("catches a second worker on the Render plan, and says by how much", () => {
     // The rule seen failing: what scaling the worker without resizing anything would do to the
     // free database. Raise the plan or shrink the pools first.
