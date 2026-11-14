@@ -101,8 +101,9 @@ export type AgentServiceOptions = {
   /** Injected so a test can close a streaming window without waiting it out. */
   schedule?: Schedule;
   /**
-   * A model to continue on when the turn's own model refuses, already on the deployment's
-   * allowlist. Used only when the deployment is paying: a person's own key may not reach it.
+   * A model to continue on when the turn's own model refuses or stays unavailable, already on the
+   * deployment's allowlist. Used only when the deployment is paying: a person's own key may not
+   * reach it.
    */
   fallbackModel?: string | undefined;
   /**
@@ -161,7 +162,7 @@ export class NapAgentService implements AgentService {
 class Turn {
   readonly #request: AgentTurnRequest;
   readonly #options: AgentServiceOptions;
-  /** Replaced only by a fallback after a refusal; every turn it has been is in `#turns`. */
+  /** Replaced by fallback after refusal or unavailability; every turn it has been is in `#turns`. */
   #turn: LLMTurn;
   /** Every model conversation this turn opened — the lead's, a fallback's, the sidekick's. */
   readonly #turns: LLMTurn[] = [];
@@ -343,6 +344,9 @@ class Turn {
       // text is emitted afterwards: a model or a route that sends no text deltas would
       // otherwise say nothing at all, and one that sends them would say everything twice.
       let wrote = false;
+      // Every word of prose this step handed over, which is what the person has seen if the
+      // step then fails: a re-ask continues from it rather than writing it a second time.
+      let shown = "";
       const prose = new DeltaStream((text) => {
         if (this.#cancelled()) return;
         wrote = true;
@@ -399,6 +403,7 @@ class Turn {
           },
           onTextDelta: (delta) => {
             thinking.flush();
+            shown += delta;
             prose.push(delta);
           },
           onToolCallStart: () => {
@@ -437,7 +442,10 @@ class Turn {
         });
 
       if (result.type === "refusal") {
-        if (this.#fallBack()) continue;
+        if (this.#fallBack("declined")) {
+          this.#resumeAfter(shown);
+          continue;
+        }
         return this.#fail("refusal", "The model declined to answer this request.");
       }
       if (result.type === "error") {
@@ -453,6 +461,15 @@ class Turn {
             this.#request.signal,
           );
           if (!waited) return this.#fail("cancelled", "The turn was cancelled.");
+          this.#resumeAfter(shown);
+          continue;
+        }
+        // Still not there after every retry: the model is unavailable, and the turn can go on
+        // elsewhere under the refusal fallback's rules. Never on a failure that is not
+        // `retryable` — a rejected key or a malformed request fails the same way on any model,
+        // and moving would tell the person their model was the problem.
+        if (result.retryable && this.#fallBack("unavailable")) {
+          this.#resumeAfter(shown);
           continue;
         }
         return this.#fail(result.retryable ? "model_unavailable" : "internal", result.message);
@@ -584,11 +601,30 @@ class Turn {
   }
 
   /**
-   * Moves the turn to the fallback model after a refusal, at most once, and only on the
+   * Before a step is asked again, puts the prose its failed attempt already showed into the
+   * conversation and asks for only the rest.
+   *
+   * Those words are in the log for good — the person has read them, and the next turn's context
+   * is rebuilt from the log — so a re-ask from the start would write the opening a second time.
+   * The same shape as a reply cut off at the output limit, because it is the same situation:
+   * the model began an answer and something other than the model ended it. Nothing shown means
+   * nothing to continue, and the request goes again exactly as it was.
+   */
+  #resumeAfter(shown: string): void {
+    if (shown === "") return;
+    this.#continueWith(
+      shown,
+      "Your reply stopped partway before it was finished. The text above is what was already shown. Continue from exactly where it stopped, without repeating any of it.",
+    );
+  }
+
+  /**
+   * Moves the turn to the fallback model after a refusal, or after its model stayed unavailable
+   * through every retry — at most once per turn whichever the reason, and only on the
    * deployment's account. Says so in the platform's voice: the person should know which model
    * wrote what follows.
    */
-  #fallBack(): boolean {
+  #fallBack(why: "declined" | "unavailable"): boolean {
     const fallback = this.#options.fallbackModel;
     if (
       this.#fellBack ||
@@ -616,7 +652,11 @@ class Turn {
     const toolset = this.#toolsetOptions();
     this.#tools = toolsetFor(toolset);
     this.#offered = toolNamesFor(toolset);
-    this.#notice(`The selected model declined this request, so ${fallback} is continuing it.`);
+    this.#notice(
+      why === "declined"
+        ? `The selected model declined this request, so ${fallback} is continuing it.`
+        : `The selected model is not responding, so ${fallback} is continuing it.`,
+    );
     return true;
   }
 

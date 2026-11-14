@@ -149,9 +149,9 @@ const BaseSchema = z.object({
    */
   NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
   /**
-   * A model a turn continues on when its own model refuses, on the deployment's account only —
-   * a person's own key is never moved to a model they did not pick. Unset, a refusal ends the
-   * turn, as it always has. Must be on the allowlist.
+   * A model a turn continues on when its own model refuses, or stays unavailable through every
+   * retry, on the deployment's account only — a person's own key is never moved to a model they
+   * did not pick. Once per turn. Unset, either ends the turn. Must be on the allowlist.
    */
   NAP_FALLBACK_MODEL: z.string().min(1).optional(),
   /**
