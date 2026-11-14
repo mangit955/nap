@@ -112,7 +112,46 @@ the Vite dev server (369 MB RSS), Chrome (about 330 MB across its processes) and
 running. After the test 145 MiB was available, with no swap. No process was killed, but this was a
 small app. The template was republished the same day at `DESKTOP_MEMORY_MB` (2,048 MB, build
 `5a818218`, same desktop build); a fresh machine from it reports 1,982 MiB to the guest, about a
-gigabyte above that peak. The full run was not repeated at the new size.
+gigabyte above that peak. The full run was not repeated at the new size until the run below.
+
+### On the hosted deployment, at 2 GiB
+
+On 2026-11-14 the template was republished from `f9b123e9`, the commit all three production
+services were running (E2B build `5429d9bf-4738-49ce-8f79-c6f4f6ef6e5c`, `DESKTOP_BUILD`
+`a89efce5…` unchanged, 2 vCPUs, 2,048 MB). Every layer came from the build cache. Because the
+desktop build did not change, no machine became `outdated` and the reservation drain in
+[DEPLOY.md](DEPLOY.md#deploy-a-desktop-build-change) did not apply.
+
+This time nothing ran locally. A script drove the public deployment (the web origin's `/backend`
+path and the API's WebSocket) as a throwaway demo identity. Production's own worker ran the turns,
+on `openai/gpt-5.6-luna` (the deployment's free-tier model, on its own key), with R2 object
+storage and a VM from the new build.
+
+- The build turn made a kanban board (16 tool calls, 117,510 input tokens of which 104,834 were
+  cache reads, 3,809 output, 92 s). The agent opened the desktop itself to look at its work. That
+  first cold start took 35 s from `starting` to `ready`. Typecheck and build passed and the job
+  completed as `verified`.
+- The app test took six screenshots, recorded four assertions and passed all four (80,180 input
+  and 1,805 output tokens, 48 s). Each later computer call found the desktop ready in about a
+  second. Annotation times ran from 14.6 s to 44.8 s, on the clock of the 50.1-second recording.
+- The owner screenshot route returned the stored JPEG. The recording, H.264 at 1024×768, was
+  served by byte range (`206`) and in full from R2, and a seek to its midpoint decoded.
+- The owner stream route returned credentials, and the WebSocket answered `RFB 003.008` through
+  the sandbox's public proxy. Owner input while idle applied all three actions.
+- Deleting the project removed its ten R2 objects, and a listing of its prefixes came back empty.
+  The VM was destroyed.
+
+**Two GiB has about a gigabyte of headroom for an app this size.** E2B's per-VM metrics (one
+sample every five seconds) put peak use at 973 of the 1,983 MiB the guest saw. The peak came
+during the test, as the page reloaded with the recorder running. At the same moment `free`
+inside the VM reported 972 MiB used and 1,009 MiB available. The largest processes were the
+Vite dev server (451 MB RSS), Chrome (eight processes between 72 and 271 MB; RSS counts shared
+pages more than once, so the sum overstates them), Xvfb (83 MB) and ffmpeg (70 MB). That peak is
+already above the 976 MiB a 1-GiB machine's guest sees, so the old size would not have held this
+run. The app was still small, and no run establishes capacity for larger ones.
+
+The run cost about US$0.016 in model calls (build $0.009, test $0.007). The VM ran for under four
+minutes, roughly another US$0.01 of E2B time at its published per-second rates.
 
 ## Current limits
 
@@ -123,4 +162,4 @@ app test cards and explicit Fix it UI are separate from the backend.
 
 Actual Computer pane and work-log browser evidence is under [panel review](assets/computer-use/panel-review/README.md) and [work-log review](assets/computer-use/work-log-review/README.md). The standalone mockup is design evidence, not proof of the live desktop or recording transport.
 
-Backend gates passed: full tests, typecheck and lint. The existing CSS specificity warning and stale browser-data notice remain unchanged. The app-test runtime, ledger, prompt and target suites appear in `vitest list --project unit`. The real VM run used the production composition with a local throwaway database; hosted production endpoints were not exercised, and the full run was not repeated at 2 GiB.
+Backend gates passed: full tests, typecheck and lint. The existing CSS specificity warning and stale browser-data notice remain unchanged. The app-test runtime, ledger, prompt and target suites appear in `vitest list --project unit`. The 2026-11-07 run used the production composition with a local throwaway database. The 2026-11-14 run exercised the hosted production endpoints at 2 GiB, for one small app.
