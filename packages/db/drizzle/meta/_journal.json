@@ -169,6 +169,13 @@
       "when": 1794241497543,
       "tag": "0023_project_viewed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794590761114,
+      "tag": "0024_hot_query_indexes",
+      "breakpoints": true
     }
   ]
 }

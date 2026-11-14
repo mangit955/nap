@@ -42,6 +42,7 @@ describe("createProjectSession", () => {
       // Carried down from the project, which is what every session-addressed route authorizes on.
       userId: owner,
       sandboxId: null,
+      projectName: "Todo app",
     });
   });
 

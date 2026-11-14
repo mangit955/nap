@@ -14,7 +14,12 @@
  * so whatever removes them has to run first, and has to be able to see both.
  */
 
-import type { ProjectStatus, ProjectStore, ProjectSummary } from "@nap/shared/ports/project-store";
+import type {
+  ProjectStatus,
+  ProjectStore,
+  ProjectSummary,
+  RunningSandboxes,
+} from "@nap/shared/ports/project-store";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { projects, sessions } from "./schema.ts";
@@ -94,20 +99,23 @@ export class PostgresProjectStore implements ProjectStore {
     return deleted.length > 0;
   }
 
-  async countRunningSandboxes(userId?: string): Promise<number> {
+  async countRunningSandboxes(userId: string): Promise<RunningSandboxes> {
     // Its own query rather than `list().length`: the listing left-joins sessions and aggregates
     // them per project, which is a lot of work to throw away, and it would also be wrong for the
     // global count — there is no `list()` that crosses users, deliberately.
+    //
+    // One statement for both counts. The rows it reads are the running projects, which
+    // `projects_running_sandbox` holds and nothing else does, so the per-person count is a filter
+    // over at most the cluster's sandbox ceiling rather than a second trip through the index.
     const [row] = await this.#db
-      .select({ count: sql<number>`count(*)::int` })
+      .select({
+        mine: sql<number>`(count(*) filter (where ${projects.userId} = ${userId}))::int`,
+        everyone: sql<number>`count(*)::int`,
+      })
       .from(projects)
-      .where(
-        userId === undefined
-          ? isNotNull(projects.sandboxId)
-          : and(isNotNull(projects.sandboxId), eq(projects.userId, userId)),
-      );
+      .where(isNotNull(projects.sandboxId));
 
-    return row?.count ?? 0;
+    return { mine: row?.mine ?? 0, everyone: row?.everyone ?? 0 };
   }
 
   /**

@@ -51,6 +51,18 @@ pointed at `cluster-proof.ts`, `imagePullPolicy: Never`, the in-cluster Postgres
 Ingress with no TLS. Two copies of those would drift, and both overlays' value depends on it being
 the same deployment underneath.
 
+That Postgres runs with `max_connections=640`, not the default 100. At its autoscalers' maximums
+the load overlay is six API pods and eight workers, each worker pooling a connection per concurrent
+turn: 296 connections. A rollout can hold that twice, because Kubernetes leaves terminating pods
+out of `maxSurge` — every old replica can still be draining with its pool open while every
+replacement is running — so with the migration's one the budget is 593.
+`test/connection-budget.test.ts` reads the number from `postgres.yaml` and fails when either
+overlay stops fitting it, or when `cluster-proof.ts` stops sizing its pool by the rule boot uses,
+which is where those figures come from. That budget is for **one rollout at a time**: start
+another before the previous generation has exited and a third set of pools joins the two. A real
+cluster's database has its own limit, which nothing here can read: do the same sum against it
+before raising a replica count or `NAP_WORKER_CONCURRENCY`.
+
 ## proof/
 
 ```bash

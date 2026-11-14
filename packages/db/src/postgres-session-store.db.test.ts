@@ -63,7 +63,19 @@ describe("get", () => {
       projectId,
       userId,
       sandboxId: null,
+      projectName: "Todo app",
     });
+  });
+
+  it("reads the project's current name, so a rename is seen by the next lookup", async () => {
+    // Admission names a project after its first prompt only while it still has the placeholder,
+    // and reads the name from this join rather than asking for the project a second time.
+    const { projectId } = await seedProject();
+    const sessionId = await seedSession(projectId);
+
+    await db.update(projects).set({ name: "Habit tracker" }).where(eq(projects.id, projectId));
+
+    expect((await store.get(sessionId))?.projectName).toBe("Habit tracker");
   });
 
   it("is null for a session that does not exist", async () => {

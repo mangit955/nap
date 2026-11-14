@@ -68,7 +68,8 @@ export type TurnRouteDeps = {
   cancels?: Pick<CancelChannel, "announce">;
   /**
    * The projects these sessions belong to, so a project still carrying the default name can be
-   * named after the first thing it was asked for.
+   * named after the first thing it was asked for. Only written through: whether the name is
+   * still the default comes from the session lookup's join.
    *
    * Required rather than tucked inside `limits`, where a `ProjectStore` already lives: that bag
    * is optional and absent in most route tests, and a namer that only ran when quotas were
@@ -244,6 +245,13 @@ export function registerTurnRoutes(
     return c.json({ sessionId, throughSeq, active });
   });
   app.post("/sessions/:sessionId/turns", async (c) => {
+    // Whose account this turn is billed to, which is also what decides which models they may
+    // name. Asked for now, alongside the session, because it depends only on who is asking and
+    // the two lookups waiting on each other was a round trip on every prompt. Read only after the
+    // session is authorized, so every refusal below comes out exactly as it did when it was asked
+    // second — see `startedAlongside`.
+    const keyLookup = startedAlongside(deps.keys?.(c.get("userId")) ?? Promise.resolve(null));
+
     const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
 
@@ -286,9 +294,9 @@ export function registerTurnRoutes(
         return c.json({ error: "That plan is no longer waiting for approval." }, 409);
     }
 
-    // Whose account this turn is billed to, which is also what decides which models they may
-    // name. One lookup answers both, and both are needed before anything is spent.
-    const key = (await deps.keys?.(c.get("userId"))) ?? null;
+    // One lookup answers both who pays and which models they may name, and both are needed
+    // before anything is spent.
+    const key = await keyLookup();
 
     // Before the ceilings, because an unreachable model is a malformed request rather than a
     // limit: refusing it must not consume the asker's rate-limit allowance.
@@ -314,21 +322,25 @@ export function registerTurnRoutes(
 
     const { sessionId } = found.value;
 
-    // Awaited rather than detached: it is one indexed update, and the client reloads the project
-    // record as soon as the turn is accepted — naming it in the background would race that read
-    // and leave the bar saying "Untitled project" until something else refreshed it.
-    if (body.data.message !== "/compact")
-      await nameFromFirstPrompt(deps, found.value, c.get("userId"), body.data.message);
-
     // The turn's identity, allocated here and durable a line later. It is the request's id *and*
     // the turn id every event of this turn is written under, which is what lets the janitor close
     // out a turn whose worker died without it, on a pod that never ran one. See
     // `docs/scaling-design.md` §6.
     const id = crypto.randomUUID();
 
+    // Awaited rather than detached: it is one indexed update, and the client reloads the project
+    // record as soon as the turn is accepted — naming it in the background would race that read
+    // and leave the bar saying "Untitled project" until something else refreshed it. Beside the
+    // enqueue rather than before it, because neither reads what the other writes and both have to
+    // land before the 202; naming swallows its own failures, so only the enqueue can reject this.
+    const naming =
+      body.data.message === "/compact"
+        ? Promise.resolve()
+        : nameFromFirstPrompt(deps, found.value, c.get("userId"), body.data.message);
+
     // Where admission ends. Durable before the response is written, so a pod that dies in the next
     // millisecond costs the turn a delay rather than the turn itself.
-    await deps.queue.enqueue({
+    const enqueued = deps.queue.enqueue({
       id,
       sessionId,
       userId: c.get("userId"),
@@ -345,6 +357,7 @@ export function registerTurnRoutes(
       // never reach the queue, a query log or a backup.
       billsToUser: access.credentials !== undefined,
     });
+    await Promise.all([naming, enqueued]);
 
     getLogger().info({ requestId: id, sessionId }, "turn request queued");
 
@@ -538,6 +551,25 @@ async function refuse(
   return undefined;
 }
 
+/**
+ * A lookup started now and read later, which may never be read at all.
+ *
+ * Admission starts the caller's key lookup beside the session lookup, then returns early on a 404
+ * without reading it. A promise nobody awaits that then rejects is an unhandled rejection, which
+ * can take the process down, so the rejection is caught here and handed back only to a reader.
+ */
+function startedAlongside<T>(lookup: Promise<T>): () => Promise<T> {
+  const settled = lookup.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  return async () => {
+    const outcome = await settled;
+    if (outcome.ok) return outcome.value;
+    throw outcome.error;
+  };
+}
+
 /** Seconds are what the header carries; a person reads minutes. */
 function describeWait(seconds: number): string {
   if (seconds < 60) return `${seconds} seconds`;
@@ -575,10 +607,12 @@ async function nameFromFirstPrompt(
   userId: string,
   message: string,
 ): Promise<void> {
-  try {
-    const project = await deps.projects.get(session.projectId, userId);
-    if (project === null || !isUnnamed(project.name)) return;
+  // Read off the session lookup's own join rather than by asking for the project again: on every
+  // turn but a project's first, the answer is "already named", and a second query to learn that
+  // was a round trip on every prompt.
+  if (!isUnnamed(session.projectName)) return;
 
+  try {
     // A seed lands only on a name nobody chose, and a model's title is asked for only after it.
     if (!(await deps.projects.rename(session.projectId, userId, titleFromPrompt(message), "seed")))
       return;

@@ -44,10 +44,10 @@ processes on it. What is different here, and why:
   migration commits moments later, every event append waits, and reads carry on. Only then does
   it take its brief locks on `users` (for a foreign key), `repository_jobs` and `projects`; the
   `ALTER TABLE`s also stop reads (the sidebar, admission, the claim), which is why they come last.
-  `0022` alters `projects` again in the same transaction, just as briefly. An index on
-  `sessions(project_id)` is deliberately left to a later release's own migration: an append
-  updates `sessions` before it inserts into `events`, so building that index here, after the
-  `events` scans, deadlocks with any append waiting on them. Appends no longer cycle with it, but
+  `0022` alters `projects` again in the same transaction, just as briefly. The index on
+  `sessions(project_id)` was left out of that release on purpose: an append
+  updates `sessions` before it inserts into `events`, so building that index there, after the
+  `events` scans, would have deadlocked with any append waiting on them. Appends no longer cycle with it, but
   deletes that cascade into `events` still do. A project deleted during the scans (deleting a
   session deletes its project) holds `projects` until the trailing `ALTER TABLE "projects"`
   deadlocks with it. A user deleted then holds `users` until the `navigation_settings` foreign key
@@ -60,6 +60,19 @@ processes on it. What is different here, and why:
   default) after it starts waiting, so a delete that began waiting less than that before those
   `ALTER`s is the one aborted instead. The migration then commits, and the person retries the
   delete.
+- **`0024` is that index, in a release of its own, with `projects`' index built first.** It builds
+  `projects_running_sandbox` (partial, `where sandbox_id is not null`) and then
+  `sessions_project_id`, each under a SHARE lock held until the migration commits. Reads carry on;
+  writes to `projects` wait for both builds, and writes to `sessions`, including every event
+  append's `head_seq` bump, wait for the second. Both tables are small beside `events`, so that is
+  a pause, not an outage. **The order is what keeps it deadlock-free.** Every transaction that
+  writes both tables writes `projects` first: creating a project and its session, and a delete
+  cascading from `users` or `projects` into `sessions`. A migration that locked `sessions` first
+  could hold it while such a delete held `projects`, and each would wait on the other. In this
+  order a writer either finishes before the migration reaches its table or waits behind it. It
+  takes no lock on `events`, so it cannot cycle with an append the way `0021` could. This holds
+  only while it migrates alone: a database still behind `0021` takes that release's locks in the
+  same transaction first, and the warning above applies.
 - **The release that added the sidebar card's fields and model titles (`0021`, `0022`) is read
   strictly by what it replaces.** Event payloads and the session list are strict schemas, so a
   browser tab opened before the deploy, and an API or reaper pod not yet rolled, reject what the
@@ -71,6 +84,23 @@ processes on it. What is different here, and why:
 - **One database URL serves both connections.** Render Postgres has no pooler in front of it, so
   `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` are the same internal connection string, and the
   database accepts no connections from outside Render.
+- **A hundred connections, and the three processes have to share them twice.** Every Render
+  Postgres plan under 8 GB of memory, `free` included, allows 100 connections, and Postgres keeps
+  3 of those for superusers. Each process opens its own pool (`NAP_API_DB_POOL_SIZE`,
+  `NAP_WORKER_DB_POOL_SIZE`, `NAP_REAPER_DB_POOL_SIZE`) plus a `LISTEN` connection, and the reaper
+  one more for its lock. postgres.js keeps a connection once it opens one, so a busy pool stays
+  full. A release starts each new process before the old one stops, and an old replica keeps its
+  pool for as long as it drains, so the budget counts every replica of every process twice, for
+  one rollout at a time: start another release only once the previous one's old processes have
+  exited. As deployed: 11 (API) + 28 (worker) + 6 (reaper) = 45, twice over plus the
+  migration's one is 91 of 97. **A second worker does not fit**: it makes 73, twice over plus
+  one is 147, and a refused connection lands on whatever asked last, a turn mid-write or the
+  release's own migration.
+  Scaling the worker means a plan with 200 connections (8 GB or more), smaller pools, or a pooler
+  in front with `NAP_LISTEN_DATABASE_URL` on the direct endpoint. `test/connection-budget.test.ts`
+  does this sum from `render.yaml` and the pool rule, and fails when the deployment stops fitting.
+  The pool rule itself is in `apps/api/src/database-pool.ts`; each process logs its pool size on
+  its boot line as `databasePool`.
 - **The worker is the 2 GB plan.** It runs Chromium for the preview screenshots; the Kubernetes
   manifests request 1 GiB for the same process, and 512 MB is where it runs out.
 - **GitHub Actions releases production after CI passes on `main`.** Render's own auto-deploys
@@ -620,6 +650,12 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   bottleneck, not when the bill is. A turn that cannot be claimed waits in `turn_requests`
   rather than being refused, so this changes latency and never who gets in. The default is
   derived in `docs/scaling-baseline.md` and deliberately below what that run licenses.
+- `NAP_API_DB_POOL_SIZE=10`, `NAP_WORKER_DB_POOL_SIZE` (unset: `NAP_WORKER_CONCURRENCY` + 2),
+  `NAP_REAPER_DB_POOL_SIZE=4`: how many database connections each process may open. Not a
+  ceiling on spend, but they share one: the database's connection limit, which one rollout
+  needs twice over, every replica of every process (see [Render](#render)). The worker's must be more than its concurrency or it refuses to
+  boot, since every turn may be mid-transaction at once and its lease renewals still need a
+  connection. Raising `NAP_WORKER_CONCURRENCY` raises the worker's pool with it.
 - `NAP_CAPTURE_CONCURRENCY=1` — how many browsers a worker may have open at once. Every
   committed turn asks for a picture unless it was stopped or has a repair still to come, so
   this is *not* the worker's concurrency: unbounded it

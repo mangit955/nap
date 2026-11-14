@@ -509,3 +509,36 @@ describe("where the two halves are served from", () => {
     expect(() => parseEnv({ ...VALID, ...CROSS_SITE, NODE_ENV: "development" })).not.toThrow();
   });
 });
+
+describe("database pools", () => {
+  it("keeps the API's pool at ten and gives the reaper a small one, by default", () => {
+    // Ten is what the load baseline measured the API with. The reaper sweeps one project at a
+    // time and needs few; what it does not use is room for a deploy's second copy of everything.
+    const env = parseEnv(REQUIRED);
+    expect(env.NAP_API_DB_POOL_SIZE).toBe(10);
+    expect(env.NAP_REAPER_DB_POOL_SIZE).toBe(4);
+    // Absent, because the worker's default is derived from its concurrency.
+    expect(env.NAP_WORKER_DB_POOL_SIZE).toBeUndefined();
+  });
+
+  it("refuses a worker pool no larger than the turns it runs", () => {
+    // Every turn may hold a connection in a transaction at once; the claim loop and the lease
+    // renewals then have nowhere to run, and a renewal that waits long enough loses its lease.
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_WORKER_CONCURRENCY: "25", NAP_WORKER_DB_POOL_SIZE: "25" }),
+    ).toThrow(/NAP_WORKER_DB_POOL_SIZE: must be more than NAP_WORKER_CONCURRENCY \(25\)/);
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_WORKER_CONCURRENCY: "8", NAP_WORKER_DB_POOL_SIZE: "4" }),
+    ).toThrow(/NAP_WORKER_DB_POOL_SIZE/);
+    expect(
+      parseEnv({ ...REQUIRED, NAP_WORKER_CONCURRENCY: "25", NAP_WORKER_DB_POOL_SIZE: "26" }),
+    ).toMatchObject({ NAP_WORKER_DB_POOL_SIZE: 26 });
+  });
+
+  it.each(["NAP_API_DB_POOL_SIZE", "NAP_WORKER_DB_POOL_SIZE", "NAP_REAPER_DB_POOL_SIZE"])(
+    "refuses a %s of zero",
+    (key) => {
+      expect(() => parseEnv({ ...REQUIRED, [key]: "0" })).toThrow(new RegExp(key));
+    },
+  );
+});

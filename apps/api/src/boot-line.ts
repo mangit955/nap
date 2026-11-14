@@ -10,6 +10,7 @@
 
 import type { Logger } from "@nap/shared/logging";
 import type { NapRole } from "./compose.ts";
+import { databasePoolSize, type PoolSettings } from "./database-pool.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -18,7 +19,8 @@ import type { Env } from "./env.ts";
  * question about the connection pool or the claiming loop.
  */
 export type Announcing = {
-  env: Pick<Env, "NODE_ENV" | "NAP_PLATFORM" | "NAP_EVENT_BUS" | "NAP_MODEL" | "NAP_EFFORT">;
+  env: Pick<Env, "NODE_ENV" | "NAP_PLATFORM" | "NAP_EVENT_BUS" | "NAP_MODEL" | "NAP_EFFORT"> &
+    PoolSettings;
   role: NapRole;
   logger: Logger;
 };
@@ -43,6 +45,9 @@ export function announce(nap: Announcing, message: string, extra: Record<string,
       eventBus: env.NAP_EVENT_BUS,
       model: env.NAP_MODEL,
       effort: env.NAP_EFFORT,
+      // What this process adds to the database's connection count, which is summed across every
+      // process and replica against `max_connections` (`docs/DEPLOY.md`).
+      databasePool: databasePoolSize(nap.role, env),
       ...extra,
     },
     message,

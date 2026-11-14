@@ -58,7 +58,8 @@ export async function checkSandboxQuota(check: SandboxQuotaCheck): Promise<Quota
   // in a conversation already under way) free of a round trip.
   if (check.sessionSandboxId !== null) return { allowed: true };
 
-  const mine = await check.projects.countRunningSandboxes(check.userId);
+  // Both counts in one round trip; which of them refuses is decided below, in the same order.
+  const { mine, everyone } = await check.projects.countRunningSandboxes(check.userId);
   if (mine >= check.limits.perUser) {
     // Checked before the global ceiling deliberately: when both are full, the useful thing to
     // say is the one the person asking can do something about.
@@ -71,7 +72,6 @@ export async function checkSandboxQuota(check: SandboxQuotaCheck): Promise<Quota
     };
   }
 
-  const everyone = await check.projects.countRunningSandboxes();
   if (everyone >= check.limits.total) {
     return {
       allowed: false,

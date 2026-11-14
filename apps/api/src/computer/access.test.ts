@@ -147,6 +147,7 @@ describe("owner desktop stream", () => {
       projectId: PROJECT,
       userId: OWNER,
       sandboxId: "box",
+      projectName: "Untitled project",
     });
     expect(f.desktop.starts[0]?.devServerUrl).toBe("http://localhost:4321");
   });
@@ -188,6 +189,7 @@ describe("owner desktop stream", () => {
       projectId: PROJECT,
       userId: OWNER,
       sandboxId: null,
+      projectName: "Todo app",
     });
     expect((await f.app.request(`${base}/stream`)).status).toBe(503);
     expect(f.desktop.starts).toEqual([]);

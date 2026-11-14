@@ -298,6 +298,11 @@ export const projects = pgTable(
   (t) => [
     unique("projects_user_id_slug_unique").on(t.userId, t.slug),
     check("projects_name_source", sql`${t.nameSource} in ('seed', 'model', 'user')`),
+    // Every reader of `sandbox_id` asks about running projects: the sandbox quota's counts, the
+    // idle sweep, and the capacity reconciler matching a sandbox to whatever holds it. Partial,
+    // because only a running project has one, so the index stays the size of the cap on running
+    // sandboxes rather than growing with every project anybody ever made.
+    index("projects_running_sandbox").on(t.sandboxId).where(sql`${t.sandboxId} is not null`),
   ],
 );
 
@@ -316,32 +321,39 @@ export const navigationSettings = pgTable("navigation_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const sessions = pgTable("sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  /**
-   * The highest `seq` this counter has handed out in the session's log — what makes an append one
-   * statement. Not `PostgresEventStore.headSeq()`, which reads `max(events.seq)`: a session older
-   * than this column starts it at 0, unbackfilled, and its first append catches it up.
-   *
-   * `PostgresEventStore.append` increments it and inserts the event in a single statement, and
-   * the row lock that increment takes is the per-session serialization: a second writer waits on
-   * it and then sees the incremented value, so it cannot be handed the same `seq`. An advisory
-   * lock cannot do this in one statement, because the statement's snapshot is taken before the
-   * lock is granted and a `max(seq)` read through it would be stale.
-   *
-   * On the session rather than in a table of its own because nothing else writes this row during
-   * a turn, so the lock is uncontended, and a session that exists has its counter by
-   * construction. The append also takes `max(seq)` into account, so a row inserted without
-   * advancing this — the previous release mid-deploy, a fixture — is caught up with rather than
-   * collided with.
-   */
-  headSeq: integer("head_seq").notNull().default(0),
-  createdAt,
-});
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /**
+     * The highest `seq` this counter has handed out in the session's log — what makes an append one
+     * statement. Not `PostgresEventStore.headSeq()`, which reads `max(events.seq)`: a session older
+     * than this column starts it at 0, unbackfilled, and its first append catches it up.
+     *
+     * `PostgresEventStore.append` increments it and inserts the event in a single statement, and
+     * the row lock that increment takes is the per-session serialization: a second writer waits on
+     * it and then sees the incremented value, so it cannot be handed the same `seq`. An advisory
+     * lock cannot do this in one statement, because the statement's snapshot is taken before the
+     * lock is granted and a `max(seq)` read through it would be stale.
+     *
+     * On the session rather than in a table of its own because nothing else writes this row during
+     * a turn, so the lock is uncontended, and a session that exists has its counter by
+     * construction. The append also takes `max(seq)` into account, so a row inserted without
+     * advancing this — the previous release mid-deploy, a fixture — is caught up with rather than
+     * collided with.
+     */
+    headSeq: integer("head_seq").notNull().default(0),
+    createdAt,
+  },
+  // Postgres does not index a foreign key by itself. Without this, the project listing, the
+  // sidebar's per-project activity, the idle sweep and every busy check over a project's sessions
+  // read the whole table, and so does every delete cascading from `projects`.
+  (t) => [index("sessions_project_id").on(t.projectId)],
+);
 
 export const events = pgTable(
   "events",

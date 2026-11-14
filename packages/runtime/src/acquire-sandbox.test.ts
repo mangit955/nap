@@ -30,7 +30,13 @@ const USER_ID = "8f0a1b2c-3d4e-4f50-9a6b-7c8d9e0f1a2b";
 const TTL_MS = 30 * 60 * 1000;
 
 function session(sandboxId: string | null): SessionRecord {
-  return { sessionId: SESSION_ID, projectId: PROJECT_ID, userId: USER_ID, sandboxId };
+  return {
+    sessionId: SESSION_ID,
+    projectId: PROJECT_ID,
+    userId: USER_ID,
+    sandboxId,
+    projectName: "Todo app",
+  };
 }
 
 function deps(sandbox: SandboxManager, options: { restore?: boolean } = {}) {

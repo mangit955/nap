@@ -92,8 +92,13 @@ export function registerComputerAccessRoutes(
       if (!issueGrant) return c.json({ available: true });
       const expiresAt = now() + 60_000;
       return c.json({
+        // Named field by field rather than spread from the session record: the grant is a strict
+        // schema and a signed token, so a field added to the record for some other reader would
+        // otherwise make every grant unverifiable, and would ride along inside it.
         grant: sign({
-          ...owned.value,
+          sessionId: owned.value.sessionId,
+          projectId: owned.value.projectId,
+          userId: owned.value.userId,
           sandboxId: computer.sandboxId,
           revision: computer.revision,
           expiresAt,

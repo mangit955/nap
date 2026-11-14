@@ -25,6 +25,13 @@ export type SessionRecord = {
   userId: string;
   /** Null until a sandbox has been created for this project. */
   sandboxId: string | null;
+  /**
+   * What the project is called right now. Carried for the same reason `userId` is: it is on the
+   * row the join already reads, and admission needs it to decide whether to name a project after
+   * its first prompt. Asking for the project a second time would cost a round trip on every turn
+   * to answer a question that is "no" on every turn but the first.
+   */
+  projectName: string;
 };
 
 export interface SessionStore {
