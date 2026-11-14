@@ -116,14 +116,18 @@ gigabyte above that peak. The full run was not repeated at the new size until th
 
 ### On the hosted deployment, at 2 GiB
 
-On 2026-11-14 the template was republished from `f9b123e9`, the commit all three production
-services were running (E2B build `5429d9bf-4738-49ce-8f79-c6f4f6ef6e5c`, `DESKTOP_BUILD`
-`a89efce5…` unchanged, 2 vCPUs, 2,048 MB). Every layer came from the build cache. Because the
-desktop build did not change, no machine became `outdated` and the reservation drain in
-[DEPLOY.md](DEPLOY.md#deploy-a-desktop-build-change) did not apply.
+On 2026-11-14 the operator recorded all three production services at `f9b123e9` and
+republished the template from that commit. The archived artifacts confirm publication and the
+deployed-endpoint workflow, but do not include the Render metadata needed to independently
+confirm each service revision. E2B build `5429d9bf-4738-49ce-8f79-c6f4f6ef6e5c` kept
+`DESKTOP_BUILD` `a89efce5…`, 2 vCPUs and 2,048 MB. Every layer came from the build cache.
+Because the desktop build did not change, no machine became `outdated` and the reservation
+drain in [DEPLOY.md](DEPLOY.md#deploy-a-desktop-build-change) did not apply.
+The [sanitized run evidence](assets/computer-use/hosted-run-20261114.md) records the archived
+results and their limits.
 
-This time nothing ran locally. A script drove the public deployment (the web origin's `/backend`
-path and the API's WebSocket) as a throwaway demo identity. Production's own worker ran the turns,
+A script drove the public deployment through the web origin's `/backend` path and the API's
+WebSocket as a throwaway demo identity. Production's own worker ran the turns,
 on `openai/gpt-5.6-luna` (the deployment's free-tier model, on its own key), with R2 object
 storage and a VM from the new build.
 
@@ -138,20 +142,25 @@ storage and a VM from the new build.
   served by byte range (`206`) and in full from R2, and a seek to its midpoint decoded.
 - The owner stream route returned credentials, and the WebSocket answered `RFB 003.008` through
   the sandbox's public proxy. Owner input while idle applied all three actions.
-- Deleting the project removed its ten R2 objects, and a listing of its prefixes came back empty.
-  The VM was destroyed.
+- The delete endpoint reported ten R2 objects removed and the VM destroyed. Follow-up checks
+  found the test turn's six screenshot keys absent, and E2B's sandbox lookup failed after the
+  kill. The build turn's screenshot and the recording were not among the checked keys, so their
+  removal rests only on the delete endpoint's count of ten. A complete prefix listing was not retained in the archived evidence.
 
-**Two GiB has about a gigabyte of headroom for an app this size.** E2B's per-VM metrics (one
-sample every five seconds) put peak use at 973 of the 1,983 MiB the guest saw. The peak came
-during the test, as the page reloaded with the recorder running. At the same moment `free`
+E2B's per-VM metrics, sampled every five seconds, put the largest recorded sample at
+973 of the 1,983 MiB the guest saw. The sample came during the test, as the page reloaded with
+the recorder running. About 3.7 seconds later `free`
 inside the VM reported 972 MiB used and 1,009 MiB available. The largest processes were the
 Vite dev server (451 MB RSS), Chrome (eight processes between 72 and 271 MB; RSS counts shared
-pages more than once, so the sum overstates them), Xvfb (83 MB) and ffmpeg (70 MB). That peak is
-already above the 976 MiB a 1-GiB machine's guest sees, so the old size would not have held this
-run. The app was still small, and no run establishes capacity for larger ones.
+pages more than once, so the sum overstates them), Xvfb (83 MB) and ffmpeg (70 MB). The sampled
+peak was 3 MiB below the 976 MiB observed in the earlier 1-GiB guest. This 2-GiB run does not
+establish whether the same workload would fit or fail at 1 GiB, and five-second samples do not
+capture an instantaneous maximum. The app was still small, and no run establishes capacity for
+larger ones.
 
-The run cost about US$0.016 in model calls (build $0.009, test $0.007). The VM ran for under four
-minutes, roughly another US$0.01 of E2B time at its published per-second rates.
+Captured usage and the driver's price constants put model cost at an estimated US$0.016
+(build $0.009, test $0.007). The VM ran for under four minutes, estimated at roughly another
+US$0.01 of E2B time. These estimates are not provider invoices.
 
 ## Current limits
 
