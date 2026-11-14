@@ -106,9 +106,12 @@ export type AuthConfig = {
   /**
    * Whether to offer a throwaway identity to somebody who does not want an account.
    *
-   * The demo door. What makes it affordable to leave open is not this flag but the free tier
-   * behind it — an anonymous visitor reaches the free models and nothing else, under lower
-   * ceilings than a signed-in person. See `apps/api/src/turns/model-access.ts`.
+   * The demo door. What makes it affordable to leave open is not this flag but the access rule
+   * behind it — an anonymous visitor spends no model tokens on the deployment's account unless
+   * the deployment names a free model (`NAP_FREE_MODEL`), and then only on the free tier, under
+   * its lower ceilings. Sandboxes are different: they always run on the deployment's account,
+   * so a visitor who saves their own key starts them under the ordinary sandbox ceilings. See
+   * `apps/api/src/turns/model-access.ts`.
    */
   allowAnonymous: boolean;
   /**

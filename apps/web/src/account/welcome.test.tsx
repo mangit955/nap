@@ -34,19 +34,17 @@ beforeEach(() => {
 });
 
 describe("what it asks", () => {
-  it("says a key is optional and what it buys", () => {
-    // Whoever lands here already has a working account. A page that implied otherwise would be
-    // a toll booth with nothing behind it.
+  it("explains model billing and deployment-dependent free access", () => {
     render(<Welcome />);
 
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("optional");
-    expect(screen.getByText(/free models/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("API key");
+    expect(screen.getByText(/only when this deployment offers a free tier/)).toBeInTheDocument();
   });
 
   it("offers the way past it", () => {
     render(<Welcome />);
 
-    expect(screen.getByRole("button", { name: "Just try it free" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue to dashboard" })).toBeInTheDocument();
   });
 });
 
@@ -54,14 +52,14 @@ describe("skipping", () => {
   it("goes to the dashboard and remembers, so it is a first-run step", () => {
     render(<Welcome />);
 
-    screen.getByRole("button", { name: "Just try it free" }).click();
+    screen.getByRole("button", { name: "Continue to dashboard" }).click();
 
     expect(push).toHaveBeenCalledWith("/dashboard");
     expect(hasSkippedWelcome()).toBe(true);
   });
 
   it("is remembered, so the question is not asked again on the next sign-in", async () => {
-    // The flag was written and never read, which made "Just try it free" an answer this page
+    // The flag was written and never read, which made "Continue to dashboard" an answer this page
     // forgot the moment it was given — and every sign-in afterwards asked again.
     localStorage.setItem("nap.welcome.skipped", "true");
 

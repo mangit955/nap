@@ -74,9 +74,12 @@ const BaseSchema = z.object({
    * Whether somebody with no account at all may look around.
    *
    * On by default, because a builder nobody can try is a screenshot. A demo visitor gets a
-   * throwaway identity, their own projects, and the free models under the lower ceilings
-   * below — so the door being open costs this deployment a bounded amount rather than an
-   * unbounded one. Turning it off is for a deployment that wants a private instance.
+   * throwaway identity and their own projects. Model tokens come from their own key, or, when
+   * `NAP_FREE_MODEL` opens a free tier, from that tier under the lower ceilings below. By
+   * default the door costs no model tokens, but sandboxes always run on this deployment's
+   * account: a visitor who saves a key starts them under the ordinary sandbox ceilings, so
+   * the cost is bounded rather than zero. Turning it off is for a deployment that wants a
+   * private instance.
    */
   NAP_ALLOW_DEMO: z
     .enum(["true", "false"])
@@ -182,8 +185,10 @@ const BaseSchema = z.object({
    * allowlist is the whole defence: anything not named here is refused before a sandbox is
    * touched or a single token is spent.
    *
-   * The default includes the demo default (Luna) up front, free models for visitors who
-   * prefer them, and paid choices for people using their own keys.
+   * The default includes the default model (Luna) up front, `:free` models, and paid choices
+   * for people using their own keys. Which of them a caller may reach is
+   * `apps/api/src/turns/model-access.ts`: a caller with no key reaches none of them unless
+   * `NAP_FREE_MODEL` opens a free tier.
    *
    * **Every id here was read from OpenRouter's live catalogue and every one supports tool
    * calling.** That second filter is not a nicety — this agent *is* a tool loop, so a model
@@ -193,11 +198,12 @@ const BaseSchema = z.object({
     .string()
     .default(
       [
-        // The default for everyone — demo visitors and keyed users alike.
+        // The default for an OpenRouter key that names no model.
         "openai/gpt-5.6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
-        // Free alternatives that cost the deployment nothing.
+        // No token cost. Keyless callers reach them only when NAP_FREE_MODEL opens a free
+        // tier, and then the deployment still pays for the sandbox.
         "poolside/laguna-s-2.1:free",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
         // Paid choices for people who bring their own keys.

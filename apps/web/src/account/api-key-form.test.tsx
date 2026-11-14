@@ -90,6 +90,6 @@ describe("with a key saved", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
     expect(props.onRemove).toHaveBeenCalled();
-    expect(screen.getByText(/free models/)).toBeInTheDocument();
+    expect(screen.getByText(/unless this deployment offers a free tier/)).toBeInTheDocument();
   });
 });

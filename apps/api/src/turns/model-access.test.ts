@@ -276,6 +276,16 @@ describe("who pays for a session title", () => {
       });
     });
 
+    it("writes no title when an OpenRouter key has no free title model", () => {
+      expect(
+        resolveTitleAccess({
+          key: OPENROUTER,
+          allowed: ["anthropic/claude-opus-5", "openai/gpt-5.6-luna"],
+          freeModel: undefined,
+        }),
+      ).toBeNull();
+    });
+
     it("titles on an Anthropic key exactly as before", () => {
       expect(untiered(ANTHROPIC)).toEqual({
         model: "anthropic/claude-sonnet-5",

@@ -3,8 +3,8 @@ import { Welcome } from "../../account/welcome.tsx";
 /**
  * Where a new account lands, once, before the dashboard.
  *
- * It asks one optional question — bring a key, or run on the free models — and sends everybody
- * on either way. Anyone who already has a key never sees it.
+ * It offers a key form and a way to browse the dashboard. Running without a key depends on the
+ * deployment's free-tier policy. Anyone who already has a key never sees it.
  */
 export default function Page() {
   return <Welcome />;

@@ -154,7 +154,7 @@ describe("the provider list", () => {
     const list = await screen.findByRole("navigation", { name: "Providers" });
     const rows = within(list).getAllByRole("button", { name: /^Select / });
     expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
-      "Select Free models",
+      "Select Deployment models",
       "Select API key",
       "Select Work",
     ]);
@@ -309,7 +309,7 @@ describe("adding a provider", () => {
     refuseStart = false;
     fireEvent.click(screen.getByRole("button", { name: "Continue with ChatGPT" }));
     await screen.findByRole("link", { name: "Open browser" });
-    fireEvent.click(screen.getByRole("button", { name: "Select Free models" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select Deployment models" }));
     fireEvent.click(screen.getByRole("button", { name: "Select Codex" }));
     await act(async () => {});
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

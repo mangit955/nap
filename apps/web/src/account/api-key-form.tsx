@@ -9,9 +9,6 @@
  * the server could not answer that if it wanted to, and a form that could would leak the key
  * into every screen-share and browser cache the page passes through.
  *
- * The tone is an offer rather than a requirement, because it is one. Whoever is reading this
- * already has a working app on the free models; what a key adds is Opus and the paid GPT
- * models, and saying so is more honest than a form that implies nothing works without it.
  */
 
 import { useState } from "react";
@@ -82,7 +79,8 @@ export function ApiKeyForm({ state, onSave, onRemove, error, busy = false }: Api
         )}
 
         <p className="text-[var(--s-text-muted)] text-xs leading-relaxed">
-          Turns are billed to this key. Remove it and you go back to the free models.
+          Turns are billed to this key. After removal, work requires another key unless this
+          deployment offers a free tier.
         </p>
       </div>
     );

@@ -177,7 +177,7 @@ export function resolveTitleAccess(request: {
   const requested =
     key?.platform === "anthropic"
       ? allowed.find((model) => model.startsWith("anthropic/"))
-      : (freeModel ?? (key === null ? undefined : (allowed.find(isFreeModel) ?? allowed[0])));
+      : (freeModel ?? (key === null ? undefined : allowed.find(isFreeModel)));
   if (requested === undefined) return null;
   const access = resolveTurnAccess({
     requested,

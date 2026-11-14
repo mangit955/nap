@@ -32,7 +32,8 @@ export const authClient = createAuthClient({
  * The key step rather than the dashboard: somebody who just made an account is the one person
  * who has not yet been asked whether they want to bring a key, and this is the only moment
  * where asking is not an interruption of something else. It skips itself for anybody who
- * already has one, and "just try it free" is always one click away — see `/welcome`.
+ * already has one, and continuing without one is always one click away — see `/welcome`.
+ * Without a key, work runs only if this deployment offers a free tier.
  */
 export const AFTER_SIGN_IN = "/welcome";
 
