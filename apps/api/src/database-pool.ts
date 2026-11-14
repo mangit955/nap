@@ -30,7 +30,7 @@ import type { Env } from "./env.ts";
  * Connections a worker's pool keeps beyond one per turn: one for the claim loop, and one for
  * whatever else is not a turn — a renewal or an announcement arriving while every turn is in a
  * transaction. Kept small on purpose, because the free database has a hundred connections for
- * three processes and every rollout runs a second copy of each.
+ * three processes and a rollout can hold every replica of each twice.
  */
 export const WORKER_POOL_HEADROOM = 2;
 

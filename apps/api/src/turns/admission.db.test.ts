@@ -1,10 +1,17 @@
 /**
  * What accepting a turn costs the database, and that the refusals it makes still hold.
  *
- * The whole API is composed as boot composes it, against a real Postgres and a real sign-in, with
- * one client underneath everything so its `debug` hook sees every statement: the auth library's,
- * the route's and the queue's. Counting statements rather than timing them, because a count is
- * deterministic and every statement is a round trip to a database on another machine.
+ * The API is composed from the stores boot gives it, against a real Postgres and a real sign-in,
+ * with one client underneath everything so its `debug` hook sees every statement the request
+ * waits on: the auth library's, the route's and the queue's. Counting statements rather than
+ * timing them, because a count is deterministic and every statement is a round trip to a database
+ * on another machine.
+ *
+ * Two things boot composes are left out, and the count does not cover them. The queue announces a
+ * claim wake-up after the enqueue, and a project's first prompt starts generating its title; boot
+ * wires both, and both send statements of their own. Neither is awaited by the request, so neither
+ * delays the 202, and composing them would make the count depend on how far a detached task had
+ * got when it was read.
  *
  * The refusals are here as well as in `routes.test.ts`, which proves them against fakes, because
  * the rate limiter's count and insert are SQL: whether a refused attempt leaves the allowance
@@ -61,7 +68,9 @@ const HOUR_MS = 60 * 60 * 1000;
  *   2  naming the project, and the enqueue, sent together
  *
  * Eleven statements in nine round trips, where it was fourteen in fourteen. A follow-up is nine in
- * eight. Raising either number means a statement was added to the path every prompt waits on.
+ * eight. These are auth plus what admission awaits; the claim announcement after the enqueue and a
+ * first prompt's title generation are detached, not composed here, and not counted. Raising either
+ * number means a statement was added to the path every prompt waits on.
  */
 const FIRST_TURN_STATEMENTS = 11;
 const FOLLOW_UP_STATEMENTS = 9;
@@ -105,7 +114,10 @@ const CONFIG: NapDeps["config"] = {
 
 const SECRET = Buffer.alloc(32, 7).toString("base64");
 
-/** An API pod as boot builds one: real auth, real stores, nothing started. */
+/**
+ * An API pod built from boot's stores: real auth, real stores, nothing started. Unlike boot it
+ * announces no claims and generates no titles — see the top of this file.
+ */
 function apiPod(
   options: { freeTurnsPerHour?: number; config?: Partial<NapDeps["config"]> } = {},
 ): ComposedNap {

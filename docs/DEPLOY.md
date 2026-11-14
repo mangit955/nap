@@ -89,11 +89,13 @@ processes on it. What is different here, and why:
   3 of those for superusers. Each process opens its own pool (`NAP_API_DB_POOL_SIZE`,
   `NAP_WORKER_DB_POOL_SIZE`, `NAP_REAPER_DB_POOL_SIZE`) plus a `LISTEN` connection, and the reaper
   one more for its lock. postgres.js keeps a connection once it opens one, so a busy pool stays
-  full. A release starts each new process before the old one stops, and a draining worker can
-  still be holding its pool while the API and the reaper roll, so for a while there are two of
-  everything. As deployed: 11 (API) + 28 (worker) + 6 (reaper) = 45, twice over plus the
-  migration's one is 91 of 97. **A second worker does not fit**: it makes 119, and a refused
-  connection lands on whatever asked last, a turn mid-write or the release's own migration.
+  full. A release starts each new process before the old one stops, and an old replica keeps its
+  pool for as long as it drains, so the budget counts every replica of every process twice, for
+  one rollout at a time: start another release only once the previous one's old processes have
+  exited. As deployed: 11 (API) + 28 (worker) + 6 (reaper) = 45, twice over plus the
+  migration's one is 91 of 97. **A second worker does not fit**: it makes 73, twice over plus
+  one is 147, and a refused connection lands on whatever asked last, a turn mid-write or the
+  release's own migration.
   Scaling the worker means a plan with 200 connections (8 GB or more), smaller pools, or a pooler
   in front with `NAP_LISTEN_DATABASE_URL` on the direct endpoint. `test/connection-budget.test.ts`
   does this sum from `render.yaml` and the pool rule, and fails when the deployment stops fitting.
@@ -650,8 +652,8 @@ is affordable, and they are worth setting deliberately rather than inheriting:
   derived in `docs/scaling-baseline.md` and deliberately below what that run licenses.
 - `NAP_API_DB_POOL_SIZE=10`, `NAP_WORKER_DB_POOL_SIZE` (unset: `NAP_WORKER_CONCURRENCY` + 2),
   `NAP_REAPER_DB_POOL_SIZE=4`: how many database connections each process may open. Not a
-  ceiling on spend, but they share one: the database's connection limit, which a rollout needs
-  twice (see [Render](#render)). The worker's must be more than its concurrency or it refuses to
+  ceiling on spend, but they share one: the database's connection limit, which one rollout
+  needs twice over, every replica of every process (see [Render](#render)). The worker's must be more than its concurrency or it refuses to
   boot, since every turn may be mid-transaction at once and its lease renewals still need a
   connection. Raising `NAP_WORKER_CONCURRENCY` raises the worker's pool with it.
 - `NAP_CAPTURE_CONCURRENCY=1` — how many browsers a worker may have open at once. Every

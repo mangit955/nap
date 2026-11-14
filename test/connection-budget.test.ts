@@ -5,7 +5,11 @@ import { parse } from "yaml";
 import type { NapRole } from "../apps/api/src/compose.ts";
 import { connectionsHeld } from "../apps/api/src/database-pool.ts";
 import { PoolEnvSchema } from "../apps/api/src/env.ts";
-import { connectionBudgetViolations, type DeployedProcess } from "./connection-budget.ts";
+import {
+  connectionBudgetViolations,
+  type DeployedProcess,
+  peakConnections,
+} from "./connection-budget.ts";
 
 /**
  * Every deployment this repo describes, checked against the database it runs on.
@@ -106,6 +110,20 @@ function k8sDeployment(
 }
 
 describe("the connection budget", () => {
+  it("budgets every old replica while its replacement generation starts", () => {
+    // Kubernetes excludes terminating pods from maxSurge. All eight old workers can still be
+    // draining when all eight replacements are claiming, even with maxSurge set to one.
+    const processes: DeployedProcess[] = [
+      { name: "nap-api", replicas: 6, connections: 11 },
+      { name: "nap-worker", replicas: 8, connections: 28 },
+      { name: "nap-reaper", replicas: 1, connections: 6 },
+    ];
+
+    expect(peakConnections(processes)).toBe(593);
+    expect(connectionBudgetViolations(processes, 400)).toHaveLength(1);
+    expect(connectionBudgetViolations(processes, 640)).toEqual([]);
+  });
+
   it("fits the Render deployment, its rollouts included, on its database's plan", () => {
     const { processes, maxConnections } = renderDeployment();
     expect(connectionBudgetViolations(processes, maxConnections)).toEqual([]);
@@ -156,6 +174,7 @@ describe("the connection budget", () => {
 
     expect(violations).toHaveLength(1);
     expect(violations[0]).toMatch(/can hold \d+ connections at once, over the 97/);
+    expect(violations[0]).toContain("2 generations of (");
     expect(violations[0]).toContain("nap-worker: 2 ×");
   });
 });

@@ -10,10 +10,18 @@
  * connections as concurrent queries need them and keeps them open, so a process that was busy once
  * holds its whole pool from then on.
  *
- * **A rollout runs two copies of a process for a while.** The new pod is started before the old
- * one is stopped, and a draining worker keeps its connections for as long as its drain lasts,
- * which can outlive the deploys of the other two. So the peak is every replica's connections, plus
- * one more pod of each process, plus the migration the release runs first.
+ * **A rollout can run two whole generations of a process at once.** A replaced pod keeps its
+ * connections for as long as its drain lasts, and a worker's drain can run for minutes. Kubernetes
+ * leaves terminating pods out of `maxSurge`, so even at a surge of one it goes on starting
+ * replacements while every old replica may still be draining: one ordinary rolling update can hold
+ * the whole old generation and the whole new one together. So the peak is every replica of every
+ * process twice, plus the migration the release runs first. The reaper is counted twice as well,
+ * although its `Recreate` strategy should never overlap it, because a ceiling that leans on that
+ * is one strategy change from being wrong.
+ *
+ * **This covers one rollout at a time.** A second release started while the first one's old
+ * generation is still draining would put a third generation beside them, and nothing here budgets
+ * for that: the next rollout waits until the previous generation has exited.
  */
 
 /** Postgres keeps `superuser_reserved_connections`, three by default, out of the ordinary budget. */
@@ -31,16 +39,18 @@ export type DeployedProcess = {
   connections: number;
 };
 
-/** The most connections the deployment can hold at one moment. */
+/** How many generations of each process one rollout can hold at once: the old and the new. */
+export const ROLLOUT_GENERATIONS = 2;
+
+/** The most connections the deployment can hold at one moment, during one rollout. */
 export function peakConnections(processes: DeployedProcess[]): number {
-  const steady = processes.reduce((sum, p) => sum + p.replicas * p.connections, 0);
-  const rollingOverlap = processes.reduce((sum, p) => sum + p.connections, 0);
-  return steady + rollingOverlap + MIGRATION_CONNECTIONS;
+  const generation = processes.reduce((sum, p) => sum + p.replicas * p.connections, 0);
+  return ROLLOUT_GENERATIONS * generation + MIGRATION_CONNECTIONS;
 }
 
 /**
  * Empty when the deployment fits under `maxConnections`; otherwise one message saying by how much
- * and what each process contributes.
+ * and what each process contributes to one generation, which a rollout holds twice.
  */
 export function connectionBudgetViolations(
   processes: DeployedProcess[],
@@ -50,12 +60,10 @@ export function connectionBudgetViolations(
   const peak = peakConnections(processes);
   if (peak <= usable) return [];
 
-  const parts = processes
-    .map((p) => `${p.name}: ${p.replicas} × ${p.connections} (+${p.connections} rolling)`)
-    .join(", ");
+  const parts = processes.map((p) => `${p.name}: ${p.replicas} × ${p.connections}`).join(", ");
   return [
     `can hold ${peak} connections at once, over the ${usable} the database allows ` +
-      `(${maxConnections} less ${POSTGRES_RESERVED_CONNECTIONS} reserved) — ${parts}, ` +
-      `+${MIGRATION_CONNECTIONS} migrating`,
+      `(${maxConnections} less ${POSTGRES_RESERVED_CONNECTIONS} reserved) — ` +
+      `${ROLLOUT_GENERATIONS} generations of (${parts}), +${MIGRATION_CONNECTIONS} migrating`,
   ];
 }
