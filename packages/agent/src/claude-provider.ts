@@ -196,9 +196,9 @@ const BASE_BACKOFF_MS = 500;
  * proxy in front of it keeps the connection warm is not caught here, and nothing short of a
  * ceiling on total time could catch it without also cutting off a long, honest answer.
  *
- * Ninety seconds, because anything a server or proxy sends to keep a connection alive comes well
- * inside the sixty seconds an idle load balancer allows, and the margin is cheap: what a stall
- * costs is bounded by `WORST_CASE_STALLED_CALL_MS` below either way.
+ * Ninety seconds leaves room between heartbeats without waiting minutes for a silent attempt.
+ * The cost of attempts that produce no stream activity is bounded by
+ * `WORST_CASE_STALLED_CALL_MS` below.
  */
 export const STREAM_IDLE_TIMEOUT_MS = 90_000;
 
@@ -633,7 +633,7 @@ function watchIdle(idleMs: number, cancel: AbortSignal | undefined) {
 }
 
 /**
- * Calls `touch` for every chunk of the response body, and once when the headers arrive.
+ * Calls `touch` for every chunk of the response body. Headers alone are not stream activity.
  *
  * Request middleware rather than a custom `fetch` on the client, because the window belongs to one
  * attempt and a client is shared by every turn in the process. The body is handed on unchanged:
@@ -642,7 +642,6 @@ function watchIdle(idleMs: number, cancel: AbortSignal | undefined) {
 function touchOnEveryChunk(touch: () => void): Middleware {
   return async (request, next) => {
     const response = await next(request);
-    touch();
     if (response.body === null) return response;
     const watched = response.body.pipeThrough(
       new TransformStream<Uint8Array, Uint8Array>({
@@ -697,7 +696,12 @@ class ClaudeTurn implements LLMTurn {
       } catch (cause) {
         // The SDK reports the abort that ends a stalled stream exactly as it reports a cancel, so
         // the watch says which it was — and a cancelled turn is never retried, whatever fired.
-        lastError = idle.stalled() ? new StreamStalledError(this.#idleTimeoutMs) : cause;
+        // A stalled error body still yields the HTTP status the SDK already received. Keep a
+        // permanent rejection, such as a bad key, rather than turning it into a retryable stall.
+        const permanent =
+          cause instanceof APIError && typeof cause.status === "number" && !isRetryable(cause);
+        lastError =
+          idle.stalled() && !permanent ? new StreamStalledError(this.#idleTimeoutMs) : cause;
         if (request.signal?.aborted === true || !isRetryable(lastError) || shown) break;
         if (attempt < MAX_ATTEMPTS) {
           const base = isThrottled(lastError) ? RATE_LIMIT_BACKOFF_MS : BASE_BACKOFF_MS;

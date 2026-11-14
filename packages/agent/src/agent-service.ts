@@ -101,8 +101,9 @@ export type AgentServiceOptions = {
   /** Injected so a test can close a streaming window without waiting it out. */
   schedule?: Schedule;
   /**
-   * A model to continue on when the turn's own model refuses, already on the deployment's
-   * allowlist. Used only when the deployment is paying: a person's own key may not reach it.
+   * A model to continue on when the turn's own model refuses or stays unavailable, already on the
+   * deployment's allowlist. Used only when the deployment is paying: a person's own key may not
+   * reach it.
    */
   fallbackModel?: string | undefined;
   /**
@@ -161,7 +162,7 @@ export class NapAgentService implements AgentService {
 class Turn {
   readonly #request: AgentTurnRequest;
   readonly #options: AgentServiceOptions;
-  /** Replaced only by a fallback after a refusal; every turn it has been is in `#turns`. */
+  /** Replaced by fallback after refusal or unavailability; every turn it has been is in `#turns`. */
   #turn: LLMTurn;
   /** Every model conversation this turn opened — the lead's, a fallback's, the sidekick's. */
   readonly #turns: LLMTurn[] = [];

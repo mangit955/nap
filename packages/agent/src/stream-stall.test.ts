@@ -347,6 +347,60 @@ describe("what keeps a stream alive, on the real SDK", () => {
     return { fetch, requests: () => requests };
   }
 
+  /** Headers arrive on schedule, but the body never produces a byte. */
+  function silentBodyFetch(status: number, headersMs: number) {
+    let requests = 0;
+    const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      requests += 1;
+      if (headersMs > 0) await after(headersMs);
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener(
+            "abort",
+            () => controller.error(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        },
+      });
+      return new Response(body, {
+        status,
+        headers: { "content-type": status === 200 ? "text/event-stream" : "application/json" },
+      });
+    };
+    return { fetch, requests: () => requests };
+  }
+
+  it("does not extend the quiet-call bound when only delayed headers arrive", async () => {
+    const transport = silentBodyFetch(200, 80_000);
+    const client = new Anthropic({ apiKey: "test", fetch: transport.fetch, maxRetries: 0 });
+
+    const { value, ms } = await timed(
+      new ClaudeProvider({ client }).startTurn().complete(request()),
+      2 * WORST_CASE_STALLED_CALL_MS,
+    );
+
+    expect(ms).toBeLessThanOrEqual(WORST_CASE_STALLED_CALL_MS);
+    expect(value).toMatchObject({ type: "error", retryable: true });
+    expect(transport.requests()).toBe(MAX_ATTEMPTS);
+  });
+
+  it.each([400, 401, 402])(
+    "keeps HTTP %i nonretryable when its error body goes quiet",
+    async (status) => {
+      const transport = silentBodyFetch(status, 0);
+      const client = new Anthropic({ apiKey: "test", fetch: transport.fetch, maxRetries: 0 });
+
+      const { value } = await timed(
+        new ClaudeProvider({ client }).startTurn().complete(request()),
+        WORST_CASE_STALLED_CALL_MS + 5_000,
+      );
+
+      expect(value).toMatchObject({ type: "error", retryable: false });
+      expect(value.type === "error" ? value.message : "").not.toMatch(/stopped responding/);
+      expect(transport.requests()).toBe(1);
+    },
+  );
+
   it("counts a ping as the stream being alive, so a long silent stretch is not a stall", async () => {
     // Five minutes of nothing a listener can see — only pings, half a window apart.
     const transport = sseFetch({ everyMs: STREAM_IDLE_TIMEOUT_MS / 2, times: 10 }, true);
