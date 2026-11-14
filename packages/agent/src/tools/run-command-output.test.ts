@@ -7,6 +7,7 @@
  * the log before the call's result, however the call ended.
  */
 
+import { expectEventSequence } from "@nap/db/testing/event-assertions";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type {
@@ -55,8 +56,6 @@ function context(signal?: AbortSignal): ToolContext {
 function run(command: string, signal?: AbortSignal) {
   return executeTool({ id: "toolu_1", name: "run_command", input: { command } }, context(signal));
 }
-
-const types = () => events.map((event) => event.type);
 
 function outputs(): { stream: string; chunk: string }[] {
   return events.flatMap((event) =>
@@ -122,7 +121,7 @@ describe("run_command output", () => {
 
     await run("bun run build");
 
-    expect(types()).toEqual(["tool.call", "command.output", "tool.result"]);
+    expectEventSequence(events, ["tool.call", "command.output", "tool.result"]);
     expect(outputs()).toEqual([{ stream: "stdout", chunk: "vite building\nbuilt in 1.2s\n" }]);
   });
 
@@ -141,11 +140,11 @@ describe("run_command output", () => {
     await vi.advanceTimersByTimeAsync(OUTPUT_FLUSH_AFTER_MS);
 
     // Nothing else has arrived and the command has not returned, yet the line is in the log.
-    expect(types()).toEqual(["tool.call", "command.output"]);
+    expectEventSequence(events, ["tool.call", "command.output"]);
 
     finish();
     await pending;
-    expect(types()).toEqual(["tool.call", "command.output", "tool.result"]);
+    expectEventSequence(events, ["tool.call", "command.output", "tool.result"]);
   });
 
   it("loses nothing written before a cancel, and writes nothing after the result", async () => {
@@ -174,7 +173,13 @@ describe("run_command output", () => {
       { stream: "stderr", chunk: "warn: slow\n" },
       { stream: "stdout", chunk: "step 2\n" },
     ]);
-    expect(types().at(-1)).toBe("tool.result");
+    expectEventSequence(events, [
+      "tool.call",
+      "command.output",
+      "command.output",
+      "command.output",
+      "tool.result",
+    ]);
   });
 
   it("writes everything already buffered when the sandbox throws", async () => {

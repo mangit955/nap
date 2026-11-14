@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@nap/context": "workspace:*",
+    "@nap/db": "workspace:*",
     "@nap/sandbox": "workspace:*",
     "@nap/storage": "workspace:*"
   }
