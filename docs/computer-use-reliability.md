@@ -121,6 +121,11 @@ seen failing before its change. In the kanban re-run, three runs hit a refusal t
 batch, and in each the model sent again what the result said had not run. Two of them (kanban 5 and
 9) finished with every assertion passed. The third is the failure below.
 
+The re-check ran with an earlier wording of the early-verdict refusal, which told a model that had
+clicked in the same batch that it "has had no input". That was found afterwards, by running the
+scripted control with its verdict moved into the click's batch, and corrected. The corrected wording
+has not been measured with a model.
+
 **What the fix does not cover.** The one kanban failure left after it is the rule underneath. The
 model declared an assertion about the board's starting state and could not give it a verdict,
 because a verdict needs input made after the declaration. An assertion about what is already on
