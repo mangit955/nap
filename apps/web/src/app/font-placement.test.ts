@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
  *
  * Read from source because the alternative is a production build and a server: what Next
  * actually preloads per route was measured that way when the faces moved, and is in
- * `docs/GOTCHAS.md`.
+ * `docs/gotchas/web.md`.
  */
 
 const APP = dirname(new URL(import.meta.url).pathname);

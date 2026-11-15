@@ -106,7 +106,7 @@ infra/k8s/load/run.sh --down            # delete it
 
 `caffeinate` on the long one: forty minutes with nobody at the keyboard is long enough for the
 host to suspend, which freezes k6, the cluster and the sampler together and produces a run that
-passes every threshold and means nothing. See `docs/GOTCHAS.md`.
+passes every threshold and means nothing. See `docs/scaling-baseline.md`, "Gotchas from running the ramp".
 
 The §23 ramp — the same k6 script, the same profiles, the same thresholds as the single-process
 baseline in `docs/scaling-baseline.md` — against the cluster instead of against one process. The

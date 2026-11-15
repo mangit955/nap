@@ -23,7 +23,7 @@ This was never in evidence. OpenRouter's model registry reports `input_modalitie
 `image` for every `openai/gpt-5.*` id, which is a claim about the **model**; what a benchmark run
 depends on is a claim about the **route** — that the *Anthropic-shaped* endpoint this repo uses
 forwards an `image` content block to a non-Anthropic model, and answers with the `tool_use` block
-the structured judgement rides in. `docs/GOTCHAS.md` already records that OpenRouter's own
+the structured judgement rides in. `docs/gotchas/model.md` already records that OpenRouter's own
 documentation hedges on exactly this point.
 
 It does. `openai/gpt-5.6-luna` answered in 24.8s, 3,975 input tokens and 1,791 output, with a

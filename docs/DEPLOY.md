@@ -684,7 +684,7 @@ other endpoints exist — the Kubernetes probes use them, and Render's healthche
 | `/health` | 200 with a body naming each dependency, degraded or not | a person, and `curl` |
 
 Why each answers what it does — and why readiness watches Postgres but not the sandbox
-provider — is in `docs/GOTCHAS.md`, under API, auth and logging.
+provider — is in `docs/gotchas/api.md`.
 
 ## Screenshots
 

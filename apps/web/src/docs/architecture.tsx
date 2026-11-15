@@ -1,7 +1,7 @@
 /**
  * The shape of the system, and the rule that keeps the shape.
  *
- * The component table here is the same one `CLAUDE.md` holds for contributors, minus the columns
+ * The component table here is the same one `docs/architecture.md` holds for contributors, minus the columns
  * that only mean something with the code open. It is repeated rather than linked because a
  * reader who cannot see the boundaries cannot evaluate any of the sections after this one — every
  * later argument is about which component owns a decision.

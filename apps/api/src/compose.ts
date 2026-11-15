@@ -222,7 +222,7 @@ export type NapDeps = {
   /**
    * One store and one bus, handed to the runtime that publishes *and* the socket that
    * subscribes. Taking them as one pair rather than two is the point: a second pair type-checks,
-   * boots, and streams nothing (`docs/GOTCHAS.md`, API section).
+   * boots, and streams nothing (`docs/gotchas/api.md`).
    */
   events: EventStore;
   bus: EventBus;

@@ -11,7 +11,7 @@ import { snoozePresets } from "./session-rows.ts";
 import { Sidebar } from "./sidebar.tsx";
 
 beforeAll(() => {
-  // jsdom parses <dialog> and implements none of it (docs/GOTCHAS.md, Web and UI).
+  // jsdom parses <dialog> and implements none of it (docs/gotchas/web.md).
   HTMLDialogElement.prototype.showModal ??= function () {
     this.setAttribute("open", "");
   };

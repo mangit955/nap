@@ -298,7 +298,7 @@ list — so the HPA reads `<unknown>` for `nap_ws_connections` and silently fall
 the scrape itself is perfectly healthy. A run that brings a cluster up and immediately starts
 loading it spends its whole ramp on the fallback trigger and cannot tell.
 
-All three are now in `docs/GOTCHAS.md`.
+All three are now in this run's companion report, `docs/scaling-baseline.md`, under "Gotchas from running the ramp".
 
 ## What this run cannot tell you
 
@@ -316,7 +316,7 @@ All three are now in `docs/GOTCHAS.md`.
   measuring a deployment nobody runs.
 - **Nothing a later run's first turns can be compared against on `queue_wait` or `job_duration`.**
   These runs were made while a new sandbox's turn waited for its preview before the agent started.
-  It no longer does (`docs/GOTCHAS.md`, Sandbox and storage), so the calibrated 2,400ms preview
+  It no longer does (`docs/gotchas/sandbox.md`), so the calibrated 2,400ms preview
   render now overlaps the turn instead of preceding `turn.started`: a first turn's `queue_wait`
   and `job_duration` fall by up to that much for a reason that is not the cluster.
   `sandbox_acquisition`, submit to `preview.ready`, still measures what it did; `turn_duration`
@@ -334,7 +334,7 @@ infra/k8s/load/run.sh --down
 
 Roughly forty minutes for the headline profile, most of it the image build and the four pulls.
 `caffeinate` because forty minutes with nobody at the keyboard is long enough for the host to
-suspend, and a run that slept through part of its own plateau still passes — see `docs/GOTCHAS.md`.
+suspend, and a run that slept through part of its own plateau still passes — see `docs/scaling-baseline.md`, "Gotchas from running the ramp".
 Reports, k6 summaries and the cluster samples land in `napload-results/<run-id>/`. The comparison
 comes from `--baseline=napload-results/<a previous run>/report.json`, which is how the tables above
 were produced; it reads two finished reports and runs nothing.

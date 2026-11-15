@@ -8,7 +8,7 @@ The desktop's browser exposed the Chrome DevTools Protocol on `127.0.0.1:9222`, 
 
 Four real E2B desktops then failed to start, each answering the owner's stream with `503 desktop_unavailable`. The same script started locally and in a replica built from the template's own `e2bdev/base` image. A diagnostic run kept the script's failure line, "Port 9222 is not owned by this desktop.", and showed why: port 9222 had two listening sockets. Chrome, the recorded owner, held one. No process visible to the desktop user held the other. This is consistent with envd forwarding, but the second listener's process identity and the precise forwarding mechanism remain inferred. Sandbox URLs are public by default (`allowPublicTraffic`). DevTools is full control of the browser: navigation past the URL policy, page JavaScript, cookies. Whether DevTools was reachable from the internet was never measured, and the ownership check refused to start beside the foreign listener. The check was right to.
 
-Time-bounded startup waits were tried first, on the theory that a slow cold VM was missing a fixed attempt count. They are sound and stay, but they did not fix this ([GOTCHAS](../GOTCHAS.md#sandbox-and-storage)).
+Time-bounded startup waits were tried first, on the theory that a slow cold VM was missing a fixed attempt count. They are sound and stay, but they did not fix this ([GOTCHAS](../gotchas/sandbox.md)).
 
 ## Decision
 

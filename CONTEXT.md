@@ -2,7 +2,7 @@
 
 The words this codebase uses for the things it is about, so that one concept has one name. Added
 to when a term actually gets resolved rather than upfront — see `docs/agents/domain.md`. What v1
-*is* lives in `docs/PLAN.md`; why the code is shaped the way it is lives in `docs/GOTCHAS.md`.
+*is* lives in `docs/PLAN.md`; why the code is shaped the way it is lives in `docs/gotchas/`.
 
 ## Glossary
 

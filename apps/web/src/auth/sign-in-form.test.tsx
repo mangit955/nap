@@ -221,8 +221,8 @@ describe("the paper it is written on", () => {
   /**
    * Queried by test id and by counting elements, which the rest of this file never does — the
    * doodle sheet has no accessible surface *by design*, so a role query is the one thing that
-   * cannot see it. The same exception the syntax highlighting makes; see `docs/GOTCHAS.md`
-   * § Web and UI.
+   * cannot see it. The same exception the syntax highlighting makes; see
+   * `docs/gotchas/web.md`.
    */
   it("hangs a sheet of doodles behind the form, out of everyone's way", () => {
     setup();
