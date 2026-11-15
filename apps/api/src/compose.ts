@@ -55,7 +55,6 @@ import type { PageCapture } from "@nap/shared/ports/page-capture";
 import type { ProjectSandboxStore } from "@nap/shared/ports/project-sandbox-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { ProjectTitleStore } from "@nap/shared/ports/project-title-store";
-import type { ProviderAccountStore } from "@nap/shared/ports/provider-account-store";
 import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
@@ -83,7 +82,6 @@ import type { HealthProbe } from "./health.ts";
 import { createMetrics, type Metrics } from "./metrics.ts";
 import type { CreatedProject } from "./projects/routes.ts";
 import { SessionTitler } from "./projects/session-titler.ts";
-import type { ProviderSignInRunner } from "./providers/sign-in.ts";
 import { resolveTitleAccess } from "./turns/model-access.ts";
 import { TurnRegistry } from "./turns/registry.ts";
 
@@ -100,7 +98,6 @@ export type NapConfig = Pick<
   | "NAP_MODEL"
   | "NAP_FALLBACK_MODEL"
   | "NAP_SUBAGENT_MODEL"
-  | "NAP_SIDEKICK_MODEL"
   | "NAP_FREE_MODEL"
   | "NAP_ALLOWED_MODELS"
   | "NAP_MAX_STEPS"
@@ -223,15 +220,9 @@ export type NapDeps = {
   snapshots: SnapshotStore;
   userKeys: UserKeyStore;
   /**
-   * The provider accounts people connect, and what runs their sign-in. Optional, and absent means
-   * no `/providers` routes — most compositions here are load and preview harnesses with no use for
-   * them.
-   */
-  providerAccounts?: { store: ProviderAccountStore; signIn: ProviderSignInRunner };
-  /**
    * One store and one bus, handed to the runtime that publishes *and* the socket that
    * subscribes. Taking them as one pair rather than two is the point: a second pair type-checks,
-   * boots, and streams nothing (`docs/GOTCHAS.md`, API section).
+   * boots, and streams nothing (`docs/gotchas/api.md`).
    */
   events: EventStore;
   bus: EventBus;
@@ -456,7 +447,6 @@ export function composeNap(deps: NapDeps): ComposedNap {
         config.NAP_SUBAGENT_MODEL === undefined
           ? undefined
           : { explore: config.NAP_SUBAGENT_MODEL },
-      sidekickModel: config.NAP_SIDEKICK_MODEL,
     }),
     events: deps.events,
     bus: deps.bus,
@@ -634,15 +624,6 @@ export function composeNap(deps: NapDeps): ComposedNap {
       viewers: deps.projectSandboxes,
     },
     files: { sessions: deps.sessions, sandbox: deps.sandbox },
-    ...(deps.providerAccounts === undefined
-      ? {}
-      : {
-          providers: {
-            accounts: deps.providerAccounts.store,
-            signIn: deps.providerAccounts.signIn,
-            webOrigin: config.NAP_WEB_ORIGIN,
-          },
-        }),
     account: {
       keys: deps.userKeys,
       encryptionKey: deps.encryptionKey,

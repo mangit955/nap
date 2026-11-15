@@ -830,7 +830,7 @@ and never changes a score.
 
 ## What the tests need
 
-Filename decides which suite a test belongs to; see `CLAUDE.md`. For NapBench specifically:
+Filename decides which suite a test belongs to; see `docs/testing.md`. For NapBench specifically:
 
 | Suite | Command | Needs | Costs |
 |---|---|---|---|

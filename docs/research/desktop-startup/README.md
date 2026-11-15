@@ -36,13 +36,13 @@ The accepted P2 review found a gap between browser launch and ownership publicat
 
 After the pipe repair, both suites pass. Before publication, interruption or write failure leaves no browser listener and a retry succeeds. Interruption after rename but before `GO` leaves a replaceable dead record. SIGKILL after `GO` leaves an owned browser that same-port retry reuses and changed-port retry replaces. Existing unknown-listener and identity-mismatch checks remain fail closed.
 
-`packages/sandbox/src/desktop-start.test.ts` executes a fixture copy of the complete shell script. Only fixed state, policy, and `/proc` roots are redirected. Bash command fixtures supply desktop and Linux services without writing host user files. The tests cover reuse, replacement, policy, unknown listeners, process identity, readiness failures, retries, lock failure, and invalid ports.
+`packages/sandbox/src/desktop-start.computer.test.ts` executes a fixture copy of the complete shell script. Only fixed state, policy, and `/proc` roots are redirected. Bash command fixtures supply desktop and Linux services without writing host user files. The tests cover reuse, replacement, policy, unknown listeners, process identity, readiness failures, retries, lock failure, and invalid ports.
 
 The guard mutation runner temporarily removes one behavior at a time, requires an assertion failure, and restores the original shell in `finally`. All fourteen mutations produced assertion failures; [the recorded results](guard-mutations.tsv) include the original ten ownership and readiness guards, plus waiting for `GO`, exiting on pipe EOF, publication before release, and preserving the browser PID through exec. The private debugger added eight more; see below.
 
 ```bash
 bash docs/research/desktop-startup/guard-mutations.sh
-bunx --no-install vitest run --project unit packages/sandbox/src/desktop-start.test.ts
+bunx --no-install vitest run --project computer packages/sandbox/src/desktop-start.computer.test.ts
 ```
 
 The free Linux smoke uses the existing `nap-desktop-local-smoke` image, a read-only repository mount, and the freshly bundled driver mounted where the image installs it, so the real bridge runs:

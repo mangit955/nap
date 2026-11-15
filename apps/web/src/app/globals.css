@@ -650,7 +650,7 @@ body {
  * visible tab, and both stand still for reduced motion and forced colours, where the shine is
  * plain `muted` text and the spotlight is simply not drawn.
  *
- * `background-clip: text` and an animated element do not mix (`docs/GOTCHAS.md`, Web and UI):
+ * `background-clip: text` and an animated element do not mix (`docs/gotchas/web.md`):
  * the shine animates its own background position and nothing else, and the spotlight never
  * clips text at all — it masks an ordinary copy.
  */

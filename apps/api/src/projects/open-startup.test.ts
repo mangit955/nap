@@ -212,7 +212,7 @@ describe.each([false, true])("opening a project, restored=%s", (restored) => {
   // This pins a known cost, not a goal. The open's announcement must be written under its own
   // lease, so a message sent meanwhile waits for the dev server, up to the probe timeout. Removing
   // the wait needs the running open to learn a request is queued and hand the announcement over,
-  // which nothing does yet. See docs/GOTCHAS.md, "Sandbox and storage".
+  // which nothing does yet. See docs/gotchas/sandbox.md.
   it.each(["turns", "steers"])(
     "still queues an immediate message through /%s until the open's announcement settles",
     async (route) => {

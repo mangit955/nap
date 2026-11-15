@@ -2,7 +2,7 @@
 
 The words this codebase uses for the things it is about, so that one concept has one name. Added
 to when a term actually gets resolved rather than upfront — see `docs/agents/domain.md`. What v1
-*is* lives in `docs/PLAN.md`; why the code is shaped the way it is lives in `docs/GOTCHAS.md`.
+*is* lives in `docs/PLAN.md`; why the code is shaped the way it is lives in `docs/gotchas/`.
 
 ## Glossary
 
@@ -302,15 +302,7 @@ is not a field anywhere: it is the person's next message, whether they clicked a
 conversation and fewer tools: *explore* reads and searches, *general* may also edit and run
 commands. It spends the turn's budget, ends with the turn, and leaves only its start, its file
 changes and its report in the log. Offered to imported repositories. Called a subagent in the code
-(`run_subagent`), which is the same thing. With **Fusion** on, an explore helper runs on the
-**sidekick**.
-
-**Fusion** — a turn's **lead** paired with a cheaper **sidekick**, which the deployment names and
-pays for (`NAP_SIDEKICK_MODEL`). The lead is the model the turn runs on, the one the person picked.
-The sidekick only *condenses*: it runs explore helpers and writes compaction summaries, which are
-text that only the lead reads. A summary it fails is written by the lead; a search it fails is
-reported to the lead, which can search for itself. It is used only on turns the deployment pays for,
-never on a person's own key or a free lead. See `docs/adr/0030-fusion-the-sidekick-condenses-and-the-lead-acts.md`.
+(`run_subagent`), which is the same thing.
 
 **Background shell** — a command started to keep running, read and typed into and stopped by id
 over later calls. Its state lives in files inside the sandbox, so it outlives the turn and the worker
@@ -373,13 +365,7 @@ a project put away and restarted has two announcements and only one live sandbox
 **Installation** — one GitHub App installation on a personal account or organization, bound to the
 one Nap owner who connected it; what the UI calls a **GitHub connection**. It stays reserved to that
 owner across a disconnect. Only GitHub answering 404 for it marks it *removed*; a rate limit or an
-outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0016`.
-
-**Provider account** — one Claude or ChatGPT subscription a Nap owner connected, so turns can run
-on the plan they already pay for; what the Providers settings page lists. A person may hold several
-of one provider ("Personal", "Work"). The provider's own agent keeps its login — Nap stores no
-credential for it, only what the provider last reported about who is signed in. Not the
-`LLMProvider`, which is model policy, and not an API key, which pays per token.
+outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0033`.
 
 **Repository job** — the GitHub side of a **Job** in an imported project: its `nap/<job-id>` branch,
 base and head commits, the commit it pushed, and its pull request. A row in `repository_jobs`, keyed

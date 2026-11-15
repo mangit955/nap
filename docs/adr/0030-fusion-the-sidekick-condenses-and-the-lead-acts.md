@@ -1,6 +1,6 @@
 # ADR-0030 — Fusion: the sidekick condenses, and the lead acts
 
-**Status:** Accepted, 2026-11-07. Built and tested on `ScriptedLLMProvider` and the in-memory sandbox. No real model has run it, so it is unmeasured whether a cheaper sidekick's searches and summaries are good enough for the lead to act on, or how much it saves. Closes the "lead/sidekick pairing" item ADR-0020 deferred.
+**Status:** Superseded, 2026-11-15 — Fusion was removed from the code before any real model ran it, to keep the agent loop small; explore helpers run on `NAP_SUBAGENT_MODEL` or the turn's own model, and compaction summaries on the turn's model. What follows is the decision as it stood. Accepted, 2026-11-07. Built and tested on `ScriptedLLMProvider` and the in-memory sandbox. No real model has run it, so it is unmeasured whether a cheaper sidekick's searches and summaries are good enough for the lead to act on, or how much it saves. Closes the "lead/sidekick pairing" item ADR-0020 deferred.
 
 ## Context
 
@@ -81,7 +81,7 @@ What this does not guarantee:
 
 ### D5: Every sidekick token is the turn's
 
-- The sidekick's usage goes to the turn's `TurnBudget`, a failed attempt's included. Fusion does not move the ceiling (ADR-0031 later changed its unit for every turn), so a turn whose sidekick overspends fails on the budget as any other turn would (D4, "A wasted attempt still counts").
+- The sidekick's usage goes to the turn's `TurnBudget`, a failed attempt's included. Fusion does not move the ceiling (ADR-0034 later changed its unit for every turn), so a turn whose sidekick overspends fails on the budget as any other turn would (D4, "A wasted attempt still counts").
 - A summary counts one step whichever model writes it, so step ceilings do not move either.
 - `turn.completed.usage` includes the sidekick's tokens, both for helpers (as before) and for summaries. The sidekick's model conversation is in the same list the fallback model's is.
 - `compaction.completed.usage` includes a failed attempt as well as the lead's repeat.
@@ -89,7 +89,7 @@ What this does not guarantee:
 
 `TurnBudget` counts tokens, not money, so a sidekick token weighs the same as a lead token against the ceiling. That is deliberate: the ceiling bounds work, and the saving is in price, not in tokens.
 
-> **Amended by [ADR-0031](0031-the-turn-budget-is-denominated-in-what-is-billed.md).** `TurnBudget` now counts billed tokens: each request's usage is charged at the weights of the model that produced it, so a sidekick token is charged at the sidekick's weights and a lead token at the lead's. The ceiling's number and unit both changed there. Everything else in D5 stands: every sidekick token, a failed attempt's included, is still the turn's.
+> **Amended by [ADR-0034](0034-the-turn-budget-is-denominated-in-what-is-billed.md).** `TurnBudget` now counts billed tokens: each request's usage is charged at the weights of the model that produced it, so a sidekick token is charged at the sidekick's weights and a lead token at the lead's. The ceiling's number and unit both changed there. Everything else in D5 stands: every sidekick token, a failed attempt's included, is still the turn's.
 
 ### D6: No event-contract change
 
@@ -107,7 +107,7 @@ The lead's tool block and system prompt, the prefix its cache reads, are byte-id
 - Under today's access policy Fusion reaches only free-tier turns on `NAP_FREE_MODEL`, and saves money only when that model is dearer than the sidekick (D3, "What that reaches").
 - On a Nap project, Fusion changes only who writes compaction summaries. Helpers are still offered only to imported repositories, so that is the only place it changes who searches.
 - A person sees no difference in the pane. What they could notice is the quality of the lead's work after a compaction, or after a sidekick search, if the sidekick is weak. That is what a funded run has to measure.
-- Mutation-checked: each guard below was broken on purpose and the suite caught it: the own-key rule, the same-model rule, fallback on bad output, fallback on a throw, the deadline, no fallback for a cancelled turn, budget recording, usage reporting, the breaker after a bad answer and after a timeout, room for the lead's repeat, step counting, the window check, explore-only routing, failed-attempt usage, the allowlist check and the both-set check. A repair round added more, each also seen to fail: the free-lead rule, the room for the lead's next request and the automatic reserve in step 2, an over-strict room check, the shared summary rule in the agent, the tool-call clause of that rule, recording a failed attempt's tokens in the budget, the deadline under a turn signal, the race against a sidekick that ignores its abort, the abort reaching the sidekick, and a sidekick whose conversation cannot be opened. The first runs missed two of them. That is now in `docs/GOTCHAS.md` (Testing).
+- Mutation-checked: each guard below was broken on purpose and the suite caught it: the own-key rule, the same-model rule, fallback on bad output, fallback on a throw, the deadline, no fallback for a cancelled turn, budget recording, usage reporting, the breaker after a bad answer and after a timeout, room for the lead's repeat, step counting, the window check, explore-only routing, failed-attempt usage, the allowlist check and the both-set check. A repair round added more, each also seen to fail: the free-lead rule, the room for the lead's next request and the automatic reserve in step 2, an over-strict room check, the shared summary rule in the agent, the tool-call clause of that rule, recording a failed attempt's tokens in the budget, the deadline under a turn signal, the race against a sidekick that ignores its abort, the abort reaching the sidekick, and a sidekick whose conversation cannot be opened. The first runs missed two of them. That is now in `docs/gotchas/testing.md`.
 
 ## Unverified, and what a funded run needs
 

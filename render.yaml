@@ -1,8 +1,8 @@
 # The Render deployment: three services and their database, one image, one source of truth.
 #
-# The same shape as `.railway/railway.ts`, for the platform that replaced it: the API serves, the
-# worker executes, the reaper sweeps, and all three are the one Dockerfile with a different
-# entrypoint. See docs/DEPLOY.md for what each process owns and why the reaper is exactly one.
+# The API serves, the worker executes, the reaper sweeps, and all three are the one Dockerfile
+# with a different entrypoint. See docs/DEPLOY.md for what each process owns and why the reaper
+# is exactly one.
 #
 # Secrets are `sync: false` — Render asks for each value once, when the Blueprint is first created,
 # and never writes one back here. This file is committed; the values are not.

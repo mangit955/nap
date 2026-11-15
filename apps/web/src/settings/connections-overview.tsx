@@ -16,7 +16,6 @@ import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { TROUBLE } from "../github/connection-drawer.tsx";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
-import { ClaudeIcon, OpenAIIcon } from "../providers/provider-icons.tsx";
 import { ChevronRight, GithubIcon, KeyIcon } from "../ui/icons.tsx";
 import { SettingsShell } from "./settings-shell.tsx";
 import { BackLink, Callout, Card, PRIMARY_BUTTON, ROW_BUTTON, Section } from "./settings-ui.tsx";
@@ -135,18 +134,6 @@ export function ConnectionsOverview({
               name={key.state?.configured ? PLATFORM[key.state.platform] : "API key"}
               status={keyStatus}
               configure={key.state?.configured === true}
-            />
-            <ProviderRow
-              href="/settings/providers"
-              icon={
-                <span className="flex items-center gap-1">
-                  <OpenAIIcon className="size-4" />
-                  <ClaudeIcon className="size-4" />
-                </span>
-              }
-              name="Claude and ChatGPT subscriptions"
-              status="Running turns on a subscription isn't available yet"
-              configure={false}
             />
           </Card>
         </Section>

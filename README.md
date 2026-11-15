@@ -1,13 +1,15 @@
 # nap
 
-**Describe an app. Step away. Come back to a project with evidence behind it.**
+**Give a coding agent a task. Step away. Come back to a verified commit, with evidence behind it.**
 
-nap is an open-source AI app builder for software work that needs more than a model response. You
-describe an app in chat. An agent writes it into an isolated sandbox, serves a live preview, commits
-the workspace, and runs the project's own checks before nap calls the work verified.
+nap is an open-source cloud coding agent. You describe a change in chat, for a new app or for a
+GitHub repository you connect. An agent works on it in its own isolated cloud machine, with files, a
+terminal and a desktop whose browser it can see and click. nap runs the project's own checks before
+it calls the work verified, can test the running app and record what the agent saw, and opens a
+pull request for a connected repository.
 
-Use nap as an app, a local runtime, or a reference implementation for long-running coding-agent
-systems.
+Use nap as a hosted app, a local runtime, or a reference implementation for long-running
+coding-agent systems.
 
 A model saying "done" is a claim. A passing checkpoint is evidence.
 
@@ -34,6 +36,12 @@ project checks, verification, and the resulting app. The [full session is on the
   that passes the discovered checks becomes a checkpoint, which is nap's last known-good state.
 - **Repairs bounded failures.** A failed check opens another turn with the failure in its context.
   The repair budget has a hard limit.
+- **Works on your repositories.** Connect a GitHub repository and each job works on its own branch.
+  A verified job is published as a draft pull request, and review feedback you approve starts the
+  next job.
+- **Tests the app like a user would.** On a model that can read images, the agent gets a desktop
+  with Chrome on the project's dev server. "Test the app" states each expectation before acting,
+  records a video, and offers a fix when something fails. It never starts the fix on its own.
 - **Puts idle projects away.** nap stores the Git repository, destroys the idle sandbox, and restores
   the project when you return.
 
@@ -68,7 +76,7 @@ real-model measurements tested the verification path and did not establish a mod
 | Job, turn, and verification completion | **100%** |
 | Sequence gaps, duplicate events, WebSocket failures | **0** |
 | Event delivery at 100 concurrent turns | **20 ms p95** |
-| Fast local suite at this revision | **3,982 tests in 288 files** |
+| Fast local suite at this revision | **7,266 passing tests in 480 files** |
 
 The latest cluster run included 231 mid-turn reconnects. It ran on 24 August 2026 after an earlier
 run on 23 August. Read the [cluster report](docs/scaling-cluster.md) and the [single-process baseline](docs/scaling-baseline.md)
@@ -215,7 +223,7 @@ benchmark details.
 - [`docs/NAPBENCH.md`](docs/NAPBENCH.md) for benchmark design, scoring, and task authoring.
 - [`docs/scaling-design.md`](docs/scaling-design.md) for queue semantics, leases, and load-test invariants.
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) for deployment topology and environment variables.
-- [`docs/GOTCHAS.md`](docs/GOTCHAS.md) for constraints that have caused real failures.
+- [`docs/gotchas/`](docs/gotchas/README.md) for constraints that have caused real failures, one file per area.
 - [`CLAUDE.md`](CLAUDE.md) for repository commands and contribution conventions.
 - [`SECURITY.md`](SECURITY.md) to report a vulnerability.
 

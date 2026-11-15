@@ -30,7 +30,6 @@
 # The API's business, not the browser's.
 /Dockerfile
 /.dockerignore
-/railway.json
 /infra
 /test
 /docs

@@ -17,7 +17,7 @@
  * **Why the split matters.** A turn re-sends its whole conversation on every round trip, and
  * from the second one on most of it comes from the cache at a tenth of the price. A budget
  * that counts the prompt at face value runs out an order of magnitude early. See
- * `docs/GOTCHAS.md`, "Model and provider".
+ * `docs/gotchas/model.md`.
  */
 
 import { z } from "zod";

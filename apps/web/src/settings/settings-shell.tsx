@@ -12,14 +12,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
-import {
-  ArrowLeftIcon,
-  ConnectionsIcon,
-  HelpIcon,
-  KeyIcon,
-  ProvidersIcon,
-  SearchIcon,
-} from "../ui/icons.tsx";
+import { ArrowLeftIcon, ConnectionsIcon, HelpIcon, KeyIcon, SearchIcon } from "../ui/icons.tsx";
 import { FOCUS } from "./settings-ui.tsx";
 
 export type Crumb = { label: string; href?: string };
@@ -42,7 +35,7 @@ export function SettingsShell({
   connectionsHref?: string;
   /** The page sits beneath the rail's Connections entry rather than being it. */
   nested?: boolean;
-  activePage?: "connections" | "providers" | "archived" | "sidebar";
+  activePage?: "connections" | "archived" | "sidebar";
   /**
    * Opens the API key dialog. A page that already shows the key's state passes its own, so the
    * rail and the page answer from one state; without it the rail opens a dialog of its own.
@@ -125,18 +118,6 @@ export function SettingsShell({
                 </a>
               </li>
             )}
-            {matches("Providers") && (
-              <li>
-                <a
-                  href="/settings/providers"
-                  aria-current={activePage === "providers" ? "page" : undefined}
-                  className={`${ITEM} ${activePage === "providers" ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover"}`}
-                >
-                  <ProvidersIcon className="size-4 text-ink-2" />
-                  Providers
-                </a>
-              </li>
-            )}
             {matches("Archived sessions") && (
               <li>
                 <a
@@ -173,7 +154,6 @@ export function SettingsShell({
             )}
           </ul>
           {!matches("Connections") &&
-            !matches("Providers") &&
             !matches("API key") &&
             !matches("Archived sessions") &&
             !matches("Sidebar") && (

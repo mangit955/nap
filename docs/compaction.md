@@ -4,7 +4,7 @@ Nap supports `/compact` and the Context control on its existing Anthropic API an
 routes. Automatic compaction runs in the active model/tool loop as well as at the start of a
 turn. It uses the configured input budget, provider window when supplied, response headroom,
 and reported input with estimated growth. What is left of the turn's budget is not a trigger
-([ADR-0031](adr/0031-the-turn-budget-is-denominated-in-what-is-billed.md)). T3's Claude prompt-cache
+([ADR-0034](adr/0034-the-turn-budget-is-denominated-in-what-is-billed.md)). T3's Claude prompt-cache
 expiry rules are not used for these routes.
 
 Current API/OpenRouter handles do not report a provider window. Their guard uses the configured

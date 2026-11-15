@@ -19,9 +19,8 @@ export const MODEL_MEDIA_UNSUPPORTED =
 
 /**
  * Whether a model costs nothing to run: OpenRouter's `:free` suffix, the only thing that marks
- * one. A suffix rather than a substring, so `:free-tier-preview` is not free. One answer for the
- * API, which offers these to people with no key, and the agent, which must never add paid work
- * to a turn on one.
+ * one. A suffix rather than a substring, so `:free-tier-preview` is not free. One answer for
+ * everything in the API that offers these to people with no key.
  */
 export function isFreeModel(model: string | undefined): boolean {
   return model?.endsWith(":free") === true;

@@ -4,7 +4,7 @@
  *
  * Skipped on macOS, which has no `setsid` and no `/proc`. Nowhere else: CI is Linux and the sandbox
  * is Debian, so a Linux missing `setsid` is a broken environment, and these should fail there rather
- * than quietly not run. See docs/GOTCHAS.md for running them on Debian from a Mac.
+ * than quietly not run. See docs/gotchas/sandbox.md for running them on Debian from a Mac.
  */
 
 import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from "node:child_process";

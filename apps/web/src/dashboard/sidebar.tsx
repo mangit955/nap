@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { useSessionSearch } from "../projects/use-session-search.ts";
-import { ConnectionsIcon, ProvidersIcon, SpinnerIcon } from "../ui/icons.tsx";
+import { ConnectionsIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { DraftRows } from "./draft-rows.tsx";
 import { preloadDrag, SessionList } from "./session-list.tsx";
 import { SEARCH_LISTBOX_ID, SessionSearchResults, searchOptionId } from "./session-search.tsx";
@@ -392,10 +392,6 @@ export function AccountMenu({
             <a role="menuitem" href="/settings/connections" className={MENU_ROW}>
               <ConnectionsIcon className="size-4 shrink-0" />
               Connections
-            </a>
-            <a role="menuitem" href="/settings/providers" className={MENU_ROW}>
-              <ProvidersIcon className="size-4 shrink-0" />
-              Providers
             </a>
             <MenuItem onClick={onApiKey}>
               <KeyIcon />

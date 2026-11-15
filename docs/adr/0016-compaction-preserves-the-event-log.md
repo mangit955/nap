@@ -1,7 +1,7 @@
 # ADR-0016 — Compaction preserves the event log
 
 **Status:** Accepted — 2026-10-19. Narrowed by
-[ADR-0031](0031-the-turn-budget-is-denominated-in-what-is-billed.md): automatic compaction now
+[ADR-0034](0034-the-turn-budget-is-denominated-in-what-is-billed.md): automatic compaction now
 answers to the context's size alone, not to what is left of the turn's budget.
 
 A long tool loop can exhaust its budget even when its initial context fits. Keep ADR-0011's
