@@ -64,6 +64,22 @@ describe("the checker catches a dead citation", () => {
     expect(findDeadCitations(files, only())).toEqual([]);
   });
 
+  it("resolves a Markdown link from its own folder, so text moved down a level is caught", () => {
+    const moved = [{ path: "docs/gotchas/model.md", contents: "see [compaction](compaction.md)" }];
+    expect(findDeadCitations(moved, only("docs/compaction.md"))).toEqual([
+      { path: "docs/gotchas/model.md", line: 1, cited: "docs/gotchas/compaction.md" },
+    ]);
+    const fixed = [{ path: "docs/gotchas/model.md", contents: "see [it](../compaction.md#d4)" }];
+    expect(findDeadCitations(fixed, only("docs/compaction.md"))).toEqual([]);
+  });
+
+  it("leaves web links and site paths to the browser", () => {
+    const files = [
+      { path: "docs/DEPLOY.md", contents: "[a](https://render.com/docs/x.md) [b](/docs/x.md)" },
+    ];
+    expect(findDeadCitations(files, only())).toEqual([]);
+  });
+
   it("still checks an ADR, whose links are kept current", () => {
     const files = [{ path: "docs/adr/0030-x.md", contents: "now in `docs/GOTCHAS.md`." }];
     expect(findDeadCitations(files, only())).toHaveLength(1);
