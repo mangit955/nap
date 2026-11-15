@@ -453,7 +453,7 @@ worker-first release while old readers are still up. Finally run the
 **CI** workflow on `main` with **Run workflow** while `main` is still that commit: the release
 script finds all three services live at it, reuses them, and deploys the web at the same SHA. Do
 not use the manual release script for this change, since it deploys the worker first. See
-[ADR-0031](adr/0031-the-turn-budget-is-denominated-in-what-is-billed.md).
+[ADR-0034](adr/0034-the-turn-budget-is-denominated-in-what-is-billed.md).
 
 ## Viewer keep-warm rollout
 

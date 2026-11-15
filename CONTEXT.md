@@ -373,7 +373,7 @@ a project put away and restarted has two announcements and only one live sandbox
 **Installation** — one GitHub App installation on a personal account or organization, bound to the
 one Nap owner who connected it; what the UI calls a **GitHub connection**. It stays reserved to that
 owner across a disconnect. Only GitHub answering 404 for it marks it *removed*; a rate limit or an
-outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0016`.
+outage changes nothing stored. See `docs/github-integration.md` and `docs/adr/0033`.
 
 **Provider account** — one Claude or ChatGPT subscription a Nap owner connected, so turns can run
 on the plan they already pay for; what the Providers settings page lists. A person may hold several

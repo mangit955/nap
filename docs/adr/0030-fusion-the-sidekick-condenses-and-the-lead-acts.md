@@ -81,7 +81,7 @@ What this does not guarantee:
 
 ### D5: Every sidekick token is the turn's
 
-- The sidekick's usage goes to the turn's `TurnBudget`, a failed attempt's included. Fusion does not move the ceiling (ADR-0031 later changed its unit for every turn), so a turn whose sidekick overspends fails on the budget as any other turn would (D4, "A wasted attempt still counts").
+- The sidekick's usage goes to the turn's `TurnBudget`, a failed attempt's included. Fusion does not move the ceiling (ADR-0034 later changed its unit for every turn), so a turn whose sidekick overspends fails on the budget as any other turn would (D4, "A wasted attempt still counts").
 - A summary counts one step whichever model writes it, so step ceilings do not move either.
 - `turn.completed.usage` includes the sidekick's tokens, both for helpers (as before) and for summaries. The sidekick's model conversation is in the same list the fallback model's is.
 - `compaction.completed.usage` includes a failed attempt as well as the lead's repeat.
@@ -89,7 +89,7 @@ What this does not guarantee:
 
 `TurnBudget` counts tokens, not money, so a sidekick token weighs the same as a lead token against the ceiling. That is deliberate: the ceiling bounds work, and the saving is in price, not in tokens.
 
-> **Amended by [ADR-0031](0031-the-turn-budget-is-denominated-in-what-is-billed.md).** `TurnBudget` now counts billed tokens: each request's usage is charged at the weights of the model that produced it, so a sidekick token is charged at the sidekick's weights and a lead token at the lead's. The ceiling's number and unit both changed there. Everything else in D5 stands: every sidekick token, a failed attempt's included, is still the turn's.
+> **Amended by [ADR-0034](0034-the-turn-budget-is-denominated-in-what-is-billed.md).** `TurnBudget` now counts billed tokens: each request's usage is charged at the weights of the model that produced it, so a sidekick token is charged at the sidekick's weights and a lead token at the lead's. The ceiling's number and unit both changed there. Everything else in D5 stands: every sidekick token, a failed attempt's included, is still the turn's.
 
 ### D6: No event-contract change
 
