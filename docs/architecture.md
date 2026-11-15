@@ -1,0 +1,54 @@
+# Architecture
+
+The package layout, the dependency rules a test enforces, and which component owns what. `CLAUDE.md`
+carries the short version; this is the reference. What each concept is called is in `CONTEXT.md`.
+
+## Layout
+
+```
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench  loadgen
+apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
+harbor/    the benchmark as an external harness's agent — Python, outside the workspace
+render.yaml  the deployment — three services and their database, one image. See docs/DEPLOY.md
+```
+
+**`render.yaml` is YAML, so typecheck and lint never read it.** `test/production-release.test.ts`
+checks the release's claims about it; `render blueprints validate render.yaml` checks it against
+Render's own schema and needs the Render CLI and a login.
+
+**`apps/api` is three processes, not one.** `src/index.ts` serves and executes nothing; `src/worker.ts` executes and serves nothing; `src/reaper.ts` sweeps and does neither, as **exactly one replica** guarded by an advisory lock. All three call `bootNap` in `src/boot.ts`, which builds the real clients and hands them to the one `composeNap` — the role it passes decides which loops start. Adding a dependency means touching `boot.ts` once, never three times. See `docs/DEPLOY.md`.
+
+**Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
+
+- **`bench` sits beside `shared`** rather than above `runtime`: it is NapBench's pure half — tasks, scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships. See `docs/adr/0001`.
+- **`loadgen` sits beside `bench`** and for the same reason: percentile maths, metric rollup, threshold verdicts, degradation rules, k6-summary parsing and the scripted user's ordering, written against ports and knowing nothing about a socket or a server. `apps/api/scripts/loadgen-composition.ts` is the shell that composes the real API with a fake sandbox and a fake model against a real Postgres; `loadgen.ts` drives it with in-process users and `loadgen-ramp.ts` holds it open for k6.
+- **`verify` sits *below both* `runtime` and `bench`**: running one check against a sandbox and saying whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the benchmark uses it to build a score. The edge that must never exist is `runtime` → `bench` — the system under test importing the thing that grades it. See `docs/adr/0007`.
+
+This is enforced by `test/architecture.ts`, not by vigilance, and at both ends: one rule reads every package's `package.json`, a second reads the `@nap/*` specifiers its `src` and `scripts` actually import — type-only ones included, because Bun hoists workspace packages and an undeclared import otherwise resolves, typechecks and ships. Either way `bun run test` goes red. Three things hold:
+
+- Every file may only import a package its manifest declares.
+- Shipped source — `src`, minus the tests — may only import what the table above allows, and must have it as a real `dependency`. Tests and `scripts/` answer to the manifest but not the table, which is how sibling packages arrive as devDependencies for their fakes.
+- `@nap/bench` is the exception to that exemption: nothing below `apps/napbench` may import it, tests included. See `docs/adr/0007`.
+
+Adding a new workspace package also fails the test until you add it to the rule table there.
+
+## Component ownership
+
+Drift here is the most expensive kind of mistake. Before adding code to a component, check it belongs there.
+
+| Component | Owns | Never does |
+|---|---|---|
+| `TurnQueue` | The durable queue of turn requests and the per-session leases that make one exclusive: enqueue, claim, renew, settle, cancel. Announcing a claim wake-up after every write that can make a request claimable, as every other writer of `turn_requests` must too (ADR-0027). **One in-flight request per session cluster-wide, enforced by a partial unique index** rather than by any caller remembering. Also the one answer to **"is this session busy?"** — `anyLeased`, which close, delete and the idle sweep all ask, so busy means the same thing in every process. **Where a steer lands** (`SteerQueue`, the same store): joined to the leased request, read, or queued as the next turn at its close — admission and close are serialized on the request's row (ADR-0028) | Running anything. Holding a credential — it records *whether* the asker pays, never their key. Deciding who may start a turn, which is the route's |
+| `TurnWorker` | Claiming a request, renewing its lease, running it through the `Runtime`, settling the row — and **aborting the turn the moment a renewal says the lease is gone or the turn was cancelled**, renewing early when a cancel wake-up names a request it is running. Claiming at once on a claim wake-up or when one of its own turns finishes, and otherwise polling slowly, or at the old fast interval when it cannot hear (ADR-0027). Draining on shutdown: stop claiming, wait, keep renewing throughout, abort what is left at the deadline. It is what `apps/api/src/worker.ts` is Routing a `publish` request to the injected publisher under the same lease, renewals and cancellation; it spends no model tokens. | Admission, ceilings, model access. Deciding *what* a turn does — it drives the `Runtime` and owns none of it. Serving anything |
+| `Runtime` | Turn lifecycle: log the prompt → acquire sandbox → build context → run agent → persist → publish → commit → verify → snapshot, all under the lease, then *ask* the `ThumbnailLane` for a photograph it takes afterwards (ADR-0022). **The prompt is first and is drained before the acquisition**, so a project's first turn shows its author something while the workspace is still coming up. Budgets, cancellation, recovery. **Reserving sandbox capacity at the point of creation** — the authoritative ceiling, since a queued turn may not create anything for a minute — and **reconciling it on the reaper's tick**, so a slot no path gave back comes back in minutes rather than never. Opening and closing the **job** a turn belongs to, arbitrating the turn's claim against the project's own checks, and continuing a job an open found still open (ADR-0006) Writing the compaction history into the sandbox at each API compaction, and regenerating it from events on any turn whose sandbox lacks it (ADR-0021). Calling the `RepositoryWorkspace` port's source, `prepareJob` and `finishJob` hooks for an imported project — `finishJob` may publish under the turn's lease; the GitHub implementation lives in `apps/api`. | Prompt content, model params, tool implementations. Deciding *which* checks exist or how to run one — that is `@nap/verify`'s. Deciding *what* the ceiling is — the limits belong to the composition. Continuing a job nobody asked to see |
+| `ThumbnailLane` | Taking a project's picture after the lease has gone back: one place per project, the newest request winning, a capped queue, and re-reading the workspace before launching a browser and before overwriting the stored picture. Giving up on a shot at its deadline, and freeing its browser's place whether or not the browser heard, while an upload already begun keeps its project's place until it lands. On stop, dropping what waits, giving what runs a short grace, then aborting it | Holding a lease, keeping a sandbox alive, holding a slot of the ceiling or making a session busy. Deciding how many run or wait — the composition's, since both depend on the worker. The snapshot, which must stay under the lease |
+| `ContextEngine` | Assembling context and owning the token budget + truncation order. The summary prompt, and rendering the compaction history the runtime writes. Discovering the project's skills at each build and rendering their listing into the turn context (ADR-0029) | Calling the model; deciding when a turn ends |
+| `AgentService` | Driving the model loop for one turn; executing proxy tools; emitting typed events. Which tools a turn is offered, running reads together, the loop's hooks, recovery the provider cannot do, and helpers inside the turn's budget (ADR-0020). | Persistence, git, sandbox lifecycle, prompt assembly — a helper's prompt comes from the `ContextEngine` like every other |
+| `LLMProvider` | Model *policy* — effort, thinking config, refusal/fallback, retries and the idle window on a stream, usage accounting — and the default model. A turn may override **two** things through `startTurn({ model, credentials })` and nothing else: which model, and whose account pays. Both are facts about who asked rather than preferences, which is why they vary per turn while everything else here does not | Vendor abstraction — it is *not* a cross-vendor swap. Deciding *which* models are allowed, or which key a caller has: that is the route's, via `resolveTurnAccess` |
+| `MemoryProvider` | `retrieve()` / `write()`. v1 is `NoopMemoryProvider` | Anything in v1 — but its call sites are real |
+| `SandboxManager` | Sandbox lifecycle, filesystem, exec, preview URL | Knowing what an agent or a turn is |
+| `SandboxInventory` | What the provider says it is running, for whoever has lost track of one. Separate port, for the reason `ping` is: it asks about the deployment, not about a project | Destroying anything, or deciding what unreferenced means |
+| `PageCapture` | Turning a URL that is already serving into PNG bytes | Waiting for a dev server, deciding when to photograph, or knowing where the picture is kept. Deciding how many may happen at once — that is the composition's, since it depends on the worker's concurrency |
+| `EventStore` / `EventBus` | Durable append, **then** fanout — in that order | Business logic |
+
+**Where tools execute:** we run no agent harness with built-in tools, because a harness's `Read`/`Write`/`Edit`/`Bash` act on the API server's filesystem, not the sandbox. `AgentService` owns its own loop over the `LLMProvider` port, and **the tool set is declared in `packages/agent/src/tools/definitions.ts` and selected per turn by `toolset.ts`** — a name must also be in `TOOL_NAMES`, which is only ever added to. File, search and command tools proxy to `SandboxManager` (background shells keep their state in the sandbox, not in the process); `computer` uses `SandboxDesktop` and object storage and is offered only for image-capable models when desktop access is composed; helpers run a second loop inside the turn's budget. See `docs/adr/0018-the-agent-gets-a-computer.md` and `docs/adr/0020-the-agent-loop-grows-a-registry-and-seams.md`.

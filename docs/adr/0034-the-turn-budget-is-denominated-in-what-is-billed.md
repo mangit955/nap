@@ -1,4 +1,4 @@
-# ADR-0031 — The turn budget is denominated in what is billed
+# ADR-0034 — The turn budget is denominated in what is billed
 
 **Status:** Accepted — 2026-11-09. Amends [ADR-0011](0011-an-old-turns-tool-traffic-is-not-worth-carrying.md)
 ("the 400,000-token turn budget stays where it is") and

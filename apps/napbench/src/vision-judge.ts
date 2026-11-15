@@ -16,7 +16,7 @@
  * **Structured output comes back as a tool call, not as prose to be parsed.** A judge asked for
  * JSON in a fenced block is a judge that will one day return two blocks, or a preamble, and the
  * failure is a parse error on an expensive run. `tool_use` through OpenRouter's Anthropic endpoint
- * is measured rather than assumed — see `docs/GOTCHAS.md` — and `tool_choice` makes it the only
+ * is measured rather than assumed — see `docs/gotchas/model.md` — and `tool_choice` makes it the only
  * thing the model can do.
  *
  * **The judge cites a surface and a viewport; we supply the path.** The evidence in a report names
@@ -72,7 +72,7 @@ export const JUDGE_TOOL_NAME = "submit_judgement";
  * The ceiling on the answer.
  *
  * Small on purpose: OpenRouter reserves the whole of `max_tokens` against the balance before the
- * request runs — see `docs/GOTCHAS.md` — so a generous ceiling is money that has to be sitting
+ * request runs — see `docs/gotchas/model.md` — so a generous ceiling is money that has to be sitting
  * there to ask a question, not money spent. Ten grades with evidence is a couple of thousand
  * tokens; this is roughly double that.
  */

@@ -274,8 +274,5 @@ it("shows search immediately and filters Scratch through the searchable source p
     "href",
     "/settings/archived",
   );
-  expect(screen.getByRole("menuitem", { name: "Providers" })).toHaveAttribute(
-    "href",
-    "/settings/providers",
-  );
+  expect(screen.queryByRole("menuitem", { name: "Providers" })).toBeNull();
 });

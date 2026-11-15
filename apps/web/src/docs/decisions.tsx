@@ -109,8 +109,8 @@ export function Decisions() {
       <P>
         The rest of the reasoning lives beside the code: what the constraints are and why the code
         is shaped around them is in{" "}
-        <Source href={`${REPO_URL}/blob/main/docs/GOTCHAS.md`}>docs/GOTCHAS.md</Source>, and what
-        each concept is called is in{" "}
+        <Source href={`${REPO_URL}/tree/main/docs/gotchas`}>docs/gotchas/</Source>, and what each
+        concept is called is in{" "}
         <Source href={`${REPO_URL}/blob/main/CONTEXT.md`}>CONTEXT.md</Source> — one concept, one
         name, which is why the words on this page are the words in the source.
       </P>

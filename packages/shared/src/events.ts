@@ -368,8 +368,7 @@ export const NapEventSchema = z.discriminatedUnion("type", [
   event("turn.completed", {
     /**
      * Present when the turn spent tokens it could not count: a native compaction that did not
-     * report them, or a request abandoned before its usage arrived — a helper stopped mid-call,
-     * or a Fusion sidekick given up on (ADR-0030).
+     * report them, or a request abandoned before its usage arrived — a helper stopped mid-call.
      */
     usageIncomplete: z.literal(true).optional(),
     usage: TokenUsageSchema,

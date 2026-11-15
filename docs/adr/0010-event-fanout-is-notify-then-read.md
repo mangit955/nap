@@ -89,7 +89,7 @@ lets `infra/k8s/proof` submit a turn to one API pod and stream it from another.
 
 **`LISTEN` needs a session-mode connection, and that leaks into deployment.** *(This one is
 operational as well as architectural, so the version somebody debugging at 2am needs is in
-`docs/GOTCHAS.md` under API, auth and logging; what follows is why the design accepted it.)* It cannot go through
+`docs/gotchas/api.md`; what follows is why the design accepted it.)* It cannot go through
 a transaction pooler — the `LISTEN` lands on a backend that is returned to the pool and the process
 then hears nothing while every query it runs keeps working. Hence `NAP_LISTEN_DATABASE_URL`
 pointing at a direct endpoint, and hence `/readyz` growing a `listener` check that fails: a pod

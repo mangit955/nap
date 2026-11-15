@@ -1,4 +1,4 @@
-# ADR-0016: GitHub access belongs to the project owner
+# ADR-0033: GitHub access belongs to the project owner
 
 **Status:** Accepted, 2026-10-19
 

@@ -686,7 +686,7 @@ export function SessionList({
       // edge would otherwise grow the scroller's overflow — which auto-scroll then chases, and
       // the list runs away under the pointer. Clip is not a scroll container, so sticky still
       // sticks to the scroller outside; `relative` because anything that clips must be
-      // (docs/GOTCHAS.md, Web and UI).
+      // (docs/gotchas/web.md).
       className="relative flex min-h-full flex-col overflow-clip"
       onContextMenu={(event) => {
         if (event.target instanceof HTMLInputElement) return;

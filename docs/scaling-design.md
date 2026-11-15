@@ -358,7 +358,7 @@ principle and `single-agent-runtime.ts:270` — *"an autonomous loop that spends
 watching is a bill, and a crash loop plus auto-continue is a large one"* — carried into a
 distributed system unchanged.
 
-Two consequences the design did not anticipate, both recorded in `docs/GOTCHAS.md` (API section):
+Two consequences the design did not anticipate, both recorded in `docs/gotchas/api.md`:
 the row carries a concrete model, so **an open can now be refused for a model nobody asked for**;
 and an orphaned `resume` gets only a notice when it started no repair. Recorded owned repairs
 are closed under their own turn IDs; the open operation itself has no turn to fail.

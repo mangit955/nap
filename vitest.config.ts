@@ -28,10 +28,24 @@ export default defineConfig({
             "{packages,apps}/*/scripts/**/*.test.ts",
             "test/**/*.test.ts",
           ],
-          // Both of these still match `*.test.ts` — the infix does not stop the glob —
-          // so without excluding them here they would be collected twice, and the `db`
-          // ones would run a second time with no database behind them.
-          exclude: ["**/*.integration.test.ts", "**/*.db.test.ts"],
+          // These still match `*.test.ts` — the infix does not stop the glob — so without
+          // excluding them here they would be collected twice, and the `db` ones would run a
+          // second time with no database behind them.
+          exclude: ["**/*.integration.test.ts", "**/*.db.test.ts", "**/*.computer.test.ts"],
+        },
+      },
+      {
+        // The computer-use suites that start real processes — the desktop start script, the local
+        // Docker sandbox's transport, the app-test command — and take tens of seconds each. Same
+        // node environment as `unit`; split out only so `test:fast` stays fast. `bun run test` and
+        // CI still run them. The `.computer` infix still matches `*.test.ts`, hence the exclude
+        // above.
+        test: {
+          name: "computer",
+          include: [
+            "{packages,apps}/*/src/**/*.computer.test.ts",
+            "{packages,apps}/*/scripts/**/*.computer.test.ts",
+          ],
         },
       },
       {

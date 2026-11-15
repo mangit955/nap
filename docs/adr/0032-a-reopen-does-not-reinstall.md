@@ -110,5 +110,5 @@ A restore's install may itself rewrite a committed file: a stale `bun.lock`, or 
 ### Follow-ups, not built
 
 - **Pause recently idle sandboxes** instead of destroying them, over this cache rather than instead of it. See (b) for what that touches.
-- **Incremental bundles.** A snapshot is still the whole history every turn. GOTCHAS records why: a restore must depend on one object. A chain with periodic full bundles could keep that property, but it changes teardown, which another change is moving off the lease.
+- **Incremental bundles.** A snapshot is still the whole history every turn. `docs/gotchas/sandbox.md` records why: a restore must depend on one object. A chain with periodic full bundles could keep that property, but it changes teardown, which another change is moving off the lease.
 - **Streaming** the bundle and the archive, as above.

@@ -1,4 +1,4 @@
-# The API, as Railway runs it — and the worker and the reaper, the same image with another command.
+# The API, as Render runs it — and the worker and the reaper, the same image with another command.
 #
 # One image for all three parts of the deployment (docs/scaling-design.md §4 and §13). They are
 # composed from the same code and need the same credentials, so three images would be three things
@@ -32,7 +32,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Set here rather than as a platform variable, because the binary and the path to it are two
-# halves of one fact and this image is where both live. A Railway variable could drift from the
+# halves of one fact and this image is where both live. A platform variable could drift from the
 # image that has to satisfy it; this cannot.
 ENV NAP_CHROME_PATH=/usr/bin/chromium
 

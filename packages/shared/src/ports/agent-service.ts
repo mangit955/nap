@@ -82,7 +82,7 @@ export type AgentTurnRequest = {
    *
    * Passed straight through to `LLMProvider.startTurn` and read nowhere else in this
    * component — it must not reach an event, a log line or a tool. See the rule in
-   * `docs/GOTCHAS.md`: everything a turn emits is durable and readable, and a credential that
+   * `docs/gotchas/api.md`: everything a turn emits is durable and readable, and a credential that
    * lands in the `events` table is a secret with the retention of a chat transcript.
    */
   credentials?: ModelCredentials | undefined;

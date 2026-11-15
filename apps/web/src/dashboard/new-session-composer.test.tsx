@@ -222,7 +222,7 @@ it("lets a link go at once from an empty composer, even with storage broken", as
         modelsLoading={false}
         onAddKey={vi.fn()}
       />
-      <a href="/settings/providers">Providers</a>
+      <a href="/settings/connections">Connections</a>
     </>,
   );
   const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
@@ -233,7 +233,7 @@ it("lets a link go at once from an empty composer, even with storage broken", as
   try {
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: "" })));
     save.mockClear();
-    expect(fireEvent.click(screen.getByRole("link", { name: "Providers" }))).toBe(true);
+    expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(true);
     expect(save).not.toHaveBeenCalled();
   } finally {
     save.mockRestore();
@@ -246,7 +246,7 @@ it("writes the emptied composer before a link once its text had been saved", asy
   render(
     <>
       <NewSessionComposer ownerId={ownerId} models={[]} modelsLoading={false} onAddKey={vi.fn()} />
-      <a href="/settings/providers">Providers</a>
+      <a href="/settings/connections">Connections</a>
     </>,
   );
   const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
@@ -260,7 +260,7 @@ it("writes the emptied composer before a link once its text had been saved", asy
     .spyOn(ComposerDraftStore.prototype, "save")
     .mockReturnValue(new Promise<void>(() => {}));
   fireEvent.change(box, { target: { value: "" } });
-  expect(fireEvent.click(screen.getByRole("link", { name: "Providers" }))).toBe(false);
+  expect(fireEvent.click(screen.getByRole("link", { name: "Connections" }))).toBe(false);
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ text: "" })));
 });
 
