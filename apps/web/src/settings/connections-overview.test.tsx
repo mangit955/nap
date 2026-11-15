@@ -60,16 +60,10 @@ describe("Connections overview", () => {
     expect(screen.getByRole("dialog", { name: "Your API key" })).toBeVisible();
   });
 
-  it("says a connected subscription cannot run turns yet", () => {
+  it("offers a key for the paid models, not a subscription", () => {
     render(<ConnectionsOverview fetchJson={api({ configured: false }, { configured: false })} />);
-    const row = screen.getByRole("link", { name: "Claude and ChatGPT subscriptions" });
-    expect(row).toHaveAttribute("href", "/settings/providers");
-    expect(row).toHaveAccessibleDescription("Running turns on a subscription isn't available yet");
     expect(screen.getByText("Bring your own key for the paid models")).toBeVisible();
-    expect(screen.queryByText(/plan you already pay for/i)).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/your own subscription, for the paid models/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/subscription/i)).not.toBeInTheDocument();
   });
 
   it("marks GitHub as needing attention when its only connections are in trouble", async () => {

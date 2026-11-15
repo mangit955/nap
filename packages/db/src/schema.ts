@@ -5,7 +5,6 @@ import type {
   RepositoryJob,
 } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
-import type { ProviderAuthStatus, ProviderDriver } from "@nap/shared/provider-accounts-protocol";
 import type { SessionNavigation } from "@nap/shared/session-navigation";
 import type { NameSource } from "@nap/shared/session-title";
 /**
@@ -210,9 +209,9 @@ export const userApiKeys = pgTable("user_api_keys", {
 });
 
 /**
- * The Claude and ChatGPT accounts a person connected, one row each — several per provider is
- * allowed, as "Personal" and "Work". No credential is stored here: the provider's own agent keeps
- * its login, and these columns only say what it last reported.
+ * Left from the removed subscription feature, which listed the Claude and ChatGPT accounts a person
+ * connected. No code reads or writes it. It stays declared so this schema still matches the
+ * database until a migration drops it, which waits until no running process serves the old routes.
  */
 export const providerAccounts = pgTable(
   "provider_accounts",
@@ -221,14 +220,11 @@ export const providerAccounts = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    driver: text("driver").$type<ProviderDriver>().notNull(),
+    driver: text("driver").notNull(),
     /** Null means "use the provider's own name". */
     label: text("label"),
     enabled: boolean("enabled").notNull().default(true),
-    authStatus: text("auth_status")
-      .$type<ProviderAuthStatus>()
-      .notNull()
-      .default("unauthenticated"),
+    authStatus: text("auth_status").notNull().default("unauthenticated"),
     accountEmail: text("account_email"),
     accountPlan: text("account_plan"),
     createdAt,
