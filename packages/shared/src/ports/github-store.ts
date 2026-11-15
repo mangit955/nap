@@ -23,7 +23,8 @@ export type ImportRepository = Pick<
 > & {
   name: string;
   repository: GitHubRepository;
-  open?: { requestId: string; model: string };
+  /** The first start, queued with the project. `billsToUser` says whose account its turns use. */
+  open?: { requestId: string; model: string; billsToUser: boolean };
 };
 
 export type RepositoryJobUpdate = Partial<

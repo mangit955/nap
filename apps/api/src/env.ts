@@ -74,9 +74,12 @@ const BaseSchema = z.object({
    * Whether somebody with no account at all may look around.
    *
    * On by default, because a builder nobody can try is a screenshot. A demo visitor gets a
-   * throwaway identity, their own projects, and the free models under the lower ceilings
-   * below — so the door being open costs this deployment a bounded amount rather than an
-   * unbounded one. Turning it off is for a deployment that wants a private instance.
+   * throwaway identity and their own projects. Model tokens come from their own key, or, when
+   * `NAP_FREE_MODEL` opens a free tier, from that tier under the lower ceilings below. By
+   * default the door costs no model tokens, but sandboxes always run on this deployment's
+   * account: a visitor who saves a key starts them under the ordinary sandbox ceilings, so
+   * the cost is bounded rather than zero. Turning it off is for a deployment that wants a
+   * private instance.
    */
   NAP_ALLOW_DEMO: z
     .enum(["true", "false"])
@@ -166,10 +169,11 @@ const BaseSchema = z.object({
    * the sidekick fails is written by the lead; a search it fails is reported to the lead.
    *
    * Only on turns the deployment pays for, which under `resolveTurnAccess` are the free tier's
-   * turns on `NAP_FREE_MODEL`. So it saves money only when `NAP_FREE_MODEL` is dearer than the
-   * sidekick, does nothing when the two are the same model, and is never used on a `:free` lead or
-   * on a person's own key, where the expensive leads are. Unset is Fusion off. Must be on the
-   * allowlist, and replaces `NAP_SUBAGENT_MODEL`, so the two may not both be set.
+   * turns on `NAP_FREE_MODEL` — none at all unless that is set. So it saves money only when
+   * `NAP_FREE_MODEL` is dearer than the sidekick, does nothing when the two are the same model,
+   * and is never used on a `:free` lead or on a person's own key, where the expensive leads are.
+   * Unset is Fusion off. Must be on the allowlist, and replaces `NAP_SUBAGENT_MODEL`, so the two
+   * may not both be set.
    */
   NAP_SIDEKICK_MODEL: z.string().min(1).optional(),
 
@@ -181,8 +185,10 @@ const BaseSchema = z.object({
    * allowlist is the whole defence: anything not named here is refused before a sandbox is
    * touched or a single token is spent.
    *
-   * The default includes the demo default (Luna) up front, free models for visitors who
-   * prefer them, and paid choices for people using their own keys.
+   * The default includes the default model (Luna) up front, `:free` models, and paid choices
+   * for people using their own keys. Which of them a caller may reach is
+   * `apps/api/src/turns/model-access.ts`: a caller with no key reaches none of them unless
+   * `NAP_FREE_MODEL` opens a free tier.
    *
    * **Every id here was read from OpenRouter's live catalogue and every one supports tool
    * calling.** That second filter is not a nicety — this agent *is* a tool loop, so a model
@@ -192,11 +198,12 @@ const BaseSchema = z.object({
     .string()
     .default(
       [
-        // The default for everyone — demo visitors and keyed users alike.
+        // The default for an OpenRouter key that names no model.
         "openai/gpt-5.6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
-        // Free alternatives that cost the deployment nothing.
+        // No token cost. Keyless callers reach them only when NAP_FREE_MODEL opens a free
+        // tier, and then the deployment still pays for the sandbox.
         "poolside/laguna-s-2.1:free",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
         // Paid choices for people who bring their own keys.
@@ -247,13 +254,16 @@ const BaseSchema = z.object({
   NAP_FREE_TURNS_PER_HOUR: z.coerce.number().int().positive().default(5),
   NAP_FREE_MAX_SANDBOXES_PER_USER: z.coerce.number().int().positive().default(1),
   /**
-   * What a turn runs on when the caller has no key of their own.
+   * What a turn runs on when the caller has no key of their own — and whether there is a free
+   * tier at all.
    *
-   * Defaults to the same model keyed users get, so the demo experience matches the real one.
-   * The deployment pays for these turns, bounded by the free-tier rate and sandbox ceilings
-   * above.
+   * **Unset by default, which means this deployment pays for nobody.** Somebody with no key is
+   * refused everything that would spend a token or start a sandbox, and offered the key form
+   * instead (`apps/api/src/turns/model-access.ts`). Setting it opens a free tier on this model,
+   * paid for by the deployment and bounded by the two ceilings above. It may be a paid model on
+   * purpose; even a `:free` one costs the sandbox it runs in.
    */
-  NAP_FREE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
+  NAP_FREE_MODEL: z.string().min(1).optional(),
 
   /**
    * Where a project's bytes live while no sandbox is holding them.
@@ -540,9 +550,9 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
         "NAP_SIDEKICK_MODEL replaces NAP_SUBAGENT_MODEL: the sidekick already runs explore helpers, so set one of them",
     });
 
-  // The free-tier model has to be reachable too, or every turn by somebody without a key is
-  // refused by the allowlist — which is everybody on their first visit.
-  if (!env.NAP_ALLOWED_MODELS.includes(env.NAP_FREE_MODEL)) {
+  // A free-tier model, when there is one, has to be reachable too, or every turn by somebody
+  // without a key is refused by the allowlist after the deployment said it would pay for them.
+  if (env.NAP_FREE_MODEL !== undefined && !env.NAP_ALLOWED_MODELS.includes(env.NAP_FREE_MODEL)) {
     ctx.addIssue({
       code: "custom",
       path: ["NAP_ALLOWED_MODELS"],
@@ -550,10 +560,9 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
     });
   }
 
-  // No `:free` suffix requirement: the deployment intentionally pays for demo turns on Luna,
-  // bounded by the free-tier rate and sandbox ceilings. The cost is real but small and
-  // deliberate — a demo that runs on the same model the product actually uses is worth more
-  // than the tokens it saves by running on a weaker one.
+  // No `:free` suffix requirement: a deployment that opens a free tier may choose to pay for a
+  // real model on it, bounded by the free-tier rate and sandbox ceilings. That is its decision
+  // to make, and making it at all is what setting the variable means.
 
   // A per-user cap above the machine-wide one is unreachable: the global check would refuse
   // first, and the message would talk about the server being busy when the projects filling it

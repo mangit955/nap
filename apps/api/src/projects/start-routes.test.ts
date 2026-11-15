@@ -129,3 +129,37 @@ it("writes the seed at once and asks for a model's title only after the session 
     message: "build me a habit tracker for my team",
   });
 });
+
+it("refuses a caller with no key when the deployment pays for nobody, and starts nothing", async () => {
+  // A new session's first prompt is a turn and a sandbox. With no free model named, somebody with
+  // no key of their own is refused before anything is written, on the code the browser offers a
+  // key on.
+  const store: SessionStartStore = { find: vi.fn(async () => null), start: vi.fn() };
+  const app = new Hono<{ Variables: AuthVariables }>();
+  app.use("*", async (c, next) => {
+    c.set("userId", randomUUID());
+    c.set("isAnonymous", true);
+    await next();
+  });
+  registerSessionStartRoutes(app, {
+    store,
+    projects: new InMemoryProjectStore(),
+    webOrigin: "https://nap.example",
+    admission: { allowedModels: ["free:free", "paid"], freeModel: undefined, defaultModel: "paid" },
+  });
+
+  for (const model of [undefined, "free:free"]) {
+    const response = await app.request("/sessions/start", {
+      method: "POST",
+      headers: { origin: "https://nap.example", "content-type": "application/json" },
+      body: JSON.stringify({
+        operationId: randomUUID(),
+        source: { kind: "template" },
+        prompt: { message: "Build a page", ...(model === undefined ? {} : { model }) },
+      }),
+    });
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ code: "byok_required" });
+  }
+  expect(store.start).not.toHaveBeenCalled();
+});

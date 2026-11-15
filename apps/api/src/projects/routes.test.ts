@@ -39,6 +39,8 @@ let queue: InMemoryTurnQueue;
 /** The model settings the routes are built with. */
 let models: ProjectRouteDeps["models"];
 let limits: SandboxLimits | undefined;
+/** The ceiling for somebody this deployment pays for; absent means the same as `limits`. */
+let freeLimits: SandboxLimits | undefined;
 let titles: SessionTitles | undefined;
 /** The log the app writes to, so a close's announcement can be read back. */
 let events: InMemoryEventStore;
@@ -81,6 +83,7 @@ beforeEach(async () => {
     defaultModel: PAID_MODEL,
   };
   limits = undefined;
+  freeLimits = undefined;
   events = new InMemoryEventStore();
 });
 
@@ -105,7 +108,15 @@ function app() {
       events: { events, bus: new InMemoryEventBus() },
       queue,
       models,
-      ...(limits === undefined ? {} : { limits: { projects, sandboxes: limits } }),
+      ...(limits === undefined
+        ? {}
+        : {
+            limits: {
+              projects,
+              sandboxes: limits,
+              ...(freeLimits === undefined ? {} : { freeSandboxes: freeLimits }),
+            },
+          }),
       titles,
     },
   });
@@ -375,6 +386,38 @@ describe("POST /projects/:projectId/open", () => {
     // Resuming creates a sandbox, so skipping the check here would be a hole straight through
     // the only ceiling on the bill — and the browser reads one `code` for both routes.
     limits = { perUser: 1, total: 10 };
+    projects = new InMemoryProjectStore([
+      summary({ sandboxId: null, status: "idle" }),
+      summary({ projectId: UNKNOWN, sandboxId: "another", status: "ready" }),
+    ]);
+
+    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ code: "sandbox_quota_exceeded" });
+    expect(queue.enqueued).toEqual([]);
+  });
+
+  it("refuses a caller with no key when the deployment pays for nobody", async () => {
+    // Opening restores a sandbox, which this deployment would be paying for by the second.
+    models = {
+      allowedModels: [PAID_MODEL, FREE_MODEL],
+      freeModel: undefined,
+      defaultModel: PAID_MODEL,
+    };
+
+    const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({ code: "byok_required" });
+    expect(queue.enqueued).toEqual([]);
+  });
+
+  it("holds a caller this deployment pays for to the free tier's sandbox ceiling", async () => {
+    // A turn is held to it; an open is the second way to make a sandbox, and a tighter ceiling
+    // with a looser door beside it is not a ceiling.
+    limits = { perUser: 2, total: 10 };
+    freeLimits = { perUser: 1, total: 10 };
     projects = new InMemoryProjectStore([
       summary({ sandboxId: null, status: "idle" }),
       summary({ projectId: UNKNOWN, sandboxId: "another", status: "ready" }),

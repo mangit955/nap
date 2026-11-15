@@ -284,7 +284,7 @@ describe("PostgresSessionStartStore", () => {
 
 describe("PostgresGitHubStore", () => {
   it("announces an import that opens the project, with its resume already queued", async () => {
-    const open = { requestId: randomUUID(), model: "test-model" };
+    const open = { requestId: randomUUID(), model: "test-model", billsToUser: false };
     const { claims, seen } = watching(stateOf(open.requestId));
 
     const imported = await new PostgresGitHubStore(db, { claims }).importRepository({

@@ -1272,3 +1272,84 @@ describe("admission's lookups", () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe("when the deployment pays for nobody", () => {
+  // No free model named: somebody with no key of their own is refused every route here that would
+  // spend a token or start a sandbox, and the refusal is the code the browser offers a key on.
+  async function untiered() {
+    const store = new InMemoryEventStore();
+    const jobId = crypto.randomUUID();
+    const base = {
+      sessionId: SESSION,
+      turnId: crypto.randomUUID(),
+      createdAt: "2026-10-24T00:00:00Z",
+    };
+    await store.append({
+      ...base,
+      type: "job.started",
+      payload: { jobId, objective: "Save notes" },
+    });
+    await store.append({
+      ...base,
+      type: "turn.completed",
+      payload: { commitSha: "abcdef1", usage: { inputTokens: 0, outputTokens: 0 }, durationMs: 0 },
+    });
+    await store.append({
+      ...base,
+      type: "job.checkpointed",
+      payload: { jobId, commitSha: "abcdef1" },
+    });
+    await store.append({ ...base, type: "job.completed", payload: { jobId, outcome: "verified" } });
+    const queue = new InMemoryTurnQueue();
+    const projects = unnamedProject();
+    const hono = createApp({
+      logger: silent(),
+      authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
+      stream: {
+        store,
+        bus: new InMemoryEventBus(),
+        upgradeWebSocket: async () => new Response(null),
+      },
+      turns: {
+        queue,
+        registry: new TurnRegistry(),
+        projects,
+        allowedModels: ALLOWED,
+        keys: async () => null,
+        freeModel: undefined,
+        defaultModel: ALLOWED[0] ?? "",
+        sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }], {
+          projects,
+        }),
+      },
+    });
+    return { hono, queue, jobId };
+  }
+
+  it.each([
+    ["a prompt", "turns", {}],
+    ["a prompt naming a :free model", "turns", { model: FREE_MODEL }],
+    ["a steer", "steers", { id: crypto.randomUUID() }],
+  ])("refuses %s from somebody with no key, and queues nothing", async (_case, route, extra) => {
+    const { hono, queue } = await untiered();
+
+    const refused = await post(hono, `/sessions/${SESSION}/${route}`, {
+      message: "add a dark mode toggle",
+      ...extra,
+    });
+
+    expect(refused.status).toBe(403);
+    await expect(refused.json()).resolves.toMatchObject({ code: "byok_required" });
+    expect(queue.enqueued).toEqual([]);
+  });
+
+  it("refuses an app test from somebody with no key, and queues nothing", async () => {
+    const { hono, queue, jobId } = await untiered();
+
+    const refused = await post(hono, `/sessions/${SESSION}/tests`, { jobId });
+
+    expect(refused.status).toBe(403);
+    await expect(refused.json()).resolves.toMatchObject({ code: "byok_required" });
+    expect(queue.enqueued).toEqual([]);
+  });
+});

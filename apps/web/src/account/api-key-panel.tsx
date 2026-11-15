@@ -72,12 +72,9 @@ export function ApiKeyPanel({
       <div className="flex items-start justify-between gap-5">
         <div>
           <h2 className="font-semibold text-[15px] text-ink tracking-tight">Your API key</h2>
-          {/*
-            The offer, not a requirement — whoever is reading this already has a working app on
-            the free models. `text-pretty` keeps the second line from falling to one short word.
-          */}
           <p className="mt-1.5 text-pretty text-[13px] text-muted leading-relaxed">
-            Unlocks Claude Opus and the paid GPT models. Free models work without one.
+            Run models on your own account. Work without a key is available only when this
+            deployment offers a free tier.
           </p>
         </div>
         {/*

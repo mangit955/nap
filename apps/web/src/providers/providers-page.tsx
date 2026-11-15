@@ -4,9 +4,9 @@
  * Settings → Providers: every way a turn can be paid for, listed beside an editor for the one
  * selected. T3 Code's provider settings, in Nap's palette.
  *
- * The list holds Nap's two built-in ways to run — the free models and an API key — above the
+ * The list holds Nap's two built-in ways to run — deployment models and an API key — above the
  * Claude and ChatGPT accounts somebody connected. The built-ins have no switch: there is nothing
- * to turn off about the free models, and an API key is removed rather than disabled. Connected
+ * to turn off about deployment models, and an API key is removed rather than disabled. Connected
  * accounts have T3's switch, which keeps an account and its login but stops new turns using it.
  *
  * Below `48rem` of its own width the list stacks above the editor instead of beside it, as T3's
@@ -65,7 +65,7 @@ export function ProvidersPage({
 
   const loaded = api.state.kind === "loaded" ? api.state.value : null;
   const accounts = loaded?.accounts ?? [];
-  // The first connected account until somebody picks one, and the free models when there is none
+  // The first connected account until somebody picks one, and deployment models when there is none
   // — a selection that names a removed account falls back the same way.
   const selection: Selection =
     selected === "free" ||
@@ -138,9 +138,9 @@ export function ProvidersPage({
                 <ul className="divide-y divide-edge">
                   <li>
                     <ListRow
-                      name="Free models"
+                      name="Deployment models"
                       icon={<NapMark className="size-[18px]" />}
-                      status="Included with nap"
+                      status="Deployment-dependent"
                       selected={selection === "free"}
                       onSelect={() => setSelected("free")}
                     />
@@ -210,7 +210,7 @@ export function ProvidersPage({
                       description={
                         key.state?.configured
                           ? `Your requests use your own ${key.state.platform === "anthropic" ? "Anthropic" : "OpenRouter"} key, ${key.state.hint}.`
-                          : "Bring your own OpenRouter or Anthropic key to unlock the paid models."
+                          : "Add an OpenRouter or Anthropic key to run models on your own account. Work without a key is available only when this deployment offers a free tier."
                       }
                       control={
                         <button
@@ -224,10 +224,10 @@ export function ProvidersPage({
                     />
                   ) : (
                     <BuiltInEditor
-                      title="Free models"
+                      title="Deployment models"
                       icon={<NapMark className="size-[18px]" />}
-                      rowTitle="Included with nap"
-                      description="Start a project on the free model without connecting anything. Turns on it count against the free allowance."
+                      rowTitle="Deployment-dependent"
+                      description="Available without a key only when this deployment offers a free tier. Otherwise, add an API key to run work."
                     />
                   )}
                 </div>

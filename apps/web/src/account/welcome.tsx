@@ -1,13 +1,8 @@
 "use client";
 
 /**
- * The step between signing up and working: bring a key, or don't.
- *
- * **It is an offer, and skipping it is a first-class answer.** Whoever lands here already has a
- * working account on the free models; a key buys Opus and the paid GPT models and nothing else.
- * That is why "Just try it free" is a real button beside the form rather than a grey link under
- * it — a first-run step that reads as a toll booth is one people bounce off, and this one has
- * nothing behind it worth bouncing off for.
+ * The first-run step for adding a model API key. Skipping opens the dashboard for browsing;
+ * whether work can run without a key depends on the deployment's free-tier policy.
  *
  * **It shows itself once.** Anybody who already has a key saved is sent on without seeing it,
  * and skipping is remembered in `localStorage`, so this is a first-run step rather than a page
@@ -106,9 +101,7 @@ export function Welcome() {
 
       <main className="flex w-full max-w-sm flex-col">
         {/*
-          The heading waits too. "One more thing — optional." is the wrong sentence to show
-          somebody who is about to be sent to their dashboard, and showing it under a spinner
-          would be promising a question that never gets asked.
+          Wait for the account check before asking for a key somebody may already have saved.
         */}
         {deciding ? (
           <p
@@ -121,12 +114,12 @@ export function Welcome() {
         ) : (
           <>
             <h1 className="text-center font-display font-extralight text-[var(--s-text-body)] text-3xl tracking-[-0.03em]">
-              One more thing —{" "}
-              <span className="font-semibold text-[var(--s-text-primary)]">optional.</span>
+              Bring your own{" "}
+              <span className="font-semibold text-[var(--s-text-primary)]">API key.</span>
             </h1>
             <p className="mt-2.5 text-balance text-center text-[var(--s-text-muted)] text-sm">
-              Nap runs on free models out of the box. Bring your own API key to build with Claude
-              Opus and the paid GPT models instead.
+              Add an OpenRouter or Anthropic key to run models on your account. Work without a key
+              is available only when this deployment offers a free tier.
             </p>
 
             <div className="mt-8 rounded-[20px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] p-6 shadow-[0_1px_2px_rgba(12,38,77,0.06),0_10px_30px_-12px_rgba(12,38,77,0.18)]">
@@ -156,7 +149,7 @@ export function Welcome() {
                 onClick={skip}
                 className="font-medium text-[var(--s-text-primary)] text-sm underline underline-offset-4 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
               >
-                Just try it free
+                Continue to dashboard
               </button>
             </p>
           </>

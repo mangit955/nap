@@ -11,7 +11,13 @@ import { modelLabel, registerModelRoutes } from "./routes.ts";
  * whole allowlist, and therefore the one most of these assertions are about. The key-less case
  * has its own tests below.
  */
-function app(allowed: string[], fallback: string, key: StoredKeyRecord | null = OPENROUTER_KEY) {
+function app(
+  allowed: string[],
+  fallback: string,
+  key: StoredKeyRecord | null = OPENROUTER_KEY,
+  /** Null for a deployment with no free tier; `undefined` here would take the default. */
+  freeModel: string | null = "openai/gpt-5.6-luna",
+) {
   const instance = new Hono<{ Variables: AuthVariables }>();
   // Every guarded route runs behind `requireUser`, which is what would normally set this.
   instance.use("*", async (c, next) => {
@@ -22,7 +28,7 @@ function app(allowed: string[], fallback: string, key: StoredKeyRecord | null = 
   registerModelRoutes(instance, {
     allowed,
     fallback,
-    freeModel: "openai/gpt-5.6-luna",
+    freeModel: freeModel ?? undefined,
     keys: async () => key,
   });
   return instance;
@@ -181,3 +187,13 @@ it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
     });
   },
 );
+
+it("offers somebody with no key nothing when the deployment pays for nobody", async () => {
+  // A menu with a model ticked that every turn is then refused for would be the picker lying.
+  const allowed = ["openai/gpt-5.6-luna", "poolside/laguna-s-2.1:free"];
+  const result = await app(allowed, "openai/gpt-5.6-luna", null, null).request("/models");
+
+  const body = ModelListSchema.parse(await result.json());
+  expect(body.models.map((model) => model.available)).toEqual([false, false]);
+  expect(body.key).toEqual({ configured: false });
+});

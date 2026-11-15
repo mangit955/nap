@@ -41,6 +41,11 @@ The title call goes through the same `LLMProvider` and the same credential rule 
 - **An OpenRouter key:** `NAP_FREE_MODEL` on that person's key. It is the deployment's cheap model and is on the allowlist by the boot check.
 - **An Anthropic key:** it cannot reach an OpenAI model, so the title uses the model that key's turns default to (the first `anthropic/` entry on the allowlist). Nothing new is configured. The title runs on what the deployment already allows that key. With no Claude model allowed, no title is written.
 
+When a deployment has no `NAP_FREE_MODEL`, a caller without a key gets no generated title.
+An OpenRouter key uses the first allowed `:free` model on that key; if none is allowed, the seed
+stays rather than choosing an arbitrary paid model. An Anthropic key still uses the first allowed
+Claude model on that key. This is the untiered case of the same payer rule.
+
 The rule is `resolveTitleAccess` in `apps/api/src/turns/model-access.ts`, beside `resolveTurnAccess`, and is table-tested there.
 
 A title request asks for no tools and at most 64 output tokens, and has `purpose: "title"`, which turns thinking off the way compaction does. The tokens a title that lands used are recorded on the `project.renamed` event it writes, beside the model, as `turn.completed` records a turn's. An answer that is refused, fails the checks in D5 or loses to a rename was still paid for; its tokens are only logged.

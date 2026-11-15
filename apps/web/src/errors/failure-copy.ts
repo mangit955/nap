@@ -139,11 +139,13 @@ export function requestFailureCopy(
   }
 
   if (code === "byok_required") {
+    // Whether a free model is there to fall back on is the deployment's to say, and its message
+    // says it: one with a free tier names the way out, one without says a key is the only one.
     return {
-      title: "That model needs your own API key.",
-      detail: trimmed === "" ? "Free models work without one." : trimmed,
+      title: "This needs your own API key.",
+      detail: trimmed === "" ? "Turns run on your own model account." : trimmed,
       recovery: "add-key",
-      action: "Add a key to use it, or pick a free model and send this again.",
+      action: "Add a key, then send this again.",
     };
   }
 

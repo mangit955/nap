@@ -324,19 +324,15 @@ export function SignInForm({
                     disabled={submitting || demoPending}
                     className={`${PILL} flex-1 border border-[var(--s-border-1)] text-[var(--s-text-body)] transition-colors hover:border-[var(--s-text-subtle)]`}
                   >
-                    Try for free
+                    Browse without an account
                   </button>
                 )}
               </div>
 
-              {/*
-                What the free door costs, said before it is opened rather than at the model
-                picker, where the good models being greyed out with no explanation reads as a
-                fault. Kept out of the button so the button stays one short phrase.
-              */}
               {demoEnabled && (
                 <p className="mt-3 text-center text-[var(--s-text-subtle)] text-xs">
-                  No account, free models, nothing to set up.
+                  Browse without an account. Running work requires an API key unless this deployment
+                  offers a free tier.
                 </p>
               )}
             </>

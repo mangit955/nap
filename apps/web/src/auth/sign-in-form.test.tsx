@@ -168,7 +168,7 @@ describe("the way in with no account", () => {
   it("is offered when the deployment allows it", () => {
     const props = setup({ demoEnabled: true });
 
-    click("Try for free");
+    click("Browse without an account");
 
     expect(props.onDemo).toHaveBeenCalled();
   });
@@ -176,13 +176,13 @@ describe("the way in with no account", () => {
   it("says what it costs, so nobody meets a greyed-out picker unprepared", () => {
     setup({ demoEnabled: true });
 
-    expect(screen.getByText(/free models/)).toBeInTheDocument();
+    expect(screen.getByText(/unless this deployment offers a free tier/)).toBeInTheDocument();
   });
 
   it("is not offered when the deployment has closed that door", () => {
     setup({ demoEnabled: false });
 
-    expect(screen.queryByRole("button", { name: "Try for free" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Browse without an account" })).toBeNull();
   });
 });
 

@@ -100,8 +100,11 @@ export type TurnRouteDeps = {
    * never awaited; absent, the seed is the name, as before.
    */
   titles?: SessionTitles | undefined;
-  /** What a turn runs on when the asker has no key. Always free; the env check proves it. */
-  freeModel: string;
+  /**
+   * What a turn runs on when the asker has no key, on this deployment's account. Absent means
+   * there is no free tier and such a turn is refused (`resolveTurnAccess`).
+   */
+  freeModel: string | undefined;
   /** What a turn runs on when the asker has a key and names nothing. */
   defaultModel: string;
   limits?: {

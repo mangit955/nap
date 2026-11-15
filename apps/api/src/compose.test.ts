@@ -753,6 +753,39 @@ describe("composeNap", () => {
     expect(logged).toContain("turn.completed");
   });
 
+  it("fails, rather than runs, a queued turn nobody pays for when no free model is named", async () => {
+    // A row admitted before this deployment stopped paying for anyone, claimed after: running it
+    // would spend the deployment's key and sandbox time on somebody with no key of their own.
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+    const events = new InMemoryEventStore();
+    const { NAP_FREE_MODEL: _paid, ...untiered } = CONFIG;
+    compose({
+      queue,
+      sessions,
+      events,
+      projects: projectHolding(SESSION),
+      sandbox: turnableSandbox(),
+      role: "worker",
+      provider: chattyProvider(),
+      config: untiered,
+    });
+    const id = crypto.randomUUID();
+    await queue.enqueue({
+      id,
+      sessionId: SESSION,
+      userId: FAKE_OWNER,
+      kind: "turn",
+      message: "add a dark mode toggle",
+      model: "openai/gpt-5.6-luna",
+      billsToUser: false,
+    });
+
+    await expect.poll(() => queue.stateOf(id), { timeout: 10_000 }).toBe("failed");
+    const logged = (await events.readFrom(SESSION, 0)).map((event) => event.type);
+    expect(logged).not.toContain("turn.started");
+  });
+
   describe("the thumbnail lane", () => {
     /** Several projects that each finish a committing turn, with their pictures left waiting. */
     async function finished(projects: number, config: Partial<NapDeps["config"]>) {

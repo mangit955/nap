@@ -132,6 +132,7 @@ function start(
     cancels?: Pick<CancelChannel, "listen">;
     listenTimeoutMs?: number;
     steers?: Pick<SteerQueue, "take" | "close">;
+    paysForCallers?: boolean;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -152,6 +153,7 @@ function start(
     ...(overrides.onClaimTick === undefined ? {} : { onClaimTick: overrides.onClaimTick }),
     ...(overrides.publish === undefined ? {} : { publish: overrides.publish }),
     ...(overrides.steers === undefined ? {} : { steers: overrides.steers }),
+    ...(overrides.paysForCallers === undefined ? {} : { paysForCallers: overrides.paysForCallers }),
   });
   workers.push(worker);
   return worker;
@@ -442,6 +444,58 @@ describe("who pays", () => {
     await vi.waitFor(() => expect(runtime.turns).toHaveLength(2));
     expect(asked).toEqual(["user-1"]);
     expect(runtime.turns[1]?.credentials).toEqual(credentials);
+  });
+
+  describe("on a deployment that pays for nobody", () => {
+    it("fails a turn or a resume nobody pays for, without running it", async () => {
+      // Admission refuses these once the deployment names no free model; what is left are rows
+      // admitted before it stopped, which would otherwise run on the deployment's own account.
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      start(queue, runtime, { paysForCallers: false });
+      const turn = await enqueueTurn(queue);
+      const resume = await enqueueRequest(queue, {
+        sessionId: "session-b",
+        userId: "user-1",
+        kind: "resume",
+        message: null,
+        model: "openai/gpt-5-mini",
+        billsToUser: false,
+      });
+
+      await vi.waitFor(() => expect(queue.stateOf(turn.id)).toBe("failed"));
+      await vi.waitFor(() => expect(queue.stateOf(resume.id)).toBe("failed"));
+      expect(runtime.turns).toEqual([]);
+      expect(runtime.resumes).toEqual([]);
+    });
+
+    it("still runs a request billed to its asker", async () => {
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      const credentials: ModelCredentials = { platform: "openrouter", apiKey: "sk-or-test" };
+      start(queue, runtime, { paysForCallers: false, credentialsFor: async () => credentials });
+      await enqueueTurn(queue, { billsToUser: true });
+
+      await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+      expect(runtime.turns[0]?.credentials).toEqual(credentials);
+    });
+
+    it("still publishes, which spends no tokens and runs in a sandbox the owner already has", async () => {
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      const publish = vi.fn(async () => true);
+      start(queue, runtime, { paysForCallers: false, publish });
+      await enqueueRequest(queue, {
+        sessionId: "session-a",
+        userId: "user-1",
+        kind: "publish",
+        message: null,
+        model: "unused",
+        billsToUser: false,
+      });
+
+      await vi.waitFor(() => expect(publish).toHaveBeenCalledOnce());
+    });
   });
 
   it("fails a billed request whose key can no longer be opened", async () => {

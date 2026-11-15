@@ -626,9 +626,18 @@ GitHub.
 
 ## What a public URL costs
 
-The demo door is open by default (`NAP_ALLOW_DEMO=true`): a visitor with no account gets a
-throwaway identity and turns paid for by this deployment. The ceilings are the reason that
-is affordable, and they are worth setting deliberately rather than inheriting:
+**By default a deployment pays for nobody.** `NAP_FREE_MODEL` is unset, so a caller with no API
+key of their own — a demo visitor or a signed-in account that skipped the key step — is refused
+every turn, test, steer, project start, project open and repository import, and offered the key
+form instead (`apps/api/src/turns/model-access.ts`). A worker refuses such a request too if one
+was queued before. The demo door (`NAP_ALLOW_DEMO=true`) still hands out a throwaway identity;
+what it can run is this variable's question. Callers with their own key pay their own model
+bill; their sandbox time is still this deployment's, which is what the ceilings below bound.
+
+Setting `NAP_FREE_MODEL` opens a free tier on that model, paid for by this deployment — a
+`:free` model costs no tokens but still costs the sandbox it runs in. Then these ceilings are
+the reason it is affordable, and they are worth setting deliberately rather than inheriting.
+Demo identities cost nothing to mint, so only the total below bounds the bill:
 
 - `NAP_FREE_TURNS_PER_HOUR=5`, `NAP_FREE_MAX_SANDBOXES_PER_USER=1` — per visitor.
 - `NAP_MAX_SANDBOXES_TOTAL=10` — **everybody together, across every replica**. It is a count
