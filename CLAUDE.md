@@ -49,7 +49,6 @@ bun run dev:worker        # executes turns; same .env. bun run dev:reaper sweeps
 bun run harness "<prompt>"         # one turn against fakes — free, no network
 bun run harness --real "<prompt>"  # real E2B and a real model — spends money
 bun run computer:local    # the whole app on a local Docker desktop, scripted model — free
-bun run computer:reliability  # "Test the app" ×30 on that desktop, scripted — free; see docs/commands.md
 bun run napbench <task-id>         # one benchmark run on fakes; --real spends money
 bun run test:integration  # real services; most of it costs money — milestone boundaries only
 ```

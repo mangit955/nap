@@ -45,13 +45,19 @@ measure whether the agent catches a planted bug; NapBench's app-test tasks are f
 
 The scripted control makes no judgement: it sets up, declares one assertion, clicks, looks and
 passes. Its pass rate is the machinery's alone: machine start, checks, desktop cold start, input,
-screenshots reaching the model, the ledger and the recording. All 30 passed, each with its recording, so in
-these runs the machinery never failed on its own; every Luna failure involved the model's choices.
+screenshots reaching the model, the ledger and the recording. All 30 passed, each with its
+recording, so in these runs the machinery never failed on its own; every Luna failure involved the
+model's choices. The harness can report a machinery failure: a three-run scripted smoke pass before
+these failed two of three at its own dev-server check, which fetched a file that does not carry the
+app's heading, and the check was corrected before the passes above.
 
 Across the 40 Luna runs, no process was killed for memory and every run kept its recording. The
 largest memory sample was 1,310 MiB, on kanban, against the 2,048 MiB limit; the per-pass medians
-were 995 and 1,216 MiB. Samples are every two seconds, so a brief peak between them is missed. The median test took 102 s before the fix, against 48 s for the one hosted run in
-computer-use.md. This machine emulates x86-64, so the local times are not a production figure.
+were 995 and 1,216 MiB. Samples are every two seconds, so a brief peak between them is missed.
+Before the fix, the median test turn took 75 s (from `turn.completed`, over the 29 turns that
+completed), against 48 s for the one hosted test turn in computer-use.md; a whole run, machine start
+and checks included, took a median 102 s. This machine emulates x86-64, so the local times are not
+a production figure.
 
 ### Why the nine failed, before the fix
 
@@ -93,11 +99,12 @@ A second, smaller fault was also Nap's. When the model sent `CTRL+A`, the deskto
 was selected, typing "3" appended to "1", and the action still reported success. Driven directly on
 the desktop without a model, the cart's total read $156.00 after `ctrl+A` and $36.00 after `ctrl+a`.
 Luna sent such a chord in 11 of the 30 runs. It usually recovered with a triple-click; in one run the
-confusion that followed led to a failure.
+confusion that followed led to a failure. All 11 were on cart or notes; no kanban run sent one,
+before or after the fix, so the kanban re-check below measures the batch change alone.
 
 ## The fix
 
-Both changes are in the agent's `computer` tool and the ledger's messages. The ledger's rules are
+All three are in the agent's `computer` tool and the ledger's messages. The ledger's rules are
 unchanged.
 
 - A computer call that stops early now says which of its actions did not run, naming any assertion
