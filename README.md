@@ -76,7 +76,7 @@ real-model measurements tested the verification path and did not establish a mod
 | Job, turn, and verification completion | **100%** |
 | Sequence gaps, duplicate events, WebSocket failures | **0** |
 | Event delivery at 100 concurrent turns | **20 ms p95** |
-| Fast local suite at this revision | **7,257 passing tests in 480 files** |
+| Fast local suite at this revision | **7,266 passing tests in 480 files** |
 
 The latest cluster run included 231 mid-turn reconnects. It ran on 24 August 2026 after an earlier
 run on 23 August. Read the [cluster report](docs/scaling-cluster.md) and the [single-process baseline](docs/scaling-baseline.md)
