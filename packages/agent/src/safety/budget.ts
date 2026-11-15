@@ -101,8 +101,7 @@ export class TurnBudget {
    * turns a third of the way to their step limit.
    *
    * The weights are those of the model that produced the usage — the `billedWeights` of the turn
-   * it came from — since one turn's calls can run on several models: a fallback, a helper, the
-   * sidekick.
+   * it came from — since one turn's calls can run on several models: a fallback, a helper.
    */
   recordUsage(usage: TokenUsage, weights: BilledWeights): void {
     this.#tokens += billedTokens(usage, weights);

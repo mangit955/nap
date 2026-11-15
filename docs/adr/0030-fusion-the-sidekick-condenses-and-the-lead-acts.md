@@ -1,6 +1,6 @@
 # ADR-0030 — Fusion: the sidekick condenses, and the lead acts
 
-**Status:** Accepted, 2026-11-07. Built and tested on `ScriptedLLMProvider` and the in-memory sandbox. No real model has run it, so it is unmeasured whether a cheaper sidekick's searches and summaries are good enough for the lead to act on, or how much it saves. Closes the "lead/sidekick pairing" item ADR-0020 deferred.
+**Status:** Superseded, 2026-11-15 — Fusion was removed from the code before any real model ran it, to keep the agent loop small; explore helpers run on `NAP_SUBAGENT_MODEL` or the turn's own model, and compaction summaries on the turn's model. What follows is the decision as it stood. Accepted, 2026-11-07. Built and tested on `ScriptedLLMProvider` and the in-memory sandbox. No real model has run it, so it is unmeasured whether a cheaper sidekick's searches and summaries are good enough for the lead to act on, or how much it saves. Closes the "lead/sidekick pairing" item ADR-0020 deferred.
 
 ## Context
 

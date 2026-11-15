@@ -13,8 +13,8 @@
  * sets `NAP_FREE_MODEL`, which may be a paid model it covers on purpose. Anything else needs a
  * key belonging to whoever is asking.
  *
- * The models the deployment itself names — `NAP_FALLBACK_MODEL`, `NAP_SUBAGENT_MODEL` and the
- * Fusion sidekick, `NAP_SIDEKICK_MODEL` — also run on its key, but only inside turns it already
+ * The models the deployment itself names — `NAP_FALLBACK_MODEL` and `NAP_SUBAGENT_MODEL` — also
+ * run on its key, but only inside turns it already
  * pays for, because the agent uses them only on a turn with no credentials. They are never a
  * way for a caller to reach a model this function refused them.
  *

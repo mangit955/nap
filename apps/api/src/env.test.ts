@@ -156,7 +156,7 @@ describe("parseEnv", () => {
     );
   });
 
-  it.each(["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL", "NAP_SIDEKICK_MODEL"] as const)(
+  it.each(["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL"] as const)(
     "refuses a %s that is not on the allowlist, and accepts one that is",
     (key) => {
       expect(() => parseEnv({ ...REQUIRED, [key]: "vendor/absent-model" })).toThrow(
@@ -168,25 +168,9 @@ describe("parseEnv", () => {
     },
   );
 
-  it("leaves the fallback, helper and sidekick models unset unless asked", () => {
-    // An unset sidekick is Fusion off, which is the default (ADR-0030).
+  it("leaves the fallback and helper models unset unless asked", () => {
     const env = parseEnv(REQUIRED);
-    expect([env.NAP_FALLBACK_MODEL, env.NAP_SUBAGENT_MODEL, env.NAP_SIDEKICK_MODEL]).toEqual([
-      undefined,
-      undefined,
-      undefined,
-    ]);
-  });
-
-  it("refuses a sidekick beside a separate explore helper model", () => {
-    // Both would name what explore helpers run on; one setting owns that.
-    expect(() =>
-      parseEnv({
-        ...REQUIRED,
-        NAP_SIDEKICK_MODEL: "openai/gpt-5.6-luna",
-        NAP_SUBAGENT_MODEL: "openai/gpt-5.6-terra",
-      }),
-    ).toThrow(/NAP_SIDEKICK_MODEL.*NAP_SUBAGENT_MODEL/);
+    expect([env.NAP_FALLBACK_MODEL, env.NAP_SUBAGENT_MODEL]).toEqual([undefined, undefined]);
   });
 
   it("defaults the free tier tighter than the paying one", () => {
