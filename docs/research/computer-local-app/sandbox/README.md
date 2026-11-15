@@ -16,13 +16,13 @@ This directory records the free local verification for the `LocalDockerSandboxMa
 Command:
 
 ```text
-bunx vitest run --project unit apps/api/scripts/computer-local-sandbox.test.ts --maxWorkers=1
+bunx vitest run --project computer apps/api/scripts/computer-local-sandbox.computer.test.ts --maxWorkers=1
 ```
 
 Observed RED:
 
 ```text
-FAIL |unit| apps/api/scripts/computer-local-sandbox.test.ts
+FAIL |unit| apps/api/scripts/computer-local-sandbox.computer.test.ts
 Error: Cannot find module './computer-local-sandbox.ts'
 Test Files 1 failed (1)
 Tests no tests
@@ -33,7 +33,7 @@ name that import and reported no unrelated setup failure.
 
 ## Focused implementation gate
 
-- `bunx vitest run --project unit apps/api/scripts/computer-local-sandbox.test.ts --maxWorkers=2`
+- `bunx vitest run --project computer apps/api/scripts/computer-local-sandbox.computer.test.ts --maxWorkers=2`
   passed 10 tests. The returned sandbox id is the verified 64-hex Docker container id.
 - `bunx tsc --noEmit -p apps/api/tsconfig.json` passed.
 - `bunx biome check` passed for the adapter, its boundary test, and the JavaScript runtime helpers

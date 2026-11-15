@@ -29,7 +29,7 @@ Keep each fact in exactly one of these. This file must never restate a task spec
 ## Commands
 
 ```bash
-bun run test              # unit + type + web + db suites — deterministic and free; db needs Docker
+bun run test              # unit + type + web + db + computer suites — deterministic and free; db needs Docker
 bun run test:fast         # unit + type + web — the Docker-free inner loop
 bun run test:integration  # needs something external; run at milestone boundaries only
                           # most of it is real E2B + real model calls and costs money — but not
@@ -195,7 +195,7 @@ Drift here is the most expensive kind of mistake. Before adding code to a compon
 
 ## Testing
 
-- **`*.test.ts` → unit. `*.test-d.ts` → types. `*.test.tsx` → web. `*.db.test.ts` → db. `*.integration.test.ts` → integration.** Filename decides, not directory, so all five can sit side by side in one package. Each project exists because it needs a different *environment* — node, tsc, jsdom, a Postgres container — not for tidiness. The `.ts` infix names still match `*.test.ts`, so each of those must also be *excluded* from `unit` or it runs twice.
+- **`*.test.ts` → unit. `*.test-d.ts` → types. `*.test.tsx` → web. `*.db.test.ts` → db. `*.computer.test.ts` → computer (slow process-spawning computer-use suites, kept out of `test:fast`). `*.integration.test.ts` → integration.** Filename decides, not directory, so all six can sit side by side in one package. Each project exists because it needs a different *environment* — node, tsc, jsdom, a Postgres container — not for tidiness. The `.ts` infix names still match `*.test.ts`, so each of those must also be *excluded* from `unit` or it runs twice.
 - **A test in the wrong project is not collected, and silently passes.** This has now bitten twice: `*.test-d.ts` files ran nowhere until the `types` project existed, and `.tsx` matched no glob at all. After adding any suite, run `vitest list --project <name>` and confirm the file appears — do not infer it from a green run.
 - **Component tests query by role and accessible name**, never class names or test ids. The panes are placeholders that later tasks replace wholesale, so markup-anchored assertions would break on contact with the real thing; a role query also fails when a landmark is unreachable to a screen reader, which is worth catching.
 - **The `db` suite runs against a real Postgres in a throwaway container**, one per run, migrated by `globalSetup`. It is deterministic and free, so `docs/PLAN.md` §3 keeps it in the default suite — but it needs Docker and costs seconds, hence `test:fast`. Tests share the container, so none of them may assume an empty table. Assert on SQLSTATE codes (`23505`, `23503`), not driver message text: drizzle wraps errors, so `.message` is `"Failed query: …"` and the real reason is on `.cause`.

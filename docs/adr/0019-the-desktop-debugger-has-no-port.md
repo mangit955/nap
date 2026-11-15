@@ -27,7 +27,7 @@ Time-bounded startup waits were tried first, on the theory that a slow cold VM w
 
 ## Consequences
 
-- Nothing in the desktop listens on a debugging port, so a forwarded listener on any TCP port no longer concerns startup. `desktop-start.test.ts` starts the desktop beside a foreign listener on 9222. The previous script, given a listener that appears beside its browser's as on E2B, fails with the exact line the diagnostic recorded ([reproduction](../research/desktop-startup/README.md#private-debugger)).
+- Nothing in the desktop listens on a debugging port, so a forwarded listener on any TCP port no longer concerns startup. `desktop-start.computer.test.ts` starts the desktop beside a foreign listener on 9222. The previous script, given a listener that appears beside its browser's as on E2B, fails with the exact line the diagnostic recorded ([reproduction](../research/desktop-startup/README.md#private-debugger)).
 - The debugger's access boundary is the desktop's Unix user and root. That is not a sandbox against the agent: the agent's commands run as the same user and could already reach the loopback port before. It is a boundary against the network, which is the one that was in doubt.
 - The desktop runs one more long-lived Node process.
 - Request bookkeeping is bounded, including orphan attaches and unanswered cleanup. Saturation refuses new commands while accepted replies and owned-session events continue to route; disconnect releases ordinary requests without retaining dead clients.
