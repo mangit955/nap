@@ -10,7 +10,7 @@ Nap is a Lovable-style AI app builder: the user describes an app in chat, an age
 | `CLAUDE.md` (this file) | *How* to work here — commands, conventions, gates | Auto-loaded |
 | `docs/GOTCHAS.md` | *Why* the code is shaped this way — hard-won constraints, per area | The section for whatever you are about to touch |
 | `PROGRESS.md` | *Where v1 got to* — status and deps per v1 task, and the running-a-checkout notes. Frozen | For the checkout notes, and v1 history |
-| `docs/DEPLOY.md` | *How it is deployed* — the Railway/Vercel services, what replaced each reason for the retired one-replica rule, what each process scales and drains on, the env list, and the four silent mistakes the Kubernetes manifests exist to avoid | Before touching anything that runs in production |
+| `docs/DEPLOY.md` | *How it is deployed* — the Render and Vercel services, what replaced each reason for the retired one-replica rule, what each process scales and drains on, the env list, and the four silent mistakes the Kubernetes manifests exist to avoid | Before touching anything that runs in production |
 | `infra/k8s/README.md` | *What the multi-pod deployment is made of* — the objects, what each one guards, and the two kind clusters: one that proves the claims a manifest cannot, one that runs the ramp against the autoscalers | Before touching a manifest, or scaling past one replica |
 | `CONTEXT.md` | *What things are called* — one concept, one name | Before naming a concept in code, a test or an issue |
 | `docs/NAPBENCH.md` | *How the agent is measured* — the benchmark's architecture, scoring, how to add a task, what needs a sandbox or a browser | Before touching `packages/bench` or `apps/napbench`, or quoting a score |
@@ -150,15 +150,11 @@ packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verif
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
 harbor/    the benchmark as an external harness's agent — Python, outside the workspace
 render.yaml  the deployment — three services and their database, one image. See docs/DEPLOY.md
-.railway/  the previous deployment, on Railway, as TypeScript
 ```
 
-**`render.yaml` is YAML, so no gate here reads it.** `render blueprints validate render.yaml`
-checks it against Render's own schema and needs the Render CLI and a login.
-
-`.railway/railway.ts` belongs to no workspace, so the root `tsconfig.json` names it **as a file**:
-a bare directory there expands to a wildcard, and TypeScript's wildcards skip dot-prefixed paths,
-so it would be excluded from typecheck without saying so.
+**`render.yaml` is YAML, so typecheck and lint never read it.** `test/production-release.test.ts`
+checks the release's claims about it; `render blueprints validate render.yaml` checks it against
+Render's own schema and needs the Render CLI and a login.
 
 **`apps/api` is three processes, not one.** `src/index.ts` serves and executes nothing; `src/worker.ts` executes and serves nothing; `src/reaper.ts` sweeps and does neither, as **exactly one replica** guarded by an advisory lock. All three call `bootNap` in `src/boot.ts`, which builds the real clients and hands them to the one `composeNap` — the role it passes decides which loops start. Adding a dependency means touching `boot.ts` once, never three times. See `docs/DEPLOY.md`.
 

@@ -20,10 +20,9 @@ API is the one that holds all the state and spends all the money.
 ## Render
 
 `render.yaml` is the deployment: the three services and their database, with every secret
-`sync: false`. `render blueprints validate render.yaml` checks it. It replaced Railway, whose
-trial accounts stopped accepting deploys or even new projects; `.railway/railway.ts` still
-describes that deployment, and the sections below that name Railway describe the same three
-processes on it. What is different here, and why:
+`sync: false`. `render blueprints validate render.yaml` checks it. It replaced an earlier
+Railway deployment, whose trial accounts stopped accepting deploys or even new projects. What is
+different here, and why:
 
 - **The worker drains in 270 seconds, not 600.** Render allows at most 300 between SIGTERM and
   SIGKILL (`maxShutdownDelaySeconds`), so `NAP_DRAIN_TIMEOUT_SECONDS` has to fit inside it. A
@@ -181,15 +180,15 @@ The binary is split (`docs/scaling-design.md` §4 and §13). One image, three co
 
 | | Command | Serves | Executes | Replicas |
 |---|---|---|---|---|
-| API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing | as many as you like; one on Railway today |
-| Worker | `bun apps/api/src/worker.ts` | nothing | turns | as many as you like; one on Railway today |
+| API | `bun apps/api/src/index.ts` (the Dockerfile's default) | HTTP, WebSockets, auth, admission | nothing | as many as you like; one on Render today |
+| Worker | `bun apps/api/src/worker.ts` | nothing | turns | as many as you like; one on Render today |
 | Reaper | `bun apps/api/src/reaper.ts` | nothing | the idle sweep, capacity reconciliation, the rate-event sweep, the janitor, and with a GitHub App configured the GitHub sweep | **exactly one** |
 
 All three call `bootNap` in `apps/api/src/boot.ts` and differ only by the role they pass, so
 there is one composition rather than three that drift. A turn reaches a worker through
 `turn_requests` and nothing else; there is no call between any of the processes.
 
-**Deploying this needs a Railway service each, and the API stops running turns without the
+**Deploying this needs a Render service each, and the API stops running turns without the
 worker.** Same repo, same Dockerfile, same variables — what differs is the start command, and
 **the healthcheck path must be empty for the two that serve nothing**, because whether a worker
 is working is a question about queue depth.
@@ -206,30 +205,12 @@ shows a failure.
 | `nap-worker` | `bun apps/api/src/worker.ts` | none |
 | `nap-reaper` | `bun apps/api/src/reaper.ts` | none |
 
-**All three are declared in `.railway/railway.ts`, and that file is the only place they are.**
-It is Railway's Infrastructure-as-Code: one TypeScript module describing the project, compiled and
-diffed against the live deployment.
-
-```bash
-railway config plan     # what Railway would change; touches nothing
-railway config apply    # apply it — asks first unless you pass --yes
-```
-
-It needs the `railway` SDK (a root devDependency) and Railway CLI ≥ 5.42.1.
-
-**This replaced three files, and the mechanism they used is gone.** `railway.json`,
-`railway.worker.json` and `railway.reaper.json` worked by pointing each service at its own file
-through Railway's *Config-as-code* setting (`railwayConfigFile`). That setting now fails with
-*"Config as Code (railway.json / railway.toml) is deprecated"*, and the files themselves stop being
-read on **2026-12-01**. A service created from this repo while a root `railway.json` was the only
-config silently builds with Railpack, ignores the `Dockerfile`, and inherits no start command — so
-the worker and the reaper come up as second copies of the API, which is exactly the failure the old
-table existed to prevent.
-
-`test/railway.test.ts` compiles that config and checks the claims that fail silently: the three
-services exist, only the API is healthchecked, the reaper is one replica, no credential has a
-literal value, and the drain is longer than the application's own. Each rule is also run against a
-synthetic service that breaks it, because a rule nobody has watched fail is not known to work.
+**All three are declared in `render.yaml`, and that file is the only place they are**: the start
+command (`dockerCommand`), the healthcheck (`healthCheckPath`, on the API alone), one instance each
+and the shutdown grace. `render blueprints validate render.yaml` checks it against Render's schema.
+`test/production-release.test.ts` reads it for the release's own claims — automatic deploys off,
+and the worker migrating first — but nothing here checks the healthcheck or the replica counts, so
+those are kept true by review.
 
 One thing must be true first:
 
@@ -239,7 +220,7 @@ One thing must be true first:
   than letting that be discovered from the browser — the reaper publishes too, when it stops a
   preview or closes out an interrupted turn. See below for the `LISTEN` pooler caveat.
 
-**The reaper is one replica and says so twice** — `numReplicas: 1` *and* an advisory lock, for the
+**The reaper is one replica and says so twice** — `numInstances: 1` *and* an advisory lock, for the
 reasons below.
 
 Locally, `bun run dev`, `bun run dev:worker` and `bun run dev:reaper` are the three, against one
@@ -276,7 +257,7 @@ That also rules out anything that sleeps the *reaper*: a sleeping one is not rea
 sandboxes it should have cleaned up keep billing. Leave app sleeping off on every service.
 
 **What is deployed is still one API and one worker, and that is now a sizing choice.**
-`.railway/railway.ts` pins each at one replica. `NAP_EVENT_BUS` is already `postgres` on all three
+`render.yaml` pins each at one instance. `NAP_EVENT_BUS` is already `postgres` on all three
 services — it has to be, since the worker and the reaper refuse to boot without it — so scaling
 this deployment is now the one edit rather than the two it used to be. **Raising the replica count
 while the bus is still `in-process` is exactly the failure the old rule described**, and nothing
@@ -349,14 +330,12 @@ every turn in flight costs a human a reopen. The Kubernetes manifests set
 turns in flight and lost none of them — which is evidence that draining works, and not evidence
 about the 900-around-600 arithmetic itself.
 
-**On Railway that grace period is zero unless you set it**, which makes this the one place the
-platform's default silently cancels the application's design: `SIGTERM` is followed immediately by
-`SIGKILL`, so the worker stops claiming, renews its leases, and is killed mid-sentence anyway. The
-turns in flight are then the janitor's problem rather than the drain's — they are recovered, but
-each one cost somebody a reopen, on every single deploy. `.railway/railway.ts` sets
-`drainingSeconds: 900` on the worker for the same 900-around-600 reason as the manifests, and
-`test/railway.test.ts` asserts that it exceeds `NAP_DRAIN_TIMEOUT_SECONDS`. Railway also exposes
-this as the `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` variable; the config file is where it is decided.
+**On Render that grace period is `maxShutdownDelaySeconds`, and Render caps it at 300 seconds**, so
+`render.yaml` gives the worker the whole 300 and shortens its drain to 270 to fit inside it — the
+arithmetic is under [Render](#render). A grace period shorter than the drain makes `SIGTERM` a kill:
+the worker stops claiming, renews its leases, and is killed mid-sentence anyway. The turns in flight
+are then the janitor's problem rather than the drain's — they are recovered, but each one costs
+somebody a reopen, on every deploy.
 
 An API pod is cheaper: stop accepting, close each socket with a normal close code, exit. Clients
 reconnect with `?afterSeq=` and lose nothing, because the log is the delivery.
@@ -373,8 +352,9 @@ prompts unless a socket opts in with `repairOwnership=1`, including replay and r
 tabs need no refresh for this field. New web assets alone are not the compatibility barrier.
 There is no database migration. Keep the same database and event log throughout.
 
-For the Railway services declared in `.railway/railway.ts`, use a controlled service-by-service
-release, not simultaneous Git auto-deploys:
+These steps were written for the retired Railway deployment; on Render, follow the same order as
+the [usage cache split rollout](#usage-cache-split-rollout) below. Use a controlled
+service-by-service release, not simultaneous Git auto-deploys:
 
 1. Disable automatic deploys for `nap-api`, `nap-reaper` and `nap-worker` in their service source
    settings for this release. Record the deployed commit for each and the release commit. Keep
@@ -438,7 +418,8 @@ refresh. There is no database migration.
 
 So the order is reader first, exactly as in the [repair ownership rollout](#repair-ownership-rollout):
 every API and reaper instance on the release before a new worker claims anything. Its steps and
-rollback rule name the Railway services; the paragraph below is the same order on Render.
+rollback rule were written for the retired Railway deployment; the paragraph below is the same
+order on Render.
 
 Production is on Render, and its normal release deploys the worker *first*
 ([Release production](#release-production)), which is the wrong order for this change. Hold the
@@ -468,29 +449,15 @@ before the change.
 
 ## First deployment
 
-### 1. A production database
+### 1. The database and the three services
 
-Create a new Neon database or branch — do not point production at the development one,
-which still holds pre-authorization rows that belong to nobody.
-
-```bash
-DATABASE_URL='<prod url>' bun run db:migrate
-```
-
-Migrations are deliberately not run at boot: three processes racing one schema change is bad
-enough at one replica each and worse at a dozen, and a schema change is a decision rather than a
-side effect of a restart. On Kubernetes it is `infra/k8s/base/job-migrate.yaml`, for the same
-reason.
-
-### 2. The API on Railway
-
-`railway config apply` builds all three services from `.railway/railway.ts` — the Dockerfile, the
-start commands, one replica each, the healthcheck on the API alone. What it deliberately does not
-carry is the credentials, which are `preserve()` there and must be set on the services:
+Create a Blueprint from `render.yaml` in Render's dashboard, pointed at this repository. It
+creates `nap-db` and the three services from it — the Dockerfile, the start commands, one instance
+each, the healthcheck on the API alone, and `DATABASE_URL` and `NAP_LISTEN_DATABASE_URL` wired to
+the database. What it deliberately does not carry is the credentials, which are `sync: false`
+there, so Render asks for each once, when the Blueprint is first created:
 
 ```
-DATABASE_URL              the Neon URL from step 1
-NAP_LISTEN_DATABASE_URL   the same database's direct endpoint — see the LISTEN caveat above
 E2B_API_KEY
 OPENROUTER_API_KEY
 BETTER_AUTH_SECRET        openssl rand -base64 32 — a fresh one, not the dev value
@@ -498,14 +465,17 @@ NAP_KEY_ENCRYPTION_SECRET openssl rand -base64 32 — must decode to exactly 32 
 R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
 ```
 
-`NODE_ENV`, `NAP_API_URL`, `NAP_WEB_ORIGIN` and `NAP_EVENT_BUS` are in the config file rather than
-here, because none of them is a secret and all four are things a reader should be able to see
-without opening a dashboard.
+`NODE_ENV`, `NAP_API_URL`, `NAP_WEB_ORIGIN` and `NAP_EVENT_BUS` are in the file rather than here,
+because none of them is a secret and all four are things a reader should be able to see without
+opening a dashboard.
 
-**Railway injects `PORT` itself, and it is 8080.** The app defaults to 3001 and follows `PORT`
-where it is set, so the only thing that has to know the number is the domain: one pointed at the
-wrong port answers **502 while the container logs a healthy boot and serves `/health` internally**.
-`.railway/railway.ts` declares the port with the domain so the two cannot drift.
+Migrations are deliberately not run at boot: three processes racing one schema change is bad
+enough at one replica each and worse at a dozen, and a schema change is a decision rather than a
+side effect of a restart. They are the worker's `preDeployCommand` instead, once per release (see
+[Render](#render)). On Kubernetes it is `infra/k8s/base/job-migrate.yaml`, for the same reason.
+
+The app listens on `PORT` where it is set and on 3001 otherwise, and Render sets `PORT` itself, so
+nothing in `render.yaml` names a port.
 
 Optionally `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` and the Google pair — both halves or
 neither, or boot refuses. Without them those buttons are not offered and email sign-in and
@@ -522,7 +492,7 @@ Two ways to get this wrong, both quiet:
 **They must be one site** — under `NODE_ENV=production` every process refuses to boot otherwise.
 [One site for both halves](#one-site-for-both-halves) says why, and gives the values.
 
-### 3. The web app on Vercel
+### 2. The web app on Vercel
 
 **The project's Root Directory must be `apps/web`.** It is a project setting rather than
 anything a file in the repo can say, so `vercel link` alone does not set it — the CLI
@@ -559,7 +529,7 @@ NEXT_PUBLIC_API_WS_URL  wss://nap-api.onrender.com
 
 `wss://`, not `ws://`: a page served over https may not open an insecure socket.
 
-### 4. OAuth callbacks
+### 3. OAuth callbacks
 
 better-auth builds redirect URIs from `NAP_API_URL`, so each provider's app needs
 `https://nap-tawny.vercel.app/backend/api/auth/callback/github` (and `/google`).
@@ -702,9 +672,9 @@ for a 200 first. On Luna it costs a few cents.
 decides to restart or de-register a process, and neither helps when the thing that is down
 is Postgres. Read the body, not the status.
 
-That is the right answer for a human, and for a Railway service with nowhere else to send the
+That is the right answer for a human, and for a single instance with nowhere else to send the
 traffic. It is the wrong one for an orchestrator with other pods to hand it to, which is why two
-other endpoints exist — the Kubernetes probes use them, and Railway's healthcheck stays on
+other endpoints exist — the Kubernetes probes use them, and Render's healthcheck stays on
 `/health`:
 
 | Endpoint | Answers | Meant for |
@@ -720,7 +690,7 @@ provider — is in `docs/GOTCHAS.md`, under API, auth and logging.
 
 The dashboard's cards are pictures of the apps themselves, taken at the end of the last turn
 that changed each one. That needs a browser in the image, so `Dockerfile` installs Debian's
-`chromium` and sets **`NAP_CHROME_PATH=/usr/bin/chromium` itself**. Do not set it as a Railway
+`chromium` and sets **`NAP_CHROME_PATH=/usr/bin/chromium` itself**. Do not set it as a platform
 variable: the binary and the path to it are one fact, and a variable can drift from the image
 that has to satisfy it.
 
@@ -740,7 +710,7 @@ nothing else will tell you, because every layer below is designed to shrug.
 `infra/k8s/base/` is the same three processes as manifests — API pods behind a Service and an
 Ingress, worker pods behind nothing, and one reaper — with `infra/k8s/README.md` as the map and
 each file's own header as the reason it is shaped that way. It is where a deployment goes when one
-Railway replica per process stops being enough; Railway remains what is live today.
+Render instance per process stops being enough; Render remains what is live today.
 
 Four things there are easy to get wrong, and every one of them fails without an error:
 
@@ -779,7 +749,7 @@ what that run measured, and which of the design's invariants it did and did not 
 ## GitHub repository connections
 
 Register a separate GitHub App and configure all six `NAP_GITHUB_*` variables on the API,
-workers and reaper. On Railway they are `preserve()` in `.railway/railway.ts`, so they are set on the
+workers and reaper. On Render they are `sync: false` in `render.yaml`, so they are set on the
 services like the other credentials; on Kubernetes they go in `nap-secrets`, where
 `infra/k8s/base/secret.example.yaml` lists them commented out. Apply migrations 0009 and 0010 before
 starting the updated processes. The container includes Git for the server broker. Run the reaper for
