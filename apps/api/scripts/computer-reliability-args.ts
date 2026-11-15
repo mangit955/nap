@@ -62,6 +62,25 @@ export function parseReliabilityArgs(
   return { ok: true, value: options };
 }
 
+/**
+ * Why the next run must not start, or null when it may. Checked before every run of a capped pass.
+ *
+ * The key's usage is the only spend figure there is, so a capped pass whose usage cannot be read
+ * stops: treating an unreadable figure as "no cap" would let every paid run start unchecked. A run
+ * already under way is not stopped, so a pass can end a little over its cap.
+ */
+export function spendStop(
+  capUsd: number | null,
+  startUsd: number | null,
+  nowUsd: number | null,
+): string | null {
+  if (capUsd === null) return null;
+  if (startUsd === null || nowUsd === null)
+    return "Stopping: the key's spend could not be read, so the cap cannot be enforced.";
+  const spent = nowUsd - startUsd;
+  return spent >= capUsd ? `Stopping: spent $${spent.toFixed(4)} of the $${capUsd} cap.` : null;
+}
+
 const computer = (id: string, actions: unknown[]) => ({
   toolCalls: [{ id, name: "computer", input: { actions } }],
 });

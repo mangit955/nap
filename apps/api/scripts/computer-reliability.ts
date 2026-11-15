@@ -37,7 +37,7 @@ import type { TurnOutcome } from "@nap/shared/ports/runtime";
 import { shellQuote } from "@nap/shared/shell";
 import { LocalDockerSandboxManager } from "./computer-local-sandbox.ts";
 import { type ReliabilityApp, reliabilityApps } from "./computer-reliability-apps.ts";
-import { parseReliabilityArgs, scriptedTestTurn } from "./computer-reliability-args.ts";
+import { parseReliabilityArgs, scriptedTestTurn, spendStop } from "./computer-reliability-args.ts";
 import {
   classifyRun,
   dockerMemoryMiB,
@@ -112,16 +112,11 @@ try {
     selected.includes(entry.id),
   ))
     for (let index = 1; index <= runs; index += 1) {
-      if (maxSpendUsd !== null && usageBefore !== null) {
-        const now = await keyUsage();
-        if (now === null || now - usageBefore >= maxSpendUsd) {
-          console.log(
-            now === null
-              ? "Stopping: the key's spend could not be read, so the cap cannot be enforced."
-              : `Stopping: spent $${(now - usageBefore).toFixed(4)} of the $${maxSpendUsd} cap.`,
-          );
-          break pass;
-        }
+      // The scripted model reads no key, so a cap given with it has nothing to check.
+      const stop = spendStop(model === null ? null : maxSpendUsd, usageBefore, await keyUsage());
+      if (stop !== null) {
+        console.log(stop);
+        break pass;
       }
       const before = await keyUsage();
       const run = await runOnce(app, index);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReliabilityArgs, scriptedTestTurn } from "./computer-reliability-args.ts";
+import { parseReliabilityArgs, scriptedTestTurn, spendStop } from "./computer-reliability-args.ts";
 
 describe("parseReliabilityArgs", () => {
   it("defaults to the scripted model, every app, ten runs each", () => {
@@ -54,6 +54,29 @@ describe("parseReliabilityArgs", () => {
     ["--verbose"],
   ])("refuses %j", (...args) => {
     expect(parseReliabilityArgs(args).ok).toBe(false);
+  });
+});
+
+describe("spendStop", () => {
+  it("lets every run start when there is no cap", () => {
+    expect(spendStop(null, null, null)).toBeNull();
+  });
+
+  it("lets a run start while the key has spent less than the cap", () => {
+    expect(spendStop(0.8, 10, 10.5)).toBeNull();
+  });
+
+  it("stops once the key has spent the cap", () => {
+    expect(spendStop(0.8, 10, 10.8)).toMatch(/spent \$0\.8000 of the \$0\.8 cap/);
+  });
+
+  it.each([
+    [null, 10.2],
+    [10, null],
+  ])("stops a capped pass whose usage cannot be read (start %s, now %s)", (start, now) => {
+    // A cap that cannot be checked is no cap: an unreadable starting figure must not let every
+    // paid run start unchecked.
+    expect(spendStop(0.8, start, now)).toMatch(/cannot be enforced/);
   });
 });
 

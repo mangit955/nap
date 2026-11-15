@@ -144,5 +144,6 @@ used it during the passes. These are usage figures, not an invoice.
 The scripted pass needs only Docker. The first run builds the local image, which took about 25
 minutes here. A real model needs `OPENROUTER_API_KEY`. Anything not `:free` also needs
 `--allow-spend` with a `--max-spend` ceiling, which is checked against the key's usage before each
-run. `--apps` and `--runs` narrow a pass. The classifier's kinds are in
+run; a pass stops if that usage cannot be read, and a run already started can take it a little
+over. `--apps` and `--runs` narrow a pass. The classifier's kinds are in
 `apps/api/scripts/computer-reliability-classify.ts`.
