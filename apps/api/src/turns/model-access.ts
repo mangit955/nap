@@ -14,9 +14,9 @@
  * key belonging to whoever is asking.
  *
  * The models the deployment itself names — `NAP_FALLBACK_MODEL` and `NAP_SUBAGENT_MODEL` — also
- * run on its key, but only inside turns it already
- * pays for, because the agent uses them only on a turn with no credentials. They are never a
- * way for a caller to reach a model this function refused them.
+ * run on its key, but only inside turns it already pays for, because the agent uses them only on
+ * a turn with no credentials. They are never a way for a caller to reach a model this function
+ * refused them.
  *
  * A pure function taking everything it needs, so the whole policy is a table in a test rather
  * than a set of branches spread across a route handler. That matters here more than usual —
