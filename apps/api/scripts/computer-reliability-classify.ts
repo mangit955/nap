@@ -56,7 +56,7 @@ const LEDGER_REFUSALS = [
   "State an untested assertion before describing the action.",
   "Start a test before declaring its assertion.",
   "Assertion IDs must be unique",
-  "A verdict must match an untested assertion in the current test.",
+  "A verdict must match an untested assertion in the current test",
   "Perform the action and inspect a new screenshot before assigning a verdict.",
   "Record setup or an untested assertion before computer input.",
 ];
