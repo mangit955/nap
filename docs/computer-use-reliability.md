@@ -119,23 +119,11 @@ because a verdict needs input made after the declaration. An assertion about wha
 screen can never pass, and the model left it untested. Allowing it would change ADR-0018 D9, which
 is a design decision rather than a fix.
 
-## A free model
-
-`nvidia/nemotron-3.5-super-vl:free` read a marker from a screenshot inside a tool result through
-OpenRouter's Messages route, which is the shape the computer tool sends, and was added to the
-image-model allowlist for that reason. `inclusionai/ling-3.2-flash:free` and
-`particle-ai/particle-1:free` passed the same check but were not added. On the one cart run it made,
-it recorded a plan and two assertions, then spent 22 calls trying to replace "1" with "3". It held
-Control and pressed `a` as two separate actions, sent its action list as a string, and invented an
-`overwrite` option. It ran out of turn budget after 281 s with both assertions untested. A full free
-pass was started and stopped so that it would not share the machine with the paid pass. It was not
-repeated, so this is one observation, not a rate.
-
 ## Cost
 
 Measured from the OpenRouter key's usage before and after each pass: **US$0.234** for the 30-run
-pass and **US$0.075** for the 10-run re-check, **US$0.309** in total. The free model and the
-scripted control cost nothing. The key's usage updates with a lag, so per-run figures in each
+pass and **US$0.075** for the 10-run re-check, **US$0.309** in total. The scripted control cost
+nothing. The key's usage updates with a lag, so per-run figures in each
 `summary.json` can land on the run after the one that spent them. The totals bracket whole passes
 and do not have that problem. The key is the development one, and nothing else is known to have
 used it during the passes. These are usage figures, not an invoice.

@@ -8,7 +8,6 @@ describe("image input policy", () => {
     "openai/gpt-5.6-sol",
     "anthropic/claude-sonnet-5",
     "anthropic/claude-opus-5",
-    "nvidia/nemotron-3.5-super-vl:free",
   ])("allows known image input on %s", (model) => {
     expect(modelSupportsImages(model)).toBe(true);
   });

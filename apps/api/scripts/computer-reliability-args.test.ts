@@ -18,7 +18,7 @@ describe("parseReliabilityArgs", () => {
 
   it("reads a model, a subset of apps, a run count, an output directory and spend consent", () => {
     const parsed = parseReliabilityArgs([
-      "--model=nvidia/nemotron-3.5-super-vl:free",
+      "--model=anthropic/claude-sonnet-5",
       "--apps=kanban,cart",
       "--runs=3",
       "--out=somewhere",
@@ -28,7 +28,7 @@ describe("parseReliabilityArgs", () => {
     expect(parsed).toEqual({
       ok: true,
       value: {
-        model: "nvidia/nemotron-3.5-super-vl:free",
+        model: "anthropic/claude-sonnet-5",
         apps: ["kanban", "cart"],
         runs: 3,
         out: "somewhere",
