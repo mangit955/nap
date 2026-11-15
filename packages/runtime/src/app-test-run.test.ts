@@ -143,3 +143,18 @@ it("says a verdict needs input after its declaration, and which assertion is wai
   expect(early.error.message).toContain('"save"');
   expect(early.error.message).toMatch(/no input since it was declared/);
 });
+it("does not claim there was no input when the input ran but its screenshot has not been seen", async () => {
+  // Seen when the reliability harness was broken on purpose: a verdict in the same batch as its
+  // click was told the assertion "has had no input", which was false and points the model at the
+  // wrong correction. What it lacks is a screenshot of that input reaching it.
+  const { run } = fixture();
+  await run.annotate({ type: "test_start", id: "main", description: "Save an item" });
+  await run.annotate(declaration);
+  run.afterAction({ action: "left_click", coordinate: [1, 2] }, true);
+  const sameBatch = await run.annotate({ ...declaration, result: "passed" });
+  expect(sameBatch.ok).toBe(false);
+  if (sameBatch.ok) throw new Error("unreachable");
+  expect(sameBatch.error.message).toMatch(/^Perform the action and inspect a new screenshot/);
+  expect(sameBatch.error.message).not.toMatch(/no input/);
+  expect(sameBatch.error.message).toMatch(/"save" has had input, but no screenshot taken after it/);
+});

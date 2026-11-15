@@ -78,8 +78,12 @@ export class AppTestRun {
               `A verdict must match an untested assertion in the current test, repeating its id and expectation exactly. ${this.#untested()}`,
             );
           if (this.#observedAction <= previous.declaredAfter)
+            // Say which half is missing: a model that clicked in this same batch was told it had
+            // made no input, which is false and sends it to repeat the input instead of looking.
             return refuse(
-              `Perform the action and inspect a new screenshot before assigning a verdict. "${annotation.id}" has had no input since it was declared: act, look at the new screenshot in a later step, then give its verdict.`,
+              this.#action > previous.declaredAfter
+                ? `Perform the action and inspect a new screenshot before assigning a verdict. "${annotation.id}" has had input, but no screenshot taken after it has reached you yet: take a screenshot, look at it, then give its verdict in a later step.`
+                : `Perform the action and inspect a new screenshot before assigning a verdict. "${annotation.id}" has had no input since it was declared: act, look at the new screenshot in a later step, then give its verdict.`,
             );
           previous.result = annotation.result;
         }

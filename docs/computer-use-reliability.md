@@ -110,7 +110,8 @@ unchanged.
 - A computer call that stops early now says which of its actions did not run, naming any assertion
   declarations among them.
 - A refused verdict lists the assertions still untested in the test, with their exact ids and
-  expectations. A verdict sent with no input since its declaration is told so.
+  expectations. A verdict sent too early is told which half is missing: input since the
+  declaration, or a screenshot of that input reaching the model.
 - A modifier chord ending in an uppercase letter is lowercased before the desktop sees it, so
   `CTRL+A` is select-all. This is done outside the desktop's key map, which is part of the desktop
   build: changing that would mark every running machine outdated until the template is republished.
