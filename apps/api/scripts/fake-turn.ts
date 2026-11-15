@@ -54,9 +54,16 @@ export function scriptedTurn() {
   ];
 }
 
-/** An in-memory sandbox answering the commands a turn actually runs, git included. */
-export function fakeSandbox(): InMemorySandboxManager {
+/**
+ * An in-memory sandbox answering the commands a turn actually runs, git included.
+ *
+ * @param previewUrl Where a serving port answers; unset, an address that never resolves.
+ */
+export function fakeSandbox(
+  previewUrl?: (sandboxId: string, port: number) => string,
+): InMemorySandboxManager {
   return new InMemorySandboxManager({
+    ...(previewUrl === undefined ? {} : { previewUrl }),
     defaultExec: () => ({ exitCode: 0, stdout: "" }),
     serves: [TEMPLATE_DEV_PORT],
     seed: { [`${PROJECT_ROOT_PATH}/package.json`]: JSON.stringify(TEMPLATE_MANIFEST) },

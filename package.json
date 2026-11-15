@@ -22,6 +22,8 @@
     "db:migrate": "bun run packages/db/scripts/migrate.ts",
     "github:manifest": "bun run apps/api/scripts/github-manifest.ts",
     "ws:smoke": "bun run apps/api/scripts/ws-smoke.ts",
+    "verify-nap:up": "bun run apps/api/scripts/verify-nap.ts",
+    "verify-nap": "bun run apps/napbench/scripts/verify-nap.ts",
     "loadgen": "bun run apps/api/scripts/loadgen.ts",
     "loadgen:ramp": "bun run apps/api/scripts/loadgen-ramp.ts",
     "loadgen:cluster": "bun run apps/api/scripts/loadgen-cluster.ts",

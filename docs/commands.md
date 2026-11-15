@@ -23,6 +23,11 @@ bun run harness --steer="<message>" "<prompt>"  # sends a message mid-turn; it i
 bun run harness --real "<prompt>" # the same turn against real E2B + a real model; this spends money
 bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo model, ~20x the cost
 bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, no database
+bun run verify-nap:up     # the real web app, API, Postgres and queue on a scripted model, an in-memory
+                          # sandbox and a headless Chrome, for driving a UI change like a user — free;
+                          # needs Docker and Chrome. --port=<base> runs a second beside it
+bun run verify-nap <cmd>  # drives that Chrome by role and accessible name, and saves screenshots as
+                          # evidence: doctor, signin, click, fill, wait, shot, stop… See .claude/skills/verify-nap
 bun run loadgen           # scripted users against the composed API — fakes, free; needs Docker
 bun run loadgen --users=25        # that many at once, latencies calibrated from a funded run
 bun run loadgen:ramp      # the k6 ramp to 100 concurrent turns — fakes, free; needs Docker and k6

@@ -48,13 +48,26 @@ export function portFrom(dockerPortOutput: string): number {
  * a database somebody will later connect to by accident, and it is billed in memory either way.
  */
 export async function startDockerPostgres(
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  options: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    /**
+     * Told the container's name before Docker is asked to create it, so a long-lived owner can
+     * record it somewhere that outlives this process: one killed mid-startup otherwise leaves a
+     * container nothing knows the name of.
+     */
+    onName?: (name: string) => void;
+  } = {},
 ): Promise<MigratedPostgres> {
   const timeoutMs = options.timeoutMs ?? READY_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
     throw new RangeError("Postgres startup timeoutMs must be positive and fit a timer");
   }
   options.signal?.throwIfAborted();
+  // The name is owned before Docker can allocate, even if its stdout never delivers the ID. Told
+  // to the owner before any timer or listener exists, so a throwing callback leaves nothing behind.
+  const name = `nap-postgres-${randomUUID()}`;
+  options.onName?.(name);
   const startup = new AbortController();
   const abort = () => startup.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
@@ -63,8 +76,6 @@ export async function startDockerPostgres(
     timeoutMs,
   );
   const { signal } = startup;
-  // The name is owned before Docker can allocate, even if its stdout never delivers the ID.
-  const name = `nap-postgres-${randomUUID()}`;
   let stopping: Promise<void> | undefined;
   const stop = () => {
     stopping ??= removeOwnedContainer(name).catch((error: unknown) => {
