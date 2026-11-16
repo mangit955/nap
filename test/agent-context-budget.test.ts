@@ -1,9 +1,9 @@
 /**
  * The fixed text the coding agent is sent, held to a committed size.
  *
- * The system prompts, the helper prompts and the tool declarations are the head of every request
- * the agent makes, so a sentence added to any of them is paid for on every request of every turn,
- * and nothing else notices it arrive. Pinning their size in `agent-context-budget.json` makes
+ * The system prompts, the helper prompts and the tool declarations are fixed text at the head of
+ * every request of their kind — every turn, every plan, every helper — so a sentence added to any
+ * of them is paid for on each of those requests, and nothing else notices it arrive. Pinning their size in `agent-context-budget.json` makes
  * every change to that size show up in the diff that caused it, where a reviewer can ask whether
  * it was worth it. The check is equality, not a ceiling: text that shrinks has to be recorded too,
  * or the budget slowly stops describing what is sent and the next addition hides in the slack.
@@ -17,7 +17,6 @@
  * rule forbids from reading each other.
  */
 
-import { readFileSync } from "node:fs";
 import { TOOL_DEFINITIONS } from "@nap/agent/tools/definitions";
 import { type ToolsetOptions, toolsetFor } from "@nap/agent/tools/toolset";
 import { EXPLORE_PROMPT, GENERAL_PROMPT } from "@nap/context/subagent-prompts";
@@ -27,8 +26,9 @@ import {
   SYSTEM_PROMPT,
 } from "@nap/context/system-prompt";
 import { describe, expect, it } from "vitest";
-
-const BUDGET_FILE = new URL("./agent-context-budget.json", import.meta.url);
+// Imported rather than read from disk so the pre-commit hook's `vitest --changed` runs this test
+// when only the budget is edited.
+import budget from "./agent-context-budget.json" with { type: "json" };
 
 /**
  * The tool sets that are pinned, each one the declarations of a real request.
@@ -84,26 +84,21 @@ function measure() {
       exploreHelper: bytes(EXPLORE_PROMPT),
       generalHelper: bytes(GENERAL_PROMPT),
     },
-    tools: {
-      projectTurn: toolBytes(TOOL_SETS.projectTurn),
-      repositoryTurn: toolBytes(TOOL_SETS.repositoryTurn),
-      planTurn: toolBytes(TOOL_SETS.planTurn),
-      appTest: toolBytes(TOOL_SETS.appTest),
-      exploreHelper: toolBytes(TOOL_SETS.exploreHelper),
-      generalHelper: toolBytes(TOOL_SETS.generalHelper),
-    },
+    tools: Object.fromEntries(
+      Object.entries(TOOL_SETS).map(([set, options]) => [set, toolBytes(options)]),
+    ),
   };
 }
 
 describe("the agent's fixed context", () => {
   it("is the size the committed budget says", () => {
-    const budget: unknown = JSON.parse(readFileSync(BUDGET_FILE, "utf8"));
     expect(
       measure(),
       "The agent's fixed context changed size. Set test/agent-context-budget.json to the measured " +
-        "values, so the change is visible in review. Before you cut text to fit, run the NapBench " +
-        "tasks that cover it (docs/NAPBENCH.md) — on fakes it scores nothing, so a real run needs " +
-        "approval.",
+        "values, so the change is visible in review. Before you cut text to fit, measure the cut " +
+        "with NapBench (docs/NAPBENCH.md): its tasks run Nap-project turns and app tests, and none " +
+        "runs an imported repository, plan mode or a helper, so a cut there is unmeasured — say so " +
+        "in the PR. On fakes it scores nothing; a real run spends money and needs approval.",
     ).toEqual(budget);
   });
 
@@ -112,6 +107,10 @@ describe("the agent's fixed context", () => {
     const pinned = new Set(
       Object.values(TOOL_SETS).flatMap((options) => toolsetFor(options).map((tool) => tool.name)),
     );
-    expect([...pinned].sort()).toEqual(TOOL_DEFINITIONS.map((tool) => tool.name).sort());
+    expect(
+      [...pinned].sort(),
+      "A tool is declared by no set in TOOL_SETS, so its size is unbudgeted. Add the set that " +
+        "declares it to TOOL_SETS, and its measured size to test/agent-context-budget.json.",
+    ).toEqual(TOOL_DEFINITIONS.map((tool) => tool.name).sort());
   });
 });
