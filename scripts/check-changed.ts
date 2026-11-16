@@ -17,7 +17,10 @@ import { z } from "zod";
 
 export type Workspace = { readonly name: string; readonly dir: string };
 export type ChangedFile = { readonly path: string; readonly present: boolean };
-/** Commands run one after another; a step fails at the first that exits non-zero. */
+/**
+ * Commands run one after another, every one of them even after a failure, so one run reports
+ * every failure; the step fails if any exits non-zero.
+ */
 export type Step = { readonly name: string; readonly commands: readonly (readonly string[])[] };
 export type Plan = { readonly steps: readonly Step[]; readonly notes: readonly string[] };
 
@@ -299,6 +302,7 @@ function runStep(root: string, step: Step): Promise<StepResult & { output: strin
   const env = process.stdout.isTTY ? { ...process.env, FORCE_COLOR: "1" } : process.env;
   let output = "";
   const run = async (): Promise<boolean> => {
+    let ok = true;
     for (const [command, ...args] of step.commands) {
       if (command === undefined) continue;
       output += `$ ${[command, ...args].join(" ")}\n`;
@@ -316,9 +320,9 @@ function runStep(root: string, step: Step): Promise<StepResult & { output: strin
         });
         child.on("close", resolve);
       });
-      if (code !== 0) return false;
+      if (code !== 0) ok = false;
     }
-    return true;
+    return ok;
   };
   return run().then((ok) => ({
     name: step.name,
