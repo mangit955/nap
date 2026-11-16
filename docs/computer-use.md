@@ -168,6 +168,21 @@ US$0.01 of E2B time. These estimates are not provider invoices.
 correct apps on the local desktop, classifies every failure, and records the fix for the most common
 one. Run it again with `bun run computer:reliability`.
 
+## A free image model
+
+`nvidia/nemotron-3.5-super-vl:free` is on the image-model allowlist, so a turn on it is offered the
+`computer` tool and image attachments. It takes effect only where a deployment also puts the model
+in `NAP_ALLOWED_MODELS`. It read a marker from a screenshot placed inside a tool result through
+OpenRouter's Messages route, which is the shape the computer tool sends.
+`inclusionai/ling-3.2-flash:free` and `particle-ai/particle-1:free` passed the same check and were
+not added.
+
+That check is all it passed. Its one "Test the app" run, on 2026-11-15 against a correct cart on
+the local Docker desktop, failed: it recorded a plan and two assertions, then spent 22 calls trying
+to replace "1" with "3". It held Control and pressed `a` as two separate actions, sent its action
+list as a string, and invented an `overwrite` option, and it ran out of turn budget after 281 s
+with both assertions untested. That is one observation, not a pass rate.
+
 ## Current limits
 
 Machines from a different desktop build report `outdated`. Projects without a held reservation

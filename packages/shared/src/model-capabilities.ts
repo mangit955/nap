@@ -5,6 +5,10 @@ const IMAGE_MODELS = new Set([
   "openai/gpt-5.6-sol",
   "anthropic/claude-sonnet-5",
   "anthropic/claude-opus-5",
+  // Free. Read a screenshot inside a tool result through OpenRouter's Messages route, which is
+  // the shape the computer tool sends. Its one app test failed — docs/computer-use.md, "A free
+  // image model".
+  "nvidia/nemotron-3.5-super-vl:free",
 ]);
 
 export function modelSupportsImages(model: string | undefined): boolean {
