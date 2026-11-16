@@ -42,7 +42,7 @@ code and reports but are not being built on: see `docs/scaling-baseline.md` and
 bun install               # also in every fresh worktree
 bun run test              # unit + types + web + db + computer — free; db needs Docker
 bun run test:fast         # unit + types + web — the Docker-free inner loop
-bunx vitest run <file> -t "<name>"  # one file, one test; the filename picks the project. A -t matching nothing still passes
+bunx vitest run --project unit <file> -t "<name>"  # one test; .tsx is --project web. A -t matching nothing still passes
 bun run typecheck         # tsc per workspace, then a root pass for test/ and configs
 bun run lint              # biome check; `bun run format` writes — Biome owns formatting
 bun run dev               # api :3001, web :3000; copy apps/api/.env.example to .env first

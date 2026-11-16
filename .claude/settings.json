@@ -11,8 +11,11 @@
       "Bash(bun run format)",
       "Bash(bun run build)",
       "Bash(bun install)",
-      "Bash(bunx vitest run *.test.ts*)",
-      "Bash(bunx vitest run *.test-d.ts*)",
+      "Bash(bunx vitest run --project unit *)",
+      "Bash(bunx vitest run --project web *)",
+      "Bash(bunx vitest run --project types *)",
+      "Bash(bunx vitest run --project computer *)",
+      "Bash(bunx vitest run --project db *)",
       "Bash(bunx vitest list *)",
       "Bash(bun run harness *)",
       "Bash(bun run ws:smoke)",
@@ -28,7 +31,11 @@
       "Bash(gh run view *)",
       "Bash(gh search *)"
     ],
-    "ask": ["Bash(bun run harness *--real*)", "Bash(bunx vitest run *integration*)"]
+    "ask": [
+      "Bash(bun run harness *--real*)",
+      "Bash(bunx vitest run *integration*)",
+      "Bash(bun run test*integration*)"
+    ]
   },
   "hooks": {
     "PreToolUse": [
@@ -37,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // \"\"' | grep -qE '(^|[;&|]{1,2}[[:space:]]*)bun[[:space:]]+test([[:space:]]|$)' && { echo 'Blocked: bare `bun test` invokes the Bun built-in test runner over our Vitest files and reports nonsense. Use `bun run test`, or `bunx vitest run <file> -t \"<name>\"` for one test. See AGENTS.md.' >&2; exit 2; } || exit 0",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE '(^|[;&|]{1,2}[[:space:]]*)bun[[:space:]]+test([[:space:]]|$)' && { echo 'Blocked: bare `bun test` invokes the Bun built-in test runner over our Vitest files and reports nonsense. Use `bun run test`, or `bunx vitest run --project unit <file> -t \"<name>\"` for one test. See AGENTS.md.' >&2; exit 2; } || exit 0",
             "statusMessage": "Checking for bare `bun test`"
           }
         ]

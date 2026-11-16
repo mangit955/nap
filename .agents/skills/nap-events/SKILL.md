@@ -15,7 +15,7 @@ Every event is the same envelope — `{ type, sessionId, turnId, seq, createdAt,
 
 Closed sets are exported from the same module. Derive tool names from `TOOL_NAMES` and failure reasons from `TurnFailureReasonSchema`; read the event schemas for change types, output streams and notice levels. Adding a value is a deliberate schema change, and every exhaustive consumer must handle it.
 
-**Two rules when you extend this, both about surviving Postgres `jsonb`:** no `Date` and no `undefined` (timestamps are ISO-8601 strings, absent values are `null`), and payloads are `strictObject` so an unknown key is rejected rather than silently dropped on the way into the log. The schema tests below prove both.
+**Two rules when you extend this, both about surviving Postgres `jsonb`:** no `Date` and no `undefined` (timestamps are ISO-8601 strings, absent values are `null`), and payloads are `strictObject` so an unknown key is rejected rather than silently dropped on the way into the log. The round-trip assertion below proves the first; `strictObject` in `events.ts` enforces the second.
 
 ## The one rule that governs everything here
 
