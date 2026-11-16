@@ -37,20 +37,15 @@ describe("runsWithoutPrompt", () => {
 });
 
 // The project allowlist exists so free commands stop prompting. These hit real E2B or a real
-// model (docs/commands.md), so each must still ask, however an agent spells it. Vitest takes
-// positional arguments as substring filters across every project, so a "file-shaped" allow rule
-// such as `bunx vitest run *.test.ts*` let `bunx vitest run .test.ts` collect the integration suite.
+// model (docs/commands.md), so each must still ask. Vitest itself cannot reach the paid suite
+// without NAP_INTEGRATION — see test/integration-gate.test.ts — so setting that is what must ask.
 const PAID = [
   "bun run test:integration",
-  "bun run test --project integration",
+  "bun run test:integration packages/sandbox",
   'bun run harness --real "fix the bug"',
   "bun run harness --plan --real x",
-  "bunx vitest run .test.ts",
-  "bunx vitest run packages/sandbox",
-  "bunx vitest run packages/sandbox/src/git.test.ts packages/sandbox",
-  "bunx vitest run --project integration",
-  "bunx vitest run --project unit --project integration x",
-  "bunx vitest run packages/sandbox/src/git.integration.test.ts",
+  "NAP_INTEGRATION=1 bunx vitest run packages/sandbox",
+  "env NAP_INTEGRATION=1 bunx vitest run",
 ];
 
 const FREE = [
@@ -58,8 +53,8 @@ const FREE = [
   "bun run test:fast",
   'bun run harness "fix the bug"',
   "bun run ws:smoke",
-  'bunx vitest run --project unit test/comments.test.ts -t "explains"',
-  "bunx vitest run --project web apps/web/src/chat/chat-input.test.tsx",
+  'bunx vitest run test/comments.test.ts -t "explains"',
+  "bunx vitest run apps/web/src/chat/chat-input.test.tsx",
   "gh pr view 12",
 ];
 
