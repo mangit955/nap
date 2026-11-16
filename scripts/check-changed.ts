@@ -11,11 +11,16 @@
 // test/check-changed.test.ts. Everything below it only gathers its inputs and runs its output.
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
-export type Workspace = { readonly name: string; readonly dir: string };
+/** A workspace package, and the workspace packages its package.json depends on. */
+export type Workspace = {
+  readonly name: string;
+  readonly dir: string;
+  readonly dependsOn: readonly string[];
+};
 export type ChangedFile = { readonly path: string; readonly present: boolean };
 /**
  * Commands run one after another, every one of them even after a failure, so one run reports
@@ -38,6 +43,11 @@ export type PlanInput = {
   readonly testsNaming: Readonly<Record<string, readonly string[]>>;
   /** Each test project's setup and global-setup files, from vitest.config.ts, keyed by path. */
   readonly setupFiles: Readonly<Record<string, string>>;
+  /**
+   * Tests that run a script as a separate `bun` process, with the workspace packages that script
+   * imports. No import of the test's reaches them, so `related` cannot see what they exercise.
+   */
+  readonly processRunners: Readonly<Record<string, readonly string[]>>;
 };
 
 // A change to one of these can break any package, so it widens every step to the whole repo. The
@@ -88,9 +98,10 @@ export const TREE_READERS = [
 const GENERIC_NAMES = new Set(["package.json"]);
 // Biome's own configuration changes what every file is checked against.
 const BIOME_CONFIG = "biome.json";
-// `integration` spends money and `types` is covered by each package's tsc, so neither is here.
-// `computer` is chosen by name rather than by import, below.
+// `integration` spends money and `types` is covered by each package's tsc, so neither is here;
+// test files of those kinds are never chosen either. `computer` is chosen by name, not import.
 const TEST_PROJECTS = ["unit", "web"];
+const NEVER = /\.(?:integration|test-d)\./;
 
 /** `dir/name` without any extension, so `a/x.ts`, `a/x.sh` and `a/x.computer.test.ts` agree. */
 const stem = (path: string) => path.replace(/\.[^/]*$/, "");
@@ -99,9 +110,78 @@ const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 // JSON included, may also be read as text by a test that names it, so it is looked up by name.
 const CODE = /\.[cm]?[jt]sx?$/;
 const COMPUTER = /\.computer\.test\.ts$/;
-// `integration` spends money; `types` is checked by each package's tsc.
-const NEVER = /\.(?:integration|test-d)\./;
 const lookedUpByName = (path: string) => !CODE.test(path) && !GENERIC_NAMES.has(basename(path));
+
+/** Which test files and projects a non-global change runs; see each rule's comment. */
+function selectTests(
+  input: PlanInput,
+  touched: readonly Workspace[],
+  runnable: readonly string[],
+): { targets: string[]; computer: string[]; whole: string[] } {
+  const paths = input.files.map((file) => file.path);
+  const present = input.files.filter((file) => file.present).map((file) => file.path);
+  // Every node test in a changed workspace runs, not only those importing the change: they
+  // read their own package's components, fixtures and scripts as text, often through a helper.
+  // Component tests (`.test.tsx`) reach what they render by import, which `related` follows,
+  // and are left out: apps/web's take 50 s against its node tests' 1.4 s. test/ always runs.
+  const own = input.tests.filter(
+    (test) =>
+      test.startsWith("test/") ||
+      (!test.endsWith(".tsx") && touched.some(({ dir }) => test.startsWith(`${dir}/`))),
+  );
+  // A test elsewhere that names a changed file, or reads the tree it sits in, runs as well.
+  const readers = [
+    ...paths.filter(lookedUpByName).flatMap((path) => input.testsNaming[basename(path)] ?? []),
+    ...TREE_READERS.filter(({ reads }) => paths.some((path) => reads.test(path))).map(
+      ({ test }) => test,
+    ),
+  ];
+  // A test that runs a script as a process exercises every workspace that script reaches.
+  const changed = new Set(touched.map(({ name }) => name));
+  const runners = Object.entries(input.processRunners)
+    .filter(([, imports]) =>
+      [...reach(input.workspaces, imports)].some((name) => changed.has(name)),
+    )
+    .map(([test]) => test);
+  const chosen = [...own, ...readers, ...runners].filter((test) => !NEVER.test(test));
+  // The computer suites spawn real processes and take a minute each, and one of them imports
+  // most of the runtime: by import graph, a comment in packages/verify cost 71 s of the 140 s a
+  // run took. So they run when they, the file they share a name with, or a file they read
+  // changed. CI runs all.
+  const stems = new Set(paths.map(stem));
+  return {
+    targets: [
+      ...new Set([
+        ...present.filter((path) => IMPORTABLE.test(path)),
+        ...chosen.filter((test) => !COMPUTER.test(test)),
+      ]),
+    ],
+    computer: [
+      ...new Set([
+        ...input.tests.filter((test) => COMPUTER.test(test) && stems.has(stem(test))),
+        ...chosen.filter((test) => COMPUTER.test(test)),
+      ]),
+    ],
+    // A setup file is loaded by every test in its project and imported by none of them, so a
+    // change to one runs that whole project.
+    whole: [...new Set(paths.flatMap((path) => input.setupFiles[path] ?? []))].filter((name) =>
+      [...runnable, "computer"].includes(name),
+    ),
+  };
+}
+
+/** `names` and every workspace they depend on, directly or not. */
+function reach(workspaces: readonly Workspace[], names: readonly string[]): Set<string> {
+  const seen = new Set<string>();
+  const visit = (name: string) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    for (const next of workspaces.find((workspace) => workspace.name === name)?.dependsOn ?? [])
+      visit(next);
+  };
+  for (const name of names) visit(name);
+  return seen;
+}
 
 export function planChecks(input: PlanInput): Plan {
   const present = input.files.filter((file) => file.present).map((file) => file.path);
@@ -130,9 +210,10 @@ export function planChecks(input: PlanInput): Plan {
     });
   }
 
-  const packages = input.workspaces
-    .filter((workspace) => paths.some((path) => path.startsWith(`${workspace.dir}/`)))
-    .map((workspace) => workspace.name);
+  const touched = input.workspaces.filter((workspace) =>
+    paths.some((path) => path.startsWith(`${workspace.dir}/`)),
+  );
+  const packages = touched.map((workspace) => workspace.name);
   if (global || packages.length > 0 || paths.some((path) => ROOT_PROGRAM.test(path))) {
     // `...pkg` is turbo's "this package and everything that depends on it", read from the same
     // package.json graph `bun run typecheck` walks. The root pass is ~2 s and imports from most
@@ -152,48 +233,7 @@ export function planChecks(input: PlanInput): Plan {
       commands: [["bunx", "vitest", "run", ...projects, "--project", "computer"]],
     });
   } else {
-    // Every node test in a changed workspace runs, not only those importing the change: they
-    // read their own package's components, fixtures and scripts as text, often through a helper.
-    // Component tests (`.test.tsx`) reach what they render by import, which `related` follows,
-    // and are left out: apps/web's take 50 s against its node tests' 1.4 s. test/ always runs.
-    const dirs = input.workspaces
-      .filter((workspace) => paths.some((path) => path.startsWith(`${workspace.dir}/`)))
-      .map((workspace) => `${workspace.dir}/`);
-    const own = input.tests.filter(
-      (test) =>
-        test.startsWith("test/") ||
-        (!test.endsWith(".tsx") && dirs.some((dir) => test.startsWith(dir))),
-    );
-    // A test elsewhere that names a changed file, or reads the tree it sits in, runs as well.
-    const readers = [
-      ...paths.filter(lookedUpByName).flatMap((path) => input.testsNaming[basename(path)] ?? []),
-      ...TREE_READERS.filter(({ reads }) => paths.some((path) => reads.test(path))).map(
-        ({ test }) => test,
-      ),
-    ];
-    const chosen = [...own, ...readers].filter((test) => !NEVER.test(test));
-    const targets = [
-      ...new Set([
-        ...present.filter((path) => IMPORTABLE.test(path)),
-        ...chosen.filter((test) => !COMPUTER.test(test)),
-      ]),
-    ];
-    // The computer suites spawn real processes and take a minute each, and one of them imports
-    // most of the runtime: by import graph, a comment in packages/verify cost 71 s of the 140 s a
-    // run took. So they run when they, the file they share a name with, or a file they name
-    // changed. CI runs all.
-    const stems = new Set(paths.map(stem));
-    const computer = [
-      ...new Set([
-        ...input.tests.filter((test) => COMPUTER.test(test) && stems.has(stem(test))),
-        ...readers.filter((test) => COMPUTER.test(test)),
-      ]),
-    ];
-    // A setup file is loaded by every test in its project and imported by none of them, so a
-    // change to one runs that whole project.
-    const whole = [...new Set(paths.flatMap((path) => input.setupFiles[path] ?? []))].filter(
-      (name) => [...runnable, "computer"].includes(name),
-    );
+    const { targets, computer, whole } = selectTests(input, touched, runnable);
     // `related` runs each test file it is given and every test file whose imports reach a given
     // source file, across the listed projects. The runs go one after the other because parallel
     // vitest runs race on the same cache directory.
@@ -243,7 +283,12 @@ const Args = z.union([
   z.tuple([z.string().regex(/^[^-]/)]).transform(([ref]) => ({ staged: false as const, ref })),
   z.tuple([]).transform(() => ({ staged: false as const, ref: undefined })),
 ]);
-const PackageJson = z.object({ name: z.string(), workspaces: z.array(z.string()).optional() });
+const PackageJson = z.object({
+  name: z.string(),
+  workspaces: z.array(z.string()).optional(),
+  dependencies: z.record(z.string(), z.string()).optional(),
+  devDependencies: z.record(z.string(), z.string()).optional(),
+});
 
 /** Runs git; `-z` in `args` splits on NUL, so a path with a quote, tab or newline survives. */
 function git(root: string, args: readonly string[], allowed: readonly number[] = [0]): string[] {
@@ -310,12 +355,50 @@ function readWorkspaces(root: string): Workspace[] {
     return readdirSync(join(root, parent))
       .map((entry) => `${parent}/${entry}`)
       .filter((dir) => existsSync(join(root, dir, "package.json")))
-      .map((dir) => ({
-        dir,
-        name: PackageJson.parse(JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8")))
-          .name,
-      }));
+      .map((dir) => {
+        const manifest = PackageJson.parse(
+          JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8")),
+        );
+        // Workspace packages are depended on as `workspace:*`; nothing else is.
+        const dependsOn = Object.entries({
+          ...manifest.dependencies,
+          ...manifest.devDependencies,
+        })
+          .filter(([, version]) => version.startsWith("workspace:"))
+          .map(([name]) => name);
+        return { dir, name: manifest.name, dependsOn };
+      });
   });
+}
+
+// A test that starts `bun` on a script, and the `.ts` paths it mentions. A heuristic over the
+// test's text, pinned to the runners that exist by test/check-changed.test.ts.
+const SPAWNS_BUN = /\b(?:spawn|spawnSync|execFile|execFileSync)\(\s*"bun"/;
+const TS_PATH = /["'`]([^"'`\s$]+\.ts)["'`]/g;
+const NAP_IMPORT = /from "(@nap\/[^/"]+)/g;
+
+/** For each test that runs a script with `bun`, the workspace packages that script imports. */
+function readProcessRunners(root: string, tests: readonly string[]): Record<string, string[]> {
+  const runners: Record<string, string[]> = {};
+  for (const test of tests) {
+    const text = readFileSync(join(root, test), "utf8");
+    if (!SPAWNS_BUN.test(text)) continue;
+    const scripts = [...text.matchAll(TS_PATH)]
+      .map(([, path = ""]) =>
+        // Written relative to the test (resolved through import.meta.url) or to the root.
+        [join(dirname(test), path), path].find(
+          (candidate) => !candidate.startsWith("..") && existsSync(join(root, candidate)),
+        ),
+      )
+      .filter((path): path is string => path !== undefined && !path.endsWith(".test.ts"));
+    const imports = scripts.flatMap((script) =>
+      [...readFileSync(join(root, script), "utf8").matchAll(NAP_IMPORT)].map(
+        ([, name = ""]) => name,
+      ),
+    );
+    if (imports.length > 0) runners[test] = [...new Set(imports)];
+  }
+  return runners;
 }
 
 function changedFiles(
@@ -396,22 +479,24 @@ export async function readInputs(
   files: readonly string[],
   docker: boolean,
 ): Promise<PlanInput> {
+  const tests = git(root, [
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "*.test.ts",
+    "*.test.tsx",
+  ]).filter((path) => existsSync(join(root, path)));
   return {
     files: files.map((path) => ({ path, present: existsSync(join(root, path)) })),
     workspaces: readWorkspaces(root),
     docker,
-    tests: git(root, [
-      "ls-files",
-      "-z",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "*.test.ts",
-      "*.test.tsx",
-    ]).filter((path) => existsSync(join(root, path))),
+    tests,
     // Only files `related` cannot follow are looked up; the planner decides which of these count.
     testsNaming: testsNaming(root, files.filter(lookedUpByName)),
     setupFiles: await readSetupFiles(root),
+    processRunners: readProcessRunners(root, tests),
   };
 }
 

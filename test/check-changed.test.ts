@@ -12,10 +12,14 @@ import {
 } from "../scripts/check-changed.ts";
 
 const workspaces = [
-  { name: "@nap/shared", dir: "packages/shared" },
-  { name: "@nap/capture", dir: "packages/capture" },
-  { name: "@nap/web", dir: "apps/web" },
+  { name: "@nap/shared", dir: "packages/shared", dependsOn: [] },
+  { name: "@nap/capture", dir: "packages/capture", dependsOn: ["@nap/shared"] },
+  { name: "@nap/bench", dir: "packages/bench", dependsOn: ["@nap/capture"] },
+  { name: "@nap/web", dir: "apps/web", dependsOn: ["@nap/shared"] },
 ];
+// Runs apps/napbench's script, which imports @nap/bench, as a separate process.
+const runner = "apps/napbench/scripts/napbench-app-test.test.ts";
+const processRunners = { [runner]: ["@nap/bench"] };
 const repoTests = ["test/architecture.test.ts", "test/docs.test.ts"];
 const webTests = ["apps/web/src/app/font-placement.test.ts", "apps/web/src/brand/nap-mark.test.ts"];
 const tests = [
@@ -52,6 +56,7 @@ function plan(paths: readonly (string | ChangedFile)[], docker = true): Plan {
     tests,
     testsNaming,
     setupFiles,
+    processRunners,
   });
 }
 const related = (result: Plan) => step(result, "tests")?.commands[0] ?? [];
@@ -208,6 +213,14 @@ describe("planChecks", () => {
     );
   });
 
+  it("runs a test that starts a script when anything that script reaches changed", () => {
+    // Imported by the script, and depended on by what it imports.
+    expect(related(plan(["packages/bench/src/app-test.ts"]))).toContain(runner);
+    expect(related(plan(["packages/shared/src/a.ts"]))).toContain(runner);
+    // apps/web is not among them.
+    expect(related(plan(["apps/web/src/a.ts"]))).not.toContain(runner);
+  });
+
   it("runs a whole project when its setup file changed, if that project runs here", () => {
     expect(step(plan(["apps/web/src/testing/setup.ts"]), "tests")?.commands.at(-1)).toEqual([
       "bunx",
@@ -318,9 +331,23 @@ describe("planChecks on the real tree", () => {
     const tracked = execFileSync("git", ["ls-files", "-z", "*.test.tsx"], { encoding: "utf8" })
       .split("\0")
       .filter(Boolean);
-    const readers = tracked.filter((path) => /from "node:fs"/.test(readFileSync(path, "utf8")));
+    const readers = tracked.filter((path) =>
+      /from "(?:node:)?fs(?:\/promises)?"/.test(readFileSync(path, "utf8")),
+    );
     expect(readers.length).toBeGreaterThan(0);
     expect(readers.filter((path) => !TREE_READERS.some(({ test }) => test === path))).toEqual([]);
+  });
+
+  it("finds the tests that run a script in another process, with what the script imports", async () => {
+    const { processRunners: found } = await readInputs(root, [], false);
+    expect(found).toMatchObject({
+      "apps/napbench/scripts/napbench-app-test.test.ts": expect.arrayContaining(["@nap/bench"]),
+      "apps/api/src/computer/image-spike-cli.test.ts": expect.arrayContaining(["@nap/agent"]),
+    });
+    // The change that slipped through before: an error message the script prints.
+    expect(related(await planFor(["packages/bench/src/app-test.ts"]))).toContain(
+      "apps/napbench/scripts/napbench-app-test.test.ts",
+    );
   });
 
   it("gives every computer suite a file other than itself that selects it", async () => {
