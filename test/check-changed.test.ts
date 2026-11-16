@@ -348,6 +348,10 @@ describe("planChecks on the real tree", () => {
     expect(related(await planFor(["packages/bench/src/app-test.ts"]))).toContain(
       "apps/napbench/scripts/napbench-app-test.test.ts",
     );
+    // Through package.json: the script imports @nap/bench, which depends on @nap/verify.
+    expect(related(await planFor(["packages/verify/src/command-output.ts"]))).toContain(
+      "apps/napbench/scripts/napbench-app-test.test.ts",
+    );
   });
 
   it("gives every computer suite a file other than itself that selects it", async () => {
