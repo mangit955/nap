@@ -1,5 +1,7 @@
 # Nap v1 Progress
 
+> **Frozen v1 record.** It describes v1 as built; its session process no longer applies. Work since is GitHub issues: see `AGENTS.md`.
+
 **v1 is complete and deployed** — <https://nap-tawny.vercel.app>, with the API on Railway at
 <https://nap-api-production.up.railway.app>. Every M0–M5 task is `DONE`; how the deployment is
 put together, and the one rule it rests on (never more than one API instance), is in

@@ -9,8 +9,26 @@
       "Bash(bun run typecheck *)",
       "Bash(bun run lint)",
       "Bash(bun run format)",
-      "Bash(bun run build)"
-    ]
+      "Bash(bun run build)",
+      "Bash(bun install)",
+      "Bash(bunx vitest run *.test.ts*)",
+      "Bash(bunx vitest run *.test-d.ts*)",
+      "Bash(bunx vitest list *)",
+      "Bash(bun run harness *)",
+      "Bash(bun run ws:smoke)",
+      "Bash(bun run lint:py)",
+      "Bash(bun run test:py)",
+      "Bash(gh issue view *)",
+      "Bash(gh issue list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh run list *)",
+      "Bash(gh run view *)",
+      "Bash(gh search *)"
+    ],
+    "ask": ["Bash(bun run harness *--real*)", "Bash(bunx vitest run *integration*)"]
   },
   "hooks": {
     "PreToolUse": [
@@ -42,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && d=$(git status --porcelain 2>/dev/null) && [ -n \"$d\" ] && printf '%s' \"{\\\"systemMessage\\\": \\\"Uncommitted changes in the working tree. docs/PLAN.md §1: never end a session with uncommitted work — a future session cannot recover context that exists only in a dirty tree. Commit, or use wip(<scope>): <task id> — <what's left>.\\\"}\" || true",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && d=$(git status --porcelain 2>/dev/null) && [ -n \"$d\" ] && printf '%s' \"{\\\"systemMessage\\\": \\\"Uncommitted changes in the working tree. A future session cannot recover context that exists only in a dirty tree: commit, or commit wip(<scope>): <what's left> and comment the next step on the issue (AGENTS.md, Session protocol).\\\"}\" || true",
             "statusMessage": "Checking for uncommitted work"
           }
         ]

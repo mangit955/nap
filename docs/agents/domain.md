@@ -11,7 +11,7 @@ How the engineering skills should consume this repo's domain documentation when 
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
-Note that this repo already documents a great deal outside these files — `docs/PLAN.md` (what v1 is), `docs/gotchas/` (why the code is shaped this way), and `CLAUDE.md` (how to work here). Read those per the table in `CLAUDE.md`; `CONTEXT.md` and ADRs are additive, not a replacement.
+Note that this repo already documents a great deal outside these files — `docs/PLAN.md` (what v1 is), `docs/gotchas/` (why the code is shaped this way), and `AGENTS.md` (how to work here). Read those per the table in `AGENTS.md`; `CONTEXT.md` and ADRs are additive, not a replacement.
 
 ## File structure
 

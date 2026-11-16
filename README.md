@@ -224,7 +224,7 @@ benchmark details.
 - [`docs/scaling-design.md`](docs/scaling-design.md) for queue semantics, leases, and load-test invariants.
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) for deployment topology and environment variables.
 - [`docs/gotchas/`](docs/gotchas/README.md) for constraints that have caused real failures, one file per area.
-- [`CLAUDE.md`](CLAUDE.md) for repository commands and contribution conventions.
+- [`AGENTS.md`](AGENTS.md) for repository commands and contribution conventions.
 - [`SECURITY.md`](SECURITY.md) to report a vulnerability.
 
 ## License

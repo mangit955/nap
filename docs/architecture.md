@@ -1,6 +1,6 @@
 # Architecture
 
-The package layout, the dependency rules a test enforces, and which component owns what. `CLAUDE.md`
+The package layout, the dependency rules a test enforces, and which component owns what. `AGENTS.md`
 carries the short version; this is the reference. What each concept is called is in `CONTEXT.md`.
 
 ## Layout

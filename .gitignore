@@ -32,6 +32,10 @@ next-env.d.ts
 # checkout — a funded number is only quotable if the report says which Nap produced it.
 .scratch/
 
+# Local drafts made beside the repo (social posts, image prompts). Nothing in the tree writes or
+# reads them, and an untracked folder here made the uncommitted-work Stop hook fire every session.
+/output/
+
 # The Harbor task registry is generated from @nap/bench/suite by `bun run harbor:tasks`, and
 # each task carries a half-megabyte bundle of the trial entrypoint. A committed copy would be
 # a second answer to "what does the benchmark measure", stale the first time a task changes.

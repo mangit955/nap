@@ -81,7 +81,7 @@ describe("no task IDs — the checker actually catches violations", () => {
   });
 
   it("exempts test/ and docs/, which are made of task IDs", () => {
-    expect(isCheckedSourcePath("test/docs.ts")).toBe(false);
+    expect(isCheckedSourcePath("test/comments.test.ts")).toBe(false);
     expect(isCheckedSourcePath("docs/PLAN.md")).toBe(false);
     expect(isCheckedSourcePath("PROGRESS.md")).toBe(false);
     expect(isCheckedSourcePath("packages/shared/src/events.ts")).toBe(true);
