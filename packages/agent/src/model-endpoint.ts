@@ -53,6 +53,10 @@ export const ModelBaseUrlSchema = z
         "(OpenRouter: https://openrouter.ai/api, Ollama: http://localhost:11434)",
     },
   )
+  // The URL is printed on the boot line and the scripts' banners, so it may not carry a secret.
+  .refine((value) => !URL.canParse(value) || !/^[a-z]+:\/\/[^/]*@/i.test(value), {
+    error: "must not carry a username or password; send credentials as the platform's key",
+  })
   .brand<"ModelBaseUrl">();
 
 export type ModelBaseUrl = z.infer<typeof ModelBaseUrlSchema>;
@@ -140,6 +144,19 @@ export function modelRouteFromEnv(
   if (!baseUrl.success) {
     const reasons = baseUrl.error.issues.map((issue) => issue.message).join("; ");
     return { ok: false, error: `NAP_MODEL_BASE_URL ${reasons}` };
+  }
+
+  // The host belongs to the platform the .env names. A script's platform comes from a flag, so
+  // without this an .env set up for Ollama (`NAP_PLATFORM=anthropic`) and a run left on the
+  // default `openrouter` would send an OpenRouter key and a namespaced model to that host.
+  const configured = env.NAP_PLATFORM ?? "openrouter";
+  if (baseUrl.data !== undefined && configured !== options.platform) {
+    return {
+      ok: false,
+      error:
+        `NAP_MODEL_BASE_URL is set for NAP_PLATFORM=${configured}, but this run is on ` +
+        `${options.platform}; pass --platform=${configured}, or unset NAP_MODEL_BASE_URL`,
+    };
   }
 
   return {

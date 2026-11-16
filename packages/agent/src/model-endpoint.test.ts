@@ -1,5 +1,3 @@
-import { createServer, type IncomingHttpHeaders } from "node:http";
-import type { AddressInfo } from "node:net";
 import Anthropic from "@anthropic-ai/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 import { ANTHROPIC_BASE_URL } from "./anthropic.ts";
@@ -12,71 +10,17 @@ import {
   qualifyModel,
 } from "./model-endpoint.ts";
 import { OPENROUTER_BASE_URL } from "./openrouter.ts";
+import { type MessagesEndpoint, messagesEndpoint } from "./testing/messages-endpoint.ts";
 
-/** What the endpoint saw of one request. */
-type Seen = { method: string; path: string; headers: IncomingHttpHeaders; body: { model: string } };
-
-/** The smallest stream the SDK assembles into a finished message. */
-const MESSAGE_STREAM = [
-  {
-    type: "message_start",
-    message: {
-      id: "msg_1",
-      type: "message",
-      role: "assistant",
-      model: "echo",
-      content: [],
-      stop_reason: null,
-      stop_sequence: null,
-      usage: { input_tokens: 3, output_tokens: 0 },
-    },
-  },
-  { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-  { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
-  { type: "content_block_stop", index: 0 },
-  {
-    type: "message_delta",
-    delta: { stop_reason: "end_turn", stop_sequence: null },
-    usage: { output_tokens: 1 },
-  },
-  { type: "message_stop" },
-]
-  .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
-  .join("");
-
-const closers: (() => Promise<void>)[] = [];
+const open: MessagesEndpoint[] = [];
 afterEach(async () => {
-  for (const close of closers.splice(0)) await close();
+  for (const endpoint of open.splice(0)) await endpoint.close();
 });
 
-/**
- * A Messages endpoint on loopback that records every request and answers with one short message.
- *
- * Loopback rather than a stub client, because the claim under test is about the URL the SDK
- * builds from the base URL, and only a real request shows that. Nothing leaves the machine.
- */
-async function endpoint(): Promise<{ url: string; seen: Seen[] }> {
-  const seen: Seen[] = [];
-  const server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk: Buffer) => {
-      raw += chunk.toString();
-    });
-    request.on("end", () => {
-      seen.push({
-        method: request.method ?? "",
-        path: request.url ?? "",
-        headers: request.headers,
-        body: JSON.parse(raw) as { model: string },
-      });
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      response.end(MESSAGE_STREAM);
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  closers.push(() => new Promise((resolve) => server.close(() => resolve())));
-  const { port } = server.address() as AddressInfo;
-  return { url: `http://127.0.0.1:${port}`, seen };
+async function endpoint(): Promise<MessagesEndpoint> {
+  const started = await messagesEndpoint();
+  open.push(started);
+  return started;
 }
 
 /** One turn through the real provider, so the request is the one a turn actually sends. */
@@ -170,6 +114,11 @@ describe("ModelBaseUrlSchema", () => {
     expect(parsed.error?.issues[0]?.message).toMatch(/without \/v1/);
   });
 
+  it("refuses credentials in the URL, which is printed at boot", () => {
+    const parsed = ModelBaseUrlSchema.safeParse("https://user:token@proxy.example.com");
+    expect(parsed.error?.issues[0]?.message).toMatch(/username or password/);
+  });
+
   it.each(["localhost:11434", "ftp://example.com", "not a url"])("refuses %s", (url) => {
     expect(ModelBaseUrlSchema.safeParse(url).success).toBe(false);
   });
@@ -177,6 +126,7 @@ describe("ModelBaseUrlSchema", () => {
 
 describe("modelRouteFromEnv", () => {
   const OLLAMA = {
+    NAP_PLATFORM: "anthropic",
     ANTHROPIC_API_KEY: "ollama",
     NAP_MODEL_BASE_URL: "http://localhost:11434",
   };
@@ -217,6 +167,28 @@ describe("modelRouteFromEnv", () => {
         { platform: "anthropic", model: "m" },
       ),
     ).toEqual({ ok: false, error: "ANTHROPIC_API_KEY is not set" });
+  });
+
+  it("refuses a base URL set up for another platform than the run's", () => {
+    // The Ollama recipe in .env.example, run with the harness's default platform.
+    const route = modelRouteFromEnv(
+      { ...OLLAMA, NAP_PLATFORM: "anthropic", OPENROUTER_API_KEY: "sk-or-test" },
+      { platform: "openrouter", model: "openai/gpt-5.6-luna" },
+    );
+    expect(route).toEqual({
+      ok: false,
+      error: expect.stringMatching(/NAP_PLATFORM=anthropic.*--platform=anthropic/),
+    });
+  });
+
+  it("reads an unset NAP_PLATFORM as OpenRouter, the API's default", () => {
+    const env = {
+      OPENROUTER_API_KEY: "k",
+      ANTHROPIC_API_KEY: "k",
+      NAP_MODEL_BASE_URL: "https://proxy.example.com",
+    };
+    expect(modelRouteFromEnv(env, { platform: "openrouter", model: "m" }).ok).toBe(true);
+    expect(modelRouteFromEnv(env, { platform: "anthropic", model: "m" }).ok).toBe(false);
   });
 
   it("refuses a blank base URL, as the API's boot check does", () => {
