@@ -46,13 +46,18 @@ export const ModelBaseUrlSchema = z
   .url({ protocol: /^https?$/, error: "must be an http(s) URL" })
   // Zod runs a refinement even after the URL check failed; an unparseable value has its issue.
   .refine(
-    (value) => !URL.canParse(value) || !/\/v1(\/messages)?\/?$/.test(new URL(value).pathname),
+    (value) => !URL.canParse(value) || !/\/v1(\/messages)?\/?$/i.test(new URL(value).pathname),
     {
       error:
         "must be the API root, without /v1 — the SDK appends /v1/messages itself " +
         "(OpenRouter: https://openrouter.ai/api, Ollama: http://localhost:11434)",
     },
   )
+  // The SDK appends `/v1/messages` to the end of the string, so a query or fragment would end up in
+  // front of it and the request would go to a path nobody configured.
+  .refine((value) => !URL.canParse(value) || (!new URL(value).search && !new URL(value).hash), {
+    error: "must not have a query string or fragment; the SDK appends /v1/messages to the end",
+  })
   // The URL is printed on the boot line and the scripts' banners, so it may not carry a secret.
   .refine(
     (value) => !URL.canParse(value) || !(new URL(value).username || new URL(value).password),

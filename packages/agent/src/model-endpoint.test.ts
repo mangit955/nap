@@ -108,6 +108,7 @@ describe("ModelBaseUrlSchema", () => {
     "http://localhost:11434/v1/",
     "https://openrouter.ai/api/v1",
     "https://api.anthropic.com/v1/messages",
+    "http://localhost:11434/V1",
   ])("refuses %s, which the SDK would turn into …/v1/v1/messages", (url) => {
     const parsed = ModelBaseUrlSchema.safeParse(url);
     expect(parsed.success).toBe(false);
@@ -122,9 +123,17 @@ describe("ModelBaseUrlSchema", () => {
     },
   );
 
-  it("accepts an @ that is not in the authority", () => {
-    expect(ModelBaseUrlSchema.safeParse("http://localhost:11434?tag=a@b").success).toBe(true);
+  it("accepts an @ in the path, which is not a credential", () => {
+    expect(ModelBaseUrlSchema.safeParse("https://proxy.example.com/@team/api").success).toBe(true);
   });
+
+  it.each(["http://localhost:11434?tag=a", "http://localhost:11434#x"])(
+    "refuses %s, which the SDK would append /v1/messages after",
+    (url) => {
+      const parsed = ModelBaseUrlSchema.safeParse(url);
+      expect(parsed.error?.issues[0]?.message).toMatch(/query string or fragment/);
+    },
+  );
 
   it.each(["localhost:11434", "ftp://example.com", "not a url"])("refuses %s", (url) => {
     expect(ModelBaseUrlSchema.safeParse(url).success).toBe(false);
