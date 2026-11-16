@@ -15,7 +15,8 @@ bun run check:changed     # Biome, typecheck of the changed packages and their d
                           # import the changed files plus test/, and the Python gates if Python changed —
                           # against the merge base with origin/main, uncommitted and untracked files
                           # included; free. <ref> picks another base, --staged is the pre-commit hook.
-                          # db tests run only when Docker is up. CI still runs every suite in full
+                          # db tests run only when Docker is up; a computer suite only when it, or the
+                          # file it is named after, changed. CI still runs every suite in full
 bun run test:integration  # needs something external; run at milestone boundaries only
                           # most of it is real E2B + real model calls and costs money — but not
                           # all: the browser suites need only a Chrome at NAP_CHROME_PATH and

@@ -28,6 +28,8 @@ export type PlanInput = {
   readonly docker: boolean;
   /** `test/*.test.ts`: always run, because they read the source as text and no import reaches them. */
   readonly repoTests: readonly string[];
+  /** Every `*.computer.test.ts` in the repo, which run only when they or their namesake changed. */
+  readonly computerTests: readonly string[];
 };
 
 // A change to one of these can break any package, so it widens every step to the whole repo. The
@@ -46,7 +48,11 @@ const MODULE = /\.(?:[cm]?[jt]sx?)$/;
 // Reads the Python under harbor/ as text, so no TypeScript import selects it. See docs/commands.md.
 const HARBOR_AGREEMENT = "apps/napbench/src/harbor-agreement.test.ts";
 // `integration` spends money and `types` is covered by each package's tsc, so neither is here.
-const TEST_PROJECTS = ["unit", "web", "computer"];
+// `computer` is chosen by name rather than by import, below.
+const TEST_PROJECTS = ["unit", "web"];
+
+/** `dir/name` without any extension, so `a/x.ts`, `a/x.sh` and `a/x.computer.test.ts` agree. */
+const stem = (path: string) => path.replace(/\.[^/]*$/, "");
 
 export function planChecks(input: PlanInput): Plan {
   const present = input.files.filter((file) => file.present).map((file) => file.path);
@@ -92,18 +98,30 @@ export function planChecks(input: PlanInput): Plan {
   ]);
   if (!input.docker) notes.push("db tests skipped: Docker is not running. CI runs them.");
   if (global) {
-    steps.push({ name: "tests", commands: [["bunx", "vitest", "run", ...projects]] });
+    steps.push({
+      name: "tests",
+      commands: [["bunx", "vitest", "run", ...projects, "--project", "computer"]],
+    });
   } else {
     const harbor = paths.some((path) => path.startsWith("harbor/")) ? [HARBOR_AGREEMENT] : [];
     const targets = [
       ...new Set([...present.filter((path) => MODULE.test(path)), ...harbor, ...input.repoTests]),
     ];
+    // The computer suites spawn real processes and take a minute each, and one of them imports
+    // most of the runtime: by import graph, a comment in packages/verify cost 71 s of the 140 s a
+    // run took. So they run when they, or the file they share a name with, changed. CI runs all.
+    const stems = new Set(paths.map(stem));
+    const computer = input.computerTests.filter((test) => stems.has(stem(test)));
     // `related` runs each test file it is given and every test file whose imports reach a given
-    // source file, across the listed projects.
+    // source file, across the listed projects. The two runs go one after the other because
+    // parallel vitest runs race on the same cache directory.
     steps.push({
       name: "tests",
       commands: [
         ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...projects, ...targets],
+        ...(computer.length > 0
+          ? [["bunx", "vitest", "run", "--project", "computer", ...computer]]
+          : []),
       ],
     });
   }
@@ -241,6 +259,13 @@ async function main(argv: readonly string[]): Promise<number> {
     repoTests: readdirSync(join(root, "test"))
       .filter((name) => name.endsWith(".test.ts"))
       .map((name) => `test/${name}`),
+    computerTests: git(root, [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "*.computer.test.ts",
+    ]).filter((path) => existsSync(join(root, path))),
   });
 
   // The steps share no state, so they run side by side; each prints when it finishes.

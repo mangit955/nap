@@ -9,10 +9,14 @@ const workspaces = [
   { name: "@nap/web", dir: "apps/web" },
 ];
 const repoTests = ["test/architecture.test.ts", "test/docs.test.ts"];
+const computerTests = [
+  "packages/sandbox/src/desktop-start.computer.test.ts",
+  "apps/api/scripts/local-sandbox.computer.test.ts",
+];
 
 function plan(paths: readonly (string | ChangedFile)[], docker = true): Plan {
   const files = paths.map((path) => (typeof path === "string" ? { path, present: true } : path));
-  return planChecks({ files, workspaces, docker, repoTests });
+  return planChecks({ files, workspaces, docker, repoTests, computerTests });
 }
 const step = (result: Plan, name: string) => result.steps.find((s) => s.name === name);
 const names = (result: Plan) => result.steps.map((s) => s.name);
@@ -63,9 +67,9 @@ describe("planChecks", () => {
         "--project",
         "web",
         "--project",
-        "computer",
-        "--project",
         "db",
+        "--project",
+        "computer",
       ],
     ]);
   });
@@ -81,6 +85,28 @@ describe("planChecks", () => {
       "--passWithNoTests",
     ]);
     expect(command?.slice(-3)).toEqual(["apps/web/src/a.tsx", ...repoTests]);
+  });
+
+  it("runs a computer suite only when it or its namesake changed, after the related run", () => {
+    const byImport = step(plan(["packages/shared/src/events.ts"]), "tests")?.commands ?? [];
+    expect(byImport).toHaveLength(1);
+    expect(byImport.flat()).not.toContain("computer");
+
+    for (const changed of [
+      "packages/sandbox/src/desktop-start.sh",
+      "packages/sandbox/src/desktop-start.computer.test.ts",
+    ]) {
+      expect(step(plan([changed]), "tests")?.commands[1]).toEqual([
+        "bunx",
+        "vitest",
+        "run",
+        "--project",
+        "computer",
+        "packages/sandbox/src/desktop-start.computer.test.ts",
+      ]);
+    }
+    // Same name, different folder: not its namesake.
+    expect(step(plan(["apps/api/src/desktop-start.ts"]), "tests")?.commands).toHaveLength(1);
   });
 
   it("never selects the integration or types project", () => {
