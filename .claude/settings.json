@@ -5,6 +5,8 @@
       "Bash(bun run test)",
       "Bash(bun run test *)",
       "Bash(bun run test:fast)",
+      "Bash(bun run check:changed)",
+      "Bash(bun run check:changed *)",
       "Bash(bun run typecheck)",
       "Bash(bun run typecheck *)",
       "Bash(bun run lint)",

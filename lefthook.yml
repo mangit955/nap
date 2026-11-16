@@ -1,25 +1,10 @@
 pre-commit:
-  parallel: false
   jobs:
-    - name: biome
-      glob: "*.{ts,tsx,js,jsx,json,jsonc}"
-      run: bunx biome check --no-errors-on-unmatched {staged_files}
-
-    - name: typecheck
-      run: bun run typecheck
-
-    # Every project that needs neither Docker nor money, because they are chosen by filename
-    # rather than by directory: a commit that only touches `apps/web` has no `*.test.ts` in it, so
-    # `--project unit` alone ran nothing at all and the hook reported success. `computer` is here
-    # because `--changed` keeps its slow suites to commits that touch them. `db` and `integration`
-    # stay out — one needs Docker, the other needs money.
-    - name: test
-      run: bunx vitest run --project unit --project web --project computer --changed
-
-    # The Python under harbor/ is outside every gate above — Biome does not read it, tsc
-    # cannot, and vitest collects nothing from it. It gets its own, on its own glob, so a
-    # checkout with no `uv` is only asked for one when it commits Python. CI runs the same two
-    # commands unconditionally.
-    - name: python
-      glob: "*.py"
-      run: bun run lint:py && bun run test:py
+    # One definition of "my change is green": the hook is the same command an agent runs by hand,
+    # scoped to the staged files — what this commit adds on top of HEAD, and so on top of commits
+    # that already passed. The checks read the working tree, as the hook's Biome and typecheck jobs
+    # always did, so an unstaged fix can let a commit through; CI runs everything on the push.
+    # What runs for which files, and why `db` and `integration` are or are not among them, is in
+    # scripts/check-changed.ts.
+    - name: check-changed
+      run: bun run check:changed --staged

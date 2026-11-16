@@ -42,6 +42,7 @@ code and reports but are not being built on: see `docs/scaling-baseline.md` and
 bun install               # also in every fresh worktree
 bun run test              # unit + types + web + db + computer — free; db needs Docker
 bun run test:fast         # unit + types + web — the Docker-free inner loop
+bun run check:changed     # CI's checks on this branch's changes only, in seconds; the pre-commit hook
 bunx vitest run <file> -t "<name>"  # one file, one test; the filename picks the project. A -t matching nothing still passes
 bun run typecheck         # tsc per workspace, then a root pass for test/ and configs
 bun run lint              # biome check; `bun run format` writes — Biome owns formatting
@@ -57,7 +58,7 @@ bun run test:integration  # real services; most of it costs money — milestone 
 
 **Always `bun run test`, never `bun test`** — the bare form runs Bun's own runner over Vitest
 files. Anything that spends money (`--real`, `test:integration`) needs the user's approval first.
-A lefthook pre-commit hook runs Biome, typecheck and `vitest --changed`, and CI runs the same gates
+A lefthook pre-commit hook runs `check:changed --staged`, and CI runs the full gates
 on every push; fix the cause, never `--no-verify`. `harbor/` is Python and has its own gates,
 `bun run lint:py` and `bun run test:py` (need `uv`).
 
