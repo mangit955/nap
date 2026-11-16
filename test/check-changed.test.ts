@@ -308,7 +308,8 @@ describe("planChecks", () => {
 
 // The rules above use made-up paths; these hold them to the files that exist today, so a rule
 // cannot keep passing while the file it was written for has moved.
-describe("planChecks on the real tree", () => {
+// These read every test file and run git, which takes seconds on a loaded machine.
+describe("planChecks on the real tree", { timeout: 30_000 }, () => {
   const root = process.cwd();
   const planFor = async (paths: string[]) => planChecks(await readInputs(root, paths, false));
 
@@ -358,6 +359,7 @@ describe("planChecks on the real tree", () => {
     const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0");
     const suites = tracked.filter((path) => path.endsWith(".computer.test.ts"));
     expect(suites.length).toBeGreaterThan(0);
+    const triggersBySuite = new Map<string, string[]>();
     for (const suite of suites) {
       const text = readFileSync(suite, "utf8");
       const stem = suite.replace(/\.computer\.test\.ts$/, "");
@@ -368,8 +370,17 @@ describe("planChecks on the real tree", () => {
             (!/\.[cm]?[jt]sx?$/.test(path) &&
               text.includes(path.slice(path.lastIndexOf("/") + 1)))),
       );
-      const chosen = await Promise.all(
-        triggers.map(async (path) => step(await planFor([path]), "tests")?.commands.flat() ?? []),
+      triggersBySuite.set(suite, triggers);
+    }
+    // One read of the repo for every candidate, then one plan per candidate on its own.
+    const inputs = await readInputs(root, [...triggersBySuite.values()].flat(), false);
+    for (const [suite, triggers] of triggersBySuite) {
+      const chosen = triggers.map(
+        (path) =>
+          step(
+            planChecks({ ...inputs, files: [{ path, present: true }] }),
+            "tests",
+          )?.commands.flat() ?? [],
       );
       expect(
         chosen.some((command) => command.includes(suite)),
