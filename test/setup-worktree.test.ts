@@ -409,28 +409,41 @@ describe("scripts/setup-worktree.ts", () => {
   it.each([
     ["no marker", false],
     ["a dead setup's marker", true],
-  ])("lets only one of two setups started together over %s run", (_, stale) => {
-    const { worktree } = repository();
-    if (stale) {
-      mkdirSync(join(worktree, MARKER_DIR));
-      const dead = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]);
-      writeFileSync(join(worktree, MARKER_DIR, RUNNING), String(dead.stdout));
-    }
-    // One shell starts both, so they reach the marker within a millisecond or so of each other —
-    // closer than the check for a live setup can see.
-    const both = execFileSync(
-      "sh",
-      [
-        "-c",
-        "bun scripts/setup-worktree.ts >/dev/null 2>&1 & a=$!; " +
-          "bun scripts/setup-worktree.ts >/dev/null 2>&1 & b=$!; " +
-          'wait $a; ea=$?; wait $b; echo "$ea $?"',
-      ],
-      { cwd: worktree, encoding: "utf8" },
-    );
-    expect(both.trim().split(" ").sort()).toEqual(["0", "1"]);
-    expect(markers(worktree)).toEqual([DONE]);
-  });
+  ])(
+    "never lets two setups started together over %s install at once",
+    (_, stale) => {
+      const { worktree } = repository();
+      // An install long enough that two setups started together overlap unless one refuses. Both
+      // succeeding is fine when they ran one after the other, so the log, not the exit codes, is
+      // what is asserted.
+      writeFileSync(
+        join(worktree, "package.json"),
+        JSON.stringify({
+          ...PACKAGE,
+          scripts: { prepare: "echo start >> installs.log; sleep 1; echo end >> installs.log" },
+        }),
+      );
+      if (stale) {
+        mkdirSync(join(worktree, MARKER_DIR));
+        const dead = spawnSync(process.execPath, [
+          "-e",
+          "process.stdout.write(String(process.pid))",
+        ]);
+        writeFileSync(join(worktree, MARKER_DIR, RUNNING), String(dead.stdout));
+      }
+      // One shell starts both, so they reach the marker within a millisecond or so of each other.
+      execFileSync(
+        "sh",
+        ["-c", "bun scripts/setup-worktree.ts & bun scripts/setup-worktree.ts & wait"],
+        { cwd: worktree, stdio: "ignore" },
+      );
+      const log = readFileSync(join(worktree, "installs.log"), "utf8").trim().split("\n");
+      expect(log.length).toBeGreaterThan(0);
+      for (let i = 0; i < log.length; i++) expect(log[i]).toBe(i % 2 === 0 ? "start" : "end");
+      expect(markers(worktree)).toEqual([DONE]);
+    },
+    30_000,
+  );
 
   it("links nothing in the main checkout itself", () => {
     const { main } = repository();
