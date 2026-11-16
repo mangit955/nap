@@ -105,6 +105,12 @@ export type InMemorySandboxManagerOptions = {
    * destroy partly on how old a sandbox is.
    */
   now?: () => number;
+  /**
+   * The address a serving port answers at. By default an address on a reserved TLD that can
+   * never resolve, which is right for a test; a local fixture that puts the real web app's
+   * preview pane in front of a person points it at something actually listening.
+   */
+  previewUrl?: (sandboxId: string, port: number) => string;
 };
 
 type SandboxState = {
@@ -144,12 +150,14 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
   readonly #serves: readonly number[];
   readonly #seed: Readonly<Record<string, string>>;
   readonly #now: () => number;
+  readonly #previewUrl: ((sandboxId: string, port: number) => string) | undefined;
 
   constructor(options: InMemorySandboxManagerOptions = {}) {
     this.#defaultExec = options.defaultExec;
     this.#serves = options.serves ?? [];
     this.#seed = options.seed ?? {};
     this.#now = options.now ?? Date.now;
+    this.#previewUrl = options.previewUrl;
   }
 
   /**
@@ -406,6 +414,8 @@ export class InMemorySandboxManager implements SandboxManager, SandboxInventory 
   async getPreviewUrl(sandboxId: string, port: number): Promise<Result<string, SandboxError>> {
     const found = this.#lookup(sandboxId);
     if (!found.ok) return found;
+    if (this.#previewUrl !== undefined)
+      return { ok: true, value: this.#previewUrl(sandboxId, port) };
     // Shaped like E2B's real preview host so callers that parse it work unchanged,
     // but on a reserved TLD that can never resolve.
     return { ok: true, value: `https://${port}-${sandboxId}.sandbox.invalid` };

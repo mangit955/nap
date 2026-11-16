@@ -187,6 +187,21 @@ describe("InMemorySandboxManager preview readiness", () => {
     expect(ready.value).toBe(url.value);
   });
 
+  it("answers with the address a caller supplied, from both readiness and lookup", async () => {
+    const manager = new InMemorySandboxManager({
+      serves: [5173],
+      previewUrl: (sandboxId, port) => `http://127.0.0.1:9000/${sandboxId}/${port}`,
+    });
+    const created = await manager.create("project");
+    if (!created.ok) throw new Error(created.error.message);
+
+    const ready = await manager.waitForPreview(created.value.id, 5173);
+    const url = await manager.getPreviewUrl(created.value.id, 5173);
+
+    expect(ready.ok && ready.value).toBe(`http://127.0.0.1:9000/${created.value.id}/5173`);
+    expect(url.ok && url.value).toBe(`http://127.0.0.1:9000/${created.value.id}/5173`);
+  });
+
   it("times out on a port nothing is serving", async () => {
     const manager = new InMemorySandboxManager();
     const created = await manager.create("project");

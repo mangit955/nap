@@ -105,7 +105,11 @@ describe("startDockerPostgres", { timeout: 20_000 }, () => {
     throw new Error(`stub did not receive ${command}`);
   }
 
-  function start(options?: { signal?: AbortSignal; timeoutMs?: number }) {
+  function start(options?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    onName?: (name: string) => void;
+  }) {
     // Reflect.apply permits the regression to execute against the old no-argument signature.
     const promise: ReturnType<typeof startDockerPostgres> = Reflect.apply(
       startDockerPostgres,
@@ -137,6 +141,17 @@ describe("startDockerPostgres", { timeout: 20_000 }, () => {
     await Promise.race([Promise.allSettled(pending), delay(500)]);
     vi.unstubAllEnvs();
     await rm(fixture, { recursive: true, force: true });
+  });
+
+  it("names the container to its owner before Docker is asked to run it", async () => {
+    const named: string[] = [];
+    const controller = new AbortController();
+    const promise = start({ signal: controller.signal, onName: (name) => named.push(name) });
+    const run = await waitFor("run");
+    expect(named).toHaveLength(1);
+    expect(run.args).toContain(named[0]);
+    controller.abort();
+    await failure(promise);
   });
 
   it("aborts an allocating CLI, drains it, and rolls back by its pre-known owned name", async () => {
