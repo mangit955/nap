@@ -9,7 +9,7 @@
 //
 // The decision of which steps run for which files is `planChecks`, a pure function tested in
 // test/check-changed.test.ts. Everything below it only gathers its inputs and runs its output.
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -63,6 +63,14 @@ const TREE_READERS = [
   { test: "apps/napbench/src/harbor-agreement.test.ts", reads: /^harbor\// },
   // Walks every component each page reaches, looking for landing-only font classes.
   { test: "apps/web/src/app/font-placement.test.ts", reads: /^apps\/web\/src\/.*\.tsx$/ },
+  // Hashes DESKTOP_SOURCES (packages/sandbox/src/desktop-template.ts) and fails on any edit to one
+  // until DESKTOP_BUILD is bumped. A superset of that list, held to it by test/check-changed.test.ts;
+  // importing the list itself would load the E2B SDK on every run.
+  {
+    test: "packages/sandbox/src/desktop-build.test.ts",
+    reads:
+      /^packages\/sandbox\/(?:desktop\/|scripts\/desktop-|src\/desktop-)|^packages\/shared\/src\/ports\/(?:desktop-|sandbox-desktop)/,
+  },
 ];
 // Names too common to mean anything when a test mentions them: dozens of tests write their own
 // package.json into a temporary directory. A change to a real one reaches its tests by typecheck
@@ -183,9 +191,22 @@ export function planChecks(input: PlanInput): Plan {
   ) {
     steps.push({
       name: "python",
+      // CI's two pytest runs: without Harbor, then with it, which is the only one reaching agent.py.
       commands: [
         ["bun", "run", "lint:py"],
         ["bun", "run", "test:py"],
+        [
+          "uv",
+          "run",
+          "--directory",
+          "harbor",
+          "--extra",
+          "harbor",
+          "--with",
+          "pytest",
+          "pytest",
+          "-q",
+        ],
       ],
     });
   }
@@ -298,6 +319,10 @@ function changedFiles(
 
 type StepResult = { name: string; ok: boolean; seconds: number };
 
+// Ctrl-C reaches the whole process group, but a SIGTERM sent to this process alone (a hook
+// runner's timeout, say) would leave turbo and vitest running; the entrypoint passes it on.
+const running = new Set<ChildProcess>();
+
 function runStep(root: string, step: Step): Promise<StepResult & { output: string }> {
   const started = Date.now();
   // Output is piped so parallel steps do not interleave; keep the colours a terminal would get.
@@ -310,6 +335,7 @@ function runStep(root: string, step: Step): Promise<StepResult & { output: strin
       output += `$ ${[command, ...args].join(" ")}\n`;
       const code = await new Promise<number | null>((resolve) => {
         const child = spawn(command, args, { cwd: root, env });
+        running.add(child);
         child.stdout.on("data", (chunk) => {
           output += chunk;
         });
@@ -320,7 +346,12 @@ function runStep(root: string, step: Step): Promise<StepResult & { output: strin
           output += `${error.message}\n`;
           resolve(1);
         });
-        child.on("close", resolve);
+        child.on("close", (exitCode, signal) => {
+          running.delete(child);
+          // Killed rather than failed, by the OOM killer on a loaded machine for instance.
+          if (signal !== null) output += `killed by ${signal}\n`;
+          resolve(exitCode);
+        });
       });
       if (code !== 0) ok = false;
     }
@@ -332,6 +363,33 @@ function runStep(root: string, step: Step): Promise<StepResult & { output: strin
     seconds: (Date.now() - started) / 1000,
     output,
   }));
+}
+
+/** Everything `planChecks` needs about the repo at `root`, for these changed files. */
+export async function readInputs(
+  root: string,
+  files: readonly string[],
+  docker: boolean,
+): Promise<PlanInput> {
+  return {
+    files: files.map((path) => ({ path, present: existsSync(join(root, path)) })),
+    workspaces: readWorkspaces(root),
+    docker,
+    repoTests: readdirSync(join(root, "test"))
+      .filter((name) => name.endsWith(".test.ts"))
+      .map((name) => `test/${name}`),
+    computerTests: git(root, [
+      "ls-files",
+      "-z",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "*.computer.test.ts",
+    ]).filter((path) => existsSync(join(root, path))),
+    // Only files `related` cannot follow are looked up; the planner decides which of these count.
+    testsNaming: testsNaming(root, files.filter(lookedUpByName)),
+    setupFiles: await readSetupFiles(root),
+  };
 }
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -349,25 +407,14 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   console.log(`check:changed: ${files.length} files ${label}`);
 
-  const plan = planChecks({
-    files: files.map((path) => ({ path, present: existsSync(join(root, path)) })),
-    workspaces: readWorkspaces(root),
-    docker: spawnSync("docker", ["info"], { stdio: "ignore", timeout: 5_000 }).status === 0,
-    repoTests: readdirSync(join(root, "test"))
-      .filter((name) => name.endsWith(".test.ts"))
-      .map((name) => `test/${name}`),
-    computerTests: git(root, [
-      "ls-files",
-      "-z",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "*.computer.test.ts",
-    ]).filter((path) => existsSync(join(root, path))),
-    // Only files `related` cannot follow are looked up; the planner decides which of these count.
-    testsNaming: testsNaming(root, files.filter(lookedUpByName)),
-    setupFiles: await readSetupFiles(root),
-  });
+  const plan = planChecks(
+    await readInputs(
+      root,
+      files,
+      spawnSync("docker", ["info"], { stdio: "ignore", timeout: 5_000 }).status === 0,
+    ),
+  );
+  for (const step of plan.steps) console.log(`  running ${step.name}`);
 
   // The steps share no state, so they run side by side; each prints when it finishes.
   const results = await Promise.all(
@@ -392,6 +439,10 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.once("SIGTERM", () => {
+    for (const child of running) child.kill("SIGTERM");
+    process.exit(143);
+  });
   main(process.argv.slice(2)).then(
     (code) => {
       process.exitCode = code;

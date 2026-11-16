@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { type ChangedFile, type Plan, planChecks } from "../scripts/check-changed.ts";
+import { DESKTOP_SOURCES } from "../packages/sandbox/src/desktop-template.ts";
+import { type ChangedFile, type Plan, planChecks, readInputs } from "../scripts/check-changed.ts";
 
 const workspaces = [
   { name: "@nap/shared", dir: "packages/shared" },
@@ -221,6 +223,18 @@ describe("planChecks", () => {
     expect(step(result, "python")?.commands).toEqual([
       ["bun", "run", "lint:py"],
       ["bun", "run", "test:py"],
+      [
+        "uv",
+        "run",
+        "--directory",
+        "harbor",
+        "--extra",
+        "harbor",
+        "--with",
+        "pytest",
+        "pytest",
+        "-q",
+      ],
     ]);
     expect(step(result, "tests")?.commands.flat()).toContain(
       "apps/napbench/src/harbor-agreement.test.ts",
@@ -241,6 +255,52 @@ describe("planChecks", () => {
         "b.ts",
       ],
     ]);
+  });
+});
+
+// The rules above use made-up paths; these hold them to the files that exist today, so a rule
+// cannot keep passing while the file it was written for has moved.
+describe("planChecks on the real tree", () => {
+  const root = process.cwd();
+  const planFor = async (paths: string[]) => planChecks(await readInputs(root, paths, false));
+
+  it("runs the desktop build hash test for every desktop source", async () => {
+    const result = await planFor([...DESKTOP_SOURCES]);
+    expect(related(result)).toContain("packages/sandbox/src/desktop-build.test.ts");
+    for (const path of DESKTOP_SOURCES) {
+      expect(related(plan([path])), path).toContain("packages/sandbox/src/desktop-build.test.ts");
+    }
+  });
+
+  it("runs the desktop start suite when the start script changes", async () => {
+    const result = await planFor(["packages/sandbox/desktop/start-desktop.sh"]);
+    expect(step(result, "tests")?.commands.flat()).toContain(
+      "packages/sandbox/src/desktop-start.computer.test.ts",
+    );
+  });
+
+  it("gives every computer suite a file other than itself that selects it", async () => {
+    const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0");
+    const suites = tracked.filter((path) => path.endsWith(".computer.test.ts"));
+    expect(suites.length).toBeGreaterThan(0);
+    for (const suite of suites) {
+      const text = readFileSync(suite, "utf8");
+      const stem = suite.replace(/\.computer\.test\.ts$/, "");
+      const triggers = tracked.filter(
+        (path) =>
+          path !== suite &&
+          (path.replace(/\.[^/]*$/, "") === stem ||
+            (!/\.[cm]?[jt]sx?$/.test(path) &&
+              text.includes(path.slice(path.lastIndexOf("/") + 1)))),
+      );
+      const chosen = await Promise.all(
+        triggers.map(async (path) => step(await planFor([path]), "tests")?.commands.flat() ?? []),
+      );
+      expect(
+        chosen.some((command) => command.includes(suite)),
+        `${suite} is selected by no change but its own`,
+      ).toBe(true);
+    }
   });
 });
 

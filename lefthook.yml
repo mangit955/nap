@@ -4,7 +4,8 @@ pre-commit:
     # scoped to the staged files — what this commit adds on top of HEAD, and so on top of commits
     # that already passed. The checks read the working tree, as the hook's Biome and typecheck jobs
     # always did, so an unstaged fix can let a commit through; CI runs everything on the push.
-    # What runs for which files, and why `db` and `integration` are or are not among them, is in
-    # scripts/check-changed.ts.
+    # Unlike the hook before it, this runs `db` tests when a commit reaches them and `docker info`
+    # answers, which starts a Postgres container. What runs for which files, and why `integration`
+    # never does, is in scripts/check-changed.ts.
     - name: check-changed
       run: bun run check:changed --staged
