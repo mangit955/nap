@@ -274,28 +274,53 @@ describe("scripts/setup-worktree.ts", () => {
     expect(existsSync(join(worktree, "node_modules"))).toBe(false);
   });
 
-  it("fails once a cancelled install has stopped, leaving no install behind", async () => {
-    const { worktree } = repository();
-    // An install script that records its PID and then outlasts the test unless it is stopped.
-    writeFileSync(
-      join(worktree, "package.json"),
-      JSON.stringify({ ...PACKAGE, scripts: { prepare: "echo $$ > install.pid; exec sleep 60" } }),
-    );
-    const child = spawn("bun", ["scripts/setup-worktree.ts"], { cwd: worktree, stdio: "ignore" });
-    const exited = new Promise<number | null>((done) => child.on("exit", done));
-    const pidFile = join(worktree, "install.pid");
-    await expect.poll(() => existsSync(pidFile), { timeout: 15_000 }).toBe(true);
-    const installPid = Number(readFileSync(pidFile, "utf8").trim());
-    expect(markers(worktree)).toEqual([RUNNING]);
+  it.each([
+    ["stops on the signal", "exec sleep 60"],
+    ["ignores the signal and is killed", "trap '' TERM; exec sleep 60"],
+  ])(
+    "fails once a cancelled install that %s has stopped, leaving none behind",
+    async (_, rest) => {
+      const { worktree } = repository();
+      // An install script that records its PID and then outlasts the test unless it is stopped.
+      writeFileSync(
+        join(worktree, "package.json"),
+        JSON.stringify({ ...PACKAGE, scripts: { prepare: `echo $$ > install.pid; ${rest}` } }),
+      );
+      const child = spawn("bun", ["scripts/setup-worktree.ts"], { cwd: worktree, stdio: "ignore" });
+      const exited = new Promise<number | null>((done) => child.on("exit", done));
+      const pidFile = join(worktree, "install.pid");
+      await expect.poll(() => existsSync(pidFile), { timeout: 15_000 }).toBe(true);
+      const installPid = Number(readFileSync(pidFile, "utf8").trim());
+      expect(markers(worktree)).toEqual([RUNNING]);
 
-    child.kill("SIGTERM");
-    expect(await exited).toBe(1);
-    expect(markers(worktree)).toEqual([FAILED]);
-    expect(readFileSync(join(worktree, MARKER_DIR, FAILED), "utf8")).toContain(
-      "Cancelled by SIGTERM.",
+      child.kill("SIGTERM");
+      expect(await exited).toBe(1);
+      expect(markers(worktree)).toEqual([FAILED]);
+      expect(readFileSync(join(worktree, MARKER_DIR, FAILED), "utf8")).toContain(
+        "Cancelled by SIGTERM.",
+      );
+      await expect.poll(() => isRunning(installPid), { timeout: 5_000 }).toBe(false);
+    },
+    30_000,
+  );
+
+  it("lets only one of two setups started together run", () => {
+    const { worktree } = repository();
+    // One shell starts both, so they reach the marker within a millisecond or so of each other —
+    // closer than the check for a live setup can see.
+    const both = execFileSync(
+      "sh",
+      [
+        "-c",
+        "bun scripts/setup-worktree.ts >/dev/null 2>&1 & a=$!; " +
+          "bun scripts/setup-worktree.ts >/dev/null 2>&1 & b=$!; " +
+          'wait $a; ea=$?; wait $b; echo "$ea $?"',
+      ],
+      { cwd: worktree, encoding: "utf8" },
     );
-    await expect.poll(() => isRunning(installPid), { timeout: 5_000 }).toBe(false);
-  }, 30_000);
+    expect(both.trim().split(" ").sort()).toEqual(["0", "1"]);
+    expect(markers(worktree)).toEqual([DONE]);
+  });
 
   it("links nothing in the main checkout itself", () => {
     const { main } = repository();

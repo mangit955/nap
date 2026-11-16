@@ -37,6 +37,8 @@ export const MARKER_DIR = ".t3";
 export const RUNNING = "setup-running";
 export const DONE = "setup-done";
 export const FAILED = "setup-failed";
+/** How long a cancelled install has to stop on the signal it was sent before it is killed. */
+const KILL_GRACE_MS = 5_000;
 
 /**
  * The main checkout, from `git worktree list --porcelain`. Git always lists it first, whichever
@@ -131,10 +133,19 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // The check above and this write are not one step, so two setups started together could both
+  // pass it. Writing the marker only if it does not exist lets exactly one of them through; a
+  // marker left by a setup that died is cleared first, since its PID is dead.
+  mkdirSync(markerDir, { recursive: true });
+  rmSync(join(markerDir, RUNNING), { force: true });
+  try {
+    writeFileSync(join(markerDir, RUNNING), `${process.pid}\n`, { flag: "wx" });
+  } catch {
+    process.stderr.write("Another setup started here at the same moment; wait for it.\n");
+    process.exit(1);
+  }
   // Running first, then clear the old outcome, so there is never a moment with no marker at all —
   // which an agent reads as "setup never ran" and answers with an install of its own.
-  mkdirSync(markerDir, { recursive: true });
-  writeFileSync(join(markerDir, RUNNING), `${process.pid}\n`);
   rmSync(join(markerDir, DONE), { force: true });
   rmSync(join(markerDir, FAILED), { force: true });
 
@@ -155,11 +166,9 @@ async function main(): Promise<void> {
     failure = error.stack ?? String(error);
   });
   // Any exit a handler can see leaves done or failed in place of running, or an agent would wait
-  // forever. Only SIGKILL escapes it, leaving a running marker whose PID is dead and an install
-  // that runs on. An install still going when this process dies any other way is stopped, so it
-  // cannot outlive a failure.
+  // forever. Only SIGKILL escapes it — of this process alone or of its whole process group — and
+  // leaves a running marker whose PID is dead and an install, in its own group, that runs on.
   process.on("exit", (code) => {
-    stopInstall("SIGTERM");
     if (code === 0) writeFileSync(join(markerDir, DONE), "");
     else writeFileSync(join(markerDir, FAILED), `Setup exited with code ${code}.\n${failure}\n`);
     rmSync(join(markerDir, RUNNING), { force: true });
@@ -171,8 +180,12 @@ async function main(): Promise<void> {
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(signal, () => {
       cancelled = signal;
-      if (install) stopInstall(signal);
-      else {
+      if (install) {
+        stopInstall(signal);
+        // An install script that ignores the signal would hold the install open, and an agent
+        // waiting on this live PID, for ever.
+        setTimeout(() => stopInstall("SIGKILL"), KILL_GRACE_MS).unref();
+      } else {
         failure = `Cancelled by ${signal}.`;
         process.exit(1);
       }
