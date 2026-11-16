@@ -10,8 +10,8 @@
  *
  * Only what the model reads is counted: UTF-8 bytes of each prompt, and of each tool set as the
  * JSON of `name`, `description` and `inputSchema` — the provider's own wrapping is protocol, not
- * context. Text assembled per turn (the file listing, the job brief, skills, compaction history,
- * the plan itself inside the approved-plan frame) changes with the project and is not budgeted.
+ * context. What rides in a turn's own message — the file listing, the job brief, skills, an
+ * approved plan, compaction history — is assembled per turn and is not budgeted here.
  *
  * It lives in `test/` because it reads both `@nap/context` and `@nap/agent`, which the dependency
  * rule forbids from reading each other.
@@ -24,7 +24,6 @@ import { EXPLORE_PROMPT, GENERAL_PROMPT } from "@nap/context/subagent-prompts";
 import {
   PLAN_MODE_PROMPT,
   REPOSITORY_SYSTEM_PROMPT,
-  renderApprovedPlan,
   SYSTEM_PROMPT,
 } from "@nap/context/system-prompt";
 import { describe, expect, it } from "vitest";
@@ -32,16 +31,20 @@ import { describe, expect, it } from "vitest";
 const BUDGET_FILE = new URL("./agent-context-budget.json", import.meta.url);
 
 /**
- * The tool sets that are pinned, each one a real request's declarations.
+ * The tool sets that are pinned, each one the declarations of a real request.
  *
- * `turn` is a person's turn on the deployment's default model (an OpenAI one, so it carries
- * `apply_patch`) with a desktop and helpers wired: the largest set any turn declares, and the one
- * a production turn sends. `planTurn` is the only set that holds `propose_plan`, so between them
- * every tool's text is budgeted. The helper sets are what each helper sends on every request.
+ * All are on the deployment's default model, an OpenAI one with image input, so they carry
+ * `apply_patch` and, with a desktop composed, `computer`. `projectTurn` is a person's turn on a
+ * Nap project, which is offered no helpers; `repositoryTurn` is the same turn on an imported
+ * repository, which is, and is the largest set any turn declares. `planTurn` is the only set that
+ * holds `propose_plan`, and `appTest` is what an app test may reach. The helper sets are what each
+ * helper sends on every request. Which tools a model family loses is `toolset.test.ts`'s to pin.
  */
 const TOOL_SETS = {
-  turn: { promptSource: "user", family: "gpt", computer: true, subagents: true },
+  projectTurn: { promptSource: "user", family: "gpt", computer: true, subagents: false },
+  repositoryTurn: { promptSource: "user", family: "gpt", computer: true, subagents: true },
   planTurn: { promptSource: "user", family: "gpt", computer: true, subagents: true, mode: "plan" },
+  appTest: { promptSource: "test", family: "gpt", computer: true, subagents: false },
   exploreHelper: {
     promptSource: "user",
     family: "gpt",
@@ -78,14 +81,14 @@ function measure() {
       system: bytes(SYSTEM_PROMPT),
       repositorySystem: bytes(REPOSITORY_SYSTEM_PROMPT),
       planMode: bytes(PLAN_MODE_PROMPT),
-      // The frame around an approved plan is fixed text; the plan inside it is the person's.
-      approvedPlanFrame: bytes(renderApprovedPlan({ title: "", plan: "" })),
       exploreHelper: bytes(EXPLORE_PROMPT),
       generalHelper: bytes(GENERAL_PROMPT),
     },
     tools: {
-      turn: toolBytes(TOOL_SETS.turn),
+      projectTurn: toolBytes(TOOL_SETS.projectTurn),
+      repositoryTurn: toolBytes(TOOL_SETS.repositoryTurn),
       planTurn: toolBytes(TOOL_SETS.planTurn),
+      appTest: toolBytes(TOOL_SETS.appTest),
       exploreHelper: toolBytes(TOOL_SETS.exploreHelper),
       generalHelper: toolBytes(TOOL_SETS.generalHelper),
     },
