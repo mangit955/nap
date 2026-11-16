@@ -33,13 +33,16 @@ export function removeContainer(container: string): void {
 export function dockerExecChannel(container: string): ExecChannel {
   return (command, options) =>
     new Promise<Result<ExecResult, SandboxError>>((resolve) => {
-      const child = spawn("docker", ["exec", container, "bash", "-c", command]);
-      // One string for both streams, as Harbor returns them: `stderr=STDOUT`, then `stderr=None`.
+      // Both streams on one descriptor of the `docker` process, as Harbor spawns it
+      // (`stderr=STDOUT`), so they arrive in the order the client wrote them. Merging two pipes
+      // here instead would reorder them at random and test this process, not the adapter.
+      const child = spawn(
+        "sh",
+        ["-c", 'exec docker exec "$0" bash -c "$1" 2>&1', container, command],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
       let stdout = "";
       child.stdout.setEncoding("utf8").on("data", (data: string) => {
-        stdout += data;
-      });
-      child.stderr.setEncoding("utf8").on("data", (data: string) => {
         stdout += data;
       });
       const timer = setTimeout(() => {

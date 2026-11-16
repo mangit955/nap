@@ -66,7 +66,7 @@ const instruction = readFileSync(join(options.jobDir, HARBOR_TASK_FILES.instruct
 const trajectory = createWriteStream(join(options.jobDir, HARBOR_TASK_FILES.trajectory));
 
 console.error(
-  `Nap on a Terminal-Bench task — ${options.model}, ${options.maxSteps} requests at most` +
+  `Nap on a Terminal-Bench task — ${options.model}, ${options.maxSteps} steps at most` +
     (options.spend ? ", spending allowed" : ", free"),
 );
 

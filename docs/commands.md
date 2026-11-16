@@ -100,7 +100,8 @@ uv run --directory harbor --extra harbor harbor run -d terminal-bench/terminal-b
                           # Nap's agent on Terminal-Bench 2.1 tasks, inside each task's own
                           # container, scored by the task's hidden tests. Free on a `:free` model
                           # (a paid one is refused without NAP_HARBOR_FLAGS=--spend), but each
-                          # step is one request against that model's daily quota. Needs Docker.
+                          # step is one to three requests against that model's daily quota.
+                          # Needs Docker.
                           # See harbor/README.md
 bun run lint:py           # ruff over harbor/ — the Python no other gate here can see. Needs uv
 bun run test:py           # pytest over harbor/ — no evaluation framework required. Needs uv

@@ -270,6 +270,43 @@ describe("the frame", () => {
   });
 });
 
+describe("a read whose output is not base64", () => {
+  /** Answers each command with `outputs[n]` inside its frame, as a machine would. */
+  function scripted(outputs: string[]): ExecChannel {
+    let call = 0;
+    return async (command) => {
+      const nonce = command.match(/' out (\w+);/)?.[1] ?? "";
+      const stdout = outputs[Math.min(call, outputs.length - 1)] ?? "";
+      call += 1;
+      return {
+        ok: true,
+        value: {
+          exitCode: 0,
+          stdout: `@@nap-out-${nonce}@@${stdout}@@nap-err-${nonce}@@`,
+          stderr: "",
+        },
+      };
+    };
+  }
+  const noisy = "aGVs\nbash: warning: setlocale: LC_ALL: cannot change locale\nbG8=\n";
+
+  it("is tried again, since a stray warning can land inside it", async () => {
+    const box = new ChannelSandboxManager({
+      sandboxId: ID,
+      channel: scripted([noisy, "aGVsbG8=\n"]),
+    });
+    expect(await box.readFile(ID, "/app/f")).toEqual({ ok: true, value: "hello" });
+  });
+
+  it("fails rather than hand over garbage when it never comes back clean", async () => {
+    const box = new ChannelSandboxManager({ sandboxId: ID, channel: scripted([noisy]) });
+    expect(await box.readFile(ID, "/app/f")).toMatchObject({
+      ok: false,
+      error: { code: "exec_failed", message: expect.stringContaining("not base64") },
+    });
+  });
+});
+
 describe("unframe", () => {
   it("refuses output from a machine that never ran the frame", () => {
     expect(

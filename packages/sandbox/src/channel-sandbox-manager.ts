@@ -52,6 +52,9 @@ const CHANNEL_GRACE_SEC = 15;
 /** `timeout`'s exit status when it stopped the command. */
 const TIMED_OUT = 124;
 
+/** How many times a read is tried when what came back is not base64. */
+export const READ_ATTEMPTS = 2;
+
 /** An exit status these scripts use for "no such file", out of the range commands usually use. */
 const MISSING = 44;
 
@@ -147,24 +150,31 @@ export class ChannelSandboxManager implements SandboxManager {
     const known = this.#check(sandboxId);
     if (!known.ok) return known;
     const target = shellQuote(path);
-    const ran = await this.#run(`[ -f ${target} ] || exit ${MISSING}; base64 < ${target}`);
-    if (!ran.ok) return ran;
-    if (ran.value.exitCode === MISSING)
-      return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
-    if (ran.value.exitCode !== 0)
-      return {
-        ok: false,
-        error: { code: "exec_failed", message: `cannot read ${path}: ${reason(ran.value)}` },
-      };
-    // Checked, because Node's decoder skips what is not base64 rather than failing on it, and
-    // a file that came back with anything else in it must not be handed over as its contents.
-    // Line breaks in base64's output are part of the format.
-    if (!/^[A-Za-z0-9+/=\s]*$/.test(ran.value.stdout))
-      return {
-        ok: false,
-        error: { code: "exec_failed", message: `cannot read ${path}: the output was not base64` },
-      };
-    return { ok: true, value: new Uint8Array(Buffer.from(ran.value.stdout, "base64")) };
+    // Twice at most. The frame keeps a command's own stderr apart, but the shell that runs the
+    // frame can warn (a missing locale) on a stream the environment folds into stdout, and two
+    // streams read separately can interleave: the warning then lands inside the base64. Reading
+    // is idempotent, so one more attempt is the cheap answer to a rare reordering.
+    for (let attempt = 1; ; attempt += 1) {
+      const ran = await this.#run(`[ -f ${target} ] || exit ${MISSING}; base64 < ${target}`);
+      if (!ran.ok) return ran;
+      if (ran.value.exitCode === MISSING)
+        return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
+      if (ran.value.exitCode !== 0)
+        return {
+          ok: false,
+          error: { code: "exec_failed", message: `cannot read ${path}: ${reason(ran.value)}` },
+        };
+      // Checked, because Node's decoder skips what is not base64 rather than failing on it, and
+      // a file that came back with anything else in it must not be handed over as its contents.
+      // Line breaks in base64's output are part of the format.
+      if (/^[A-Za-z0-9+/=\s]*$/.test(ran.value.stdout))
+        return { ok: true, value: new Uint8Array(Buffer.from(ran.value.stdout, "base64")) };
+      if (attempt === READ_ATTEMPTS)
+        return {
+          ok: false,
+          error: { code: "exec_failed", message: `cannot read ${path}: the output was not base64` },
+        };
+    }
   }
 
   async listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {
