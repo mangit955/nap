@@ -25,8 +25,6 @@ import { PostgresSessionStartStore } from "@nap/db/session-start-store";
  * what makes it importable, and therefore typechecked, by things that are not a running process.
  */
 
-import { ClaudeProvider } from "@nap/agent/claude-provider";
-import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
 import {
   createDatabase,
@@ -69,6 +67,7 @@ import { GitHubApp } from "./github/app.ts";
 import { githubConfigFromEnv } from "./github/config.ts";
 import { createHealthProbe } from "./health.ts";
 import { createLogger } from "./logger.ts";
+import { createDeploymentProvider } from "./model-provider.ts";
 import { createHeartbeatWriter } from "./worker-heartbeat.ts";
 
 export type NapProcess = {
@@ -241,23 +240,6 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
       : new ChromePageCapture({ executablePath: env.NAP_CHROME_PATH });
 
   /**
-   * The same Messages API either way — only the client and the shape of the model id differ, and
-   * nothing above `LLMProvider` can tell which one answered. The env check has already refused
-   * to boot without whichever credentials the chosen route needs.
-   */
-  function buildProvider(): ClaudeProvider {
-    if (env.NAP_PLATFORM === "openrouter") {
-      return new ClaudeProvider({
-        model: toOpenRouterModel(env.NAP_MODEL),
-        effort: env.NAP_EFFORT,
-        client: createOpenRouterClient(),
-      });
-    }
-
-    return new ClaudeProvider({ model: env.NAP_MODEL, effort: env.NAP_EFFORT });
-  }
-
-  /**
    * What stops two reapers sweeping at once, and only the reaper has one.
    *
    * The deployment runs a single reaper replica; this covers the seconds of a rolling update when
@@ -364,7 +346,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
       secret: env.BETTER_AUTH_SECRET,
     },
     objects,
-    provider: buildProvider(),
+    provider: createDeploymentProvider(env),
     ...(capture === undefined ? {} : { capture }),
     auth,
     authenticate: auth.getUser,

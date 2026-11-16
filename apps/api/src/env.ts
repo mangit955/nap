@@ -15,6 +15,7 @@
  * you do not actually need trains people to fill it with dummy values.
  */
 
+import { ModelBaseUrlSchema } from "@nap/agent/model-endpoint";
 import { z } from "zod";
 import { isCrossSite } from "./auth/cross-site.ts";
 
@@ -41,6 +42,14 @@ const BaseSchema = z.object({
   /** Billed to an OpenRouter account, whatever the model. Keys look like `sk-or-…`. */
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  /**
+   * Where this deployment's own model calls go, when not to the platform's own host: a local
+   * Ollama (`http://localhost:11434`, with `NAP_PLATFORM=anthropic` so model ids stay bare) or a
+   * proxy in front of either vendor. The API root, never `…/v1`. Absent keeps OpenRouter's or
+   * Anthropic's host. Keys people saved to their account are never sent here; see
+   * `@nap/agent/model-endpoint`.
+   */
+  NAP_MODEL_BASE_URL: ModelBaseUrlSchema.optional(),
   /**
    * Signs session cookies. Required from the moment there is sign-in to sign: a process that
    * cannot verify its own cookies has no way to tell who is asking.

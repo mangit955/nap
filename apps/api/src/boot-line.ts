@@ -19,7 +19,15 @@ import type { Env } from "./env.ts";
  * question about the connection pool or the claiming loop.
  */
 export type Announcing = {
-  env: Pick<Env, "NODE_ENV" | "NAP_PLATFORM" | "NAP_EVENT_BUS" | "NAP_MODEL" | "NAP_EFFORT"> &
+  env: Pick<
+    Env,
+    | "NODE_ENV"
+    | "NAP_PLATFORM"
+    | "NAP_MODEL_BASE_URL"
+    | "NAP_EVENT_BUS"
+    | "NAP_MODEL"
+    | "NAP_EFFORT"
+  > &
     PoolSettings;
   role: NapRole;
   logger: Logger;
@@ -40,6 +48,8 @@ export function announce(nap: Announcing, message: string, extra: Record<string,
       role: nap.role,
       nodeEnv: env.NODE_ENV,
       platform: env.NAP_PLATFORM,
+      // Only when the host was moved, so a deployment on the platform's own host logs what it did.
+      ...(env.NAP_MODEL_BASE_URL === undefined ? {} : { modelBaseUrl: env.NAP_MODEL_BASE_URL }),
       // Whether this process can share a session with another one. `in-process` and two replicas
       // is a chat that stops moving, and that is worth being able to read off a boot line.
       eventBus: env.NAP_EVENT_BUS,

@@ -2,15 +2,19 @@
  * Reaching Claude at Anthropic's own API, for somebody who brought an Anthropic key.
  *
  * The mirror of `openrouter.ts`, and much smaller because this is the API the SDK was written
- * for: no base URL to override, no namespace to add. The only thing that needs saying is how
- * a model id spelled *this codebase's* way — `anthropic/claude-opus-5`, because everything
- * runs through OpenRouter — becomes the id the first-party API answers to.
+ * for: no namespace to add, and a base URL that is the SDK's own default. The only thing that
+ * needs saying is how a model id spelled *this codebase's* way — `anthropic/claude-opus-5`,
+ * because everything runs through OpenRouter — becomes the id the first-party API answers to.
  *
- * There is no `createAnthropicClient` here on purpose. `ClaudeProvider` already constructs a
- * bare `new Anthropic({ apiKey, maxRetries: 0 })` when nothing is injected, and a factory that
- * did the same thing under a different name would be a second place for the retry policy to
- * be set and then forgotten.
+ * Clients for this API are built in `model-endpoint.ts`, beside OpenRouter's, so the retry policy
+ * and the host are set in one place for both.
  */
+
+/**
+ * Anthropic's API root, the SDK's own default, spelled out so a client for somebody's key can pin
+ * it: left to the SDK, the host follows `ANTHROPIC_BASE_URL` in the environment.
+ */
+export const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 
 /** The vendor namespace OpenRouter requires and Anthropic's own API does not have. */
 const NAMESPACE = "anthropic/";

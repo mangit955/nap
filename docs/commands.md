@@ -35,6 +35,11 @@ bun run harness --steer="<message>" "<prompt>"  # sends a message mid-turn; it i
                           # step boundary (ADR-0028) — fakes, free
 bun run harness --real "<prompt>" # the same turn against real E2B + a real model; this spends money
 bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo model, ~20x the cost
+NAP_PLATFORM=anthropic NAP_MODEL_BASE_URL=http://localhost:11434 ANTHROPIC_API_KEY=ollama \
+  bun run harness --real --platform=anthropic --model=qwen3.5:9b --effort=low "<prompt>"
+                          # the same turn on a local Ollama: free model, but E2B still bills the
+                          # sandbox. The API and `napbench --real` read NAP_MODEL_BASE_URL too;
+                          # napbench-app-test and the computer-use scripts do not
 bun run computer:reliability       # "Test the app" against three correct apps, 10 runs each, on the local
                           # Docker desktop at 2 GiB — scripted model, free; needs Docker. Evidence lands
                           # in computer-reliability-results/. --model=<image model> uses a real one;

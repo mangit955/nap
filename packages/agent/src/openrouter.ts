@@ -4,8 +4,9 @@
  * OpenRouter publishes a *native Anthropic Messages endpoint*, so the Anthropic SDK speaks its
  * own protocol to it: the same `tool_use`/`tool_result` blocks, the same streaming events, the
  * same refusal semantics, the same `cache_control` breakpoints. Only two things change — the
- * base URL and a namespaced model id — and both are confined to this file. `ClaudeProvider`,
- * the agent loop and the event contract above it cannot tell the difference.
+ * base URL and a namespaced model id — and both are defined in this file. Which host a deployment
+ * actually calls, this one or the one in `NAP_MODEL_BASE_URL`, is decided in `model-endpoint.ts`.
+ * `ClaudeProvider`, the agent loop and the event contract above it cannot tell the difference.
  *
  * **The endpoint translates for non-Anthropic models too, and that is measured rather than
  * assumed.** OpenRouter's documentation hedges that the Anthropic endpoint is designed for
@@ -26,6 +27,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import type { ModelBaseUrl } from "./model-endpoint.ts";
 
 /**
  * The API root, not the endpoint.
@@ -43,6 +45,8 @@ const NAMESPACE_SEPARATOR = "/";
 export type OpenRouterClientOptions = {
   /** Falls back to `OPENROUTER_API_KEY`. Keys look like `sk-or-…`. */
   apiKey?: string;
+  /** Absent means OpenRouter itself. Typed so only a URL checked for a trailing `/v1` gets here. */
+  baseUrl?: ModelBaseUrl;
 };
 
 /**
@@ -78,7 +82,7 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}): A
 
   return new Anthropic({
     apiKey,
-    baseURL: OPENROUTER_BASE_URL,
+    baseURL: options.baseUrl ?? OPENROUTER_BASE_URL,
     // Our own retry policy is the only one that runs, exactly as with the direct client.
     maxRetries: 0,
   });

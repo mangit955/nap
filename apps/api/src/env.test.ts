@@ -92,6 +92,31 @@ describe("parseEnv", () => {
     ).toThrow(/ANTHROPIC_API_KEY/);
   });
 
+  it("keeps the platform's own model host unless a base URL is set", () => {
+    expect(parseEnv(REQUIRED).NAP_MODEL_BASE_URL).toBeUndefined();
+  });
+
+  it("boots on the local Ollama settings .env.example gives", () => {
+    const env = parseEnv({
+      ...REQUIRED,
+      OPENROUTER_API_KEY: undefined,
+      NAP_PLATFORM: "anthropic",
+      ANTHROPIC_API_KEY: "ollama",
+      NAP_MODEL_BASE_URL: "http://localhost:11434",
+      NAP_MODEL: "qwen3.5:9b",
+      NAP_FREE_MODEL: "qwen3.5:9b",
+      NAP_ALLOWED_MODELS: "qwen3.5:9b",
+    });
+    expect(env.NAP_MODEL_BASE_URL).toBe("http://localhost:11434");
+    expect(env.NAP_FREE_MODEL).toBe("qwen3.5:9b");
+  });
+
+  it("refuses a model base URL ending in /v1, which the SDK would double", () => {
+    expect(() =>
+      parseEnv({ ...REQUIRED, NAP_MODEL_BASE_URL: "https://openrouter.ai/api/v1" }),
+    ).toThrow(/NAP_MODEL_BASE_URL: must be the API root, without \/v1/);
+  });
+
   it("boots with no GitHub app at all, leaving email sign-in as the only way in", () => {
     // The rule this repo states outright: a boot check that demands credentials for something
     // nobody has configured is how people learn to paste dummy values.

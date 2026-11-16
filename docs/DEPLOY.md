@@ -481,6 +481,13 @@ Optionally `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` and the Google pair — bot
 neither, or boot refuses. Without them those buttons are not offered and email sign-in and
 the demo door still work.
 
+`NAP_MODEL_BASE_URL` stays unset in production, which keeps model calls on OpenRouter's own host.
+It exists to point a deployment's own model client at another Messages endpoint — a local Ollama,
+or a proxy — without changing code; `apps/api/.env.example` shows the Ollama settings. It moves
+only the turns the deployment pays for, which in the web app are the free tier's (`NAP_FREE_MODEL`);
+a key a user saved to their account always goes to its own vendor. It must be the API root (a
+trailing `/v1` fails boot), and the boot line names it when it is set.
+
 Two ways to get this wrong, both quiet:
 
 - **`NAP_WEB_ORIGIN` must match the browser's origin exactly** — no trailing slash, and
