@@ -30,6 +30,13 @@ export type PlanInput = {
   readonly repoTests: readonly string[];
   /** Every `*.computer.test.ts` in the repo, which run only when they or their namesake changed. */
   readonly computerTests: readonly string[];
+  /**
+   * For each changed file's basename, the test files whose source names it. A test that reads a
+   * script, a fixture or a migration as text names it; no import reaches it, so `related` cannot.
+   */
+  readonly testsNaming: Readonly<Record<string, readonly string[]>>;
+  /** Each test project's setup and global-setup files, from vitest.config.ts, keyed by path. */
+  readonly setupFiles: Readonly<Record<string, string>>;
 };
 
 // A change to one of these can break any package, so it widens every step to the whole repo. The
@@ -44,15 +51,29 @@ const GLOBAL_FILES = new Set([
 ]);
 // The root tsconfig's own program: TypeScript that belongs to no workspace.
 const ROOT_PROGRAM = /^(test|scripts)\/|^vitest\.config\.ts$|^tsconfig\.json$/;
-const MODULE = /\.(?:[cm]?[jt]sx?)$/;
-// Reads the Python under harbor/ as text, so no TypeScript import selects it. See docs/commands.md.
-const HARBOR_AGREEMENT = "apps/napbench/src/harbor-agreement.test.ts";
+// What `vitest related` can follow: a file some test reaches through its imports.
+const IMPORTABLE = /\.(?:[cm]?[jt]sx?|json)$/;
+// Tests that read whole trees as text without naming the files in them, so neither the import
+// graph nor `testsNaming` can find them. Any other test that reads a file names it.
+const TREE_READERS = [
+  // Every Python file under harbor/ is checked against the TypeScript it mirrors.
+  { test: "apps/napbench/src/harbor-agreement.test.ts", reads: /^harbor\// },
+  // Walks every component each page reaches, looking for landing-only font classes.
+  { test: "apps/web/src/app/font-placement.test.ts", reads: /^apps\/web\/src\/.*\.tsx$/ },
+];
+// Names too common to mean anything when a test mentions them: dozens of tests write their own
+// package.json into a temporary directory. A change to a real one reaches its tests by typecheck
+// and import instead.
+const GENERIC_NAMES = new Set(["package.json"]);
+// Biome's own configuration changes what every file is checked against.
+const BIOME_CONFIG = "biome.json";
 // `integration` spends money and `types` is covered by each package's tsc, so neither is here.
 // `computer` is chosen by name rather than by import, below.
 const TEST_PROJECTS = ["unit", "web"];
 
 /** `dir/name` without any extension, so `a/x.ts`, `a/x.sh` and `a/x.computer.test.ts` agree. */
 const stem = (path: string) => path.replace(/\.[^/]*$/, "");
+const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 export function planChecks(input: PlanInput): Plan {
   const present = input.files.filter((file) => file.present).map((file) => file.path);
@@ -63,7 +84,9 @@ export function planChecks(input: PlanInput): Plan {
   const steps: Step[] = [];
   const global = paths.some((path) => GLOBAL_FILES.has(path));
 
-  if (present.length > 0) {
+  if (paths.includes(BIOME_CONFIG)) {
+    steps.push({ name: "biome", commands: [["bunx", "biome", "check", "."]] });
+  } else if (present.length > 0) {
     steps.push({
       name: "biome",
       commands: [
@@ -92,10 +115,8 @@ export function planChecks(input: PlanInput): Plan {
     steps.push({ name: "typecheck", commands: [...turbo, ["bunx", "tsc", "--noEmit"]] });
   }
 
-  const projects = [...TEST_PROJECTS, ...(input.docker ? ["db"] : [])].flatMap((name) => [
-    "--project",
-    name,
-  ]);
+  const runnable = [...TEST_PROJECTS, ...(input.docker ? ["db"] : [])];
+  const projects = runnable.flatMap((name) => ["--project", name]);
   if (!input.docker) notes.push("db tests skipped: Docker is not running. CI runs them.");
   if (global) {
     steps.push({
@@ -103,24 +124,50 @@ export function planChecks(input: PlanInput): Plan {
       commands: [["bunx", "vitest", "run", ...projects, "--project", "computer"]],
     });
   } else {
-    const harbor = paths.some((path) => path.startsWith("harbor/")) ? [HARBOR_AGREEMENT] : [];
+    // A test that names a changed file, or reads the tree it sits in, runs as if it had changed.
+    const readers = [
+      ...paths
+        .filter((path) => !IMPORTABLE.test(path) && !GENERIC_NAMES.has(basename(path)))
+        .flatMap((path) => input.testsNaming[basename(path)] ?? []),
+      ...TREE_READERS.filter(({ reads }) => paths.some((path) => reads.test(path))).map(
+        ({ test }) => test,
+      ),
+    ].filter((test) => !/\.(?:integration|test-d)\./.test(test));
     const targets = [
-      ...new Set([...present.filter((path) => MODULE.test(path)), ...harbor, ...input.repoTests]),
+      ...new Set([
+        ...present.filter((path) => IMPORTABLE.test(path)),
+        ...readers.filter((test) => !test.endsWith(".computer.test.ts")),
+        ...input.repoTests,
+      ]),
     ];
     // The computer suites spawn real processes and take a minute each, and one of them imports
     // most of the runtime: by import graph, a comment in packages/verify cost 71 s of the 140 s a
-    // run took. So they run when they, or the file they share a name with, changed. CI runs all.
+    // run took. So they run when they, the file they share a name with, or a file they name
+    // changed. CI runs all.
     const stems = new Set(paths.map(stem));
-    const computer = input.computerTests.filter((test) => stems.has(stem(test)));
+    const computer = [
+      ...new Set([
+        ...input.computerTests.filter((test) => stems.has(stem(test))),
+        ...readers.filter((test) => test.endsWith(".computer.test.ts")),
+      ]),
+    ];
+    // A setup file is loaded by every test in its project and imported by none of them, so a
+    // change to one runs that whole project.
+    const whole = [...new Set(paths.flatMap((path) => input.setupFiles[path] ?? []))].filter(
+      (name) => [...runnable, "computer"].includes(name),
+    );
     // `related` runs each test file it is given and every test file whose imports reach a given
-    // source file, across the listed projects. The two runs go one after the other because
-    // parallel vitest runs race on the same cache directory.
+    // source file, across the listed projects. The runs go one after the other because parallel
+    // vitest runs race on the same cache directory.
     steps.push({
       name: "tests",
       commands: [
         ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...projects, ...targets],
         ...(computer.length > 0
           ? [["bunx", "vitest", "run", "--project", "computer", ...computer]]
+          : []),
+        ...(whole.length > 0
+          ? [["bunx", "vitest", "run", ...whole.flatMap((name) => ["--project", name])]]
           : []),
       ],
     });
@@ -147,16 +194,60 @@ const Args = z.union([
 ]);
 const PackageJson = z.object({ name: z.string(), workspaces: z.array(z.string()).optional() });
 
-function git(root: string, args: readonly string[]): string[] {
+/** Runs git; `-z` in `args` splits on NUL, so a path with a quote, tab or newline survives. */
+function git(root: string, args: readonly string[], allowed: readonly number[] = [0]): string[] {
   const result = spawnSync("git", ["-c", "core.quotePath=false", ...args], {
     cwd: root,
     encoding: "utf8",
   });
   // An empty list from a failed git call would otherwise pass as "nothing changed".
-  if (result.status !== 0) {
+  if (result.status === null || !allowed.includes(result.status)) {
     throw new Error(`git ${args.join(" ")} exited ${result.status}: ${result.stderr.trim()}`);
   }
-  return result.stdout.split("\n").filter(Boolean);
+  return result.stdout.split(args.includes("-z") ? "\0" : "\n").filter(Boolean);
+}
+
+// Only the fields read here; vitest.config.ts is the one place the projects are defined.
+const VitestConfig = z.object({
+  test: z.object({
+    projects: z.array(
+      z.object({
+        test: z.object({
+          name: z.string(),
+          setupFiles: z.union([z.string(), z.array(z.string())]).optional(),
+          globalSetup: z.union([z.string(), z.array(z.string())]).optional(),
+        }),
+      }),
+    ),
+  }),
+});
+
+async function readSetupFiles(root: string): Promise<Record<string, string>> {
+  const config = VitestConfig.parse(
+    (await import(pathToFileURL(join(root, "vitest.config.ts")).href)).default,
+  );
+  return Object.fromEntries(
+    config.test.projects.flatMap(({ test }) =>
+      [test.setupFiles ?? [], test.globalSetup ?? []]
+        .flat()
+        .map((file) => [file.replace(/^\.\//, ""), test.name]),
+    ),
+  );
+}
+
+/** For each basename, the test files whose text contains it. `git grep` exits 1 on no match. */
+function testsNaming(root: string, paths: readonly string[]): Record<string, string[]> {
+  const names = [...new Set(paths.map((path) => path.slice(path.lastIndexOf("/") + 1)))];
+  return Object.fromEntries(
+    names.map((name) => [
+      name,
+      git(
+        root,
+        ["grep", "--untracked", "-z", "-l", "-F", "-e", name, "--", "*.test.ts", "*.test.tsx"],
+        [0, 1],
+      ),
+    ]),
+  );
 }
 
 function readWorkspaces(root: string): Workspace[] {
@@ -183,7 +274,7 @@ function changedFiles(
   if (args.staged) {
     return {
       label: "staged",
-      files: git(root, ["diff", "--cached", "--name-only", "--no-renames"]),
+      files: git(root, ["diff", "--cached", "--name-only", "--no-renames", "-z"]),
     };
   }
   const ref =
@@ -194,8 +285,8 @@ function changedFiles(
   // Diffing the working tree against the base counts committed, staged and unstaged edits alike;
   // untracked files are listed separately. --no-renames lists a rename as both of its paths.
   const files = new Set([
-    ...git(root, ["diff", "--name-only", "--no-renames", base]),
-    ...git(root, ["ls-files", "--others", "--exclude-standard"]),
+    ...git(root, ["diff", "--name-only", "--no-renames", "-z", base]),
+    ...git(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
   ]);
   return { label: `since ${base.slice(0, 12)} (merge base with ${ref})`, files: [...files].sort() };
 }
@@ -261,11 +352,18 @@ async function main(argv: readonly string[]): Promise<number> {
       .map((name) => `test/${name}`),
     computerTests: git(root, [
       "ls-files",
+      "-z",
       "--cached",
       "--others",
       "--exclude-standard",
       "*.computer.test.ts",
     ]).filter((path) => existsSync(join(root, path))),
+    // Only files `related` cannot follow are looked up; the planner decides which of these count.
+    testsNaming: testsNaming(
+      root,
+      files.filter((path) => !IMPORTABLE.test(path)),
+    ),
+    setupFiles: await readSetupFiles(root),
   });
 
   // The steps share no state, so they run side by side; each prints when it finishes.

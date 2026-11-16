@@ -14,10 +14,33 @@ const computerTests = [
   "apps/api/scripts/local-sandbox.computer.test.ts",
 ];
 
+// Real names, from `git grep` and vitest.config.ts on the day these were written.
+const testsNaming = {
+  "start-desktop.sh": ["packages/sandbox/src/desktop-start.computer.test.ts"],
+  ".gitignore": ["packages/bench/src/results-dir.test.ts"],
+  "0022_project_name_source.sql": ["packages/db/src/schema.db.test.ts"],
+  "package.json": ["packages/sandbox/src/git-local.test.ts"],
+  "notes.md": ["packages/agent/src/screenshot-caching.integration.test.ts"],
+};
+const setupFiles = {
+  "apps/web/src/testing/setup.ts": "web",
+  "packages/db/src/testing/global-setup.ts": "db",
+  "test/integration-setup.ts": "integration",
+};
+
 function plan(paths: readonly (string | ChangedFile)[], docker = true): Plan {
   const files = paths.map((path) => (typeof path === "string" ? { path, present: true } : path));
-  return planChecks({ files, workspaces, docker, repoTests, computerTests });
+  return planChecks({
+    files,
+    workspaces,
+    docker,
+    repoTests,
+    computerTests,
+    testsNaming,
+    setupFiles,
+  });
 }
+const related = (result: Plan) => step(result, "tests")?.commands[0] ?? [];
 const step = (result: Plan, name: string) => result.steps.find((s) => s.name === name);
 const names = (result: Plan) => result.steps.map((s) => s.name);
 
@@ -75,8 +98,7 @@ describe("planChecks", () => {
   });
 
   it("runs the tests related to changed modules and every repo-wide test", () => {
-    const [command] =
-      step(plan(["apps/web/src/a.tsx", "docs/testing.md"]), "tests")?.commands ?? [];
+    const [command] = step(plan(["apps/web/src/a.ts", "docs/testing.md"]), "tests")?.commands ?? [];
     expect(command?.slice(0, 5)).toEqual([
       "bunx",
       "vitest",
@@ -84,7 +106,7 @@ describe("planChecks", () => {
       "--run",
       "--passWithNoTests",
     ]);
-    expect(command?.slice(-3)).toEqual(["apps/web/src/a.tsx", ...repoTests]);
+    expect(command?.slice(-3)).toEqual(["apps/web/src/a.ts", ...repoTests]);
   });
 
   it("runs a computer suite only when it or its namesake changed, after the related run", () => {
@@ -93,8 +115,10 @@ describe("planChecks", () => {
     expect(byImport.flat()).not.toContain("computer");
 
     for (const changed of [
-      "packages/sandbox/src/desktop-start.sh",
+      "packages/sandbox/src/desktop-start.ts",
       "packages/sandbox/src/desktop-start.computer.test.ts",
+      // In another folder, under another name, but the suite reads it as text.
+      "packages/sandbox/desktop/start-desktop.sh",
     ]) {
       expect(step(plan([changed]), "tests")?.commands[1]).toEqual([
         "bunx",
@@ -107,6 +131,65 @@ describe("planChecks", () => {
     }
     // Same name, different folder: not its namesake.
     expect(step(plan(["apps/api/src/desktop-start.ts"]), "tests")?.commands).toHaveLength(1);
+  });
+
+  it("runs the tests that name a changed file `related` cannot follow", () => {
+    expect(related(plan([".gitignore"]))).toContain("packages/bench/src/results-dir.test.ts");
+    expect(related(plan(["packages/db/drizzle/0022_project_name_source.sql"]))).toContain(
+      "packages/db/src/schema.db.test.ts",
+    );
+    // Deleted files count: the test that read one now fails to find it.
+    expect(related(plan([{ path: ".gitignore", present: false }]))).toContain(
+      "packages/bench/src/results-dir.test.ts",
+    );
+  });
+
+  it("does not look up names that every fixture uses, or tests that never run here", () => {
+    expect(related(plan(["packages/capture/package.json"]))).not.toContain(
+      "packages/sandbox/src/git-local.test.ts",
+    );
+    expect(related(plan(["notes/notes.md"])).join(" ")).not.toContain("integration");
+  });
+
+  it("hands JSON to `related`, which follows JSON imports", () => {
+    expect(related(plan(["apps/web/src/testing/audit-session.json"]))).toContain(
+      "apps/web/src/testing/audit-session.json",
+    );
+  });
+
+  it("runs a test that reads a whole tree when anything in that tree changed", () => {
+    expect(related(plan(["apps/web/src/dashboard/session-list.tsx"]))).toContain(
+      "apps/web/src/app/font-placement.test.ts",
+    );
+    expect(related(plan(["harbor/README.md"]))).toContain(
+      "apps/napbench/src/harbor-agreement.test.ts",
+    );
+    expect(related(plan(["apps/web/src/a.ts"]))).not.toContain(
+      "apps/web/src/app/font-placement.test.ts",
+    );
+  });
+
+  it("runs a whole project when its setup file changed, if that project runs here", () => {
+    expect(step(plan(["apps/web/src/testing/setup.ts"]), "tests")?.commands.at(-1)).toEqual([
+      "bunx",
+      "vitest",
+      "run",
+      "--project",
+      "web",
+    ]);
+    expect(
+      step(plan(["packages/db/src/testing/global-setup.ts"]), "tests")?.commands.at(-1),
+    ).toEqual(["bunx", "vitest", "run", "--project", "db"]);
+    expect(
+      step(plan(["packages/db/src/testing/global-setup.ts"], false), "tests")?.commands,
+    ).toHaveLength(1);
+    expect(step(plan(["test/integration-setup.ts"]), "tests")?.commands).toHaveLength(1);
+  });
+
+  it("checks the whole repo with Biome when Biome's configuration changed", () => {
+    expect(step(plan(["biome.json"]), "biome")?.commands).toEqual([
+      ["bunx", "biome", "check", "."],
+    ]);
   });
 
   it("never selects the integration or types project", () => {
