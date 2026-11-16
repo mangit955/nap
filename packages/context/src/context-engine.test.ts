@@ -17,7 +17,12 @@ import { FILE_LIST_UNAVAILABLE } from "./file-tree.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
 import { renderSteer } from "./steer.ts";
 import { SUBAGENT_PROMPTS } from "./subagent-prompts.ts";
-import { PLAN_MODE_PROMPT, REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "./system-prompt.ts";
+import {
+  PLAN_MODE_PROMPT,
+  REPOSITORY_SYSTEM_PROMPT,
+  SYSTEM_PROMPT,
+  TASK_SYSTEM_PROMPT,
+} from "./system-prompt.ts";
 import { stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
@@ -32,6 +37,17 @@ it("uses repository guidance without the starter stack assumptions", async () =>
   // Compaction keeps these as the trusted half, so they must be the instructions this workspace ran under.
   expect(built.trustedInstructions).toBe(REPOSITORY_SYSTEM_PROMPT);
   expect(built.estimatedTokens).toBeLessThanOrEqual(DEFAULT_BUDGET_TOKENS);
+});
+
+it("runs a benchmark task under its own instructions, with no helpers to pay for", async () => {
+  const built = await new NapContextEngine().build(request({ workspace: "task" }));
+  expect(built.systemPrompt.startsWith(TASK_SYSTEM_PROMPT)).toBe(true);
+  expect(built.systemPrompt).not.toContain(SYSTEM_PROMPT);
+  expect(built.systemPrompt).not.toContain(REPOSITORY_SYSTEM_PROMPT);
+  expect(built.trustedInstructions).toBe(TASK_SYSTEM_PROMPT);
+  // Every helper is another model request against a task's quota, and a task's machine is
+  // small enough to read directly.
+  expect(built.subagentPrompts).toBeUndefined();
 });
 
 it("offers an imported repository helpers and its root rules, and a Nap project neither", async () => {

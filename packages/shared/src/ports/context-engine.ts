@@ -61,7 +61,12 @@ export type ContextRequest = {
   continuation?: boolean;
   sessionId: string;
   sandboxId: string;
-  workspace?: "repository";
+  /**
+   * What the workspace is. Absent is a Nap project on the starter template; `repository` is an
+   * imported GitHub repository; `task` is a benchmark task's machine, which Nap did not build and
+   * whose result is judged by checks the agent never sees (ADR-0035).
+   */
+  workspace?: "repository" | "task";
   /** The message this turn is being built for. */
   userMessage: string;
   /** `plan` builds a plan mode turn's prompt (ADR-0025). Absent is an ordinary turn. */

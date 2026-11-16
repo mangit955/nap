@@ -95,6 +95,13 @@ bun run napbench:trial verify --job-dir=<dir> --reward-dir=<dir>
                           # non-zero when the run measured nothing. See harbor/README.md
 bun run harbor:tasks      # regenerates harbor/tasks/ from @nap/bench/suite — free, offline.
                           # Generated, gitignored, and includes a bundled verifier per task
+uv run --directory harbor --extra harbor harbor run -d terminal-bench/terminal-bench-2-1 \
+  -i terminal-bench/<task> -a nap_harbor.agent:NapAgent -m <openrouter-id> --force-build -n 1 -o <jobs-dir>
+                          # Nap's agent on Terminal-Bench 2.1 tasks, inside each task's own
+                          # container, scored by the task's hidden tests. Free on a `:free` model
+                          # (a paid one is refused without NAP_HARBOR_FLAGS=--spend), but each
+                          # step is one request against that model's daily quota. Needs Docker.
+                          # See harbor/README.md
 bun run lint:py           # ruff over harbor/ — the Python no other gate here can see. Needs uv
 bun run test:py           # pytest over harbor/ — no evaluation framework required. Needs uv
 bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>
@@ -115,4 +122,4 @@ bun run dev:reaper        # the third: sweeps idle projects, reconciles capacity
 
 ## The Python under `harbor/`
 
-**`harbor/` is Python, and none of those three can see it.** Biome does not read it, `tsc` cannot, vitest collects nothing from it — the exact shape of the mistake the definition of done was written after. Its gates are `bun run lint:py` (ruff) and `bun run test:py` (pytest): lefthook runs both on any commit touching a `*.py`, and CI runs them unconditionally in a job of their own. Editing that directory therefore needs [`uv`](https://docs.astral.sh/uv/) installed; nothing else in the repo does. The two claims that span both languages — the task-id marker the TypeScript generator writes and the Python agent reads, and the report field names that agent reads a run's cost out of — are guarded from the TypeScript side, in `apps/napbench/src/harbor-agreement.test.ts`, because neither toolchain alone would see them drift.
+**`harbor/` is Python, and none of those three can see it.** Biome does not read it, `tsc` cannot, vitest collects nothing from it — the exact shape of the mistake the definition of done was written after. Its gates are `bun run lint:py` (ruff) and `bun run test:py` (pytest): lefthook runs both on any commit touching a `*.py`, and CI runs them unconditionally in a job of their own. Editing that directory therefore needs [`uv`](https://docs.astral.sh/uv/) installed; nothing else in the repo does. The claims that span both languages are guarded so that neither toolchain alone misses a drift: for NapBench's adapter, from the TypeScript side in `apps/napbench/src/harbor-agreement.test.ts`; for the Terminal-Bench adapter, by example files both sides' tests read (listed in `harbor/README.md`, "Gates").
