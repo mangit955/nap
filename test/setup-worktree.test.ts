@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  claimSetup,
   DONE,
   FAILED,
   linkEnvFiles,
@@ -192,6 +193,41 @@ describe("liveSetupPid", () => {
     const dead = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]);
     writeFileSync(join(dir, RUNNING), String(dead.stdout));
     expect(liveSetupPid(dir)).toBeNull();
+  });
+});
+
+describe("claimSetup", () => {
+  function deadPid(): number {
+    const dead = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]);
+    return Number(String(dead.stdout));
+  }
+
+  it("claims a directory with no marker, writing this process's PID", () => {
+    const dir = join(tempDir(), MARKER_DIR);
+    expect(claimSetup(dir)).toEqual({ claimed: true });
+    expect(readFileSync(join(dir, RUNNING), "utf8")).toBe(`${process.pid}\n`);
+  });
+
+  it("leaves a live setup's marker alone and names it", () => {
+    const dir = tempDir();
+    const other = spawn("sleep", ["30"]);
+    try {
+      writeFileSync(join(dir, RUNNING), `${other.pid}\n`);
+      expect(claimSetup(dir)).toEqual({ claimed: false, holder: other.pid });
+      expect(readFileSync(join(dir, RUNNING), "utf8")).toBe(`${other.pid}\n`);
+    } finally {
+      other.kill();
+    }
+  });
+
+  it.each([
+    ["a dead setup", () => `${deadPid()}\n`],
+    ["no PID at all", () => "garbage"],
+  ])("takes over a marker naming %s", (_, contents) => {
+    const dir = tempDir();
+    writeFileSync(join(dir, RUNNING), contents());
+    expect(claimSetup(dir)).toEqual({ claimed: true });
+    expect(readFileSync(join(dir, RUNNING), "utf8")).toBe(`${process.pid}\n`);
   });
 });
 

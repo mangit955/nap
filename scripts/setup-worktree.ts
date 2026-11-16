@@ -113,16 +113,53 @@ function isAlive(pid: number): boolean {
   }
 }
 
-/** The PID a `setup-running` marker names, when that process is still alive. */
-export function liveSetupPid(markerDir: string): number | null {
-  let text: string;
+/** The PID a marker's text names, when that process is alive and is not this one. */
+function livePidIn(text: string): number | null {
+  const pid = Number.parseInt(text.trim(), 10);
+  return Number.isInteger(pid) && pid > 0 && pid !== process.pid && isAlive(pid) ? pid : null;
+}
+
+function readMarker(path: string): string | null {
   try {
-    text = readFileSync(join(markerDir, RUNNING), "utf8");
+    return readFileSync(path, "utf8");
   } catch {
     return null;
   }
-  const pid = Number.parseInt(text.trim(), 10);
-  return Number.isInteger(pid) && pid > 0 && pid !== process.pid && isAlive(pid) ? pid : null;
+}
+
+/** The PID a `setup-running` marker names, when that process is still alive. */
+export function liveSetupPid(markerDir: string): number | null {
+  const text = readMarker(join(markerDir, RUNNING));
+  return text === null ? null : livePidIn(text);
+}
+
+/** Whether this process became the setup running here, and if not, the live setup that is. */
+export type Claim = { claimed: true } | { claimed: false; holder: number | null };
+
+/**
+ * Makes this process the setup running in `markerDir` by writing its PID to the running marker
+ * only if there is none: one atomic step, so of two setups started together exactly one wins.
+ * A marker whose setup died is taken over, but removed only while it still says what was read —
+ * removing it unread would let a setup delete the marker another had just written, and both would
+ * install. `holder` is null when another setup claimed the marker in the same instant.
+ */
+export function claimSetup(markerDir: string): Claim {
+  const marker = join(markerDir, RUNNING);
+  mkdirSync(markerDir, { recursive: true });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      writeFileSync(marker, `${process.pid}\n`, { flag: "wx" });
+      return { claimed: true };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const text = readMarker(marker);
+    if (text === null) continue;
+    const holder = livePidIn(text);
+    if (holder !== null) return { claimed: false, holder };
+    if (readMarker(marker) === text) rmSync(marker, { force: true });
+  }
+  return { claimed: false, holder: liveSetupPid(markerDir) };
 }
 
 async function main(): Promise<void> {
@@ -130,21 +167,10 @@ async function main(): Promise<void> {
   const markerDir = join(worktree, MARKER_DIR);
 
   // Two setups at once would race each other's install; the second leaves the markers alone.
-  const running = liveSetupPid(markerDir);
-  if (running !== null) {
-    process.stderr.write(`Setup is already running here as PID ${running}; wait for it.\n`);
-    process.exit(1);
-  }
-
-  // The check above and this write are not one step, so two setups started together could both
-  // pass it. Writing the marker only if it does not exist lets exactly one of them through; a
-  // marker left by a setup that died is cleared first, since its PID is dead.
-  mkdirSync(markerDir, { recursive: true });
-  rmSync(join(markerDir, RUNNING), { force: true });
-  try {
-    writeFileSync(join(markerDir, RUNNING), `${process.pid}\n`, { flag: "wx" });
-  } catch {
-    process.stderr.write("Another setup started here at the same moment; wait for it.\n");
+  const claim = claimSetup(markerDir);
+  if (!claim.claimed) {
+    const holder = claim.holder === null ? "another setup" : `PID ${claim.holder}`;
+    process.stderr.write(`Setup is already running here as ${holder}; wait for it.\n`);
     process.exit(1);
   }
   // Running first, then clear the old outcome, so there is never a moment with no marker at all —
