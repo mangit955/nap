@@ -11,7 +11,7 @@ Re-create them with:
 ```bash
 NAP_CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
 NAP_SIDEBAR_PROOF_DIR=docs/assets/sidebar/drag \
-node node_modules/vitest/vitest.mjs run --project integration \
+NAP_INTEGRATION=1 node node_modules/vitest/vitest.mjs run --project integration \
   apps/web/src/dashboard/sidebar-drag.integration.test.ts
 ```
 

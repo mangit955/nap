@@ -20,7 +20,7 @@
  *
  * Costs about fifteen cents on Sonnet 5: eleven requests, each a few thousand tokens and at most
  * six screenshots of about a thousand each, with replies capped at 64 tokens. Run it alone:
- *   bunx vitest run --project integration packages/agent/src/screenshot-caching.integration.test.ts
+ *   bun run test:integration packages/agent/src/screenshot-caching.integration.test.ts
  */
 
 import { readFileSync } from "node:fs";
