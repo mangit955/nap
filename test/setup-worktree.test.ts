@@ -5,11 +5,13 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,6 +26,8 @@ import {
   MARKER_DIR,
   mainCheckoutFrom,
   RUNNING,
+  TAKEOVER_LOCK,
+  TAKEOVER_LOCK_STALE_MS,
   tailOf,
   withoutGitEnv,
 } from "../scripts/setup-worktree.ts";
@@ -202,10 +206,11 @@ describe("claimSetup", () => {
     return Number(String(dead.stdout));
   }
 
-  it("claims a directory with no marker, writing this process's PID", () => {
+  it("claims a directory with no marker, writing this process's PID and nothing else", () => {
     const dir = join(tempDir(), MARKER_DIR);
     expect(claimSetup(dir)).toEqual({ claimed: true });
     expect(readFileSync(join(dir, RUNNING), "utf8")).toBe(`${process.pid}\n`);
+    expect(readdirSync(dir)).toEqual([RUNNING]);
   });
 
   it("leaves a live setup's marker alone and names it", () => {
@@ -228,6 +233,26 @@ describe("claimSetup", () => {
     writeFileSync(join(dir, RUNNING), contents());
     expect(claimSetup(dir)).toEqual({ claimed: true });
     expect(readFileSync(join(dir, RUNNING), "utf8")).toBe(`${process.pid}\n`);
+    expect(readdirSync(dir)).toEqual([RUNNING]);
+  });
+
+  it("leaves a dead setup's marker to the setup already taking it over", () => {
+    const dir = tempDir();
+    const stale = `${deadPid()}\n`;
+    writeFileSync(join(dir, RUNNING), stale);
+    mkdirSync(join(dir, TAKEOVER_LOCK));
+    expect(claimSetup(dir)).toEqual({ claimed: false, holder: null });
+    expect(readFileSync(join(dir, RUNNING), "utf8")).toBe(stale);
+  });
+
+  it("breaks a takeover lock left by a setup that died holding it", () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, RUNNING), `${deadPid()}\n`);
+    mkdirSync(join(dir, TAKEOVER_LOCK));
+    const old = (Date.now() - TAKEOVER_LOCK_STALE_MS - 1_000) / 1_000;
+    utimesSync(join(dir, TAKEOVER_LOCK), old, old);
+    expect(claimSetup(dir)).toEqual({ claimed: true });
+    expect(readdirSync(dir)).toEqual([RUNNING]);
   });
 });
 
@@ -381,8 +406,16 @@ describe("scripts/setup-worktree.ts", () => {
     30_000,
   );
 
-  it("lets only one of two setups started together run", () => {
+  it.each([
+    ["no marker", false],
+    ["a dead setup's marker", true],
+  ])("lets only one of two setups started together over %s run", (_, stale) => {
     const { worktree } = repository();
+    if (stale) {
+      mkdirSync(join(worktree, MARKER_DIR));
+      const dead = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]);
+      writeFileSync(join(worktree, MARKER_DIR, RUNNING), String(dead.stdout));
+    }
     // One shell starts both, so they reach the marker within a millisecond or so of each other —
     // closer than the check for a live setup can see.
     const both = execFileSync(

@@ -8,6 +8,7 @@
 // It runs before `bun install`, so it may import Node built-ins only.
 import { execFileSync, spawn } from "node:child_process";
 import {
+  linkSync,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -136,30 +137,74 @@ export function liveSetupPid(markerDir: string): number | null {
 /** Whether this process became the setup running here, and if not, the live setup that is. */
 export type Claim = { claimed: true } | { claimed: false; holder: number | null };
 
-/**
- * Makes this process the setup running in `markerDir` by writing its PID to the running marker
- * only if there is none: one atomic step, so of two setups started together exactly one wins.
- * A marker whose setup died is taken over, but removed only while it still says what was read —
- * removing it unread would let a setup delete the marker another had just written, and both would
- * install. `holder` is null when another setup claimed the marker in the same instant.
- */
-export function claimSetup(markerDir: string): Claim {
-  const marker = join(markerDir, RUNNING);
-  mkdirSync(markerDir, { recursive: true });
-  for (let attempt = 0; attempt < 3; attempt++) {
+/** The lock directory a setup holds while it takes over a dead setup's marker. */
+export const TAKEOVER_LOCK = "takeover.lock";
+/** How old a takeover lock must be to count as left by a setup that died holding it. */
+export const TAKEOVER_LOCK_STALE_MS = 30_000;
+
+/** Creates `lock` (mkdir is atomic: one caller succeeds); breaks it first if it is stale. */
+function acquire(lock: string): boolean {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      writeFileSync(marker, `${process.pid}\n`, { flag: "wx" });
-      return { claimed: true };
+      mkdirSync(lock);
+      return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
-    const text = readMarker(marker);
-    if (text === null) continue;
-    const holder = livePidIn(text);
-    if (holder !== null) return { claimed: false, holder };
-    if (readMarker(marker) === text) rmSync(marker, { force: true });
+    const made = statSync(lock, { throwIfNoEntry: false })?.mtimeMs;
+    if (made !== undefined && Date.now() - made < TAKEOVER_LOCK_STALE_MS) return false;
+    rmSync(lock, { recursive: true, force: true });
   }
-  return { claimed: false, holder: liveSetupPid(markerDir) };
+  return false;
+}
+
+/**
+ * Makes this process the setup running in `markerDir`, so that of any number of setups started
+ * together exactly one does.
+ *
+ * The claim is a hard link of a draft that already holds this PID: one atomic step that fails if
+ * a marker exists, and a marker never exists without its PID — a half-written one would read as
+ * garbled, and garbled is taken over. Taking over the marker of a setup that died is two steps,
+ * remove then claim, and two setups doing it at once could each remove what the other had just
+ * claimed; so only the holder of a lock directory does it. `holder` is null when another setup is
+ * claiming in the same instant.
+ */
+export function claimSetup(markerDir: string): Claim {
+  const marker = join(markerDir, RUNNING);
+  const draft = join(markerDir, `claim-${process.pid}`);
+  const lock = join(markerDir, TAKEOVER_LOCK);
+  const link = () => {
+    try {
+      linkSync(draft, marker);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      return false;
+    }
+  };
+  mkdirSync(markerDir, { recursive: true });
+  writeFileSync(draft, `${process.pid}\n`);
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (link()) return { claimed: true };
+      const text = readMarker(marker);
+      if (text === null) continue;
+      const holder = livePidIn(text);
+      if (holder !== null) return { claimed: false, holder };
+      if (!acquire(lock)) return { claimed: false, holder: null };
+      try {
+        // Under the lock nobody else removes a marker, so one that still reads as it did is the
+        // dead setup's, not a fresh claim.
+        if (readMarker(marker) === text) rmSync(marker, { force: true });
+        if (link()) return { claimed: true };
+      } finally {
+        rmSync(lock, { recursive: true, force: true });
+      }
+    }
+    return { claimed: false, holder: liveSetupPid(markerDir) };
+  } finally {
+    rmSync(draft, { force: true });
+  }
 }
 
 async function main(): Promise<void> {
