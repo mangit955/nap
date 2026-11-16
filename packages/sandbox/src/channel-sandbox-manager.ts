@@ -252,7 +252,12 @@ export class ChannelSandboxManager implements SandboxManager {
    * The command's stdout is printed between two markers and its stderr, collected in a file,
    * after the second, so the two can be told apart whatever the channel does with the streams.
    * Anything outside the frame (a warning from the shell that ran the frame, a message from
-   * `docker compose`) is kept as stderr. The markers carry a nonce, so no command can print them.
+   * `docker compose`) is kept as stderr. The markers carry a nonce and are assembled by `printf`
+   * as they are printed, so they never appear whole in any command line: a command that lists
+   * processes (`ps`) prints the frame's script, not its markers.
+   *
+   * The stderr file is the frame's one dependency beyond `bash` and `timeout`. A machine that
+   * cannot make one (no `/tmp`, a full disk) still runs the command, with its stderr discarded.
    */
   async #run(command: string, options?: ExecOptions): Promise<Result<ExecResult, SandboxError>> {
     const seconds = Math.max(1, Math.ceil((options?.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) / 1_000));
@@ -260,9 +265,10 @@ export class ChannelSandboxManager implements SandboxManager {
     const open = `@@nap-out-${nonce}@@`;
     const split = `@@nap-err-${nonce}@@`;
     const framed =
-      `nap_err=$(mktemp) || exit 1; printf %s ${open}; ` +
+      `nap_err=$(mktemp 2>/dev/null) || nap_err=/dev/null; printf '@@nap-%s-%s@@' out ${nonce}; ` +
       `timeout -k 5 ${seconds} bash -c ${shellQuote(command)} 2>"$nap_err"; nap_status=$?; ` +
-      `printf %s ${split}; cat "$nap_err"; rm -f "$nap_err"; exit $nap_status`;
+      `printf '@@nap-%s-%s@@' err ${nonce}; cat "$nap_err"; ` +
+      `[ "$nap_err" = /dev/null ] || rm -f "$nap_err"; exit $nap_status`;
     const ran = await this.#channel(framed, {
       timeoutMs: (seconds + CHANNEL_GRACE_SEC) * 1_000,
       signal: options?.signal,

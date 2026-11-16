@@ -84,7 +84,8 @@ repository puts real spend behind a flag.
 ## Consequences
 
 - Running Terminal-Bench needs Harbor, Docker, `bun` and a checkout. The task machine needs `bash`,
-  `base64` and `timeout`, which every Debian and Ubuntu task image has.
+  `base64` and `timeout`, which every Debian and Ubuntu task image has, and `mktemp` to keep a
+  command's stderr apart (without it, stderr is discarded).
 - Terminal-Bench's published images are amd64-only. On an arm64 machine they run under Docker's
   emulation, or `--force-build` builds each task from its Dockerfile natively. A rebuilt image may
   differ from the published one when a Dockerfile installs something that has moved, and some no

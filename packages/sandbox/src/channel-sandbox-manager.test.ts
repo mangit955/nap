@@ -18,7 +18,7 @@ const ID = "harbor-task";
  * subject (`channel-sandbox-manager.computer.test.ts`). Everything else is the real shell, so a
  * file that round-trips here round-trips through real `base64`, `printf` and globs.
  */
-function hostChannel(cwd: string, options: { likeHarborDocker?: boolean } = {}) {
+function hostChannel(cwd: string, options: { likeHarborDocker?: boolean; prelude?: string } = {}) {
   const sent: { command: string; timeoutMs: number | undefined }[] = [];
   // Harbor's Docker environment hands back stderr folded into stdout, and a shell started with a
   // locale the machine lacks warns on stderr before it runs anything. Both, when asked for.
@@ -28,7 +28,7 @@ function hostChannel(cwd: string, options: { likeHarborDocker?: boolean } = {}) 
   const channel: ExecChannel = (command, execOptions) => {
     sent.push({ command, timeoutMs: execOptions?.timeoutMs });
     return new Promise((resolve) => {
-      const script = `${noise}timeout() { shift 3; "$@"; }\n${command}`;
+      const script = `${noise}${options.prelude ?? ""}\ntimeout() { shift 3; "$@"; }\n${command}`;
       const child = spawn(
         "bash",
         ["-c", options.likeHarborDocker ? `{ ${script}\n} 2>&1` : script],
@@ -59,8 +59,9 @@ function hostChannel(cwd: string, options: { likeHarborDocker?: boolean } = {}) 
 function cannedChannel(answer: Result<ExecResult, SandboxError>): ExecChannel {
   return async (command) => {
     if (!answer.ok) return answer;
-    const open = command.match(/@@nap-out-\w+@@/)?.[0] ?? "";
-    const split = command.match(/@@nap-err-\w+@@/)?.[0] ?? "";
+    const nonce = command.match(/' out (\w+);/)?.[1] ?? "";
+    const open = `@@nap-out-${nonce}@@`;
+    const split = `@@nap-err-${nonce}@@`;
     return {
       ok: true,
       value: {
@@ -243,6 +244,29 @@ describe("a channel that folds stderr into stdout, as Harbor's Docker environmen
     expect(ran.ok ? ran.value.stdout : "").toBe("out\n");
     expect(ran.ok ? ran.value.stderr : "").toContain("err\n");
     expect(ran.ok ? ran.value.stderr : "").toContain("setlocale");
+  });
+});
+
+describe("the frame", () => {
+  it("survives a command that prints the frame's own command line", async () => {
+    // `ps` of the shell running the frame: the command line that would carry the markers.
+    const { channel } = hostChannel(dir, { likeHarborDocker: true });
+    const box = new ChannelSandboxManager({ sandboxId: ID, channel });
+    const ran = await box.exec(ID, "ps -o args= -p $PPID; echo done");
+    expect(ran.ok ? ran.value.stdout : "").toContain("nap_status");
+    expect(ran.ok ? ran.value.stdout : "").toMatch(/done\n$/);
+    expect(ran.ok ? ran.value.stderr : "").not.toContain("@@nap-");
+  });
+
+  it("still runs commands on a machine that cannot make a temporary file", async () => {
+    const { channel } = hostChannel(dir, { prelude: "mktemp() { return 1; }" });
+    const box = new ChannelSandboxManager({ sandboxId: ID, channel });
+    expect(await box.exec(ID, "echo out; echo err >&2")).toEqual({
+      ok: true,
+      value: { exitCode: 0, stdout: "out\n", stderr: "" },
+    });
+    await box.writeFile(ID, `${dir}/f`, "kept\n");
+    expect(await box.readFile(ID, `${dir}/f`)).toEqual({ ok: true, value: "kept\n" });
   });
 });
 
