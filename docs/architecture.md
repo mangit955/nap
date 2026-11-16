@@ -8,7 +8,8 @@ carries the short version; this is the reference. What each concept is called is
 ```
 packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench  loadgen
 apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
-harbor/    the benchmark as an external harness's agent — Python, outside the workspace
+harbor/    Nap's agents for the Harbor harness — Python, outside the workspace: Terminal-Bench
+           inside each task's machine (ADR-0035), and NapBench on the host (ADR-0014)
 render.yaml  the deployment — three services and their database, one image. See docs/DEPLOY.md
 ```
 

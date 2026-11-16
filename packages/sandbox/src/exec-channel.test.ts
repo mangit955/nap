@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  ANSWER_GRACE_MS,
   CHANNEL_TAG,
   ExecRequestSchema,
   ExecResponseSchema,
@@ -94,6 +95,25 @@ describe("LineExecChannel", () => {
       channel.receive(JSON.stringify({ channel: CHANNEL_TAG, id: 0, ok: true, exitCode: "0" })),
     ).toBe(true);
     expect(await pending).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+  });
+
+  it("gives up on an answer that never comes, a grace period after the command's deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const { channel } = wired();
+      const pending = channel.exec("sleep 5", { timeoutMs: 1_000 });
+      await vi.advanceTimersByTimeAsync(1_000 + ANSWER_GRACE_MS - 1);
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pending).toMatchObject({ ok: false, error: { code: "timeout" } });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails everything waiting, and everything after, once the parent goes away", async () => {

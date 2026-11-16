@@ -131,6 +131,24 @@ class TestServe:
         assert others == ["starting up"]
         assert sorted((r["id"], r["stdout"]) for r in replies) == [(0, "ran a"), (1, "ran b")]
 
+    def test_answers_a_request_it_cannot_read_rather_than_leaving_it_waiting(self):
+        async def scenario() -> list[dict]:
+            reader = asyncio.StreamReader()
+            replies: list[dict] = []
+
+            async def reply(data: bytes) -> None:
+                replies.append(json.loads(data))
+
+            line = {"channel": CHANNEL_TAG, "id": 7, "command": ["not", "a", "string"]}
+            reader.feed_data((json.dumps(line) + "\n").encode())
+            reader.feed_eof()
+            await serve(reader, reply, ok, lambda _: None)
+            return replies
+
+        replies = asyncio.run(scenario())
+
+        assert [(r["id"], r["ok"], r["code"]) for r in replies] == [(7, False, "exec_failed")]
+
     def test_answers_a_quick_request_before_a_slow_one_that_came_first(self):
         async def scenario() -> list[int]:
             reader = asyncio.StreamReader()

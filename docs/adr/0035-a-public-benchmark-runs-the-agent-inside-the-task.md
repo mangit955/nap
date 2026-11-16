@@ -90,8 +90,10 @@ repository puts real spend behind a flag.
   differ from the published one when a Dockerfile installs something that has moved, and some no
   longer build: `fix-git`'s clones a GitHub repository that has been deleted. The published image
   is the benchmark; a rebuild is a convenience.
-- Output reaches the agent when a command ends, not as it is printed: the channel has no streaming.
-  The tool results are the same; only the live `command.output` events are coarser.
+- Output reaches the agent when a command ends, not as it is printed: the channel has no streaming,
+  so the live `command.output` events are coarser. Harbor's Docker environment also folds stderr
+  into stdout, so the adapter frames every command's output with markers of its own and collects
+  stderr apart; a command's stdout and stderr then arrive separated, not interleaved.
 - A turn that outgrows its context budget fails instead of compacting, because this composition
   does not carry the runtime's compaction. Measured tasks have not come close, and it is the first
   thing to add if one does.

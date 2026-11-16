@@ -68,4 +68,25 @@ describe("ChannelSandboxManager in a Linux container", () => {
     );
     expect(survivors).toMatchObject({ ok: true, value: { stdout: "" } });
   }, 30_000);
+
+  it("reads a file back exactly from a machine whose shell warns on every command", async () => {
+    // A locale the image does not have: bash prints a warning on stderr each time it starts,
+    // which Harbor hands back inside stdout.
+    const noisy = startContainer("/app", { LC_ALL: "en_US.UTF-8" });
+    try {
+      const machine = new ChannelSandboxManager({
+        sandboxId: ID,
+        channel: dockerExecChannel(noisy),
+      });
+      const bytes = Uint8Array.from({ length: 4_096 }, (_, index) => (index * 31) % 256);
+      await machine.writeFileBytes(ID, "/app/blob.bin", bytes);
+      expect(await machine.readFileBytes(ID, "/app/blob.bin")).toEqual({ ok: true, value: bytes });
+      expect(await machine.listFiles(ID, "/app")).toEqual({
+        ok: true,
+        value: [{ path: "/app/blob.bin", type: "file" }],
+      });
+    } finally {
+      removeContainer(noisy);
+    }
+  }, 60_000);
 });

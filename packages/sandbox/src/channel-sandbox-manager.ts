@@ -9,7 +9,10 @@
  *
  * All it is handed is an `ExecChannel` — run a command, get its exit code and output — and every
  * other operation is a command: files travel as base64 in the command line and back in its
- * output, so no byte depends on how the far side decodes text. That is narrower than a real
+ * output, so no byte depends on how the far side decodes text. Every command's output is framed
+ * by markers this side chose, with the command's stderr collected apart and printed after its
+ * stdout: Harbor's Docker environment folds stderr into stdout, so a stray warning from a shell
+ * would otherwise land inside a file being read. That is narrower than a real
  * provider in two ways a caller can feel. Output arrives when the command ends rather than as it
  * is printed, and there is no preview to serve, since nothing outside the machine can reach it.
  *
@@ -19,6 +22,7 @@
  * of environment. See ADR-0035.
  */
 
+import { randomUUID } from "node:crypto";
 import { listTreeViaExec } from "@nap/shared/list-tree";
 import type {
   ExecOptions,
@@ -42,7 +46,7 @@ export const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
  */
 export const WRITE_CHUNK_CHARS = 96 * 1_024;
 
-/** How long the far side waits past a command's own deadline before giving up on the channel. */
+/** How long the parent waits past a command's own deadline before it reports a timeout. */
 const CHANNEL_GRACE_SEC = 15;
 
 /** `timeout`'s exit status when it stopped the command. */
@@ -108,18 +112,23 @@ export class ChannelSandboxManager implements SandboxManager {
     if (!known.ok) return known;
     const encoded = Buffer.from(contents).toString("base64");
     const target = shellQuote(path);
-    // The first piece truncates, so an overwrite never appends to what was there; an empty file
-    // is one empty piece.
     const pieces: string[] = [];
     for (let at = 0; at < encoded.length; at += WRITE_CHUNK_CHARS)
       pieces.push(encoded.slice(at, at + WRITE_CHUNK_CHARS));
     if (pieces.length === 0) pieces.push("");
+    // A file in one piece is written in place. One in several is assembled beside it and copied
+    // over it at the end, so a piece that fails leaves the file as it was rather than cut short.
+    // Copied, not moved, so the file keeps its mode and owner.
+    const single = pieces.length === 1;
+    const into = single ? target : shellQuote(`${path}.nap-part`);
 
     for (const [index, piece] of pieces.entries()) {
-      const into = index === 0 ? ">" : ">>";
+      const append = index === 0 ? ">" : ">>";
       const prepare = index === 0 ? `mkdir -p -- "$(dirname -- ${target})" && ` : "";
+      const last = !single && index === pieces.length - 1;
       const ran = await this.#run(
-        `${prepare}printf %s ${shellQuote(piece)} | base64 -d ${into} ${target}`,
+        `${prepare}printf %s ${shellQuote(piece)} | base64 -d ${append} ${into}` +
+          (last ? ` && cat ${into} > ${target} && rm -f ${into}` : ""),
       );
       if (!ran.ok) return ran;
       if (ran.value.exitCode !== 0)
@@ -127,7 +136,7 @@ export class ChannelSandboxManager implements SandboxManager {
           ok: false,
           error: {
             code: "exec_failed",
-            message: `cannot write ${path}: ${ran.value.stderr.trim() || `exit ${ran.value.exitCode}`}`,
+            message: `cannot write ${path}: ${reason(ran.value)}`,
           },
         };
     }
@@ -145,9 +154,16 @@ export class ChannelSandboxManager implements SandboxManager {
     if (ran.value.exitCode !== 0)
       return {
         ok: false,
-        error: { code: "exec_failed", message: `cannot read ${path}: ${ran.value.stderr.trim()}` },
+        error: { code: "exec_failed", message: `cannot read ${path}: ${reason(ran.value)}` },
       };
-    // Line breaks in base64's output are skipped by the decoder.
+    // Checked, because Node's decoder skips what is not base64 rather than failing on it, and
+    // a file that came back with anything else in it must not be handed over as its contents.
+    // Line breaks in base64's output are part of the format.
+    if (!/^[A-Za-z0-9+/=\s]*$/.test(ran.value.stdout))
+      return {
+        ok: false,
+        error: { code: "exec_failed", message: `cannot read ${path}: the output was not base64` },
+      };
     return { ok: true, value: new Uint8Array(Buffer.from(ran.value.stdout, "base64")) };
   }
 
@@ -166,6 +182,12 @@ export class ChannelSandboxManager implements SandboxManager {
     if (!ran.ok) return ran;
     if (ran.value.exitCode === MISSING)
       return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
+    // A listing stopped part-way is not a shorter listing.
+    if (ran.value.exitCode !== 0)
+      return {
+        ok: false,
+        error: { code: "exec_failed", message: `cannot list ${path}: ${reason(ran.value)}` },
+      };
     const base = path.replace(/\/+$/, "");
     const nodes = ran.value.stdout
       .split("\0")
@@ -224,13 +246,29 @@ export class ChannelSandboxManager implements SandboxManager {
     return known.ok ? { ok: false, error: UNAVAILABLE } : known;
   }
 
-  /** One command through the channel, bounded inside the machine as well as on this side. */
-  #run(command: string, options?: ExecOptions): Promise<Result<ExecResult, SandboxError>> {
+  /**
+   * One command through the channel, bounded inside the machine, and with its output framed.
+   *
+   * The command's stdout is printed between two markers and its stderr, collected in a file,
+   * after the second, so the two can be told apart whatever the channel does with the streams.
+   * Anything outside the frame (a warning from the shell that ran the frame, a message from
+   * `docker compose`) is kept as stderr. The markers carry a nonce, so no command can print them.
+   */
+  async #run(command: string, options?: ExecOptions): Promise<Result<ExecResult, SandboxError>> {
     const seconds = Math.max(1, Math.ceil((options?.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) / 1_000));
-    return this.#channel(`timeout -k 5 ${seconds} bash -c ${shellQuote(command)}`, {
+    const nonce = randomUUID().replaceAll("-", "");
+    const open = `@@nap-out-${nonce}@@`;
+    const split = `@@nap-err-${nonce}@@`;
+    const framed =
+      `nap_err=$(mktemp) || exit 1; printf %s ${open}; ` +
+      `timeout -k 5 ${seconds} bash -c ${shellQuote(command)} 2>"$nap_err"; nap_status=$?; ` +
+      `printf %s ${split}; cat "$nap_err"; rm -f "$nap_err"; exit $nap_status`;
+    const ran = await this.#channel(framed, {
       timeoutMs: (seconds + CHANNEL_GRACE_SEC) * 1_000,
       signal: options?.signal,
     });
+    if (!ran.ok) return ran;
+    return unframe(ran.value, open, split);
   }
 
   #check(sandboxId: string): VoidResult<SandboxError> {
@@ -246,4 +284,36 @@ export class ChannelSandboxManager implements SandboxManager {
       error: { code: "destroyed", message: `Sandbox ${this.#id} is no longer in use.` },
     };
   }
+}
+
+/** The command's own stdout and stderr, out of what the channel returned for its frame. */
+export function unframe(
+  raw: ExecResult,
+  open: string,
+  split: string,
+): Result<ExecResult, SandboxError> {
+  const opened = raw.stdout.indexOf(open);
+  if (opened === -1)
+    return {
+      ok: false,
+      error: {
+        code: "exec_failed",
+        message: `the machine did not run the command (exit ${raw.exitCode}): ${(raw.stdout + raw.stderr).trim().slice(-500)}`,
+      },
+    };
+  const before = raw.stdout.slice(0, opened);
+  const body = raw.stdout.slice(opened + open.length);
+  const splitAt = body.indexOf(split);
+  // No second marker: the frame itself was stopped, so whatever the command printed is all there is.
+  const stdout = splitAt === -1 ? body : body.slice(0, splitAt);
+  const stderr = splitAt === -1 ? "" : body.slice(splitAt + split.length);
+  return {
+    ok: true,
+    value: { exitCode: raw.exitCode, stdout, stderr: [stderr, before, raw.stderr].join("") },
+  };
+}
+
+/** Why a command failed, in words: its stderr, else the end of its stdout, else its exit code. */
+function reason(result: ExecResult): string {
+  return result.stderr.trim() || result.stdout.trim().slice(-500) || `exit ${result.exitCode}`;
 }

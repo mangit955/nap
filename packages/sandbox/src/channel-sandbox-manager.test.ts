@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ExecResult, SandboxError } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ChannelSandboxManager, WRITE_CHUNK_CHARS } from "./channel-sandbox-manager.ts";
+import { ChannelSandboxManager, unframe, WRITE_CHUNK_CHARS } from "./channel-sandbox-manager.ts";
 import type { ExecChannel } from "./exec-channel.ts";
 
 const ID = "harbor-task";
@@ -18,12 +18,24 @@ const ID = "harbor-task";
  * subject (`channel-sandbox-manager.computer.test.ts`). Everything else is the real shell, so a
  * file that round-trips here round-trips through real `base64`, `printf` and globs.
  */
-function hostChannel(cwd: string) {
+function hostChannel(cwd: string, options: { likeHarborDocker?: boolean } = {}) {
   const sent: { command: string; timeoutMs: number | undefined }[] = [];
-  const channel: ExecChannel = (command, options) => {
-    sent.push({ command, timeoutMs: options?.timeoutMs });
+  // Harbor's Docker environment hands back stderr folded into stdout, and a shell started with a
+  // locale the machine lacks warns on stderr before it runs anything. Both, when asked for.
+  const noise = options.likeHarborDocker
+    ? "echo 'bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)' >&2\nexec 2>&1\n"
+    : "";
+  const channel: ExecChannel = (command, execOptions) => {
+    sent.push({ command, timeoutMs: execOptions?.timeoutMs });
     return new Promise((resolve) => {
-      const child = spawn("bash", ["-c", `timeout() { shift 3; "$@"; }\n${command}`], { cwd });
+      const script = `${noise}timeout() { shift 3; "$@"; }\n${command}`;
+      const child = spawn(
+        "bash",
+        ["-c", options.likeHarborDocker ? `{ ${script}\n} 2>&1` : script],
+        {
+          cwd,
+        },
+      );
       let stdout = "";
       let stderr = "";
       child.stdout.setEncoding("utf8").on("data", (data: string) => {
@@ -40,9 +52,24 @@ function hostChannel(cwd: string) {
   return { channel, sent };
 }
 
-/** A channel answering every command the same way. */
+/**
+ * A channel answering every command the same way, inside the command's own frame, as a machine
+ * running it would. An error is returned as it is: it never reached a machine.
+ */
 function cannedChannel(answer: Result<ExecResult, SandboxError>): ExecChannel {
-  return async () => answer;
+  return async (command) => {
+    if (!answer.ok) return answer;
+    const open = command.match(/@@nap-out-\w+@@/)?.[0] ?? "";
+    const split = command.match(/@@nap-err-\w+@@/)?.[0] ?? "";
+    return {
+      ok: true,
+      value: {
+        exitCode: answer.value.exitCode,
+        stdout: `${open}${answer.value.stdout}${split}${answer.value.stderr}`,
+        stderr: "",
+      },
+    };
+  };
 }
 
 let dir = "";
@@ -154,11 +181,11 @@ describe("commands", () => {
   it("bounds a command inside the machine, and gives the channel longer than that", async () => {
     const { box, sent } = manager();
     await box.exec(ID, "true", undefined, { timeoutMs: 1_500 });
-    expect(sent[0]?.command).toBe("timeout -k 5 2 bash -c 'true'");
+    expect(sent[0]?.command).toContain("timeout -k 5 2 bash -c 'true' ");
     expect(sent[0]?.timeoutMs).toBe(17_000);
 
     await box.exec(ID, "true");
-    expect(sent[1]?.command.startsWith("timeout -k 5 60 ")).toBe(true);
+    expect(sent[1]?.command).toContain("timeout -k 5 60 bash -c 'true' ");
   });
 
   it("reads timeout's own exit status as a command stopped at its deadline", async () => {
@@ -185,6 +212,72 @@ describe("commands", () => {
       ok: false,
       error: { code: "unavailable" },
     });
+  });
+});
+
+describe("a channel that folds stderr into stdout, as Harbor's Docker environment does", () => {
+  function harborLike() {
+    const { channel } = hostChannel(dir, { likeHarborDocker: true });
+    return new ChannelSandboxManager({ sandboxId: ID, channel });
+  }
+
+  it("reads a file back exactly, whatever the shell printed around it", async () => {
+    const box = harborLike();
+    const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
+    await box.writeFileBytes(ID, `${dir}/b.bin`, bytes);
+    expect(await box.readFileBytes(ID, `${dir}/b.bin`)).toEqual({ ok: true, value: bytes });
+  });
+
+  it("lists only what is there", async () => {
+    const box = harborLike();
+    await box.writeFile(ID, `${dir}/only.txt`, "");
+    expect(await box.listFiles(ID, dir)).toEqual({
+      ok: true,
+      value: [{ path: `${dir}/only.txt`, type: "file" }],
+    });
+  });
+
+  it("keeps a command's stdout and stderr apart", async () => {
+    const box = harborLike();
+    const ran = await box.exec(ID, "echo out; echo err >&2");
+    expect(ran.ok ? ran.value.stdout : "").toBe("out\n");
+    expect(ran.ok ? ran.value.stderr : "").toContain("err\n");
+    expect(ran.ok ? ran.value.stderr : "").toContain("setlocale");
+  });
+});
+
+describe("unframe", () => {
+  it("refuses output from a machine that never ran the frame", () => {
+    expect(
+      unframe({ exitCode: 126, stdout: "permission denied", stderr: "" }, "@@o@@", "@@e@@"),
+    ).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+  });
+
+  it("keeps what was printed before the frame as stderr", () => {
+    expect(
+      unframe({ exitCode: 0, stdout: "warning\n@@o@@data@@e@@oops", stderr: "" }, "@@o@@", "@@e@@"),
+    ).toEqual({ ok: true, value: { exitCode: 0, stdout: "data", stderr: "oopswarning\n" } });
+  });
+});
+
+describe("a write in several pieces", () => {
+  it("leaves the file as it was when a piece fails", async () => {
+    const { channel } = hostChannel(dir);
+    let calls = 0;
+    const failingSecond: ExecChannel = (command, options) => {
+      calls += 1;
+      return calls === 2
+        ? Promise.resolve({ ok: false, error: { code: "unavailable", message: "gone" } })
+        : channel(command, options);
+    };
+    const box = new ChannelSandboxManager({ sandboxId: ID, channel: failingSecond });
+    await new ChannelSandboxManager({ sandboxId: ID, channel }).writeFile(ID, `${dir}/f`, "old\n");
+
+    const big = "x".repeat(WRITE_CHUNK_CHARS * 2);
+    expect((await box.writeFile(ID, `${dir}/f`, big)).ok).toBe(false);
+    expect(
+      await new ChannelSandboxManager({ sandboxId: ID, channel }).readFile(ID, `${dir}/f`),
+    ).toEqual({ ok: true, value: "old\n" });
   });
 });
 

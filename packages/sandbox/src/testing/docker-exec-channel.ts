@@ -1,7 +1,8 @@
 /**
  * An exec channel to a throwaway Linux container, reached the way Harbor's Docker environment
- * reaches a task's machine: `docker exec <container> bash -c <command>`. For the suites that need
- * a real machine behind `ChannelSandboxManager`; they need Docker, like the `db` suite.
+ * reaches a task's machine: `docker exec <container> bash -c <command>`, with stderr folded into
+ * stdout as Harbor's environment returns it. For the suites that need a real machine behind
+ * `ChannelSandboxManager`; they need Docker, like the `db` suite.
  */
 
 import { execFileSync, spawn } from "node:child_process";
@@ -13,10 +14,14 @@ import type { ExecChannel } from "../exec-channel.ts";
 export const TASK_LIKE_IMAGE = "debian:bookworm-slim";
 
 /** Starts a container with `workdir` as its working directory. Returns its id. */
-export function startContainer(workdir: string): string {
+export function startContainer(
+  workdir: string,
+  env: Readonly<Record<string, string>> = {},
+): string {
+  const flags = Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
   return execFileSync(
     "docker",
-    ["run", "-d", "--rm", "-w", workdir, TASK_LIKE_IMAGE, "sleep", "infinity"],
+    ["run", "-d", "--rm", "-w", workdir, ...flags, TASK_LIKE_IMAGE, "sleep", "infinity"],
     { encoding: "utf8" },
   ).trim();
 }
@@ -29,13 +34,13 @@ export function dockerExecChannel(container: string): ExecChannel {
   return (command, options) =>
     new Promise<Result<ExecResult, SandboxError>>((resolve) => {
       const child = spawn("docker", ["exec", container, "bash", "-c", command]);
+      // One string for both streams, as Harbor returns them: `stderr=STDOUT`, then `stderr=None`.
       let stdout = "";
-      let stderr = "";
       child.stdout.setEncoding("utf8").on("data", (data: string) => {
         stdout += data;
       });
       child.stderr.setEncoding("utf8").on("data", (data: string) => {
-        stderr += data;
+        stdout += data;
       });
       const timer = setTimeout(() => {
         child.kill();
@@ -43,7 +48,7 @@ export function dockerExecChannel(container: string): ExecChannel {
       }, options?.timeoutMs ?? 120_000);
       child.on("close", (code) => {
         clearTimeout(timer);
-        resolve({ ok: true, value: { exitCode: code ?? 1, stdout, stderr } });
+        resolve({ ok: true, value: { exitCode: code ?? 1, stdout, stderr: "" } });
       });
     });
 }

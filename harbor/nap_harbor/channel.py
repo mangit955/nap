@@ -19,9 +19,9 @@ from dataclasses import dataclass
 
 CHANNEL_TAG = "nap-exec"
 
-#: Bytes one line may hold. A file the agent writes travels base64-encoded in a request, in
-#: pieces of about 96 KiB, and a file it reads comes back whole in one; asyncio's default of
-#: 64 KiB would refuse both.
+#: Bytes one request line may hold. A file the agent writes travels base64-encoded in requests,
+#: in pieces of about 96 KiB, which asyncio's default of 64 KiB would refuse. Answers, which can
+#: hold a whole file read back, go the other way and are not limited here.
 LINE_LIMIT = 64 * 1024 * 1024
 
 
@@ -59,6 +59,18 @@ def parse_request(line: str) -> ExecRequest | None:
     if timeout is not None and not isinstance(timeout, int):
         return None
     return ExecRequest(id=request_id, command=command, timeout_sec=timeout)
+
+
+def tagged_id(line: str) -> int | None:
+    """The id of a line that is this channel's but not a readable request, else ``None``."""
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or data.get("channel") != CHANNEL_TAG:
+        return None
+    request_id = data.get("id")
+    return request_id if isinstance(request_id, int) else None
 
 
 def success(request_id: int, outcome: ExecOutcome) -> dict:
@@ -125,7 +137,12 @@ async def serve(
         line = raw.decode(errors="replace").rstrip("\n")
         request = parse_request(line)
         if request is None:
-            if line:
+            malformed = tagged_id(line)
+            if malformed is not None:
+                # Ours, but unreadable: answered, so the asker is not left waiting on it.
+                body = failure(malformed, "exec_failed", "a request this side cannot read")
+                await reply((json.dumps(body) + "\n").encode())
+            elif line:
                 other(line)
             continue
         task = asyncio.create_task(respond(request))

@@ -11,8 +11,9 @@ import type { Result } from "@nap/shared/result";
 
 export const HARBOR_TASK_DEFAULTS = {
   /**
-   * Model requests one task may make. Terminal-Bench gives a task fifteen minutes, which a turn
-   * at this many steps fits comfortably, and a free model's quota is counted in requests.
+   * Model calls one task may make. Terminal-Bench gives a task's agent between 750 and 3,600
+   * seconds, which a turn of this many steps fits, and a free model's quota is counted in
+   * requests: each step is at least one, and up to three when the provider retries it.
    */
   maxSteps: 20,
   maxOutputTokens: 8_192,
@@ -40,7 +41,7 @@ export type HarborTaskOptions = {
 export const HARBOR_TASK_USAGE = [
   "Usage: bun run packages/runtime/scripts/harbor-task.ts --job-dir=<dir> --model=<id> [options]",
   "",
-  `  --max-steps=<n>   Model requests allowed in the turn (default ${HARBOR_TASK_DEFAULTS.maxSteps})`,
+  `  --max-steps=<n>   Model calls allowed in the turn (default ${HARBOR_TASK_DEFAULTS.maxSteps}); each is up to 3 requests`,
   "  --spend           Allow a model that is not free (an OpenRouter id without `:free`)",
   "",
   "Started by harbor/nap_harbor/agent.py, which answers its commands on stdin; see harbor/README.md.",

@@ -62,6 +62,9 @@ export type ExecChannel = (
 
 type Pending = (answer: Result<ExecResult, SandboxError>) => void;
 
+/** How long past a command's own deadline this side waits for the parent's answer. */
+export const ANSWER_GRACE_MS = 30_000;
+
 /**
  * The requesting half over a pair of line streams.
  *
@@ -99,17 +102,30 @@ export class LineExecChannel {
         : { timeoutSec: Math.max(1, Math.ceil(options.timeoutMs / 1_000)) }),
     };
     return new Promise((resolve) => {
-      const abort = () => {
-        // The parent may still be running it; a signal only stops this side waiting, which is
-        // all `ExecOptions.signal` promises.
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const settle = (answer: Result<ExecResult, SandboxError>) => {
         this.#pending.delete(id);
-        resolve({ ok: false, error: { code: "exec_failed", message: "Cancelled while running." } });
-      };
-      options?.signal?.addEventListener("abort", abort, { once: true });
-      this.#pending.set(id, (answer) => {
+        clearTimeout(deadline);
         options?.signal?.removeEventListener("abort", abort);
         resolve(answer);
-      });
+      };
+      // The parent may still be running it; a signal only stops this side waiting, which is all
+      // `ExecOptions.signal` promises.
+      const abort = () =>
+        settle({ ok: false, error: { code: "exec_failed", message: "Cancelled while running." } });
+      options?.signal?.addEventListener("abort", abort, { once: true });
+      // The parent enforces the deadline; this is for an answer that never comes, so a lost line
+      // fails one command instead of hanging the turn.
+      if (options?.timeoutMs !== undefined)
+        deadline = setTimeout(
+          () =>
+            settle({
+              ok: false,
+              error: { code: "timeout", message: "No answer came back from the task's machine." },
+            }),
+          options.timeoutMs + ANSWER_GRACE_MS,
+        );
+      this.#pending.set(id, settle);
       this.#send(JSON.stringify(request));
     });
   };
@@ -128,9 +144,7 @@ export class LineExecChannel {
       // leave the command waiting for an answer that has already come.
       const id = ExecAddressSchema.safeParse(json);
       if (!id.success) return false;
-      const settle = this.#pending.get(id.data.id);
-      this.#pending.delete(id.data.id);
-      settle?.({
+      this.#pending.get(id.data.id)?.({
         ok: false,
         error: {
           code: "exec_failed",
@@ -142,7 +156,6 @@ export class LineExecChannel {
     const answer = parsed.data;
     const settle = this.#pending.get(answer.id);
     if (settle === undefined) return true;
-    this.#pending.delete(answer.id);
     settle(
       answer.ok
         ? {
