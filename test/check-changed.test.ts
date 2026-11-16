@@ -3,7 +3,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { DESKTOP_SOURCES } from "../packages/sandbox/src/desktop-template.ts";
-import { type ChangedFile, type Plan, planChecks, readInputs } from "../scripts/check-changed.ts";
+import {
+  type ChangedFile,
+  type Plan,
+  planChecks,
+  readInputs,
+  TREE_READERS,
+} from "../scripts/check-changed.ts";
 
 const workspaces = [
   { name: "@nap/shared", dir: "packages/shared" },
@@ -11,13 +17,11 @@ const workspaces = [
   { name: "@nap/web", dir: "apps/web" },
 ];
 const repoTests = ["test/architecture.test.ts", "test/docs.test.ts"];
-const webTests = [
-  "apps/web/src/app/font-placement.test.ts",
-  "apps/web/src/brand/nap-mark.test.tsx",
-];
+const webTests = ["apps/web/src/app/font-placement.test.ts", "apps/web/src/brand/nap-mark.test.ts"];
 const tests = [
   ...repoTests,
   ...webTests,
+  "apps/web/src/dashboard/session-list.test.tsx",
   "apps/web/src/dashboard/sidebar-drag.integration.test.ts",
   "packages/capture/src/capture.test.ts",
   "packages/sandbox/src/desktop-start.computer.test.ts",
@@ -129,6 +133,8 @@ describe("planChecks", () => {
     );
     // Never the paid or type-level kinds, and computer suites only by their own rule.
     expect(command.join(" ")).not.toContain("integration");
+    // Component tests are reached by import, so the workspace run leaves them to `related`.
+    expect(command).not.toContain("apps/web/src/dashboard/session-list.test.tsx");
     expect(related(plan(["packages/sandbox/src/b.ts"]))).not.toContain(
       "packages/sandbox/src/desktop-start.computer.test.ts",
     );
@@ -306,6 +312,15 @@ describe("planChecks on the real tree", () => {
     expect(step(result, "tests")?.commands.flat()).toContain(
       "packages/sandbox/src/desktop-start.computer.test.ts",
     );
+  });
+
+  it("lists every component test that reads the filesystem, since the workspace run skips them", () => {
+    const tracked = execFileSync("git", ["ls-files", "-z", "*.test.tsx"], { encoding: "utf8" })
+      .split("\0")
+      .filter(Boolean);
+    const readers = tracked.filter((path) => /from "node:fs"/.test(readFileSync(path, "utf8")));
+    expect(readers.length).toBeGreaterThan(0);
+    expect(readers.filter((path) => !TREE_READERS.some(({ test }) => test === path))).toEqual([]);
   });
 
   it("gives every computer suite a file other than itself that selects it", async () => {

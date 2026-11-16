@@ -54,18 +54,25 @@ const GLOBAL_FILES = new Set([
 const ROOT_PROGRAM = /^(test|scripts)\/|^vitest\.config\.ts$|^tsconfig\.json$/;
 // What `vitest related` can follow: a file some test reaches through its imports.
 const IMPORTABLE = /\.(?:[cm]?[jt]sx?|json)$/;
-// Tests that read files outside their own workspace as text without naming them, so neither
-// the import graph, nor running the changed workspace's tests, nor `testsNaming` finds them.
-// A new test like this belongs here; until it is added, only CI catches what it would.
-const TREE_READERS = [
+// Tests that read files as text without naming them, which neither the import graph, nor the
+// changed workspace's node tests, nor `testsNaming` finds: reads from another workspace, and
+// component tests (`.test.tsx`, left out of the workspace run below) that touch the filesystem.
+// test/check-changed.test.ts fails when a component test imports node:fs and is not listed.
+export const TREE_READERS = [
   // Every Python file under harbor/ is checked against the TypeScript it mirrors.
   { test: "apps/napbench/src/harbor-agreement.test.ts", reads: /^harbor\// },
-  // Drives the app-test fixtures in a real browser; a computer suite, so not among the
-  // workspace tests that run below.
+  // The app-test fixtures: run in a real browser by a computer suite, and in jsdom by a
+  // component test.
   {
     test: "apps/napbench/scripts/app-test-command.computer.test.ts",
     reads: /^apps\/napbench\/fixtures\/app-test\//,
   },
+  {
+    test: "apps/napbench/src/app-test-flows.test.tsx",
+    reads: /^apps\/napbench\/fixtures\/app-test\//,
+  },
+  // Checks that the video the docs page points at is in apps/web/public.
+  { test: "apps/web/src/docs/docs-page.test.tsx", reads: /^apps\/web\/public\// },
   // Hashes DESKTOP_SOURCES (packages/sandbox/src/desktop-template.ts) and fails on any edit to one
   // until DESKTOP_BUILD is bumped. A superset of that list, held to it by test/check-changed.test.ts;
   // importing the list itself would load the E2B SDK on every run.
@@ -145,14 +152,17 @@ export function planChecks(input: PlanInput): Plan {
       commands: [["bunx", "vitest", "run", ...projects, "--project", "computer"]],
     });
   } else {
-    // Every test in a changed workspace runs, not only those importing the change: tests read
-    // their own package's components, fixtures and scripts as text, often through a helper, and
-    // the largest workspace's whole suite takes under 30 s. test/ is the root's own, always run.
+    // Every node test in a changed workspace runs, not only those importing the change: they
+    // read their own package's components, fixtures and scripts as text, often through a helper.
+    // Component tests (`.test.tsx`) reach what they render by import, which `related` follows,
+    // and are left out: apps/web's take 50 s against its node tests' 1.4 s. test/ always runs.
     const dirs = input.workspaces
       .filter((workspace) => paths.some((path) => path.startsWith(`${workspace.dir}/`)))
       .map((workspace) => `${workspace.dir}/`);
     const own = input.tests.filter(
-      (test) => test.startsWith("test/") || dirs.some((dir) => test.startsWith(dir)),
+      (test) =>
+        test.startsWith("test/") ||
+        (!test.endsWith(".tsx") && dirs.some((dir) => test.startsWith(dir))),
     );
     // A test elsewhere that names a changed file, or reads the tree it sits in, runs as well.
     const readers = [
