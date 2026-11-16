@@ -25,8 +25,8 @@
 
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
-import { type AnthropicClient, ClaudeProvider } from "@nap/agent/claude-provider";
-import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { ClaudeProvider } from "@nap/agent/claude-provider";
+import { createModelClient, qualifyModel, readModelBaseUrl } from "@nap/agent/model-endpoint";
 import { DEFAULT_MAX_TOKENS } from "@nap/agent/safety/budget";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import type { BrowserSessionFactory } from "@nap/bench/browser-session";
@@ -174,30 +174,14 @@ const scriptedBrowser: BrowserSessionFactory = async () => ({
 });
 
 /**
- * The three things a platform decides, in one place per platform.
+ * The key each platform authenticates with, beyond `E2B_API_KEY`, which every real run needs.
  *
- * A record rather than three parallel ternary chains over `options.platform`: the chains asked
- * the same question in three places, so adding another route meant finding all three, and a
- * route that answered two of them was a run that authenticated one way and was billed another.
- * Every platform speaks the same Messages API — see the notes in `@nap/agent`.
+ * How a platform spells a model id and which client reaches it are `@nap/agent/model-endpoint`'s,
+ * shared with the API and the harness so a benchmark run reaches the endpoint the deployment does.
  */
-const PLATFORMS: Record<
-  BenchPlatform,
-  {
-    /** Beyond `E2B_API_KEY`, which every real run needs. */
-    credentials: readonly string[];
-    /** The model id as this route spells it. */
-    qualify: (model: string) => string;
-    /** Absent for the vendor's own API, which the provider reaches with no client of ours. */
-    client?: () => AnthropicClient;
-  }
-> = {
-  openrouter: {
-    credentials: ["OPENROUTER_API_KEY"],
-    qualify: toOpenRouterModel,
-    client: createOpenRouterClient,
-  },
-  anthropic: { credentials: ["ANTHROPIC_API_KEY"], qualify: (model) => model },
+const CREDENTIALS: Record<BenchPlatform, readonly string[]> = {
+  openrouter: ["OPENROUTER_API_KEY"],
+  anthropic: ["ANTHROPIC_API_KEY"],
 };
 
 let sandbox: SandboxManager;
@@ -240,9 +224,7 @@ const judgeable = tasks.some((task) => task.intent !== undefined);
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
 
-  const route = PLATFORMS[options.platform];
-
-  for (const key of ["E2B_API_KEY", ...route.credentials]) {
+  for (const key of ["E2B_API_KEY", ...CREDENTIALS[options.platform]]) {
     if (process.env[key]) continue;
     console.error(`${key} is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
     process.exit(1);
@@ -294,7 +276,14 @@ if (options.real) {
   browser = launched.value.session;
   closeBrowser = launched.value.close;
 
-  const model = route.qualify(options.model);
+  // The same setting the API reads, from the same file.
+  const baseUrl = readModelBaseUrl(process.env);
+  if (!baseUrl.ok) {
+    console.error(`${baseUrl.error}. Fix it in ${ENV_FILE}, then retry.`);
+    process.exit(1);
+  }
+
+  const model = qualifyModel(options.platform, options.model);
   pricedModel = model;
 
   console.log(
@@ -304,7 +293,8 @@ if (options.real) {
     `REAL RUN — ${tasks.length * options.repeat} run(s) from "${selectionName}"` +
       `${options.repeat === 1 ? "" : ` (${tasks.length} task(s) × ${options.repeat})`}` +
       `, serially, on ${model} via ` +
-      `${options.platform} at ${options.effort} effort, ${options.maxSteps} steps max, ` +
+      `${options.platform}${baseUrl.value === undefined ? "" : ` at ${baseUrl.value}`} ` +
+      `at ${options.effort} effort, ${options.maxSteps} steps max, ` +
       `${options.budgetTokens} context tokens, ` +
       // Named in the banner because it decides what is being measured rather than what it
       // costs: a paid suite run without the loop is a control arm, and finding that out
@@ -322,7 +312,7 @@ if (options.real) {
     model,
     effort: options.effort,
     maxTokens: NAPBENCH_DEFAULTS.maxOutputTokens,
-    ...(route.client === undefined ? {} : { client: route.client() }),
+    client: createModelClient({ platform: options.platform, baseUrl: baseUrl.value }),
   });
   providerFor = () => claude;
 } else {

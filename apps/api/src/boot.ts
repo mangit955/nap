@@ -26,7 +26,7 @@ import { PostgresSessionStartStore } from "@nap/db/session-start-store";
  */
 
 import { ClaudeProvider } from "@nap/agent/claude-provider";
-import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { createModelClient, qualifyModel } from "@nap/agent/model-endpoint";
 import { ChromePageCapture } from "@nap/capture/chrome-page-capture";
 import {
   createDatabase,
@@ -246,15 +246,11 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
    * to boot without whichever credentials the chosen route needs.
    */
   function buildProvider(): ClaudeProvider {
-    if (env.NAP_PLATFORM === "openrouter") {
-      return new ClaudeProvider({
-        model: toOpenRouterModel(env.NAP_MODEL),
-        effort: env.NAP_EFFORT,
-        client: createOpenRouterClient(),
-      });
-    }
-
-    return new ClaudeProvider({ model: env.NAP_MODEL, effort: env.NAP_EFFORT });
+    return new ClaudeProvider({
+      model: qualifyModel(env.NAP_PLATFORM, env.NAP_MODEL),
+      effort: env.NAP_EFFORT,
+      client: createModelClient({ platform: env.NAP_PLATFORM, baseUrl: env.NAP_MODEL_BASE_URL }),
+    });
   }
 
   /**

@@ -21,7 +21,7 @@ import { isolatedProjectComputer } from "../src/testing/isolated-project-compute
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
-import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { createModelClient, qualifyModel, readModelBaseUrl } from "@nap/agent/model-endpoint";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
@@ -223,11 +223,19 @@ if (options.real) {
     process.exit(1);
   }
 
-  const model =
-    options.platform === "openrouter" ? toOpenRouterModel(options.model) : options.model;
+  // The same setting the API reads, from the same file, so a harness turn reaches the endpoint
+  // a deployment configured with this .env would.
+  const baseUrl = readModelBaseUrl(process.env);
+  if (!baseUrl.ok) {
+    console.error(`${baseUrl.error}. Fix it in ${ENV_FILE}, then retry.`);
+    process.exit(1);
+  }
+
+  const model = qualifyModel(options.platform, options.model);
 
   console.log(
-    `REAL RUN — ${model} via ${options.platform} at ${options.effort} effort, ` +
+    `REAL RUN — ${model} via ${options.platform}` +
+      `${baseUrl.value === undefined ? "" : ` at ${baseUrl.value}`} at ${options.effort} effort, ` +
       `${options.maxSteps} steps max, ${options.budgetTokens} context tokens, ` +
       "on a real E2B sandbox. This costs money.\n",
   );
@@ -237,7 +245,7 @@ if (options.real) {
     effort: options.effort,
     maxTokens: HARNESS_DEFAULTS.maxOutputTokens,
     // Same provider, same loop, same events — only the transport underneath differs.
-    ...(options.platform === "openrouter" ? { client: createOpenRouterClient() } : {}),
+    client: createModelClient({ platform: options.platform, baseUrl: baseUrl.value }),
   });
 } else {
   console.log("Dry run on a scripted model and an in-memory sandbox. Pass --real to spend.\n");

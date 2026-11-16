@@ -44,6 +44,7 @@ export const HARNESS_USAGE = [
   "  --steer=<message>       Send a message while the turn runs; it joins at the next step",
   "",
   "Without --real it runs on a scripted model and an in-memory sandbox, and is free.",
+  "With --real, NAP_MODEL_BASE_URL (apps/api/.env or the shell) moves the model host, as it does the API's.",
 ].join("\n");
 
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;

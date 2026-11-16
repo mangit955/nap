@@ -67,6 +67,17 @@ describe("the boot line", () => {
     });
   });
 
+  it("names a moved model host, and says nothing of one that was not moved", () => {
+    const logger = recorder();
+    const moved = { ...ENV, NAP_MODEL_BASE_URL: "http://localhost:11434" } as Env;
+
+    announce({ env: ENV, role: "api", logger }, "default host", {});
+    announce({ env: moved, role: "api", logger }, "moved host", {});
+
+    expect(logger.lines[0]?.fields).not.toHaveProperty("modelBaseUrl");
+    expect(logger.lines[1]?.fields).toMatchObject({ modelBaseUrl: "http://localhost:11434" });
+  });
+
   it("says how many database connections this process may open", () => {
     // What a deployment's connection budget is summed from, readable off each process's logs
     // rather than worked out again from its environment.
