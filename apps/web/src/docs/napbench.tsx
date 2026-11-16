@@ -6,7 +6,7 @@
  * that is not the same as a zero.
  *
  * This is where the *mechanism numbers* live — the weights, the anchors, the geometric
- * combination. The README states consequences and links here; see the root CLAUDE.md. Funded
+ * combination. The README states consequences and links here; see the root AGENTS.md. Funded
  * runs' headline figures are the one exception and belong to neither of us.
  */
 

@@ -7,7 +7,7 @@
  * read the page between actions. Targets are ARIA roles and accessible names, never selectors.
  *
  * Run: bun run verify-nap <command> [--run=<run directory>]
- * Commands and flags: `verify-nap-cli.ts`; recipes: `.claude/skills/verify-nap/`.
+ * Commands and flags: `verify-nap-cli.ts`; recipes: `.agents/skills/verify-nap/`.
  */
 import { execFileSync } from "node:child_process";
 import { access, readdir, readFile, rm, writeFile } from "node:fs/promises";

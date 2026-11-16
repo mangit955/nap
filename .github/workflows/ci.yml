@@ -45,7 +45,7 @@ jobs:
   # The Harbor agent is Python, which none of the gates above can see: Biome does
   # not read it, `tsc` cannot, and vitest collects nothing from it. Its own job,
   # rather than steps bolted onto the one above, so a Python failure is legible as
-  # one and so the two toolchains install in parallel. See CLAUDE.md.
+  # one and so the two toolchains install in parallel. See AGENTS.md.
   python:
     runs-on: ubuntu-latest
     steps:

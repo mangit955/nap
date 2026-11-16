@@ -17,7 +17,7 @@
     "build": "turbo run build",
     "test": "vitest run --project unit --project types --project web --project db --project computer",
     "test:fast": "vitest run --project unit --project types --project web",
-    "test:integration": "vitest run --project integration --passWithNoTests",
+    "test:integration": "NAP_INTEGRATION=1 vitest run --project integration --passWithNoTests",
     "typecheck": "turbo run typecheck && tsc --noEmit",
     "harness": "bun run packages/runtime/scripts/harness.ts",
     "db:migrate": "bun run packages/db/scripts/migrate.ts",

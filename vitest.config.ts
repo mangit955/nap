@@ -1,6 +1,24 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+// The paid suite, added to the projects below only on request.
+const integration = {
+  test: {
+    name: "integration",
+    include: [
+      "{packages,apps}/*/src/**/*.integration.test.ts",
+      "{packages,apps}/*/scripts/**/*.integration.test.ts",
+    ],
+    // Real credentials live in apps/api/.env. Bun loads that for the API; Vitest
+    // runs under Node, which does not — so the suite loads it explicitly.
+    setupFiles: ["./test/integration-setup.ts"],
+    // Real sandboxes and real models are slow; the default 5s timeout would fail
+    // on cold start alone.
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
+  },
+};
+
 // Suites split by filename rather than directory, so a package can hold several
 // kinds side by side — the SandboxManager conformance suite is run by the fake
 // (unit) and by the E2B adapter (integration) from the same folder.
@@ -96,22 +114,13 @@ export default defineConfig({
           execArgv: ["--no-experimental-webstorage"],
         },
       },
-      {
-        test: {
-          name: "integration",
-          include: [
-            "{packages,apps}/*/src/**/*.integration.test.ts",
-            "{packages,apps}/*/scripts/**/*.integration.test.ts",
-          ],
-          // Real credentials live in apps/api/.env. Bun loads that for the API; Vitest
-          // runs under Node, which does not — so the suite loads it explicitly.
-          setupFiles: ["./test/integration-setup.ts"],
-          // Real sandboxes and real models are slow; the default 5s timeout would fail
-          // on cold start alone.
-          testTimeout: 120_000,
-          hookTimeout: 120_000,
-        },
-      },
+      // The integration suite spends money, so it exists only when `bun run test:integration` sets
+      // NAP_INTEGRATION. Filtering cannot keep it out: positional arguments are substring filters
+      // across every project, and `--project` matches case-insensitively and takes `!` negation,
+      // so `vitest run .test.ts`, `--project INTEGRATION` and `--project '!unit'` all reached it.
+      // test/integration-gate.test.ts holds this.
+      // biome-ignore lint/suspicious/noUndeclaredEnvVars: Vitest runs directly, outside Turbo.
+      ...(process.env.NAP_INTEGRATION === "1" ? [integration] : []),
     ],
   },
 });

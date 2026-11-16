@@ -12,8 +12,8 @@
  * *document* are still welcome and deliberately untouched by this rule — `docs/PLAN.md §5`
  * names something a reader can actually open. Cite the section, not the ticket.
  *
- * `test/` and `docs/` are exempt: `test/docs.ts` exists to parse task IDs, and the plan
- * and progress files are made of them.
+ * `test/` and `docs/` are exempt: the tests here name task IDs to show them being caught, and
+ * the frozen plan and progress files are made of them.
  *
  * Kept pure — it takes file contents and returns violations — so it can be tested against
  * synthetic input as well as against the real workspace.

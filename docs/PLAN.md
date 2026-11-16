@@ -1,5 +1,7 @@
 # Nap v1 — Detailed TDD Build Plan
 
+> **Frozen v1 record.** It describes v1 as built; its session process no longer applies. Work since is GitHub issues: see `AGENTS.md`.
+
 > **This plan is executed across many sessions.** Read § 1 (Session Protocol) first, every session, before doing anything else.
 >
 > Canonical location: `docs/PLAN.md` in the Nap repo. This file is the source of truth for what v1 is and how it gets built. Task *status* lives in `PROGRESS.md` (created in M0-2), not here.

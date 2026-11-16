@@ -13,7 +13,7 @@ The opt-in free browser check runs against a freshly seeded launcher, using its 
 ```sh
 NAP_COMPUTER_LOCAL_MANIFEST=<run-directory>/run.json \
 NAP_CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-bunx vitest run --project integration apps/napbench/src/computer-local.integration.test.ts --maxWorkers=1
+NAP_INTEGRATION=1 bunx vitest run --project integration apps/napbench/src/computer-local.integration.test.ts --maxWorkers=1
 ```
 
 A repeated identical source-writing turn has no new checkpoint and is unverified. The acceptance harness therefore starts from a fresh seeded launcher, rather than rewriting identical code before testing.

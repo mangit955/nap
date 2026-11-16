@@ -17,7 +17,7 @@
  *
  * The web app runs from a copy under the run directory because Next refuses a second dev server
  * for the same app directory, and a person's own `bun run dev` must not stop a verification run.
- * See `.claude/skills/verify-nap/SKILL.md`.
+ * See `.agents/skills/verify-nap/SKILL.md`.
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, renameSync, writeFileSync } from "node:fs";

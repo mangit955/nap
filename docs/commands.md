@@ -1,6 +1,6 @@
 # Commands
 
-Every script this repository runs, with what it needs and what it costs. `CLAUDE.md` lists the
+Every script this repository runs, with what it needs and what it costs. `AGENTS.md` lists the
 everyday ones; this is the rest. **Always `bun run test`, never `bun test`** — `test` is a Bun
 built-in that runs Bun's own runner over Vitest files and reports nonsense.
 
@@ -32,7 +32,7 @@ bun run verify-nap:up     # the real web app, API, Postgres and queue on a scrip
                           # sandbox and a headless Chrome, for driving a UI change like a user — free;
                           # needs Docker and Chrome. --port=<base> runs a second beside it
 bun run verify-nap <cmd>  # drives that Chrome by role and accessible name, and saves screenshots as
-                          # evidence: doctor, signin, click, fill, wait, shot, stop… See .claude/skills/verify-nap
+                          # evidence: doctor, signin, click, fill, wait, shot, stop… See .agents/skills/verify-nap
 bun run loadgen           # scripted users against the composed API — fakes, free; needs Docker
 bun run loadgen --users=25        # that many at once, latencies calibrated from a funded run
 bun run loadgen:ramp      # the k6 ramp to 100 concurrent turns — fakes, free; needs Docker and k6
