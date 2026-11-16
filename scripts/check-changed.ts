@@ -123,11 +123,14 @@ function selectTests(
   // Every node test in a changed workspace runs, not only those importing the change: they
   // read their own package's components, fixtures and scripts as text, often through a helper.
   // Component tests (`.test.tsx`) reach what they render by import, which `related` follows,
-  // and are left out: apps/web's take 50 s against its node tests' 1.4 s. test/ always runs.
+  // and are left out: apps/web's take 50 s against its node tests' 1.4 s. Computer suites have
+  // their own rule below. test/ always runs.
   const own = input.tests.filter(
     (test) =>
       test.startsWith("test/") ||
-      (!test.endsWith(".tsx") && touched.some(({ dir }) => test.startsWith(`${dir}/`))),
+      (!test.endsWith(".tsx") &&
+        !COMPUTER.test(test) &&
+        touched.some(({ dir }) => test.startsWith(`${dir}/`))),
   );
   // A test elsewhere that names a changed file, or reads the tree it sits in, runs as well.
   const readers = [

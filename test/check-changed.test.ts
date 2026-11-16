@@ -16,6 +16,7 @@ const workspaces = [
   { name: "@nap/capture", dir: "packages/capture", dependsOn: ["@nap/shared"] },
   { name: "@nap/bench", dir: "packages/bench", dependsOn: ["@nap/capture"] },
   { name: "@nap/web", dir: "apps/web", dependsOn: ["@nap/shared"] },
+  { name: "@nap/sandbox", dir: "packages/sandbox", dependsOn: ["@nap/shared"] },
 ];
 // Runs apps/napbench's script, which imports @nap/bench, as a separate process.
 const runner = "apps/napbench/scripts/napbench-app-test.test.ts";
@@ -140,7 +141,7 @@ describe("planChecks", () => {
     expect(command.join(" ")).not.toContain("integration");
     // Component tests are reached by import, so the workspace run leaves them to `related`.
     expect(command).not.toContain("apps/web/src/dashboard/session-list.test.tsx");
-    expect(related(plan(["packages/sandbox/src/b.ts"]))).not.toContain(
+    expect(step(plan(["packages/sandbox/src/b.ts"]), "tests")?.commands.flat()).not.toContain(
       "packages/sandbox/src/desktop-start.computer.test.ts",
     );
   });
