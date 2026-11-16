@@ -11,6 +11,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -68,7 +69,9 @@ export function linkEnvFiles(
   worktree: string,
   files: readonly string[] = ENV_FILES,
 ): LinkOutcome[] {
-  if (resolve(main) === resolve(worktree)) return [];
+  // Real paths, so a symlinked spelling of the main checkout is still recognised as itself —
+  // otherwise its own env symlinks would be replaced by links to themselves.
+  if (realpathSync(main) === realpathSync(worktree)) return [];
   return files.map((file) => {
     const source = join(main, file);
     const target = join(worktree, file);
@@ -166,8 +169,9 @@ async function main(): Promise<void> {
     failure = error.stack ?? String(error);
   });
   // Any exit a handler can see leaves done or failed in place of running, or an agent would wait
-  // forever. Only SIGKILL escapes it — of this process alone or of its whole process group — and
-  // leaves a running marker whose PID is dead and an install, in its own group, that runs on.
+  // forever. Only a signal with no handler here (SIGKILL, of this process or of its whole group;
+  // SIGUSR2) or a crash of the runtime escapes it, leaving a running marker whose PID is dead and
+  // an install, in its own group, that runs on.
   process.on("exit", (code) => {
     if (code === 0) writeFileSync(join(markerDir, DONE), "");
     else writeFileSync(join(markerDir, FAILED), `Setup exited with code ${code}.\n${failure}\n`);

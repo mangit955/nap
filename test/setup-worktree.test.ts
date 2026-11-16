@@ -133,6 +133,18 @@ describe("linkEnvFiles", () => {
     expect(lstatSync(join(main, ".env.local")).isFile()).toBe(true);
   });
 
+  it("knows the main checkout by a symlinked path too, leaving its own links alone", () => {
+    const { main } = fixture();
+    const elsewhere = tempDir();
+    writeFileSync(join(elsewhere, ".env.local"), SECRET);
+    rmSync(join(main, ".env.local"));
+    symlinkSync(join(elsewhere, ".env.local"), join(main, ".env.local"));
+    const alias = join(tempDir(), "alias");
+    symlinkSync(main, alias);
+    expect(linkEnvFiles(main, alias, [".env.local"])).toEqual([]);
+    expect(readlinkSync(join(main, ".env.local"))).toBe(join(elsewhere, ".env.local"));
+  });
+
   it("refuses a file that would land outside the worktree", () => {
     const { main, worktree } = fixture();
     expect(() => linkEnvFiles(main, worktree, ["../.env.local"])).toThrow(/outside the worktree/);
@@ -155,9 +167,21 @@ describe("withoutGitEnv", () => {
 });
 
 describe("liveSetupPid", () => {
-  it("reads a marker naming a live process", () => {
+  it("reads a marker naming a live process of this user", () => {
     const dir = tempDir();
-    // PID 1 is always alive; this process's own PID would not do, since a setup ignores itself.
+    // Not this process's own PID, which a setup ignores as itself.
+    const live = spawn("sleep", ["30"]);
+    try {
+      writeFileSync(join(dir, RUNNING), `${live.pid}\n`);
+      expect(liveSetupPid(dir)).toBe(live.pid);
+    } finally {
+      live.kill();
+    }
+  });
+
+  it("reads a marker naming a live process of another user", () => {
+    const dir = tempDir();
+    // PID 1 is always alive and, unless the suite runs as root, not this user's to signal.
     writeFileSync(join(dir, RUNNING), "1\n");
     expect(liveSetupPid(dir)).toBe(1);
   });
@@ -266,12 +290,29 @@ describe("scripts/setup-worktree.ts", () => {
   it("leaves a setup that is still running alone", () => {
     const { worktree } = repository();
     mkdirSync(join(worktree, MARKER_DIR));
-    writeFileSync(join(worktree, MARKER_DIR, RUNNING), "1\n");
-    const run = setup(worktree);
-    expect(run.status).toBe(1);
-    expect(run.output).toMatch(/already running here as PID 1;/);
-    expect(markers(worktree)).toEqual([RUNNING]);
-    expect(existsSync(join(worktree, "node_modules"))).toBe(false);
+    // A process of this user stands in for the other setup, as one would be in real use.
+    const other = spawn("sleep", ["30"]);
+    try {
+      writeFileSync(join(worktree, MARKER_DIR, RUNNING), `${other.pid}\n`);
+      const run = setup(worktree);
+      expect(run.status).toBe(1);
+      expect(run.output).toContain(`already running here as PID ${other.pid};`);
+      expect(markers(worktree)).toEqual([RUNNING]);
+      expect(existsSync(join(worktree, "node_modules"))).toBe(false);
+    } finally {
+      other.kill();
+    }
+  });
+
+  it("records an unexpected error in setup-failed", () => {
+    // Outside any git repository, so finding the main checkout throws after the install.
+    const dir = tempDir();
+    mkdirSync(join(dir, "scripts"));
+    copyFileSync(SCRIPT, join(dir, "scripts", "setup-worktree.ts"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify(PACKAGE));
+    expect(setup(dir).status).not.toBe(0);
+    expect(markers(dir)).toEqual([FAILED]);
+    expect(readFileSync(join(dir, MARKER_DIR, FAILED), "utf8")).toMatch(/not a git repository/i);
   });
 
   it.each([
