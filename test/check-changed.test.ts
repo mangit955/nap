@@ -11,7 +11,15 @@ const workspaces = [
   { name: "@nap/web", dir: "apps/web" },
 ];
 const repoTests = ["test/architecture.test.ts", "test/docs.test.ts"];
-const computerTests = [
+const webTests = [
+  "apps/web/src/app/font-placement.test.ts",
+  "apps/web/src/brand/nap-mark.test.tsx",
+];
+const tests = [
+  ...repoTests,
+  ...webTests,
+  "apps/web/src/dashboard/sidebar-drag.integration.test.ts",
+  "packages/capture/src/capture.test.ts",
   "packages/sandbox/src/desktop-start.computer.test.ts",
   "apps/api/scripts/local-sandbox.computer.test.ts",
 ];
@@ -37,8 +45,7 @@ function plan(paths: readonly (string | ChangedFile)[], docker = true): Plan {
     files,
     workspaces,
     docker,
-    repoTests,
-    computerTests,
+    tests,
     testsNaming,
     setupFiles,
   });
@@ -101,7 +108,7 @@ describe("planChecks", () => {
   });
 
   it("runs the tests related to changed modules and every repo-wide test", () => {
-    const [command] = step(plan(["apps/web/src/a.ts", "docs/testing.md"]), "tests")?.commands ?? [];
+    const [command] = step(plan(["docs/a.ts", "docs/testing.md"]), "tests")?.commands ?? [];
     expect(command?.slice(0, 5)).toEqual([
       "bunx",
       "vitest",
@@ -109,7 +116,22 @@ describe("planChecks", () => {
       "--run",
       "--passWithNoTests",
     ]);
-    expect(command?.slice(-3)).toEqual(["apps/web/src/a.ts", ...repoTests]);
+    expect(command?.slice(-3)).toEqual(["docs/a.ts", ...repoTests]);
+  });
+
+  it("runs every test in a changed workspace, whatever it imports or reads", () => {
+    const command = related(plan(["apps/web/src/a.ts"]));
+    expect(command).toEqual(expect.arrayContaining(webTests));
+    expect(command).not.toContain("packages/capture/src/capture.test.ts");
+    // Deleted files count: the package's tests may have read the file that went.
+    expect(related(plan([{ path: "apps/web/public/x.svg", present: false }]))).toEqual(
+      expect.arrayContaining(webTests),
+    );
+    // Never the paid or type-level kinds, and computer suites only by their own rule.
+    expect(command.join(" ")).not.toContain("integration");
+    expect(related(plan(["packages/sandbox/src/b.ts"]))).not.toContain(
+      "packages/sandbox/src/desktop-start.computer.test.ts",
+    );
   });
 
   it("runs a computer suite only when it or its namesake changed, after the related run", () => {
@@ -161,15 +183,22 @@ describe("planChecks", () => {
     expect(related(plan(["apps/api/tsconfig.json"]))).toContain("apps/api/src/compose.test.ts");
   });
 
-  it("runs a test that reads a whole tree when anything in that tree changed", () => {
-    expect(related(plan(["apps/web/src/dashboard/session-list.tsx"]))).toContain(
-      "apps/web/src/app/font-placement.test.ts",
-    );
+  it("runs a test that reads another tree when anything in that tree changed", () => {
     expect(related(plan(["harbor/README.md"]))).toContain(
       "apps/napbench/src/harbor-agreement.test.ts",
     );
-    expect(related(plan(["apps/web/src/a.ts"]))).not.toContain(
-      "apps/web/src/app/font-placement.test.ts",
+    expect(
+      step(plan(["apps/napbench/fixtures/app-test/cart/app.js"]), "tests")?.commands[1],
+    ).toEqual([
+      "bunx",
+      "vitest",
+      "run",
+      "--project",
+      "computer",
+      "apps/napbench/scripts/app-test-command.computer.test.ts",
+    ]);
+    expect(related(plan(["packages/shared/src/a.ts"]))).not.toContain(
+      "apps/napbench/src/harbor-agreement.test.ts",
     );
   });
 

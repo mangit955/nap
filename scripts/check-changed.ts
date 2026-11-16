@@ -1,7 +1,7 @@
 // Runs CI's checks on what this branch changed, in seconds rather than the minute the full
 // suites take: Biome over the changed files, typecheck of the packages they live in and every
-// package that depends on those, the tests that import the changed files, and the Python gates
-// when Python changed. CI still runs everything; this is the inner loop and the pre-commit hook.
+// package that depends on those, every test in the changed packages and every test elsewhere
+// that imports or reads a changed file, and the Python gates when Python changed. CI still runs everything; this is the inner loop and the pre-commit hook.
 //
 //   bun run check:changed            changes since the merge base with origin/main, committed or not
 //   bun run check:changed <ref>      changes since the merge base with <ref>
@@ -29,13 +29,11 @@ export type PlanInput = {
   readonly workspaces: readonly Workspace[];
   /** Whether a Docker daemon answers: the `db` project starts a Postgres container. */
   readonly docker: boolean;
-  /** `test/*.test.ts`: always run, because they read the source as text and no import reaches them. */
-  readonly repoTests: readonly string[];
-  /** Every `*.computer.test.ts` in the repo, which run only when they or their namesake changed. */
-  readonly computerTests: readonly string[];
+  /** Every `*.test.ts` and `*.test.tsx` in the repo, tracked or untracked. */
+  readonly tests: readonly string[];
   /**
-   * For each changed file's basename, the test files whose source names it. A test that reads a
-   * script, a fixture or a migration as text names it; no import reaches it, so `related` cannot.
+   * For each changed file's basename, the test files whose source names it: how a test in one
+   * place that reads a file elsewhere as text (a root config, a script) is found.
    */
   readonly testsNaming: Readonly<Record<string, readonly string[]>>;
   /** Each test project's setup and global-setup files, from vitest.config.ts, keyed by path. */
@@ -56,13 +54,18 @@ const GLOBAL_FILES = new Set([
 const ROOT_PROGRAM = /^(test|scripts)\/|^vitest\.config\.ts$|^tsconfig\.json$/;
 // What `vitest related` can follow: a file some test reaches through its imports.
 const IMPORTABLE = /\.(?:[cm]?[jt]sx?|json)$/;
-// Tests that read whole trees as text without naming the files in them, so neither the import
-// graph nor `testsNaming` can find them. Any other test that reads a file names it.
+// Tests that read files outside their own workspace as text without naming them, so neither
+// the import graph, nor running the changed workspace's tests, nor `testsNaming` finds them.
+// A new test like this belongs here; until it is added, only CI catches what it would.
 const TREE_READERS = [
   // Every Python file under harbor/ is checked against the TypeScript it mirrors.
   { test: "apps/napbench/src/harbor-agreement.test.ts", reads: /^harbor\// },
-  // Walks every component each page reaches, looking for landing-only font classes.
-  { test: "apps/web/src/app/font-placement.test.ts", reads: /^apps\/web\/src\/.*\.tsx$/ },
+  // Drives the app-test fixtures in a real browser; a computer suite, so not among the
+  // workspace tests that run below.
+  {
+    test: "apps/napbench/scripts/app-test-command.computer.test.ts",
+    reads: /^apps\/napbench\/fixtures\/app-test\//,
+  },
   // Hashes DESKTOP_SOURCES (packages/sandbox/src/desktop-template.ts) and fails on any edit to one
   // until DESKTOP_BUILD is bumped. A superset of that list, held to it by test/check-changed.test.ts;
   // importing the list itself would load the E2B SDK on every run.
@@ -85,9 +88,12 @@ const TEST_PROJECTS = ["unit", "web"];
 /** `dir/name` without any extension, so `a/x.ts`, `a/x.sh` and `a/x.computer.test.ts` agree. */
 const stem = (path: string) => path.replace(/\.[^/]*$/, "");
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
-// Code is only ever imported. Anything else, JSON included, may also be read as text by a test
-// that names it, so it is looked up by name as well.
+// Code in another workspace is reached by import or listed in TREE_READERS. Anything else,
+// JSON included, may also be read as text by a test that names it, so it is looked up by name.
 const CODE = /\.[cm]?[jt]sx?$/;
+const COMPUTER = /\.computer\.test\.ts$/;
+// `integration` spends money; `types` is checked by each package's tsc.
+const NEVER = /\.(?:integration|test-d)\./;
 const lookedUpByName = (path: string) => !CODE.test(path) && !GENERIC_NAMES.has(basename(path));
 
 export function planChecks(input: PlanInput): Plan {
@@ -139,18 +145,27 @@ export function planChecks(input: PlanInput): Plan {
       commands: [["bunx", "vitest", "run", ...projects, "--project", "computer"]],
     });
   } else {
-    // A test that names a changed file, or reads the tree it sits in, runs as if it had changed.
+    // Every test in a changed workspace runs, not only those importing the change: tests read
+    // their own package's components, fixtures and scripts as text, often through a helper, and
+    // the largest workspace's whole suite takes under 30 s. test/ is the root's own, always run.
+    const dirs = input.workspaces
+      .filter((workspace) => paths.some((path) => path.startsWith(`${workspace.dir}/`)))
+      .map((workspace) => `${workspace.dir}/`);
+    const own = input.tests.filter(
+      (test) => test.startsWith("test/") || dirs.some((dir) => test.startsWith(dir)),
+    );
+    // A test elsewhere that names a changed file, or reads the tree it sits in, runs as well.
     const readers = [
       ...paths.filter(lookedUpByName).flatMap((path) => input.testsNaming[basename(path)] ?? []),
       ...TREE_READERS.filter(({ reads }) => paths.some((path) => reads.test(path))).map(
         ({ test }) => test,
       ),
-    ].filter((test) => !/\.(?:integration|test-d)\./.test(test));
+    ];
+    const chosen = [...own, ...readers].filter((test) => !NEVER.test(test));
     const targets = [
       ...new Set([
         ...present.filter((path) => IMPORTABLE.test(path)),
-        ...readers.filter((test) => !test.endsWith(".computer.test.ts")),
-        ...input.repoTests,
+        ...chosen.filter((test) => !COMPUTER.test(test)),
       ]),
     ];
     // The computer suites spawn real processes and take a minute each, and one of them imports
@@ -160,8 +175,8 @@ export function planChecks(input: PlanInput): Plan {
     const stems = new Set(paths.map(stem));
     const computer = [
       ...new Set([
-        ...input.computerTests.filter((test) => stems.has(stem(test))),
-        ...readers.filter((test) => test.endsWith(".computer.test.ts")),
+        ...input.tests.filter((test) => COMPUTER.test(test) && stems.has(stem(test))),
+        ...readers.filter((test) => COMPUTER.test(test)),
       ]),
     ];
     // A setup file is loaded by every test in its project and imported by none of them, so a
@@ -375,16 +390,14 @@ export async function readInputs(
     files: files.map((path) => ({ path, present: existsSync(join(root, path)) })),
     workspaces: readWorkspaces(root),
     docker,
-    repoTests: readdirSync(join(root, "test"))
-      .filter((name) => name.endsWith(".test.ts"))
-      .map((name) => `test/${name}`),
-    computerTests: git(root, [
+    tests: git(root, [
       "ls-files",
       "-z",
       "--cached",
       "--others",
       "--exclude-standard",
-      "*.computer.test.ts",
+      "*.test.ts",
+      "*.test.tsx",
     ]).filter((path) => existsSync(join(root, path))),
     // Only files `related` cannot follow are looked up; the planner decides which of these count.
     testsNaming: testsNaming(root, files.filter(lookedUpByName)),
