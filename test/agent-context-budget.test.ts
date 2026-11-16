@@ -3,10 +3,11 @@
  *
  * The system prompts, the helper prompts and the tool declarations are fixed text at the head of
  * every request of their kind — every turn, every plan, every helper — so a sentence added to any
- * of them is paid for on each of those requests, and nothing else notices it arrive. Pinning their size in `agent-context-budget.json` makes
- * every change to that size show up in the diff that caused it, where a reviewer can ask whether
- * it was worth it. The check is equality, not a ceiling: text that shrinks has to be recorded too,
- * or the budget slowly stops describing what is sent and the next addition hides in the slack.
+ * of them is paid for on each of those requests, and nothing else notices it arrive. Pinning
+ * their size in `agent-context-budget.json` makes every change to that size show up in the diff
+ * that caused it, where a reviewer can ask whether it was worth it. The check is equality, not a
+ * ceiling: text that shrinks has to be recorded too, or the budget slowly stops describing what is
+ * sent and the next addition hides in the slack.
  *
  * Only what the model reads is counted: UTF-8 bytes of each prompt, and of each tool set as the
  * JSON of `name`, `description` and `inputSchema` — the provider's own wrapping is protocol, not
