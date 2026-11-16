@@ -1,0 +1,5 @@
+{"direction": "request", "line": {"channel": "nap-exec", "id": 0, "command": "timeout -k 5 60 bash -c 'ls /app'", "timeoutSec": 75}}
+{"direction": "request", "line": {"channel": "nap-exec", "id": 1, "command": "pwd"}}
+{"direction": "response", "line": {"channel": "nap-exec", "id": 0, "ok": true, "exitCode": 0, "stdout": "regex.txt\n", "stderr": ""}}
+{"direction": "response", "line": {"channel": "nap-exec", "id": 1, "ok": false, "code": "timeout", "message": "the command did not finish within 75 seconds"}}
+{"direction": "response", "line": {"channel": "nap-exec", "id": 2, "ok": false, "code": "exec_failed", "message": "RuntimeError: the environment is gone"}}

@@ -1,0 +1,17 @@
+{
+  "status": "failed",
+  "failure": {
+    "reason": "budget_exceeded",
+    "message": "step budget exceeded: 21 model round trips, limit 20"
+  },
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "requests": 21,
+  "steps": 20,
+  "usage": {
+    "inputTokens": 120400,
+    "outputTokens": 5310,
+    "cacheReadTokens": 88000
+  },
+  "durationMs": 184000,
+  "workdir": "/app"
+}

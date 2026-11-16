@@ -2,7 +2,7 @@ import type { ContextRequest } from "@nap/shared/ports/context-engine";
 import { describe, expect, it } from "vitest";
 import { NapContextEngine } from "./context-engine.ts";
 import { NoopMemoryProvider } from "./noop-memory-provider.ts";
-import { SYSTEM_PROMPT } from "./system-prompt.ts";
+import { SYSTEM_PROMPT, TASK_SYSTEM_PROMPT } from "./system-prompt.ts";
 import { stubSandbox } from "./testing/stub-sandbox.ts";
 import { estimateTokens } from "./tokens.ts";
 
@@ -229,5 +229,22 @@ describe("the system prompt", () => {
     // per task is one nobody notices getting expensive. A failure here is a prompt to cut,
     // not a ceiling to raise.
     expect(estimateTokens(SYSTEM_PROMPT)).toBeLessThan(900);
+  });
+});
+
+describe("the benchmark task prompt", () => {
+  // The same load-bearing absence as above, for the same reason: a benchmark is exactly where an
+  // instruction to check one's work looks like a free improvement, and a reviewer added on purpose
+  // is a measured change, not a sentence slipped into the baseline.
+  it("contains no verification language", () => {
+    expect(TASK_SYSTEM_PROMPT).not.toMatch(/\bverif|double.check|re-check|check your work/i);
+  });
+
+  it("names the directory the tools default to", () => {
+    expect(TASK_SYSTEM_PROMPT).toContain(ROOT);
+  });
+
+  it("stays smaller than the starter prompt it stands in for", () => {
+    expect(estimateTokens(TASK_SYSTEM_PROMPT)).toBeLessThan(estimateTokens(SYSTEM_PROMPT));
   });
 });

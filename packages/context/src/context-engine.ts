@@ -64,6 +64,7 @@ import {
   REPOSITORY_SYSTEM_PROMPT,
   renderApprovedPlan,
   SYSTEM_PROMPT,
+  TASK_SYSTEM_PROMPT,
 } from "./system-prompt.ts";
 import { estimateTokens } from "./tokens.ts";
 
@@ -699,8 +700,15 @@ function historyPointer(historyFile: string | undefined): string {
 }
 
 /** The instructions the application owns for this workspace — the prompt's stable head. */
-function basePrompt(workspace?: "repository"): string {
-  return workspace === "repository" ? REPOSITORY_SYSTEM_PROMPT : SYSTEM_PROMPT;
+function basePrompt(workspace: ContextRequest["workspace"]): string {
+  switch (workspace) {
+    case "repository":
+      return REPOSITORY_SYSTEM_PROMPT;
+    case "task":
+      return TASK_SYSTEM_PROMPT;
+    case undefined:
+      return SYSTEM_PROMPT;
+  }
 }
 
 /**
