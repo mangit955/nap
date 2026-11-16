@@ -114,9 +114,16 @@ describe("ModelBaseUrlSchema", () => {
     expect(parsed.error?.issues[0]?.message).toMatch(/without \/v1/);
   });
 
-  it("refuses credentials in the URL, which is printed at boot", () => {
-    const parsed = ModelBaseUrlSchema.safeParse("https://user:token@proxy.example.com");
-    expect(parsed.error?.issues[0]?.message).toMatch(/username or password/);
+  it.each(["https://user:token@proxy.example.com", "https://user@proxy.example.com/api"])(
+    "refuses credentials in %s, which is printed at boot",
+    (url) => {
+      const parsed = ModelBaseUrlSchema.safeParse(url);
+      expect(parsed.error?.issues[0]?.message).toMatch(/username or password/);
+    },
+  );
+
+  it("accepts an @ that is not in the authority", () => {
+    expect(ModelBaseUrlSchema.safeParse("http://localhost:11434?tag=a@b").success).toBe(true);
   });
 
   it.each(["localhost:11434", "ftp://example.com", "not a url"])("refuses %s", (url) => {
@@ -178,6 +185,17 @@ describe("modelRouteFromEnv", () => {
     expect(route).toEqual({
       ok: false,
       error: expect.stringMatching(/NAP_PLATFORM=anthropic.*--platform=anthropic/),
+    });
+  });
+
+  it("names an unknown NAP_PLATFORM rather than calling it a mismatch", () => {
+    const route = modelRouteFromEnv(
+      { ...OLLAMA, NAP_PLATFORM: "antropic" },
+      { platform: "anthropic", model: "m" },
+    );
+    expect(route).toEqual({
+      ok: false,
+      error: "NAP_PLATFORM must be one of openrouter, anthropic",
     });
   });
 

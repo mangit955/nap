@@ -54,9 +54,12 @@ export const ModelBaseUrlSchema = z
     },
   )
   // The URL is printed on the boot line and the scripts' banners, so it may not carry a secret.
-  .refine((value) => !URL.canParse(value) || !/^[a-z]+:\/\/[^/]*@/i.test(value), {
-    error: "must not carry a username or password; send credentials as the platform's key",
-  })
+  .refine(
+    (value) => !URL.canParse(value) || !(new URL(value).username || new URL(value).password),
+    {
+      error: "must not carry a username or password; send credentials as the platform's key",
+    },
+  )
   .brand<"ModelBaseUrl">();
 
 export type ModelBaseUrl = z.infer<typeof ModelBaseUrlSchema>;
@@ -73,7 +76,7 @@ export type ModelClientOptions = {
   platform: ModelPlatform;
   /** Absent keeps the platform's own host. */
   baseUrl?: ModelBaseUrl | undefined;
-  /** Falls back to the platform's key in the environment, as the SDK and `createOpenRouterClient` do. */
+  /** Falls back to the platform's key in the environment, as the SDK and OpenRouter's client do. */
   apiKey?: string | undefined;
 };
 
@@ -150,6 +153,11 @@ export function modelRouteFromEnv(
   // without this an .env set up for Ollama (`NAP_PLATFORM=anthropic`) and a run left on the
   // default `openrouter` would send an OpenRouter key and a namespaced model to that host.
   const configured = env.NAP_PLATFORM ?? "openrouter";
+  if (baseUrl.data !== undefined && !(configured in PLATFORM_KEY))
+    return {
+      ok: false,
+      error: `NAP_PLATFORM must be one of ${Object.keys(PLATFORM_KEY).join(", ")}`,
+    };
   if (baseUrl.data !== undefined && configured !== options.platform) {
     return {
       ok: false,

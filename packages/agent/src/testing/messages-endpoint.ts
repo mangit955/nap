@@ -65,7 +65,8 @@ export async function messagesEndpoint(): Promise<MessagesEndpoint> {
         method: request.method ?? "",
         path: request.url ?? "",
         headers: request.headers,
-        body: JSON.parse(raw) as SeenRequest["body"],
+        // Every Messages request has a JSON body; anything else is recorded with an empty one.
+        body: (raw === "" ? { model: "" } : JSON.parse(raw)) as SeenRequest["body"],
       });
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(MESSAGE_STREAM);
