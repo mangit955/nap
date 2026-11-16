@@ -39,7 +39,7 @@ code and reports but are not being built on: see `docs/scaling-baseline.md` and
 ## Everyday commands
 
 ```bash
-bun install               # also in every fresh worktree
+bun install               # a T3 Code worktree runs it itself — see below
 bun run test              # unit + types + web + db + computer — free; db needs Docker
 bun run test:fast         # unit + types + web — the Docker-free inner loop
 bunx vitest run <file> -t "<name>"  # one file, one test; the filename picks the project. A -t matching nothing still passes
@@ -54,6 +54,13 @@ bun run verify-nap:up     # the real web app on fakes, to drive a UI change like
 bun run napbench <task-id>         # one benchmark run on fakes; --real spends money
 bun run test:integration  # real services; most of it costs money — milestone boundaries only
 ```
+
+**A T3 Code worktree sets itself up** in the background: `t3.json` runs `scripts/setup-worktree.ts`,
+which installs, then symlinks the main checkout's env files in. Setup is running while
+`kill -0 "$(cat .t3/setup-running)"` succeeds: poll that, and run no `bun install` of your own.
+`.t3/setup-done` means ready; `.t3/setup-failed` holds the error tail — fix it and run
+`bun scripts/setup-worktree.ts`, as you also do when there is no marker (setup never ran) or the
+marker's PID is dead. Never edit an env file that is a symlink: it is the main checkout's.
 
 **Always `bun run test`, never `bun test`** — the bare form runs Bun's own runner over Vitest
 files. Anything that spends money (`--real`, `test:integration`) needs the user's approval first.
