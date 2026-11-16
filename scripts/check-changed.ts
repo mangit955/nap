@@ -96,8 +96,9 @@ export const TREE_READERS = [
 // package.json into a temporary directory. A change to a real one reaches its tests by typecheck
 // and import instead.
 const GENERIC_NAMES = new Set(["package.json"]);
-// Biome's own configuration changes what every file is checked against.
-const BIOME_CONFIG = "biome.json";
+// Biome's own configuration, and the ignore file it honours (`vcs.useIgnoreFile`), change what
+// every file is checked against; so does a global file (bun.lock carries a Biome upgrade).
+const BIOME_WIDE = new Set(["biome.json", ".gitignore"]);
 // `integration` spends money and `types` is covered by each package's tsc, so neither is here;
 // test files of those kinds are never chosen either. `computer` is chosen by name, not import.
 const TEST_PROJECTS = ["unit", "web"];
@@ -195,7 +196,7 @@ export function planChecks(input: PlanInput): Plan {
   const steps: Step[] = [];
   const global = paths.some((path) => GLOBAL_FILES.has(path));
 
-  if (paths.includes(BIOME_CONFIG)) {
+  if (global || paths.some((path) => BIOME_WIDE.has(path))) {
     steps.push({ name: "biome", commands: [["bunx", "biome", "check", "."]] });
   } else if (present.length > 0) {
     steps.push({
@@ -221,7 +222,9 @@ export function planChecks(input: PlanInput): Plan {
     // `...pkg` is turbo's "this package and everything that depends on it", read from the same
     // package.json graph `bun run typecheck` walks. The root pass is ~2 s and imports from most
     // packages, so it runs whenever anything is typechecked at all.
-    const filters = global ? [] : packages.map((name) => `--filter=...${name}`);
+    // turbo hashes only each package's own files, so a cached pass would replay after a change
+    // to a root config such as tsconfig.base.json; --force reruns every package.
+    const filters = global ? ["--force"] : packages.map((name) => `--filter=...${name}`);
     const turbo =
       global || packages.length > 0 ? [["bunx", "turbo", "run", "typecheck", ...filters]] : [];
     steps.push({ name: "typecheck", commands: [...turbo, ["bunx", "tsc", "--noEmit"]] });
@@ -522,7 +525,8 @@ async function main(argv: readonly string[]): Promise<number> {
     await readInputs(
       root,
       files,
-      spawnSync("docker", ["info"], { stdio: "ignore", timeout: 5_000 }).status === 0,
+      // On a loaded machine `docker info` can take several seconds to answer while Docker is up.
+      spawnSync("docker", ["info"], { stdio: "ignore", timeout: 30_000 }).status === 0,
     ),
   );
   for (const step of plan.steps) console.log(`  running ${step.name}`);

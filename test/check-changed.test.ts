@@ -99,7 +99,13 @@ describe("planChecks", () => {
 
   it("widens typecheck and tests to everything for a repo-wide config change", () => {
     const result = plan(["bun.lock"]);
-    expect(step(result, "typecheck")?.commands[0]).toEqual(["bunx", "turbo", "run", "typecheck"]);
+    expect(step(result, "typecheck")?.commands[0]).toEqual([
+      "bunx",
+      "turbo",
+      "run",
+      "typecheck",
+      "--force",
+    ]);
     expect(step(result, "tests")?.commands).toEqual([
       [
         "bunx",
@@ -239,11 +245,41 @@ describe("planChecks", () => {
     expect(step(plan(["test/integration-setup.ts"]), "tests")?.commands).toHaveLength(1);
   });
 
-  it("checks the whole repo with Biome when Biome's configuration changed", () => {
-    expect(step(plan(["biome.json"]), "biome")?.commands).toEqual([
-      ["bunx", "biome", "check", "."],
-    ]);
+  it("checks the whole repo with Biome when its configuration, ignore file or a global changed", () => {
+    for (const path of ["biome.json", ".gitignore", "bun.lock"]) {
+      expect(step(plan([path]), "biome")?.commands, path).toEqual([
+        ["bunx", "biome", "check", "."],
+      ]);
+    }
+    expect(step(plan(["notes/a.md"]), "biome")?.commands[0]).toContain("notes/a.md");
   });
+
+  // Every member of each rule, so dropping one fails here rather than in CI.
+  it.each([
+    "bun.lock",
+    "tsconfig.base.json",
+    "tsconfig.test-d.json",
+    "turbo.json",
+    "vitest.config.ts",
+  ])("treats %s as a change to the whole repo", (path) => {
+    const result = plan([path]);
+    expect(step(result, "typecheck")?.commands[0]).toContain("--force");
+    expect(step(result, "tests")?.commands[0]?.slice(0, 3)).toEqual(["bunx", "vitest", "run"]);
+  });
+
+  it.each(["test/a.ts", "scripts/a.ts", "vitest.config.ts", "tsconfig.json"])(
+    "typechecks the root program when %s changes",
+    (path) => {
+      expect(step(plan([path]), "typecheck")?.commands.at(-1)).toEqual(["bunx", "tsc", "--noEmit"]);
+    },
+  );
+
+  it.each(["harbor/a.py", "apps/x/a.py", "harbor/pyproject.toml", "harbor/uv.lock"])(
+    "runs the Python gates when %s changes",
+    (path) => {
+      expect(step(plan([path]), "python")).toBeDefined();
+    },
+  );
 
   it("never selects the integration or types project", () => {
     for (const result of [plan(["packages/shared/src/a.ts"]), plan(["bun.lock"])]) {
