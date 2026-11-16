@@ -1,6 +1,15 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+// A commit hook runs the suite with git's own variables exported — `GIT_DIR` and `GIT_INDEX_FILE`
+// among them — and any git a test then starts acts on *this* repository, whatever its cwd. A
+// fixture's `git init` and `git commit` have committed onto the branch being committed and set
+// `core.bare` on the shared repository that way. Removing them here, before any worker starts,
+// covers every test; one that needs a variable sets it itself.
+for (const name of Object.keys(process.env)) {
+  if (name.startsWith("GIT_")) delete process.env[name];
+}
+
 // The paid suite, added to the projects below only on request.
 const integration = {
   test: {
@@ -27,15 +36,6 @@ const integration = {
 // Each project exists because it needs a *different environment*, not for tidiness:
 // node, tsc, jsdom, and a Postgres container respectively. A test placed in the
 // wrong one does not fail — it is silently never collected.
-// A commit hook runs the suite with git's own variables exported — `GIT_DIR` and `GIT_INDEX_FILE`
-// among them — and any git a test then starts acts on *this* repository, whatever its cwd. A
-// fixture's `git init` and `git commit` have committed onto the branch being committed and set
-// `core.bare` on the shared repository that way. Removing them here, before any worker starts,
-// covers every test; one that needs a variable sets it itself.
-for (const name of Object.keys(process.env)) {
-  if (name.startsWith("GIT_")) delete process.env[name];
-}
-
 export default defineConfig({
   test: {
     projects: [

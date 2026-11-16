@@ -98,7 +98,7 @@ export function tailOf(output: string, lines = 30): string {
 }
 
 /** Whether a process with this PID is alive, which is what makes a `setup-running` marker live. */
-export function isAlive(pid: number): boolean {
+function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -131,17 +131,35 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  rmSync(join(markerDir, DONE), { force: true });
-  rmSync(join(markerDir, FAILED), { force: true });
+  // Running first, then clear the old outcome, so there is never a moment with no marker at all —
+  // which an agent reads as "setup never ran" and answers with an install of its own.
   mkdirSync(markerDir, { recursive: true });
   writeFileSync(join(markerDir, RUNNING), `${process.pid}\n`);
+  rmSync(join(markerDir, DONE), { force: true });
+  rmSync(join(markerDir, FAILED), { force: true });
 
+  let install: ReturnType<typeof spawn> | undefined;
+  // `bun install` exits on a signal without stopping the install script it is running, and that
+  // script keeps the install's output open and outlives the cancel (measured, bun 1.4.2). So the
+  // install gets a process group of its own, and stopping it signals the whole group.
+  const stopInstall = (signal: NodeJS.Signals) => {
+    if (install?.pid === undefined) return;
+    try {
+      process.kill(-install.pid, signal);
+    } catch {
+      // The group is already gone.
+    }
+  };
   let failure = "";
   process.on("uncaughtExceptionMonitor", (error) => {
     failure = error.stack ?? String(error);
   });
-  // Every way out leaves exactly one of done or failed, or an agent would wait forever.
+  // Any exit a handler can see leaves done or failed in place of running, or an agent would wait
+  // forever. Only SIGKILL escapes it, leaving a running marker whose PID is dead and an install
+  // that runs on. An install still going when this process dies any other way is stopped, so it
+  // cannot outlive a failure.
   process.on("exit", (code) => {
+    stopInstall("SIGTERM");
     if (code === 0) writeFileSync(join(markerDir, DONE), "");
     else writeFileSync(join(markerDir, FAILED), `Setup exited with code ${code}.\n${failure}\n`);
     rmSync(join(markerDir, RUNNING), { force: true });
@@ -150,11 +168,10 @@ async function main(): Promise<void> {
   // A cancelled setup passes the signal to the install and fails once that has stopped, so no
   // marker appears while the install can still be writing node_modules.
   let cancelled: NodeJS.Signals | undefined;
-  let install: ReturnType<typeof spawn> | undefined;
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(signal, () => {
       cancelled = signal;
-      if (install) install.kill(signal);
+      if (install) stopInstall(signal);
       else {
         failure = `Cancelled by ${signal}.`;
         process.exit(1);
@@ -169,6 +186,7 @@ async function main(): Promise<void> {
     cwd: worktree,
     env,
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   let output = "";
   for (const [source, sink] of [

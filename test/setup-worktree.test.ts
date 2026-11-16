@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -40,6 +40,14 @@ const scratch: string[] = [];
 afterEach(() => {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function tempDir(): string {
   // realpath: macOS's tmpdir is a symlink, and git reports worktree paths resolved.
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "nap-setup-")));
@@ -265,6 +273,29 @@ describe("scripts/setup-worktree.ts", () => {
     expect(markers(worktree)).toEqual([RUNNING]);
     expect(existsSync(join(worktree, "node_modules"))).toBe(false);
   });
+
+  it("fails once a cancelled install has stopped, leaving no install behind", async () => {
+    const { worktree } = repository();
+    // An install script that records its PID and then outlasts the test unless it is stopped.
+    writeFileSync(
+      join(worktree, "package.json"),
+      JSON.stringify({ ...PACKAGE, scripts: { prepare: "echo $$ > install.pid; exec sleep 60" } }),
+    );
+    const child = spawn("bun", ["scripts/setup-worktree.ts"], { cwd: worktree, stdio: "ignore" });
+    const exited = new Promise<number | null>((done) => child.on("exit", done));
+    const pidFile = join(worktree, "install.pid");
+    await expect.poll(() => existsSync(pidFile), { timeout: 15_000 }).toBe(true);
+    const installPid = Number(readFileSync(pidFile, "utf8").trim());
+    expect(markers(worktree)).toEqual([RUNNING]);
+
+    child.kill("SIGTERM");
+    expect(await exited).toBe(1);
+    expect(markers(worktree)).toEqual([FAILED]);
+    expect(readFileSync(join(worktree, MARKER_DIR, FAILED), "utf8")).toContain(
+      "Cancelled by SIGTERM.",
+    );
+    await expect.poll(() => isRunning(installPid), { timeout: 5_000 }).toBe(false);
+  }, 30_000);
 
   it("links nothing in the main checkout itself", () => {
     const { main } = repository();
