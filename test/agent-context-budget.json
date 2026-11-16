@@ -1,0 +1,17 @@
+{
+  "prompts": {
+    "system": 3339,
+    "repositorySystem": 854,
+    "planMode": 998,
+    "exploreHelper": 772,
+    "generalHelper": 603
+  },
+  "tools": {
+    "projectTurn": 15380,
+    "repositoryTurn": 16606,
+    "planTurn": 6318,
+    "appTest": 8429,
+    "exploreHelper": 2273,
+    "generalHelper": 5423
+  }
+}
