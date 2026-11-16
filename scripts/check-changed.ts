@@ -77,6 +77,10 @@ const TEST_PROJECTS = ["unit", "web"];
 /** `dir/name` without any extension, so `a/x.ts`, `a/x.sh` and `a/x.computer.test.ts` agree. */
 const stem = (path: string) => path.replace(/\.[^/]*$/, "");
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+// Code is only ever imported. Anything else, JSON included, may also be read as text by a test
+// that names it, so it is looked up by name as well.
+const CODE = /\.[cm]?[jt]sx?$/;
+const lookedUpByName = (path: string) => !CODE.test(path) && !GENERIC_NAMES.has(basename(path));
 
 export function planChecks(input: PlanInput): Plan {
   const present = input.files.filter((file) => file.present).map((file) => file.path);
@@ -129,9 +133,7 @@ export function planChecks(input: PlanInput): Plan {
   } else {
     // A test that names a changed file, or reads the tree it sits in, runs as if it had changed.
     const readers = [
-      ...paths
-        .filter((path) => !IMPORTABLE.test(path) && !GENERIC_NAMES.has(basename(path)))
-        .flatMap((path) => input.testsNaming[basename(path)] ?? []),
+      ...paths.filter(lookedUpByName).flatMap((path) => input.testsNaming[basename(path)] ?? []),
       ...TREE_READERS.filter(({ reads }) => paths.some((path) => reads.test(path))).map(
         ({ test }) => test,
       ),
@@ -240,7 +242,7 @@ async function readSetupFiles(root: string): Promise<Record<string, string>> {
 
 /** For each basename, the test files whose text contains it. `git grep` exits 1 on no match. */
 function testsNaming(root: string, paths: readonly string[]): Record<string, string[]> {
-  const names = [...new Set(paths.map((path) => path.slice(path.lastIndexOf("/") + 1)))];
+  const names = [...new Set(paths.map(basename))];
   return Object.fromEntries(
     names.map((name) => [
       name,
@@ -363,10 +365,7 @@ async function main(argv: readonly string[]): Promise<number> {
       "*.computer.test.ts",
     ]).filter((path) => existsSync(join(root, path))),
     // Only files `related` cannot follow are looked up; the planner decides which of these count.
-    testsNaming: testsNaming(
-      root,
-      files.filter((path) => !IMPORTABLE.test(path)),
-    ),
+    testsNaming: testsNaming(root, files.filter(lookedUpByName)),
     setupFiles: await readSetupFiles(root),
   });
 

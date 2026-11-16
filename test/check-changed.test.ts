@@ -20,6 +20,7 @@ const testsNaming = {
   ".gitignore": ["packages/bench/src/results-dir.test.ts"],
   "0022_project_name_source.sql": ["packages/db/src/schema.db.test.ts"],
   "package.json": ["packages/sandbox/src/git-local.test.ts"],
+  "tsconfig.json": ["test/project-root.test.ts", "apps/api/src/compose.test.ts"],
   "notes.md": ["packages/agent/src/screenshot-caching.integration.test.ts"],
 };
 const setupFiles = {
@@ -151,10 +152,11 @@ describe("planChecks", () => {
     expect(related(plan(["notes/notes.md"])).join(" ")).not.toContain("integration");
   });
 
-  it("hands JSON to `related`, which follows JSON imports", () => {
+  it("hands JSON to `related`, which follows JSON imports, and looks it up by name too", () => {
     expect(related(plan(["apps/web/src/testing/audit-session.json"]))).toContain(
       "apps/web/src/testing/audit-session.json",
     );
+    expect(related(plan(["apps/api/tsconfig.json"]))).toContain("apps/api/src/compose.test.ts");
   });
 
   it("runs a test that reads a whole tree when anything in that tree changed", () => {
