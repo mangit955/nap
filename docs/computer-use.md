@@ -162,6 +162,12 @@ Captured usage and the driver's price constants put model cost at an estimated U
 (build $0.009, test $0.007). The VM ran for under four minutes, estimated at roughly another
 US$0.01 of E2B time. These estimates are not provider invoices.
 
+## How often it passes
+
+[computer-use-reliability.md](computer-use-reliability.md) runs "Test the app" 10 times on each of three
+correct apps on the local desktop, classifies every failure, and records the fix for the most common
+one. Run it again with `bun run computer:reliability`.
+
 ## A free image model
 
 `nvidia/nemotron-3.5-super-vl:free` is on the image-model allowlist, so a turn on it is offered the

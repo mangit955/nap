@@ -1,6 +1,30 @@
 import type { ComputerAction } from "@nap/shared/computer";
 import { computerScreenshotKey } from "@nap/shared/computer-artifacts";
+import { normalizeKeyChord } from "@nap/shared/computer-key";
 import type { ToolContext, ToolOutcome } from "./context.ts";
+
+/**
+ * What a refused or failed action means for the rest of its batch, said in the result.
+ *
+ * A batch stops at its first refusal, and anything after it — often the next assertion's
+ * declaration and the input meant to test it — never ran. Unsaid, a model carries on as if it
+ * had: in the reliability run it gave verdicts for ids that were never recorded and left real
+ * assertions untested (docs/computer-use-reliability.md). Typed text is never repeated here.
+ */
+function stoppedAt(actions: readonly ComputerAction[], index: number, output: string): string {
+  const rest = actions.slice(index + 1).filter((action) => action.action !== "screenshot");
+  if (rest.length === 0) return output;
+  const names = rest.map((action) =>
+    action.action === "annotate"
+      ? action.annotation.type === "assertion"
+        ? action.annotation.result === "untested"
+          ? `the declaration of "${action.annotation.id}"`
+          : `the verdict for "${action.annotation.id}"`
+        : `the ${action.annotation.type} annotation`
+      : action.action,
+  );
+  return `${output}\nStopped at action ${index + 1} of ${actions.length}; the ${rest.length} after it did not run: ${names.join(", ")}. Nothing from them was recorded; send again what you still need.`;
+}
 
 /** Validate the entire batch before this function; a bad final action must have no effects. */
 export async function runComputer(
@@ -30,17 +54,29 @@ export async function runComputer(
   if (!started.ok) return { ok: false, output: started.error.message };
   status("ready");
   const observations: string[] = [];
-  for (const action of actions) {
+  for (const [index, written] of actions.entries()) {
+    const action =
+      written.action === "key" || written.action === "hold_key"
+        ? { ...written, text: normalizeKeyChord(written.text) }
+        : written;
     if (ctx.signal?.aborted) return { ok: false, output: "Computer action cancelled." };
     if (action.action === "screenshot") continue;
     if (action.action === "annotate") {
       const result = await access.annotate?.(action.annotation);
       if (!result?.ok)
-        return { ok: false, output: result?.error.message ?? "Annotations are unavailable." };
+        return {
+          ok: false,
+          output: stoppedAt(
+            actions,
+            index,
+            result?.error.message ?? "Annotations are unavailable.",
+          ),
+        };
       continue;
     }
     const allowed = access.beforeAction?.(action);
-    if (allowed && !allowed.ok) return { ok: false, output: allowed.error.message };
+    if (allowed && !allowed.ok)
+      return { ok: false, output: stoppedAt(actions, index, allowed.error.message) };
     let result: Awaited<ReturnType<typeof access.desktop.act>>;
     try {
       result = await access.desktop.act(ctx.sandboxId, action, ctx.signal);
@@ -56,7 +92,7 @@ export async function runComputer(
     if (!result.ok)
       return {
         ok: false,
-        output: result.error.message,
+        output: stoppedAt(actions, index, result.error.message),
         ...(result.error.code === "completion_unknown" || access.stopped?.()
           ? { stop: "computer_unsettled" as const }
           : {}),

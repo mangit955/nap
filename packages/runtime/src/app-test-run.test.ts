@@ -118,3 +118,43 @@ it("keeps stored screenshots ineligible until delivered and invalidates them aft
   run.delivered(["missing", "fresh"]);
   expect((await run.annotate({ ...declaration, result: "passed" })).ok).toBe(true);
 });
+it("names what is still untested when it refuses a verdict, so a model can correct the id", async () => {
+  // Seen in the reliability run: a model gave a verdict under an id it never declared (or under
+  // the test's own id), was told only that it did not match, and left the real assertion untested.
+  const { run } = fixture();
+  await run.annotate({ type: "test_start", id: "main", description: "Save an item" });
+  await run.annotate(declaration);
+  const wrongId = await run.annotate({ ...declaration, id: "main", result: "passed" });
+  expect(wrongId.ok).toBe(false);
+  if (wrongId.ok) throw new Error("unreachable");
+  expect(wrongId.error.message).toMatch(/^A verdict must match an untested assertion/);
+  expect(wrongId.error.message).toContain('"save": "The saved item appears"');
+});
+it("says a verdict needs input after its declaration, and which assertion is waiting", async () => {
+  const { run } = fixture();
+  await run.annotate({ type: "test_start", id: "main", description: "Save an item" });
+  await run.annotate(declaration);
+  run.screenshotStored("frame");
+  run.delivered(["frame"]);
+  const early = await run.annotate({ ...declaration, result: "passed" });
+  expect(early.ok).toBe(false);
+  if (early.ok) throw new Error("unreachable");
+  expect(early.error.message).toMatch(/^Perform the action and inspect a new screenshot/);
+  expect(early.error.message).toContain('"save"');
+  expect(early.error.message).toMatch(/no input since it was declared/);
+});
+it("does not claim there was no input when the input ran but its screenshot has not been seen", async () => {
+  // Seen when the reliability harness was broken on purpose: a verdict in the same batch as its
+  // click was told the assertion "has had no input", which was false and points the model at the
+  // wrong correction. What it lacks is a screenshot of that input reaching it.
+  const { run } = fixture();
+  await run.annotate({ type: "test_start", id: "main", description: "Save an item" });
+  await run.annotate(declaration);
+  run.afterAction({ action: "left_click", coordinate: [1, 2] }, true);
+  const sameBatch = await run.annotate({ ...declaration, result: "passed" });
+  expect(sameBatch.ok).toBe(false);
+  if (sameBatch.ok) throw new Error("unreachable");
+  expect(sameBatch.error.message).toMatch(/^Perform the action and inspect a new screenshot/);
+  expect(sameBatch.error.message).not.toMatch(/no input/);
+  expect(sameBatch.error.message).toMatch(/"save" has had input, but no screenshot taken after it/);
+});

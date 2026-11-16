@@ -95,6 +95,25 @@ describe("computer tool", () => {
       expect(NapEventSchema.safeParse({ ...event, seq: 1 }).success).toBe(true);
   });
 
+  it("sends a model's CTRL+A to the desktop as select-all, not Ctrl+Shift+A", async () => {
+    // Seen in the reliability run: CTRL+A reached xdotool as ctrl+A, which it reads as
+    // Ctrl+Shift+A, so the field kept its old value and the next keystroke appended to it.
+    const { desktop, context } = fixture();
+    await executeTool(
+      call([
+        { action: "key", text: "CTRL+A" },
+        { action: "hold_key", text: "Ctrl+V", duration: 0.1 },
+        { action: "key", text: "Return" },
+      ]),
+      context,
+    );
+    expect(desktop.actions.map((entry) => entry.action)).toEqual([
+      { action: "key", text: "CTRL+a" },
+      { action: "hold_key", text: "Ctrl+v", duration: 0.1 },
+      { action: "key", text: "Return" },
+    ]);
+  });
+
   it.each([
     [
       { action: "left_click", coordinate: [1, 2] },
@@ -316,3 +335,47 @@ it.each(["success", "failure", "throw"] as const)(
     expect(events.at(-1)).toMatchObject({ type: "tool.result", payload: { ok: result.ok } });
   },
 );
+
+it("says which actions a stopped batch did not run, naming the assertions it never declared", async () => {
+  // Seen in the reliability run: a refused verdict at the head of a batch silently dropped the next
+  // assertion's declaration and its input, and the model later gave a verdict for an id that was
+  // never recorded. Nothing after the refusal may run; the model has to be told so.
+  const { context, desktop } = fixture();
+  const seen: string[] = [];
+  if (context.computer)
+    context.computer.annotate = async (annotation) => {
+      seen.push(annotation.type);
+      return annotation.type === "assertion" && annotation.result === "passed"
+        ? { ok: false, error: { message: "Perform the action and inspect a new screenshot." } }
+        : { ok: true, value: undefined };
+    };
+  const result = await executeTool(
+    call([
+      {
+        action: "annotate",
+        annotation: { type: "assertion", id: "start", expectation: "Shown", result: "passed" },
+      },
+      {
+        action: "annotate",
+        annotation: {
+          type: "assertion",
+          id: "total",
+          expectation: "Total $36",
+          result: "untested",
+        },
+      },
+      { action: "annotate", annotation: { type: "action", description: "Set quantity" } },
+      { action: "left_click", coordinate: [10, 10] },
+      { action: "type", text: "3" },
+    ]),
+    context,
+  );
+  expect(result.ok).toBe(false);
+  expect(seen).toEqual(["assertion"]);
+  expect(desktop.actions).toEqual([]);
+  expect(result.output).toMatch(/^Perform the action and inspect a new screenshot\./);
+  expect(result.output).toContain("Stopped at action 1 of 5; the 4 after it did not run");
+  expect(result.output).toContain('the declaration of "total"');
+  expect(result.output).toContain("left_click");
+  expect(result.output).not.toContain("3");
+});
