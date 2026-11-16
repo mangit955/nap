@@ -74,10 +74,16 @@ export class AppTestRun {
             previous.expectation !== annotation.expectation ||
             previous.result !== "untested"
           )
-            return refuse("A verdict must match an untested assertion in the current test.");
-          if (this.#observedAction <= previous.declaredAfter)
             return refuse(
-              "Perform the action and inspect a new screenshot before assigning a verdict.",
+              `A verdict must match an untested assertion in the current test, repeating its id and expectation exactly. ${this.#untested()}`,
+            );
+          if (this.#observedAction <= previous.declaredAfter)
+            // Say which half is missing: a model that clicked in this same batch was told it had
+            // made no input, which is false and sends it to repeat the input instead of looking.
+            return refuse(
+              this.#action > previous.declaredAfter
+                ? `Perform the action and inspect a new screenshot before assigning a verdict. "${annotation.id}" has had input, but no screenshot taken after it has reached you yet: take a screenshot, look at it, then give its verdict in a later step.`
+                : `Perform the action and inspect a new screenshot before assigning a verdict. "${annotation.id}" has had no input since it was declared: act, look at the new screenshot in a later step, then give its verdict.`,
             );
           previous.result = annotation.result;
         }
@@ -144,6 +150,16 @@ export class AppTestRun {
     const counts = { passed: 0, failed: 0, untested: 0 };
     for (const assertion of this.#assertions.values()) counts[assertion.result] += 1;
     return counts;
+  }
+
+  /** What a model may still give a verdict for, quoted exactly, so a wrong id can be corrected. */
+  #untested(): string {
+    const waiting = [...this.#assertions.entries()]
+      .filter(([, entry]) => entry.chapter === this.#chapter && entry.result === "untested")
+      .map(([id, entry]) => `"${id}": "${entry.expectation}"`);
+    return waiting.length === 0
+      ? "Nothing in this test is untested; declare an assertion first."
+      : `Untested in this test: ${waiting.join("; ")}.`;
   }
 
   #pending(): boolean {
