@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // \"\"' | grep -qE '(^|[;&|]{1,2}[[:space:]]*)bun[[:space:]]+test([[:space:]]|$)' && { echo 'Blocked: bare `bun test` invokes the Bun built-in test runner over our Vitest files and reports nonsense. Use `bun run test`, or `bun run test:integration`. See CLAUDE.md.' >&2; exit 2; } || exit 0",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE '(^|[;&|]{1,2}[[:space:]]*)bun[[:space:]]+test([[:space:]]|$)' && { echo 'Blocked: bare `bun test` invokes the Bun built-in test runner over our Vitest files and reports nonsense. Use `bun run test`, or `bunx vitest run <file> -t \"<name>\"` for one test. See AGENTS.md.' >&2; exit 2; } || exit 0",
             "statusMessage": "Checking for bare `bun test`"
           }
         ]

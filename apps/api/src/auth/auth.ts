@@ -135,7 +135,7 @@ export type AuthConfig = {
  *
  * The library types a user as `Record<string, any> & {…}`, so `session.user.isAnonymous` is
  * `any` — and an `any` crossing into `Caller` is exactly the thing the strict-TypeScript rule
- * in `CLAUDE.md` exists to stop. Parsing costs one schema and makes a plugin that stops
+ * in `AGENTS.md` exists to stop. Parsing costs one schema and makes a plugin that stops
  * setting the field read as `false` rather than as `undefined` leaking downstream.
  */
 const SessionUserSchema = z.object({ isAnonymous: z.boolean().optional() });
