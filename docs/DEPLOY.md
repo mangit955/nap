@@ -483,9 +483,10 @@ the demo door still work.
 
 `NAP_MODEL_BASE_URL` stays unset in production, which keeps model calls on OpenRouter's own host.
 It exists to point a deployment's own model client at another Messages endpoint — a local Ollama,
-or a proxy — without changing code; `apps/api/.env.example` shows the Ollama settings. It must be
-the API root (a trailing `/v1` fails boot), and it never redirects a key a user saved to their
-account. The boot line names it when it is set.
+or a proxy — without changing code; `apps/api/.env.example` shows the Ollama settings. It moves
+only the turns the deployment pays for, which in the web app are the free tier's (`NAP_FREE_MODEL`);
+a key a user saved to their account always goes to its own vendor. It must be the API root (a
+trailing `/v1` fails boot), and the boot line names it when it is set.
 
 Two ways to get this wrong, both quiet:
 

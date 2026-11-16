@@ -1,29 +1,35 @@
 /**
- * Where the deployment's own model calls go, and how the model id is spelled when they get there.
+ * Where a model call goes, and the model id it carries when it gets there.
  *
  * Every route this project reaches speaks Anthropic's Messages API, so two independent choices
- * describe one completely. `NAP_PLATFORM` picks the dialect: which key is sent and how a model id
- * is spelled (`openrouter` namespaces it by vendor, `anthropic` leaves it bare). The base URL picks
- * the host. Absent, each platform keeps the host it always had, so a deployment that sets nothing
- * behaves exactly as before. Set, it moves only the host. That is how the same code reaches a
- * local Ollama (`anthropic` dialect, `http://localhost:11434`, a model id like `qwen3.5:9b` that
- * must not be namespaced) or a proxy in front of either vendor.
+ * describe the deployment's own client completely. The platform (`NAP_PLATFORM`) decides which key
+ * is sent and how `NAP_MODEL` is spelled: `openrouter` namespaces it by vendor, `anthropic` leaves
+ * it bare. The base URL (`NAP_MODEL_BASE_URL`) decides the host. Absent, each platform keeps the
+ * host it always had, so a deployment that sets nothing behaves exactly as before. Set, it moves
+ * only the host. That is how the same code reaches a local Ollama (the `anthropic` platform,
+ * `http://localhost:11434`, a model id like `qwen3.5:9b` that must not be namespaced) or a proxy
+ * in front of either vendor.
  *
  * **It moves the deployment's own client and nothing else.** A key somebody saved to their account
- * was checked against its vendor's own API and is billed there, so the client built for it in
- * `claude-provider.ts` never reads this setting. Pointing that key at an operator's endpoint would
+ * was checked against its vendor's own API and is billed there, so `createClientForKey` pins that
+ * vendor's host and reads no environment at all. Pointing that key at an operator's endpoint would
  * hand a user's secret to a host they never agreed to.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import { z } from "zod";
+import { ANTHROPIC_BASE_URL } from "./anthropic.ts";
 import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
 
-/** The environment key every composition reads the base URL from. */
-export const MODEL_BASE_URL_ENV = "NAP_MODEL_BASE_URL";
+/** The platforms a model client can be built for. Both speak the Messages API. */
+export type ModelPlatform = ModelCredentials["platform"];
 
-/** The dialects a deployment's model client can speak. Both are the Messages API. */
-export type ModelPlatform = "openrouter" | "anthropic";
+/** The key each platform authenticates with, read from the environment by the scripts. */
+const PLATFORM_KEY: Record<ModelPlatform, string> = {
+  openrouter: "OPENROUTER_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+};
 
 /**
  * The API root a model client is pointed at.
@@ -52,23 +58,9 @@ export const ModelBaseUrlSchema = z
 export type ModelBaseUrl = z.infer<typeof ModelBaseUrlSchema>;
 
 /**
- * The base URL from an environment, for the scripts that read one without the API's env schema.
- *
- * Read exactly as the API reads it: unset is absent, and a blank value is refused rather than
- * treated as unset, so a `.env` that boots the API is one the scripts accept and the reverse.
+ * The deployment's model id spelled the way `platform` spells it: namespaced for OpenRouter,
+ * verbatim otherwise. A model chosen per turn is spelled by `toModelId` in `claude-provider.ts`.
  */
-export function readModelBaseUrl(
-  env: Record<string, string | undefined>,
-): { ok: true; value: ModelBaseUrl | undefined } | { ok: false; error: string } {
-  const parsed = ModelBaseUrlSchema.optional().safeParse(env[MODEL_BASE_URL_ENV]);
-  if (parsed.success) return { ok: true, value: parsed.data };
-  return {
-    ok: false,
-    error: `${MODEL_BASE_URL_ENV} ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
-  };
-}
-
-/** A model id spelled the way `platform` spells it: namespaced for OpenRouter, verbatim otherwise. */
 export function qualifyModel(platform: ModelPlatform, model: string): string {
   return platform === "openrouter" ? toOpenRouterModel(model) : model;
 }
@@ -78,7 +70,7 @@ export type ModelClientOptions = {
   /** Absent keeps the platform's own host. */
   baseUrl?: ModelBaseUrl | undefined;
   /** Falls back to the platform's key in the environment, as the SDK and `createOpenRouterClient` do. */
-  apiKey?: string;
+  apiKey?: string | undefined;
 };
 
 /**
@@ -102,4 +94,60 @@ export function createModelClient(options: ModelClientOptions): Anthropic {
     ...(baseUrl === undefined ? {} : { baseURL: baseUrl }),
     maxRetries: 0,
   });
+}
+
+/**
+ * A client for a key somebody saved to their own account, always at that key's vendor.
+ *
+ * The host is pinned rather than left to the SDK, which would otherwise take `ANTHROPIC_BASE_URL`
+ * from the environment: Ollama's own instructions tell people to set exactly that, and a
+ * deployment that did would send every user's Anthropic key to its own host.
+ */
+export function createClientForKey(credentials: ModelCredentials): Anthropic {
+  return credentials.platform === "openrouter"
+    ? // No `baseUrl`: OpenRouter's client defaults to OpenRouter itself and reads no host from the
+      // environment.
+      createOpenRouterClient({ apiKey: credentials.apiKey })
+    : // Retries off, for the reason `ClaudeProvider` gives: its loop in `complete` is the policy.
+      new Anthropic({ apiKey: credentials.apiKey, baseURL: ANTHROPIC_BASE_URL, maxRetries: 0 });
+}
+
+/** What a script needs to reach the configured endpoint: the client, the model id, and the host. */
+export type ModelRoute = {
+  client: Anthropic;
+  model: string;
+  /** For the banner. Absent when the platform's own host is used. */
+  baseUrl: ModelBaseUrl | undefined;
+};
+
+/**
+ * The route a script's real run takes, read from an environment the way the API reads its own.
+ *
+ * For the compositions that run without the API's env schema — `harness --real`, `napbench
+ * --real`, anything else that drives a turn from a script — so they reach the endpoint a
+ * deployment configured with the same `.env` would, and fail before spending on a sandbox when it
+ * is misconfigured. Unset is absent; a blank value is refused, as the API refuses it at boot.
+ */
+export function modelRouteFromEnv(
+  env: Record<string, string | undefined>,
+  options: { platform: ModelPlatform; model: string },
+): { ok: true; value: ModelRoute } | { ok: false; error: string } {
+  const keyName = PLATFORM_KEY[options.platform];
+  const apiKey = env[keyName];
+  if (apiKey === undefined || apiKey === "") return { ok: false, error: `${keyName} is not set` };
+
+  const baseUrl = ModelBaseUrlSchema.optional().safeParse(env.NAP_MODEL_BASE_URL);
+  if (!baseUrl.success) {
+    const reasons = baseUrl.error.issues.map((issue) => issue.message).join("; ");
+    return { ok: false, error: `NAP_MODEL_BASE_URL ${reasons}` };
+  }
+
+  return {
+    ok: true,
+    value: {
+      client: createModelClient({ platform: options.platform, baseUrl: baseUrl.data, apiKey }),
+      model: qualifyModel(options.platform, options.model),
+      baseUrl: baseUrl.data,
+    },
+  };
 }

@@ -21,7 +21,7 @@ import { isolatedProjectComputer } from "../src/testing/isolated-project-compute
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
-import { createModelClient, qualifyModel, readModelBaseUrl } from "@nap/agent/model-endpoint";
+import { modelRouteFromEnv } from "@nap/agent/model-endpoint";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
@@ -211,31 +211,23 @@ let provider: LLMProvider;
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
 
-  // Each route authenticates differently, so each needs its own key.
-  const required =
-    options.platform === "openrouter"
-      ? ["E2B_API_KEY", "OPENROUTER_API_KEY"]
-      : ["E2B_API_KEY", "ANTHROPIC_API_KEY"];
-
-  for (const key of required) {
-    if (process.env[key]) continue;
-    console.error(`${key} is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
+  if (!process.env.E2B_API_KEY) {
+    console.error(`E2B_API_KEY is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
     process.exit(1);
   }
 
-  // The same setting the API reads, from the same file, so a harness turn reaches the endpoint
-  // a deployment configured with this .env would.
-  const baseUrl = readModelBaseUrl(process.env);
-  if (!baseUrl.ok) {
-    console.error(`${baseUrl.error}. Fix it in ${ENV_FILE}, then retry.`);
+  // The same key, host and model spelling the API would use with this .env, NAP_MODEL_BASE_URL
+  // included — the harness is how a configured endpoint is tried before a deployment depends on it.
+  const route = modelRouteFromEnv(process.env, options);
+  if (!route.ok) {
+    console.error(`${route.error}. Fix it in ${ENV_FILE}, or export it, then retry.`);
     process.exit(1);
   }
-
-  const model = qualifyModel(options.platform, options.model);
+  const { model, baseUrl, client } = route.value;
 
   console.log(
     `REAL RUN — ${model} via ${options.platform}` +
-      `${baseUrl.value === undefined ? "" : ` at ${baseUrl.value}`} at ${options.effort} effort, ` +
+      `${baseUrl === undefined ? "" : ` at ${baseUrl}`} at ${options.effort} effort, ` +
       `${options.maxSteps} steps max, ${options.budgetTokens} context tokens, ` +
       "on a real E2B sandbox. This costs money.\n",
   );
@@ -245,7 +237,7 @@ if (options.real) {
     effort: options.effort,
     maxTokens: HARNESS_DEFAULTS.maxOutputTokens,
     // Same provider, same loop, same events — only the transport underneath differs.
-    client: createModelClient({ platform: options.platform, baseUrl: baseUrl.value }),
+    client,
   });
 } else {
   console.log("Dry run on a scripted model and an in-memory sandbox. Pass --real to spend.\n");

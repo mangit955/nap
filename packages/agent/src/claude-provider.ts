@@ -53,7 +53,8 @@ import type {
 import { addUsage, billedWeightsFor, tokenUsage } from "@nap/shared/usage";
 import { z } from "zod";
 import { toDirectAnthropicModel } from "./anthropic.ts";
-import { createOpenRouterClient, toOpenRouterModel } from "./openrouter.ts";
+import { createClientForKey } from "./model-endpoint.ts";
+import { toOpenRouterModel } from "./openrouter.ts";
 
 /** The assembled response. Named locally so tests do not reach into the SDK's namespace. */
 export type AnthropicMessage = Anthropic.Message;
@@ -108,7 +109,8 @@ export type ClaudeProviderOptions = {
   effort?: Effort;
   maxTokens?: number;
   /**
-   * How a client is built for a turn that brought its own key. Defaults to the real thing.
+   * How a client is built for a turn that brought its own key. Defaults to the real thing,
+   * `createClientForKey`, which pins the key's own vendor whatever the environment says.
    *
    * Injected for the same reason `client` is, and it is not the same seam: `client` is the one
    * this process uses, while this is the one somebody *else's* credential produces. Without a
@@ -517,7 +519,7 @@ export class ClaudeProvider implements LLMProvider {
       new Anthropic({ apiKey: options.apiKey, maxRetries: 0 });
     this.#sleep = options.sleep ?? defaultSleep;
     this.#idleTimeoutMs = options.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
-    this.#createClient = options.createClient ?? createClientFor;
+    this.#createClient = options.createClient ?? createClientForKey;
   }
 
   startTurn(options: LLMTurnOptions = {}): LLMTurn {
@@ -563,24 +565,6 @@ export class ClaudeProvider implements LLMProvider {
     this.#clients.set(cacheKey, built);
     return built;
   }
-}
-
-/**
- * A real client for somebody else's key.
- *
- * Split out and injectable for the same reason `client` itself is: constructing one is the
- * only step here that reaches the network when used, so a test that wants to prove *which*
- * client a turn picked must be able to answer without making a request. Every version of this
- * test that called `complete` on a real client sent a live request to a vendor, which is
- * exactly what `test:integration` exists to contain.
- */
-function createClientFor(credentials: ModelCredentials): AnthropicClient {
-  return credentials.platform === "openrouter"
-    ? createOpenRouterClient({ apiKey: credentials.apiKey })
-    : // Retries off, for the reason the constructor gives: the loop in `complete` is the
-      // policy, and a second invisible one underneath it would make "gave up after N attempts"
-      // untestable and the real attempt count triple what it says.
-      new Anthropic({ apiKey: credentials.apiKey, maxRetries: 0 });
 }
 
 /**

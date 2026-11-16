@@ -26,17 +26,12 @@
 import { join } from "node:path";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
-import { createModelClient, qualifyModel, readModelBaseUrl } from "@nap/agent/model-endpoint";
+import { modelRouteFromEnv } from "@nap/agent/model-endpoint";
 import { DEFAULT_MAX_TOKENS } from "@nap/agent/safety/budget";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import type { BrowserSessionFactory } from "@nap/bench/browser-session";
 import { DEFAULT_CATEGORY_WEIGHTS } from "@nap/bench/category";
-import {
-  type BenchPlatform,
-  NAPBENCH_DEFAULTS,
-  NAPBENCH_USAGE,
-  parseNapBenchArgs,
-} from "@nap/bench/cli";
+import { NAPBENCH_DEFAULTS, NAPBENCH_USAGE, parseNapBenchArgs } from "@nap/bench/cli";
 import { compareRuns, formatComparison } from "@nap/bench/compare";
 import { deriveRunMetrics } from "@nap/bench/metrics";
 import type { ProductEvaluation } from "@nap/bench/product/evaluation";
@@ -173,17 +168,6 @@ const scriptedBrowser: BrowserSessionFactory = async () => ({
   value: new ScriptedBrowserSession(),
 });
 
-/**
- * The key each platform authenticates with, beyond `E2B_API_KEY`, which every real run needs.
- *
- * How a platform spells a model id and which client reaches it are `@nap/agent/model-endpoint`'s,
- * shared with the API and the harness so a benchmark run reaches the endpoint the deployment does.
- */
-const CREDENTIALS: Record<BenchPlatform, readonly string[]> = {
-  openrouter: ["OPENROUTER_API_KEY"],
-  anthropic: ["ANTHROPIC_API_KEY"],
-};
-
 let sandbox: SandboxManager;
 /**
  * Where a run's model comes from.
@@ -224,11 +208,19 @@ const judgeable = tasks.some((task) => task.intent !== undefined);
 if (options.real) {
   loadEnvFile(ENV_FILE, process.env);
 
-  for (const key of ["E2B_API_KEY", ...CREDENTIALS[options.platform]]) {
-    if (process.env[key]) continue;
-    console.error(`${key} is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
+  if (!process.env.E2B_API_KEY) {
+    console.error(`E2B_API_KEY is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
     process.exit(1);
   }
+
+  // The key, host and model spelling the API would use with this .env, NAP_MODEL_BASE_URL
+  // included, checked before the first sandbox is paid for.
+  const route = modelRouteFromEnv(process.env, options);
+  if (!route.ok) {
+    console.error(`${route.error}. Fix it in ${ENV_FILE}, or export it, then retry.`);
+    process.exit(1);
+  }
+  const { baseUrl } = route.value;
 
   // Checked before the first sandbox rather than when the first browser check runs: every
   // browser check in the suite would error for this reason, and discovering it after paying
@@ -276,14 +268,7 @@ if (options.real) {
   browser = launched.value.session;
   closeBrowser = launched.value.close;
 
-  // The same setting the API reads, from the same file.
-  const baseUrl = readModelBaseUrl(process.env);
-  if (!baseUrl.ok) {
-    console.error(`${baseUrl.error}. Fix it in ${ENV_FILE}, then retry.`);
-    process.exit(1);
-  }
-
-  const model = qualifyModel(options.platform, options.model);
+  const { model } = route.value;
   pricedModel = model;
 
   console.log(
@@ -293,7 +278,7 @@ if (options.real) {
     `REAL RUN — ${tasks.length * options.repeat} run(s) from "${selectionName}"` +
       `${options.repeat === 1 ? "" : ` (${tasks.length} task(s) × ${options.repeat})`}` +
       `, serially, on ${model} via ` +
-      `${options.platform}${baseUrl.value === undefined ? "" : ` at ${baseUrl.value}`} ` +
+      `${options.platform}${baseUrl === undefined ? "" : ` at ${baseUrl}`} ` +
       `at ${options.effort} effort, ${options.maxSteps} steps max, ` +
       `${options.budgetTokens} context tokens, ` +
       // Named in the banner because it decides what is being measured rather than what it
@@ -312,7 +297,7 @@ if (options.real) {
     model,
     effort: options.effort,
     maxTokens: NAPBENCH_DEFAULTS.maxOutputTokens,
-    client: createModelClient({ platform: options.platform, baseUrl: baseUrl.value }),
+    client: route.value.client,
   });
   providerFor = () => claude;
 } else {

@@ -2,13 +2,14 @@ import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import Anthropic from "@anthropic-ai/sdk";
 import { afterEach, describe, expect, it } from "vitest";
+import { ANTHROPIC_BASE_URL } from "./anthropic.ts";
 import { ClaudeProvider } from "./claude-provider.ts";
 import {
+  createClientForKey,
   createModelClient,
-  type ModelBaseUrl,
   ModelBaseUrlSchema,
+  modelRouteFromEnv,
   qualifyModel,
-  readModelBaseUrl,
 } from "./model-endpoint.ts";
 import { OPENROUTER_BASE_URL } from "./openrouter.ts";
 
@@ -174,32 +175,115 @@ describe("ModelBaseUrlSchema", () => {
   });
 });
 
-describe("readModelBaseUrl", () => {
-  it("is absent when the key is unset", () => {
-    expect(readModelBaseUrl({})).toEqual({ ok: true, value: undefined });
+describe("modelRouteFromEnv", () => {
+  const OLLAMA = {
+    ANTHROPIC_API_KEY: "ollama",
+    NAP_MODEL_BASE_URL: "http://localhost:11434",
+  };
+
+  it("builds the client, the model id and the host from the environment", () => {
+    const route = modelRouteFromEnv(OLLAMA, { platform: "anthropic", model: "qwen3.5:9b" });
+
+    expect(route.ok).toBe(true);
+    if (!route.ok) return;
+    expect(route.value.model).toBe("qwen3.5:9b");
+    expect(route.value.baseUrl).toBe("http://localhost:11434");
+    expect(route.value.client.baseURL).toBe("http://localhost:11434");
+    expect(route.value.client.apiKey).toBe("ollama");
   });
 
-  it("refuses a blank value, as the API's boot check does", () => {
+  it("keeps the platform's own host when the base URL is unset", () => {
+    const route = modelRouteFromEnv(
+      { OPENROUTER_API_KEY: "sk-or-test" },
+      { platform: "openrouter", model: "claude-sonnet-5" },
+    );
+
+    expect(route.ok).toBe(true);
+    if (!route.ok) return;
+    expect(route.value.baseUrl).toBeUndefined();
+    expect(route.value.client.baseURL).toBe(OPENROUTER_BASE_URL);
+    expect(route.value.model).toBe("anthropic/claude-sonnet-5");
+  });
+
+  it("names the platform's key when it is missing or blank", () => {
+    for (const env of [{}, { OPENROUTER_API_KEY: "" }])
+      expect(modelRouteFromEnv(env, { platform: "openrouter", model: "m" })).toEqual({
+        ok: false,
+        error: "OPENROUTER_API_KEY is not set",
+      });
+    expect(
+      modelRouteFromEnv(
+        { OPENROUTER_API_KEY: "sk-or-test" },
+        { platform: "anthropic", model: "m" },
+      ),
+    ).toEqual({ ok: false, error: "ANTHROPIC_API_KEY is not set" });
+  });
+
+  it("refuses a blank base URL, as the API's boot check does", () => {
     // A script that read `KEY=` as unset would accept a .env the API refuses to boot on.
-    expect(readModelBaseUrl({ NAP_MODEL_BASE_URL: "" }).ok).toBe(false);
+    const route = modelRouteFromEnv(
+      { ...OLLAMA, NAP_MODEL_BASE_URL: "" },
+      { platform: "anthropic", model: "m" },
+    );
+    expect(route.ok).toBe(false);
   });
 
-  it("returns a checked URL", () => {
-    expect(readModelBaseUrl({ NAP_MODEL_BASE_URL: "http://localhost:11434" })).toEqual({
-      ok: true,
-      value: "http://localhost:11434" as ModelBaseUrl,
+  it("names the key and the fix when the base URL ends in /v1", () => {
+    const route = modelRouteFromEnv(
+      { ...OLLAMA, NAP_MODEL_BASE_URL: "http://localhost:11434/v1" },
+      { platform: "anthropic", model: "m" },
+    );
+    expect(route.ok).toBe(false);
+    if (!route.ok) expect(route.error).toMatch(/^NAP_MODEL_BASE_URL .*without \/v1/);
+  });
+});
+
+describe("createClientForKey", () => {
+  /** Runs `body` with `ANTHROPIC_BASE_URL` set, as Ollama's instructions tell people to. */
+  function withAnthropicBaseUrl(body: () => void): void {
+    const before = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = "http://operator-host.example:11434";
+    try {
+      body();
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = before;
+    }
+  }
+
+  it("sends somebody's Anthropic key to Anthropic whatever the environment says", () => {
+    withAnthropicBaseUrl(() => {
+      // The SDK alone would follow the variable; the key's own client must not.
+      expect(new Anthropic({ apiKey: "k" }).baseURL).toBe("http://operator-host.example:11434");
+      expect(createClientForKey({ platform: "anthropic", apiKey: "sk-ant-x" }).baseURL).toBe(
+        ANTHROPIC_BASE_URL,
+      );
     });
   });
 
-  it("names the key and the fix when the URL ends in /v1", () => {
-    const read = readModelBaseUrl({ NAP_MODEL_BASE_URL: "http://localhost:11434/v1" });
-    expect(read.ok).toBe(false);
-    if (!read.ok) expect(read.error).toMatch(/^NAP_MODEL_BASE_URL .*without \/v1/);
+  it("sends somebody's OpenRouter key to OpenRouter whatever the environment says", () => {
+    withAnthropicBaseUrl(() => {
+      const before = process.env.NAP_MODEL_BASE_URL;
+      process.env.NAP_MODEL_BASE_URL = "http://operator-host.example:11434";
+      try {
+        expect(createClientForKey({ platform: "openrouter", apiKey: "sk-or-x" }).baseURL).toBe(
+          OPENROUTER_BASE_URL,
+        );
+      } finally {
+        if (before === undefined) delete process.env.NAP_MODEL_BASE_URL;
+        else process.env.NAP_MODEL_BASE_URL = before;
+      }
+    });
+  });
+
+  it("keeps the provider's retry loop the only one", () => {
+    for (const platform of ["openrouter", "anthropic"] as const)
+      expect(createClientForKey({ platform, apiKey: "k" }).maxRetries).toBe(0);
   });
 });
 
 describe("qualifyModel", () => {
-  it("namespaces for OpenRouter and leaves every other dialect verbatim", () => {
+  it("namespaces for OpenRouter and leaves Anthropic's spelling verbatim", () => {
     expect(qualifyModel("openrouter", "claude-sonnet-5")).toBe("anthropic/claude-sonnet-5");
     expect(qualifyModel("openrouter", "openai/gpt-5.6-luna")).toBe("openai/gpt-5.6-luna");
     expect(qualifyModel("anthropic", "claude-sonnet-5")).toBe("claude-sonnet-5");
