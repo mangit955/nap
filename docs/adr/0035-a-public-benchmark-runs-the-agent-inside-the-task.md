@@ -55,9 +55,10 @@ reaches containers by name over the Docker CLI, the coupling the previous sectio
 
 `runTaskTurn` (`packages/runtime/src/task-turn.ts`) is the context engine, the agent service and the
 sandbox, and nothing else: no preview, verification, commit, snapshot or thumbnail, which are all
-part of a Nap turn and all wrong for a benchmark task. It counts model requests and tokens at the
-provider, because a free model's quota is counted in requests and a failed turn's event carries no
-usage.
+part of a Nap turn and all wrong for a benchmark task. It counts model calls and tokens at the
+provider, because a failed turn's event carries no usage, and HTTP requests at the client
+(`@nap/agent/counted-client`), because the provider retries a throttled request inside one call and
+a free model's quota counts every request.
 
 Two adjustments make Nap's agent usable in a machine it did not build, and both are limited to
 this path:
@@ -69,9 +70,11 @@ this path:
   The starter prompt describes a React template that is not there, and the repository prompt forbids
   merging and changing branches, which a task like `fix-git` asks for.
 
-What is **not** adjusted is the command guard. It refuses `apt-get`, direct network tools and writes
-outside the project, as it does in production. The baseline measures the agent Nap ships, and
-whether a benchmark run should relax the guard is a separate measured change.
+What is **not** adjusted is the command guard. It refuses `apt-get`, direct network tools and shell
+writes outside the project, as it does in production. It compares paths as text, so a shell write to
+the task's own `/app/…` is refused even though the link makes it the project; the agent recovers by
+writing through `/home/user/app` or a relative path, at the cost of a step. The baseline measures the
+agent Nap ships, and whether a benchmark run should relax the guard is a separate measured change.
 
 ### Spending is refused unless asked for
 
@@ -82,9 +85,11 @@ repository puts real spend behind a flag.
 
 - Running Terminal-Bench needs Harbor, Docker, `bun` and a checkout. The task machine needs `bash`,
   `base64` and `timeout`, which every Debian and Ubuntu task image has.
-- Terminal-Bench's prebuilt images are amd64-only. On an arm64 machine `--force-build` builds each
-  task from its Dockerfile natively, which is slower on the first run and may differ from the
-  published image if a Dockerfile installs something whose version has moved.
+- Terminal-Bench's published images are amd64-only. On an arm64 machine they run under Docker's
+  emulation, or `--force-build` builds each task from its Dockerfile natively. A rebuilt image may
+  differ from the published one when a Dockerfile installs something that has moved, and some no
+  longer build: `fix-git`'s clones a GitHub repository that has been deleted. The published image
+  is the benchmark; a rebuild is a convenience.
 - Output reaches the agent when a command ends, not as it is printed: the channel has no streaming.
   The tool results are the same; only the live `command.output` events are coarser.
 - A turn that outgrows its context budget fails instead of compacting, because this composition

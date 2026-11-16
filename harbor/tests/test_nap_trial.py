@@ -80,6 +80,10 @@ class TestReadingTheResult:
         metadata = metadata_from_result(json.loads(EXAMPLE.read_text()), 0)
 
         assert metadata["model_requests"] == 21
+        assert metadata["model_steps"] == 20
+        # Every figure the example carries reaches Harbor; a field renamed on the TypeScript
+        # side and in the example would arrive here as None.
+        assert None not in [value for key, value in metadata.items() if key != "failure"]
         assert metadata["status"] == "failed"
         assert metadata["failure"]["reason"] == "budget_exceeded"
         assert metadata_from_result(None, 1) == {"entrypoint_exit_code": 1}

@@ -9,54 +9,28 @@
  * suite; slow enough to stay out of `test:fast`.
  */
 
-import { execFileSync, spawn } from "node:child_process";
-import type { ExecResult, SandboxError } from "@nap/shared/ports/sandbox-manager";
-import type { Result } from "@nap/shared/result";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ChannelSandboxManager } from "./channel-sandbox-manager.ts";
-import type { ExecChannel } from "./exec-channel.ts";
+import {
+  dockerExecChannel,
+  removeContainer,
+  startContainer,
+} from "./testing/docker-exec-channel.ts";
 
-/** Debian, as most Terminal-Bench images are; slim, so it has coreutils and no git or procps. */
-const IMAGE = "debian:bookworm-slim";
 const ID = "harbor-task";
 
 let container = "";
 
 beforeAll(() => {
-  container = execFileSync(
-    "docker",
-    ["run", "-d", "--rm", "-w", "/app", IMAGE, "sleep", "infinity"],
-    { encoding: "utf8" },
-  ).trim();
+  container = startContainer("/app");
 }, 120_000);
 
 afterAll(() => {
-  if (container !== "") execFileSync("docker", ["rm", "-f", container]);
+  if (container !== "") removeContainer(container);
 });
 
-/** What Harbor's Docker environment does with `environment.exec`, give or take Compose. */
-const dockerChannel: ExecChannel = (command, options) =>
-  new Promise<Result<ExecResult, SandboxError>>((resolve) => {
-    const child = spawn("docker", ["exec", container, "bash", "-c", command]);
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (data: string) => {
-      stdout += data;
-    });
-    child.stderr.setEncoding("utf8").on("data", (data: string) => {
-      stderr += data;
-    });
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve({ ok: false, error: { code: "timeout", message: "channel deadline" } });
-    }, options?.timeoutMs ?? 120_000);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ ok: true, value: { exitCode: code ?? 1, stdout, stderr } });
-    });
-  });
-
-const box = () => new ChannelSandboxManager({ sandboxId: ID, channel: dockerChannel });
+const box = () =>
+  new ChannelSandboxManager({ sandboxId: ID, channel: dockerExecChannel(container) });
 
 describe("ChannelSandboxManager in a Linux container", () => {
   it("round-trips bytes through the container's own base64", async () => {

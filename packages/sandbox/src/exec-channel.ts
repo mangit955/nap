@@ -51,6 +51,9 @@ export const ExecResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type ExecResponse = z.infer<typeof ExecResponseSchema>;
 
+/** Just enough of a line to know it answers one of this channel's requests. */
+const ExecAddressSchema = z.object({ channel: z.literal(CHANNEL_TAG), id: z.int().nonnegative() });
+
 /** One command, run to completion in the far machine's default working directory. */
 export type ExecChannel = (
   command: string,
@@ -120,7 +123,22 @@ export class LineExecChannel {
       return false;
     }
     const parsed = ExecResponseSchema.safeParse(json);
-    if (!parsed.success) return false;
+    if (!parsed.success) {
+      // An answer to one of ours that cannot be read fails that command now. Dropped, it would
+      // leave the command waiting for an answer that has already come.
+      const id = ExecAddressSchema.safeParse(json);
+      if (!id.success) return false;
+      const settle = this.#pending.get(id.data.id);
+      this.#pending.delete(id.data.id);
+      settle?.({
+        ok: false,
+        error: {
+          code: "exec_failed",
+          message: `An answer this side cannot read: ${line.slice(0, 200)}`,
+        },
+      });
+      return true;
+    }
     const answer = parsed.data;
     const settle = this.#pending.get(answer.id);
     if (settle === undefined) return true;

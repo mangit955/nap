@@ -135,3 +135,24 @@ async def serve(
     for task in list(in_flight):
         task.cancel()
     await asyncio.gather(*in_flight, return_exceptions=True)
+
+
+#: How long the child has, once its channel is closed, to stop its turn and write what it counted.
+STOP_GRACE_SEC = 10.0
+
+
+async def finish(process: asyncio.subprocess.Process, grace_sec: float = STOP_GRACE_SEC) -> int:
+    """Ends the child however the trial ended, and returns its exit code.
+
+    A child that is still running when this is called was abandoned: Harbor timed the trial out
+    or was interrupted, and cancelled the code waiting on it. Closing its stdin is how it is
+    told: it stops its turn, writes its result and exits. One that does not exit in time is
+    killed, so no turn is left calling the model where nothing records the requests.
+    """
+    if process.returncode is None and process.stdin is not None:
+        process.stdin.close()
+    try:
+        return await asyncio.wait_for(process.wait(), grace_sec)
+    except TimeoutError:
+        process.kill()
+        return await process.wait()

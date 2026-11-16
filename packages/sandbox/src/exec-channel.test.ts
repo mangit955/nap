@@ -87,6 +87,15 @@ describe("LineExecChannel", () => {
     expect((await pending).ok).toBe(true);
   });
 
+  it("fails a command whose answer it cannot read, rather than leaving it waiting", async () => {
+    const { channel } = wired();
+    const pending = channel.exec("true");
+    expect(
+      channel.receive(JSON.stringify({ channel: CHANNEL_TAG, id: 0, ok: true, exitCode: "0" })),
+    ).toBe(true);
+    expect(await pending).toMatchObject({ ok: false, error: { code: "exec_failed" } });
+  });
+
   it("fails everything waiting, and everything after, once the parent goes away", async () => {
     const { channel } = wired();
     const pending = channel.exec("true");

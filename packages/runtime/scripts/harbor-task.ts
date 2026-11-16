@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { NapAgentService } from "@nap/agent/agent-service";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
+import { countRequests } from "@nap/agent/counted-client";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
@@ -51,8 +52,15 @@ if (!process.env.OPENROUTER_API_KEY) {
 
 const channel = new LineExecChannel((line) => process.stdout.write(`${line}\n`));
 const answers = createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY });
+// Harbor closes the channel when it gives up on the trial: its timeout, or an interrupt. Nothing
+// can reach the machine after that, so the turn stops rather than spending requests on tools that
+// can only fail, and still writes what it counted.
+const stopped = new AbortController();
 answers.on("line", (line) => channel.receive(line));
-answers.on("close", () => channel.close("Harbor closed the channel to the task's machine."));
+answers.on("close", () => {
+  channel.close("Harbor closed the channel to the task's machine.");
+  stopped.abort();
+});
 
 const instruction = readFileSync(join(options.jobDir, HARBOR_TASK_FILES.instruction), "utf8");
 const trajectory = createWriteStream(join(options.jobDir, HARBOR_TASK_FILES.trajectory));
@@ -62,6 +70,8 @@ console.error(
     (options.spend ? ", spending allowed" : ", free"),
 );
 
+const http = countRequests(createOpenRouterClient());
+
 const result = await runTaskTurn({
   sandbox: new ChannelSandboxManager({ sandboxId: "harbor-task", channel: channel.exec }),
   context: new NapContextEngine(),
@@ -70,8 +80,10 @@ const result = await runTaskTurn({
     model: toOpenRouterModel(options.model),
     effort: HARBOR_TASK_DEFAULTS.effort,
     maxTokens: HARBOR_TASK_DEFAULTS.maxOutputTokens,
-    client: createOpenRouterClient(),
+    client: http.client,
   }),
+  requests: http.requests,
+  signal: stopped.signal,
   agentFor: (provider) => new NapAgentService({ provider, budget: { maxSteps: options.maxSteps } }),
   instruction,
   model: options.model,
@@ -87,7 +99,8 @@ writeFileSync(
   `${JSON.stringify(result, null, 2)}\n`,
 );
 console.error(
-  `\n${result.status} in ${(result.durationMs / 1_000).toFixed(1)}s — ${result.requests} model requests, ` +
+  `\n${result.status} in ${(result.durationMs / 1_000).toFixed(1)}s — ${result.steps} steps, ` +
+    `${result.requests} model requests, ` +
     `${result.usage.inputTokens} input and ${result.usage.outputTokens} output tokens` +
     (result.failure === null ? "" : ` — ${result.failure.reason}: ${result.failure.message}`),
 );

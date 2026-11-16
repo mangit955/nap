@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 from nap_harbor.channel import (
@@ -11,6 +12,8 @@ from nap_harbor.channel import (
     ExecOutcome,
     ExecRequest,
     answer,
+    failure,
+    finish,
     parse_request,
     serve,
 )
@@ -39,15 +42,16 @@ class TestTheSharedExample:
         ]
 
     def test_every_example_response_is_one_this_side_writes(self):
-        responses = example_lines("response")
-        success, timeout, failed = responses
+        success, timeout, failed = example_lines("response")
 
-        assert (
-            asyncio.run(answer(ExecRequest(id=0, command="x", timeout_sec=None), _returns(success)))
-            == success
+        written = asyncio.run(
+            answer(ExecRequest(id=0, command="x", timeout_sec=None), _returns(success))
         )
-        assert set(timeout) == set(failed) == {"channel", "id", "ok", "code", "message"}
-        assert {timeout["code"], failed["code"]} == {"timeout", "exec_failed"}
+        assert written == success
+        # What this side writes for a failure has exactly the example's fields, which the
+        # TypeScript half parses strictly.
+        for example in (timeout, failed):
+            assert failure(example["id"], example["code"], example["message"]) == example
 
 
 def _returns(response: dict):
@@ -173,3 +177,31 @@ class TestServe:
             return replies
 
         assert asyncio.run(scenario()) == []
+
+
+class TestFinish:
+    """However a trial ends, the child is stopped and nothing is left calling the model."""
+
+    def test_lets_a_child_that_stops_on_a_closed_channel_exit_by_itself(self):
+        async def scenario() -> int:
+            child = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                "import sys; sys.stdin.read(); sys.exit(0)",
+                stdin=asyncio.subprocess.PIPE,
+            )
+            return await finish(child, grace_sec=5)
+
+        assert asyncio.run(scenario()) == 0
+
+    def test_kills_a_child_that_does_not_stop(self):
+        async def scenario() -> int:
+            child = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                "import time; time.sleep(60)",
+                stdin=asyncio.subprocess.PIPE,
+            )
+            return await finish(child, grace_sec=0.5)
+
+        assert asyncio.run(scenario()) < 0

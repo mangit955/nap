@@ -6,6 +6,7 @@ import { TASK_SYSTEM_PROMPT } from "@nap/context/system-prompt";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { NapEvent } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import { describe, expect, it } from "vitest";
 import { linkWorkspaceCommand, runTaskTurn, TaskTurnResultSchema } from "./task-turn.ts";
 
@@ -33,16 +34,40 @@ const SOLVES: ScriptedTurn = [
   { text: "Wrote the regex.", usage: { inputTokens: 1_200, outputTokens: 10 } },
 ];
 
-async function run(turn: ScriptedTurn, box = sandbox(), maxSteps = 10) {
+async function run(
+  turn: ScriptedTurn,
+  box = sandbox(),
+  maxSteps = 10,
+  extra: { signal?: AbortSignal; onComplete?: () => void } = {},
+) {
   const provider = new ScriptedLLMProvider([turn]);
+  // What the client below the provider would count: here, one HTTP request per model call plus
+  // one retry on the first, so the result is seen to report this number and not the steps.
+  let http = 0;
+  const counted: LLMProvider = {
+    startTurn: (options) => {
+      const inner = provider.startTurn(options);
+      return {
+        ...inner,
+        usage: () => inner.usage(),
+        complete: (request) => {
+          http += http === 0 ? 2 : 1;
+          extra.onComplete?.();
+          return inner.complete(request);
+        },
+      };
+    },
+  };
   const events: NapEvent[] = [];
   let now = 1_000;
   const result = await runTaskTurn({
     sandbox: box,
     context: new NapContextEngine(),
     memory: new NoopMemoryProvider(),
-    provider,
-    agentFor: (counted) => new NapAgentService({ provider: counted, budget: { maxSteps } }),
+    provider: counted,
+    agentFor: (metered) => new NapAgentService({ provider: metered, budget: { maxSteps } }),
+    requests: () => http,
+    ...(extra.signal === undefined ? {} : { signal: extra.signal }),
     instruction: "Save your regex in /app/regex.txt",
     model: MODEL,
     onEvent: (event) => events.push(event),
@@ -58,8 +83,10 @@ describe("runTaskTurn", () => {
     expect(result.status).toBe("completed");
     expect(result.failure).toBeNull();
     expect(result.workdir).toBe("/app");
-    // One request per model call, counted at the provider, and the usage it reported summed.
-    expect(result.requests).toBe(2);
+    // Model calls counted at the provider, HTTP requests from the client's own count, and the
+    // usage the provider reported summed.
+    expect(result.steps).toBe(2);
+    expect(result.requests).toBe(3);
     expect(result.usage).toEqual({ inputTokens: 2_200, outputTokens: 60, cacheReadTokens: 400 });
     expect(TaskTurnResultSchema.parse(result)).toEqual(result);
 
@@ -89,7 +116,8 @@ describe("runTaskTurn", () => {
 
     expect(result.status).toBe("failed");
     expect(result.failure?.reason).toBe("budget_exceeded");
-    expect(result.requests).toBe(3);
+    expect(result.steps).toBe(3);
+    expect(result.requests).toBe(4);
     // A failed turn carries no usage on its event; the count at the provider still has it.
     expect(result.usage).toEqual({ inputTokens: 300, outputTokens: 15 });
   });
@@ -107,6 +135,26 @@ describe("runTaskTurn", () => {
       message: "the task's working directory is /, which is not a project",
     });
     expect(result.requests).toBe(0);
+    expect(result.steps).toBe(0);
     expect(provider.requests).toHaveLength(0);
+  });
+
+  it("stops when its signal fires, and still reports what it spent", async () => {
+    // What the entrypoint does when Harbor closes the channel: a turn nobody can answer for must
+    // not keep calling the model.
+    const controller = new AbortController();
+    const looping: ScriptedTurn = Array.from({ length: 5 }, (_, index) => ({
+      toolCalls: [{ id: `ls_${index}`, name: "list_files", input: { path: PROJECT_ROOT_PATH } }],
+      usage: { inputTokens: 100, outputTokens: 5 },
+    }));
+    const { result } = await run(looping, sandbox(), 10, {
+      signal: controller.signal,
+      onComplete: () => controller.abort(),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.failure?.reason).toBe("cancelled");
+    expect(result.steps).toBe(1);
+    expect(TaskTurnResultSchema.parse(result)).toEqual(result);
   });
 });

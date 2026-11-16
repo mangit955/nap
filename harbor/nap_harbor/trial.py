@@ -95,7 +95,11 @@ def context_from_result(result: dict | None) -> dict:
 
 
 def metadata_from_result(result: dict | None, exit_code: int | None) -> dict:
-    """What else a reader of Harbor's trial result needs: the outcome and the request count."""
+    """What else a reader of Harbor's trial result needs: the outcome and the request count.
+
+    ``model_requests`` is HTTP requests, retries included, which is what a free model's quota
+    counts; ``model_steps`` is the agent's model calls.
+    """
     if result is None:
         return {"entrypoint_exit_code": exit_code}
     return {
@@ -104,5 +108,6 @@ def metadata_from_result(result: dict | None, exit_code: int | None) -> dict:
         "failure": result.get("failure"),
         "model": result.get("model"),
         "model_requests": result.get("requests"),
+        "model_steps": result.get("steps"),
         "duration_ms": result.get("durationMs"),
     }

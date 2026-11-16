@@ -19,31 +19,41 @@ why the second is.
 uv run --directory harbor --extra harbor harbor run \
   -d terminal-bench/terminal-bench-2-1 -i terminal-bench/regex-log -i terminal-bench/fix-git \
   -a nap_harbor.agent:NapAgent -m nvidia/nemotron-3-ultra-550b-a55b:free \
-  --force-build -n 1 -o ~/.cache/nap-harbor/jobs
+  -n 1 -o ~/.cache/nap-harbor/jobs
 ```
 
-- `-i` picks tasks by their namespaced name (`terminal-bench/<task>`, globs allowed); `harbor download terminal-bench/terminal-bench-2-1` fetches all 89.
 - `-m` is any OpenRouter model id. One without `:free` is refused unless `NAP_HARBOR_FLAGS`
   contains `--spend`, because it costs money.
-- `--force-build` builds each task from its Dockerfile. Terminal-Bench's published images are
-  amd64-only, so on an arm64 Mac this is what makes them run natively.
-- `NAP_HARBOR_FLAGS` passes flags to the entrypoint, e.g. `--max-steps=15`. Every step is one
-  model request, and a free model's quota is counted in requests.
+- Harbor pulls each task's published image. Those are amd64-only, and Docker Desktop runs them
+  under emulation on an arm64 Mac: slower, but the benchmark as published. `--force-build` builds
+  each task from its Dockerfile instead, natively, but some no longer build: `fix-git`'s clones a
+  GitHub repository that has since been deleted.
+- `-i` picks tasks by namespaced name (`terminal-bench/<task>`, globs allowed);
+  `harbor download terminal-bench/terminal-bench-2-1` fetches all 89 to read.
+- `NAP_HARBOR_FLAGS` passes flags to the entrypoint, e.g. `--max-steps=15`. A step is one model
+  call, and a call the provider retries after a throttle or a failure is several requests, so a
+  free model's quota, counted in requests, can go faster than the steps do.
 - Needs Docker, `bun install` done, and `OPENROUTER_API_KEY` in `apps/api/.env`.
 
 For each trial, Harbor writes `<job>/<trial>/verifier/reward.txt` (1 or 0, from the task's hidden
-tests) and `<trial>/result.json`, whose `agent_result.metadata` carries Nap's outcome and
-`model_requests`. In `<trial>/agent/`:
+tests) and `<trial>/result.json`, whose `agent_result.metadata` carries Nap's outcome,
+`model_requests` (HTTP requests, retries included) and `model_steps` (the agent's model calls). In `<trial>/agent/`:
 
 | File | Written by |
 |---|---|
 | `instruction.md` | The Python agent: the task's instruction, read by the entrypoint |
 | `trajectory.jsonl` | The entrypoint: every event of the turn, one per line |
-| `nap-result.json` | The entrypoint: outcome, model requests, token usage, wall time |
+| `nap-result.json` | The entrypoint: outcome, model requests and steps, token usage, wall time |
 | `nap.log` | The entrypoint's stderr: the turn as it ran, one event per line |
 
-The agent runs with Nap's command guard as it ships, so a task that needs `apt-get` or a write
-outside the task's directory is refused those commands. ADR-0035 records why.
+If Harbor gives up on a trial (its timeout, or an interrupt), the Python agent closes the
+channel; the entrypoint stops its turn, still writes `nap-result.json`, and is killed if it has
+not exited ten seconds later.
+
+The agent runs with Nap's command guard as it ships. `run_command` refuses `apt-get`, direct
+network tools, and shell writes to any absolute path outside `/home/user/app`, which includes the
+task's own path (`echo x > /app/out.txt` is refused; the same write through `/home/user/app` or a
+relative path is not). The file tools have no such check. ADR-0035 records why it is unchanged.
 
 ## NapBench
 

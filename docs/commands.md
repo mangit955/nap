@@ -96,7 +96,7 @@ bun run napbench:trial verify --job-dir=<dir> --reward-dir=<dir>
 bun run harbor:tasks      # regenerates harbor/tasks/ from @nap/bench/suite — free, offline.
                           # Generated, gitignored, and includes a bundled verifier per task
 uv run --directory harbor --extra harbor harbor run -d terminal-bench/terminal-bench-2-1 \
-  -i terminal-bench/<task> -a nap_harbor.agent:NapAgent -m <openrouter-id> --force-build -n 1 -o <jobs-dir>
+  -i terminal-bench/<task> -a nap_harbor.agent:NapAgent -m <openrouter-id> -n 1 -o <jobs-dir>
                           # Nap's agent on Terminal-Bench 2.1 tasks, inside each task's own
                           # container, scored by the task's hidden tests. Free on a `:free` model
                           # (a paid one is refused without NAP_HARBOR_FLAGS=--spend), but each

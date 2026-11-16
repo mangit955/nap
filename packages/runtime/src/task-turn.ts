@@ -8,10 +8,10 @@
  * still Nap's agent: the context engine assembles the prompt, the agent service runs the loop and
  * its tools against the sandbox, and nothing else happens. See ADR-0035.
  *
- * The model requests and the tokens are counted here, at the provider, for one reason: a free
- * model's daily quota is counted in requests, and a benchmark run is sized by how many one task
- * takes. A `turn.failed` carries no usage, so reading it off the events would lose exactly the
- * runs that matter most.
+ * Model calls and tokens are counted here, at the provider, and HTTP requests by whoever built the
+ * client, for one reason: a free model's daily quota is counted in requests, and a benchmark run
+ * is sized by how many one task takes. A `turn.failed` carries no usage, so reading it off the
+ * events would lose exactly the runs that matter most.
  */
 
 import { randomUUID } from "node:crypto";
@@ -38,8 +38,13 @@ export const TaskTurnResultSchema = z.strictObject({
   /** Why it failed, as the turn said. `null` when it completed. */
   failure: z.strictObject({ reason: z.string(), message: z.string() }).nullable(),
   model: z.string().min(1),
-  /** Model requests sent, retries included: what a free model's daily quota counts. */
+  /**
+   * HTTP requests sent to the model, every retry included: what a free model's daily quota
+   * counts. At least `steps`, more when the provider retried a throttled or failed request.
+   */
   requests: z.int().nonnegative(),
+  /** Model calls the agent made: its steps. */
+  steps: z.int().nonnegative(),
   usage: TokenUsageSchema,
   durationMs: z.int().nonnegative(),
   /** The task's own directory, which the agent's project path was linked to. */
@@ -55,6 +60,11 @@ export type TaskTurnOptions = {
   provider: LLMProvider;
   /** Builds the agent on the counted provider: the count is only true if every request passes it. */
   agentFor: (provider: LLMProvider) => AgentService;
+  /**
+   * HTTP requests sent so far, counted by whoever built the provider's client: the provider
+   * retries below `complete()`, where nothing here can see it. See `@nap/agent/counted-client`.
+   */
+  requests: () => number;
   instruction: string;
   model: string;
   /** Every event, numbered in the order it happened. */
@@ -78,17 +88,20 @@ export function linkWorkspaceCommand(): string {
     `ws=$(pwd -P)`,
     `if [ "$ws" = / ]; then echo "the task's working directory is /, which is not a project" >&2; exit 1; fi`,
     `if [ ! -e ${root} ]; then mkdir -p "$(dirname ${root})" && ln -s "$ws" ${root}; fi`,
+    // Checked rather than assumed: a machine that already has something at the project path, or
+    // a link that could not be made, would leave the agent working where the tests never look.
+    `if [ "$(cd ${root} 2>/dev/null && pwd -P)" != "$ws" ]; then echo "${PROJECT_ROOT_PATH} is not the task's working directory $ws" >&2; exit 1; fi`,
     `printf %s "$ws"`,
   ].join("\n");
 }
 
-/** Counts what passes through a provider: every request, and every token it reports. */
+/** Counts what passes through a provider: every model call, and every token it reports. */
 export function meterProvider(inner: LLMProvider): {
   provider: LLMProvider;
-  requests(): number;
+  steps(): number;
   usage(): TokenUsage;
 } {
-  let requests = 0;
+  let steps = 0;
   const turns: LLMTurn[] = [];
   return {
     provider: {
@@ -101,7 +114,7 @@ export function meterProvider(inner: LLMProvider): {
         const compact = turn.compact;
         return {
           complete: (request) => {
-            requests += 1;
+            steps += 1;
             return turn.complete(request);
           },
           usage: () => turn.usage(),
@@ -113,7 +126,7 @@ export function meterProvider(inner: LLMProvider): {
         };
       },
     },
-    requests: () => requests,
+    steps: () => steps,
     usage: () =>
       turns.reduce((total, turn) => addUsage(total, turn.usage()), {
         inputTokens: 0,
@@ -146,7 +159,8 @@ export async function runTaskTurn(options: TaskTurnOptions): Promise<TaskTurnRes
     status: ending.status,
     failure: ending.status === "failed" ? { reason: ending.reason, message: ending.message } : null,
     model: options.model,
-    requests: meter.requests(),
+    requests: options.requests(),
+    steps: meter.steps(),
     usage: meter.usage(),
     durationMs: Math.max(0, Math.round(clock() - started)),
     workdir,

@@ -16,7 +16,7 @@ from harbor.agents.base import BaseAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
-from nap_harbor.channel import LINE_LIMIT, ExecOutcome, serve
+from nap_harbor.channel import LINE_LIMIT, ExecOutcome, finish, serve
 from nap_harbor.trial import (
     INSTRUCTION_FILENAME,
     LOG_FILENAME,
@@ -88,18 +88,22 @@ class NapAgent(BaseAgent):
                 stdin.write(line)
                 await stdin.drain()
 
-            await serve(
-                process.stdout,
-                reply,
-                run_in_task_machine,
-                lambda line: self.logger.info("nap: %s", line),
-            )
-            exit_code = await process.wait()
-
-        result = read_result(self.logs_dir)
-        for key, value in context_from_result(result).items():
-            setattr(context, key, value)
-        context.metadata = metadata_from_result(result, exit_code)
+            exit_code: int | None = None
+            try:
+                await serve(
+                    process.stdout,
+                    reply,
+                    run_in_task_machine,
+                    lambda line: self.logger.info("nap: %s", line),
+                )
+            finally:
+                # However this ended, including Harbor cancelling it at the task's timeout: the
+                # child is told to stop, and whatever it counted is filed before anything else.
+                exit_code = await finish(process)
+                result = read_result(self.logs_dir)
+                for key, value in context_from_result(result).items():
+                    setattr(context, key, value)
+                context.metadata = metadata_from_result(result, exit_code)
 
         if result is None:
             # Raised rather than scored: no result means the agent never ran, which is a broken
