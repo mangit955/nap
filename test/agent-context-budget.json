@@ -1,0 +1,16 @@
+{
+  "prompts": {
+    "system": 3339,
+    "repositorySystem": 854,
+    "planMode": 998,
+    "approvedPlanFrame": 258,
+    "exploreHelper": 772,
+    "generalHelper": 603
+  },
+  "tools": {
+    "turn": 16606,
+    "planTurn": 6318,
+    "exploreHelper": 2273,
+    "generalHelper": 5423
+  }
+}
