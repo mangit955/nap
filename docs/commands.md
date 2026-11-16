@@ -11,6 +11,16 @@ commands below still work, but nothing is being built on them.
 ```bash
 bun run test              # unit + type + web + db + computer suites — deterministic and free; db needs Docker
 bun run test:fast         # unit + type + web — the Docker-free inner loop
+bun run check:changed     # Biome, typecheck of the changed packages and their dependents, every node test
+                          # in the changed packages plus test/, the tests elsewhere that import or name a
+                          # changed file, and the Python gates if Python changed — against the merge base
+                          # with origin/main, uncommitted and untracked files included; free. <ref> picks
+                          # another base, --staged is the pre-commit hook. Component tests (.test.tsx) run
+                          # by import only; tests that read another package's files without naming them
+                          # are listed in scripts/check-changed.ts. A changed setup file runs its project;
+                          # biome.json runs Biome over the repo. db tests run only when Docker is up; a
+                          # computer suite only when it, its namesake, or a file it reads changed. CI
+                          # still runs everything
 bun run test:integration  # needs something external; run at milestone boundaries only
                           # most of it is real E2B + real model calls and costs money — but not
                           # all: the browser suites need only a Chrome at NAP_CHROME_PATH and
