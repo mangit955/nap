@@ -5,9 +5,10 @@ tasks after seeing how the agent did on them. So the sets are drawn once, by a s
 the whole dataset, and committed before any scored run: **test** is what a reported number comes
 from and is never tuned against; **dev** is what a change is tried on first. The two are disjoint.
 
-``tests/test_task_sets.py`` redraws both from the committed population and the seed below and
-fails if a committed list differs, so a list edited by hand, or a seed changed to get a friendlier
-draw, is caught. Changing either on purpose means a new set and a new baseline, never a quiet edit.
+``tests/test_task_sets.py`` pins the seed below and a hash of the population as literals, and
+redraws both sets and fails if a committed list differs, so a list edited by hand, a seed changed
+to get a friendlier draw, or a population edited and redrawn is caught. Changing either on
+purpose means a new set and a new baseline, never a quiet edit.
 
 Standard library only. ``python -m nap_harbor.task_sets <dev|test>`` prints Harbor's ``-i`` flags
 for a set, which is how the benchmark workflow passes it.

@@ -95,9 +95,11 @@ jobs:
           if [[ "$SCRIPTED" != true && -z "$OPENROUTER_API_KEY" ]]; then
             echo "::error::the BENCHMARK_OPENROUTER_API_KEY secret is not set"; exit 1
           fi
-          # A failure inside $(...) does not stop the step: an empty list here would let Harbor
-          # run the whole dataset under this set's name, so it is refused rather than passed on.
-          read -ra include <<< "$(uv run --directory harbor python -m nap_harbor.task_sets "$SET")"
+          # Assigned on its own line so a failure stops the step (inside a here-string it would
+          # not), and checked non-empty: an empty list would let Harbor run the whole dataset
+          # under this set's name.
+          flags_for_set="$(uv run --directory harbor python -m nap_harbor.task_sets "$SET")"
+          read -ra include <<< "$flags_for_set"
           if (( ${#include[@]} == 0 )); then
             echo "::error::could not read the $SET task set"; exit 1
           fi

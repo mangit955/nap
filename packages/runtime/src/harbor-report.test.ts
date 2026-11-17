@@ -53,7 +53,7 @@ describe("wilsonInterval", () => {
     expect(wilsonInterval(25, 25).high).toBeCloseTo(1, 12);
   });
 
-  it("is about twenty points either side at n=25, which is why one run proves little", () => {
+  it("is up to about eighteen points either side at n=25, which is why one run proves little", () => {
     // The published Wilson interval for 7 of 25 at 95%: 0.143 to 0.476.
     const { low, high } = wilsonInterval(7, 25);
     expect(low).toBeCloseTo(0.143, 3);
@@ -150,6 +150,20 @@ describe("summarise", () => {
   it("leaves a paid model with no price out of the cost rather than guessing", () => {
     const unknown = summarise([trial({ nap: nap({ model: "vendor/unpriced" }) })]);
     expect(unknown.cost).toMatchObject({ usd: 0, priced: 0, unpriced: 1, perPricedTrialUsd: null });
+  });
+
+  it("leaves a trial the verifier never scored out of the agreement", () => {
+    const unscored = summarise([trial(), trial({ task: "terminal-bench/b", reward: null })]);
+    expect(unscored.agreement).toMatchObject({ claimedPassed: 1, claimedFailed: 0, notRun: 1 });
+    expect(unscored.agreement.rate).toBe(1);
+  });
+
+  it("rounds the total once, on the summed usage, not once a trial", () => {
+    // Each of these costs 0.0000055 to the exact cent-thousandth: rounded a trial at a time, three
+    // of them would add up to 0.00003; priced once, they come to 0.00002.
+    const tiny = nap({ usage: { inputTokens: 5, outputTokens: 10 } });
+    const three = summarise([trial({ nap: tiny }), trial({ nap: tiny }), trial({ nap: tiny })]);
+    expect(three.cost.usd).toBe(estimateCost(MODEL, { inputTokens: 15, outputTokens: 30 })?.usd);
   });
 
   it("prices a free model's trials at nothing, since that is what they cost", () => {

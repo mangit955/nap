@@ -54,7 +54,7 @@ export const FAILURE_KINDS = {
   model_unavailable: "The model could not be reached",
   claimed_done_tests_failed: "Nap claimed done; the hidden tests failed",
   turn_failed: "Nap's turn failed for another reason",
-  no_agent_result: "The agent left no result",
+  no_agent_result: "The agent left no result, or one this report could not read",
   not_scored: "The verifier gave no reward",
 } as const;
 export type FailureKind = keyof typeof FAILURE_KINDS;
@@ -160,7 +160,12 @@ export function summarise(
       passed: passedTrial(trial),
       claimedDone: claimedDone(trial),
       kind,
-      ran: trial.nap !== null && kind !== "harness_error" && kind !== "unfinished",
+      // Nap ran and the tests judged it: only then is there a claim and a verdict to compare.
+      ran:
+        trial.nap !== null &&
+        trial.reward !== null &&
+        kind !== "harness_error" &&
+        kind !== "unfinished",
       steps: trial.nap?.steps ?? null,
       requests: trial.nap?.requests ?? null,
       usage: trial.nap?.usage ?? null,
@@ -182,9 +187,25 @@ export function summarise(
     failures[row.kind] = [...(failures[row.kind] ?? []), row.task];
   }
 
-  const prices = rows.flatMap((row) => (row.usd === null ? [] : [row.usd]));
-  const usd = prices.reduce((sum, value) => sum + value, 0);
+  const priced = count((row) => row.usd !== null);
   const results = sorted.flatMap((trial) => (trial.nap === null ? [] : [trial.nap]));
+  // Priced once per model on the summed usage, not by adding each row's rounded figure, so the
+  // total carries one rounding rather than one per trial.
+  const usageByModel = new Map<string, TokenUsage>();
+  for (const result of results)
+    if (trialCost(result) !== null)
+      usageByModel.set(
+        result.model,
+        addUsage(
+          usageByModel.get(result.model) ?? { inputTokens: 0, outputTokens: 0 },
+          result.usage,
+        ),
+      );
+  const usd = [...usageByModel].reduce(
+    (sum, [model, usage]) =>
+      sum + (isFreeModel(model) ? 0 : (estimateCost(model, usage)?.usd ?? 0)),
+    0,
+  );
 
   return {
     models: [...new Set(results.map((result) => result.model))].sort(),
@@ -205,9 +226,9 @@ export function summarise(
     },
     cost: {
       usd: round(usd),
-      perPricedTrialUsd: prices.length === 0 ? null : round(usd / prices.length),
-      priced: prices.length,
-      unpriced: rows.length - prices.length,
+      perPricedTrialUsd: priced === 0 ? null : round(usd / priced),
+      priced,
+      unpriced: rows.length - priced,
       priceTableVersion: PRICE_TABLE_VERSION,
     },
     usage: results.reduce((total, result) => addUsage(total, result.usage), {
@@ -254,7 +275,7 @@ export function renderReport(report: BenchmarkReport): string {
       : []),
     "Every planned trial counts, a harness error or an unfinished trial as a failure " +
       `(${report.harnessErrors} and ${report.unfinished} here). On a few dozen tasks the interval ` +
-      "is wide, about twenty points either side at 25: two runs whose rates differ by less than " +
+      "is wide, up to about eighteen points either side at 25: two runs whose rates differ by less than " +
       "that have not shown a difference.",
     "",
     "## Claimed done against the hidden tests",

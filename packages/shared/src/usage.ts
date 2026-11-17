@@ -63,7 +63,7 @@ function weights(output: number): BilledWeights {
 }
 
 /**
- * The weights of each model Nap runs on, keyed by the ids `MODEL_PRICES` in `@nap/bench/pricing`
+ * The weights of each model Nap runs on, keyed by the ids `MODEL_PRICES` in `@nap/shared/pricing`
  * uses — a test there holds the two tables to the same models and the same output ratio.
  *
  * The one place these numbers live. The provider hands a turn its row (`LLMTurn.billedWeights`),

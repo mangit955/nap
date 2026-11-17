@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from nap_harbor.task_sets import (
     DEV_SIZE,
     POPULATION_FILE,
+    SEED,
     SET_FILES,
     TEST_SIZE,
     draw,
@@ -13,6 +16,19 @@ from nap_harbor.task_sets import (
     read_ids,
     render,
 )
+
+
+#: The draw's inputs, as literals. Redrawing proves the files match the module, but a seed or a
+#: population edited in the module, then written out again, would redraw to match itself; these
+#: are what make a friendlier draw fail. Changing one on purpose is a new set and a new baseline.
+LOCKED_SEED = 20261117
+LOCKED_POPULATION_SHA256 = "8c6cd88ccbf9a4a598d080de1398381fcdd2adeb82df54daeda7830a8bdfe07c"
+
+
+def test_the_seed_and_population_are_the_locked_ones():
+    assert SEED == LOCKED_SEED
+    population = "\n".join(sorted(read_ids(POPULATION_FILE))).encode()
+    assert hashlib.sha256(population).hexdigest() == LOCKED_POPULATION_SHA256
 
 
 def test_the_committed_sets_are_exactly_the_seeded_draw():

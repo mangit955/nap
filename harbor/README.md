@@ -74,7 +74,7 @@ bun run packages/runtime/scripts/harbor-report.ts <jobs>/<name>   # writes repor
 The report (`packages/runtime/src/harbor-report.ts`) gives:
 
 - **Pass rate** over every trial, a harness error counted as a failure, with its 95% Wilson
-  interval. At 25 tasks that interval is about twenty points either side, so two runs that differ
+  interval. At 25 tasks that interval is up to about eighteen points either side (widest near 50%), so two runs that differ
   by less have not shown a difference.
 - **Claimed done against the hidden tests**: a two-by-two of Nap's claim and the reward. The claim
   is the turn's ending: `completed` means the agent stopped and handed back, which Nap shows as
