@@ -12,9 +12,9 @@
  * why absent beats inferred throughout NapBench.
  */
 
-import type { TokenUsage } from "@nap/shared/ports/llm-provider";
-import { billedTokens, billedWeightsFor } from "@nap/shared/usage";
 import { z } from "zod";
+import type { TokenUsage } from "./ports/llm-provider.ts";
+import { billedTokens, billedWeightsFor } from "./usage.ts";
 
 /**
  * Bumped whenever the table below changes at all, and recorded in every estimate.
@@ -32,9 +32,10 @@ import { z } from "zod";
  * sharing a name, and no way to tell from the report which one produced the figure.
  *
  * The cache multipliers count as part of the table: 2026-11-09 is the version that began
- * pricing cached input below the input rate, with the rates themselves unchanged.
+ * pricing cached input below the input rate, with the rates themselves unchanged; 2026-11-17 added
+ * `gpt-6-luna`, the model public benchmark runs are scored on (harbor/README.md).
  */
-export const PRICE_TABLE_VERSION = "2026-11-09";
+export const PRICE_TABLE_VERSION = "2026-11-17";
 
 export const ModelPriceSchema = z.strictObject({
   inputPerMTokUsd: z.number().nonnegative(),
@@ -58,6 +59,9 @@ export const MODEL_PRICES = {
   // which is the rate the funded before/after arms were quoted — not one anybody read off a
   // bill, since nothing here ever does. See docs/napbench-verification-measurement.md.
   "openai/gpt-5.6-terra": { inputPerMTokUsd: 1, outputPerMTokUsd: 6 },
+  // The scoring model for public benchmarks: OpenRouter's listing on 2026-11-17, the day it was
+  // added. Its cached input is priced by its row of `MODEL_BILLED_WEIGHTS`, like every row here.
+  "openai/gpt-6-luna": { inputPerMTokUsd: 0.1, outputPerMTokUsd: 0.5 },
   // The demo model. Anthropic's published first-party rate; OpenRouter's own margin on top
   // is not modelled, which is one more reason the figure is called an estimate.
   "anthropic/claude-opus-5": { inputPerMTokUsd: 5, outputPerMTokUsd: 25 },
