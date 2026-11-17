@@ -87,6 +87,9 @@ The report (`packages/runtime/src/harbor-report.ts`) gives:
 - **Failures by kind**: Harbor's timeout, a harness error, a trial that never finished, the step
   budget, the model unreachable, a claim of done the tests refuted, and the rest.
 
+The first scored run, on the test set with `openai/gpt-6-luna`, is written up in
+[`docs/napbench-terminal-bench-baseline.md`](../docs/napbench-terminal-bench-baseline.md).
+
 `NAP_HARBOR_FLAGS=--scripted` runs a scripted model instead of OpenRouter: no key, no spend. It
 checks the wiring end to end and nothing about the agent; its report says so.
 
