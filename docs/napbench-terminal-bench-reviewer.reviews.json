@@ -1,0 +1,721 @@
+{
+  "note": "What each review said and wrote in the three reviewer runs, read from each trial's nap-result.json, and the size of the agent's first request in every trial of baseline 2 and the reviewer runs, read from each trajectory's first context.usage event. Kept so the write-up's claims about findings and first turns can be checked from the repository.",
+  "reviews": {
+    "R1": {
+      "configure-git-webserver": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 1,
+          "failure": null,
+          "steps": 3,
+          "usage": {
+            "inputTokens": 7481,
+            "outputTokens": 3602,
+            "cacheWriteTokens": 2128,
+            "cacheReadTokens": 5344
+          },
+          "sentBack": false,
+          "findings": [
+            "- The Git integration could not be exercised because Git is not installed in the review environment. Both shell syntax checks passed."
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "constraints-scheduling": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 4,
+          "usage": {
+            "inputTokens": 12750,
+            "outputTokens": 2722,
+            "cacheWriteTokens": 3806,
+            "cacheReadTokens": 8932
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "filter-js-from-html": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 0,
+          "failure": null,
+          "steps": 3,
+          "usage": {
+            "inputTokens": 8074,
+            "outputTokens": 1558,
+            "cacheWriteTokens": 2411,
+            "cacheReadTokens": 5654
+          },
+          "sentBack": true,
+          "findings": [
+            "- The sanitizer leaves `data:` URLs containing executable HTML and JavaScript untouched, so JavaScript can still run when the iframe is loaded. This breaks the requirement to remove all JavaScript.\n  `python3 - <<'PY'\nimport importlib.util\nspec = importlib.util.spec_from_file_location('filter', '/home/user/app/filter.py')\nmodule = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(module)\nsource = '<iframe src=\"data:text/html,<script>alert(1)</script>\"></iframe>'\nprint(module._Sanitizer(source).finish())\nPY` printed:\n    <iframe src=\"data:text/html,<script>alert(1)</script>\"></iframe>"
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "model-extraction-relu-logits": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 0,
+          "failure": null,
+          "steps": 6,
+          "usage": {
+            "inputTokens": 22869,
+            "outputTokens": 2922,
+            "cacheWriteTokens": 5387,
+            "cacheReadTokens": 17464
+          },
+          "sentBack": true,
+          "findings": [
+            "- The recovered matrix has 11 rows pointing opposite to their matching A1 rows. Negative scaling is not a valid ReLU neuron scaling symmetry, so the output is not A1 up to permutation and valid scaling.\n  `python -B -c 'import numpy as np, runpy, forward; saved={}; np.save=lambda p,a: saved.update(a=np.array(a)); runpy.run_path(\"steal.py\", run_name=\"__main__\"); got=saved[\"a\"]; true=forward.A1/np.linalg.norm(forward.A1,axis=1)[:,None]; c=got@true.T; ix=np.argmax(np.abs(c),axis=1); matched=c[np.arange(len(ix)),ix]; print(\"minimum absolute cosine:\",np.min(np.abs(matched))); print(\"rows opposite A1 direction:\",np.flatnonzero(matched < 0).tolist())'` printed:\n    rows opposite A1 direction: [3, 4, 5, 7, 8, 10, 11, 12, 14, 16, 18]"
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "multi-source-data-merger": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 4,
+          "usage": {
+            "inputTokens": 13674,
+            "outputTokens": 1245,
+            "cacheWriteTokens": 3712,
+            "cacheReadTokens": 9950
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [
+            "./__pycache__/merge_users.cpython-311.pyc",
+            "./merged_users.parquet",
+            "./conflicts.json"
+          ],
+          "restored": true
+        }
+      ],
+      "pypi-server": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 1,
+          "failure": null,
+          "steps": 6,
+          "usage": {
+            "inputTokens": 16096,
+            "outputTokens": 1914,
+            "cacheWriteTokens": 3517,
+            "cacheReadTokens": 12561
+          },
+          "sentBack": false,
+          "findings": [
+            "- The requested package installed successfully from the local index at http://localhost:8080/simple, and the installed dotproduct example returned 1. `python -m pytest -q` could not run because pytest is not installed."
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "sanitize-git-repo": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 1,
+          "failure": null,
+          "steps": 10,
+          "usage": {
+            "inputTokens": 251650,
+            "outputTokens": 7638,
+            "cacheWriteTokens": 38782,
+            "cacheReadTokens": 212838
+          },
+          "sentBack": false,
+          "findings": [
+            "- The credentials were replaced in the current files, but remain in Git history, so sensitive values are still present in the repository after sanitization.\n  `git log --all -p -G'AKIA1234567890123456|D4w8z9wKN1aVeT3BpQj6kIuN7wH8X0M9KfV5OqzF|ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789|hf_abcdefghijklmnopqrstuvwxyz123456' -- ray_processing/process.py ray_processing/ray_cluster.yaml` printed:\n    commit 8e04bee5930690f382f7fb0c279dfb021ed4d0a6\n    ...\n    +    - echo 'export AWS_ACCESS_KEY_ID=AKIA1234567890123456' >> ~/.bashrc\n    +    - echo 'export AWS_SECRET_ACCESS_KEY=D4w8z9wKN1aVeT3BpQj6kIuN7wH8X0M9KfV5OqzF' >> ~/.bashrc\n    ...\n    commit 13f0794e0f0122f829780b96a0ff66f71396a0f7\n    ...\n    +    - git clone -b https://ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789@github.com/mlfoundations/dcnlp.git\n    ...\n    commit d6987af002b122fef54bc0be402062c76488a4d9\n    ...\n    +    - huggingface-cli login --token hf_abcdefghijklmnopqrstuvwxyz123456 -y"
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "torch-pipeline-parallelism": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 1,
+          "failure": null,
+          "steps": 5,
+          "usage": {
+            "inputTokens": 18691,
+            "outputTokens": 2602,
+            "cacheWriteTokens": 3594,
+            "cacheReadTokens": 15082
+          },
+          "sentBack": false,
+          "findings": [
+            "- I could not run the implementation or tests: `python` and `python3` are not available in the environment. The project listing contained only `pipeline_parallel.py`, with no test files."
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ]
+    },
+    "R2": {
+      "configure-git-webserver": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 1,
+          "failure": null,
+          "steps": 7,
+          "usage": {
+            "inputTokens": 23386,
+            "outputTokens": 5114,
+            "cacheWriteTokens": 3106,
+            "cacheReadTokens": 20259
+          },
+          "sentBack": false,
+          "findings": [
+            "- I could not exercise the push-and-serve flow in this environment: Git and Python 3 are unavailable, and the environment refused the curl request. The shell syntax check passed."
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "constraints-scheduling": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 4,
+          "usage": {
+            "inputTokens": 15295,
+            "outputTokens": 3635,
+            "cacheWriteTokens": 3991,
+            "cacheReadTokens": 11292
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "feal-differential-cryptanalysis": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 6,
+          "usage": {
+            "inputTokens": 14602,
+            "outputTokens": 932,
+            "cacheWriteTokens": 2485,
+            "cacheReadTokens": 12099
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": ["./__pycache__/attack.cpython-313.pyc"],
+          "restored": true
+        }
+      ],
+      "filter-js-from-html": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 0,
+          "failure": null,
+          "steps": 3,
+          "usage": {
+            "inputTokens": 10175,
+            "outputTokens": 1294,
+            "cacheWriteTokens": 3453,
+            "cacheReadTokens": 6713
+          },
+          "sentBack": true,
+          "findings": [
+            "- The sanitizer leaves executable SVG event-handler attributes in place. `onbegin` and `onend` are not removed, so the output still contains JavaScript, contrary to the request to remove all JavaScript.\n  `python -c 'from filter import sanitize_html; s=\"<svg><animate onbegin=alert(1) onend=alert(2) attributeName=opacity dur=1s></animate></svg>\"; print(sanitize_html(s))'` printed:\n    <svg><animate onbegin=alert(1) onend=alert(2) attributeName=opacity dur=1s></animate></svg>"
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "fix-code-vulnerability": [
+        {
+          "status": "completed",
+          "blocking": 2,
+          "notes": 1,
+          "failure": null,
+          "steps": 7,
+          "usage": {
+            "inputTokens": 137037,
+            "outputTokens": 4154,
+            "cacheWriteTokens": 24355,
+            "cacheReadTokens": 112661
+          },
+          "sentBack": true,
+          "findings": [
+            "- `parse_range_header` silently ignores an invalid byte range instead of raising an error for invalid input, so the requested fix in `bottle.py` is missing.\n  `python -c \"import bottle; h='bytes=abc-def'; print('invalid range:', repr(h)); print('result:', list(bottle.parse_range_header(h, 100)));\"` printed:\n    invalid range: 'bytes=abc-def'\n    result: []",
+            "- `report.jsonl` identifies CWE-93, but the silently ignored invalid input is an input-validation issue (CWE-20); the report does not include that CWE ID.\n  `python -c \"import json; r=json.loads(open('report.jsonl').read()); assert 'cwe-20' in r['cwe_id'], r['cwe_id']\"` printed:\n    AssertionError: ['cwe-93']",
+            "- `pytest -rA` passed all 367 tests, but the tests do not catch the invalid-range behavior shown above."
+          ],
+          "wrote": ["./.pytest_cache/v/cache/nodeids"],
+          "restored": true
+        }
+      ],
+      "model-extraction-relu-logits": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 0,
+          "failure": null,
+          "steps": 5,
+          "usage": {
+            "inputTokens": 18435,
+            "outputTokens": 3328,
+            "cacheWriteTokens": 4387,
+            "cacheReadTokens": 14033
+          },
+          "sentBack": true,
+          "findings": [
+            "- The saved rows are not all A1 rows up to positive scaling and permutation: 8 of 20 are sign-reversed. For ReLU units, negative scaling reverses which side of the boundary is active, so this does not meet the requested equivalence.\n  `python -c 'import numpy as np, forward; r=np.load(\"stolen_A1.npy\"); a=forward.A1; c=r@a.T/(np.linalg.norm(r,axis=1)[:,None]*np.linalg.norm(a,axis=1)[None,:]); idx=np.argmax(np.abs(c),axis=1); signed=c[np.arange(len(r)),idx]; print(\"recovered:\",r.shape,\"truth:\",a.shape); print(\"rows aligned with positive scale:\",int(np.sum(signed>0)),\"of\",len(signed)); print(\"signed correlations:\",np.round(signed,6))'` printed:\n    rows aligned with positive scale: 12 of 20\n    signed correlations: [ 1. -1. -1. -1.  1.  1.  1.  1.  1. -1.  1. -1.  1.  1.  1. -1. -1.  1.\n      1. -1.]"
+          ],
+          "wrote": ["./__pycache__/steal.cpython-313.pyc"],
+          "restored": true
+        }
+      ],
+      "multi-source-data-merger": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 5,
+          "usage": {
+            "inputTokens": 12160,
+            "outputTokens": 1816,
+            "cacheWriteTokens": 2673,
+            "cacheReadTokens": 9472
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "pypi-server": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 6,
+          "usage": {
+            "inputTokens": 12808,
+            "outputTokens": 1862,
+            "cacheWriteTokens": 1662,
+            "cacheReadTokens": 11128
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "regex-chess": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 0,
+          "failure": null,
+          "steps": 5,
+          "usage": {
+            "inputTokens": 63828,
+            "outputTokens": 1162,
+            "cacheWriteTokens": 27652,
+            "cacheReadTokens": 36161
+          },
+          "sentBack": true,
+          "findings": [
+            "- The move generator does not handle arbitrary positions as requested: on a valid position with White to move and 8 legal moves, it returns the unchanged FEN instead of the legal next positions.\n  `python3 - <<'PY'\nimport json,re,chess\nfen='8/8/8/8/8/8/4K3/7k w - - 0 1'\nout=fen\nfor pattern,repl in json.load(open('re.json')):\n out=re.sub(pattern,repl,out)\nactual=out.split('\\n')\nboard=chess.Board(fen)\nexpected=[]\nfor move in board.legal_moves:\n board2=board.copy(); board2.push(move); expected.append(' '.join(board2.fen().split(' ')[:-2]))\nprint('legal_moves',len(expected),'returned_lines',len(actual),'matched',len(set(actual)&set(expected)))\nprint('output',repr(out))\nPY` printed:\n    legal_moves 8 returned_lines 1 matched 0\n    output '8/8/8/8/8/8/4K3/7k w - - 0 1'"
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "sanitize-git-repo": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 0,
+          "failure": null,
+          "steps": 8,
+          "usage": {
+            "inputTokens": 241877,
+            "outputTokens": 6484,
+            "cacheWriteTokens": 45998,
+            "cacheReadTokens": 195855
+          },
+          "sentBack": true,
+          "findings": [
+            "- The current files replace the credentials, but the repository\u2019s reachable Git history still contains credential-like AWS, GitHub, and Hugging Face values. Those values therefore remain in the repository history, contrary to the request to ensure sensitive values are no longer present.\n  `git show d6987af:ray_processing/ray_cluster.yaml | python -c 'import re,sys; d=sys.stdin.buffer.read(); pats={\"AWS access key\":rb\"\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b\",\"GitHub token\":rb\"\\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\\b\",\"Huggingface token\":rb\"\\bhf_[A-Za-z0-9]{30,}\\b\"}; [print(f\"{name}: {len(re.findall(pat,d))} found in historical ray_cluster.yaml\") for name,pat in pats.items()]'` printed:\n    AWS access key: 1 found in historical ray_cluster.yaml\n    GitHub token: 1 found in historical ray_cluster.yaml\n    Huggingface token: 1 found in historical ray_cluster.yaml"
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "torch-pipeline-parallelism": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 1,
+          "failure": null,
+          "steps": 6,
+          "usage": {
+            "inputTokens": 21622,
+            "outputTokens": 5010,
+            "cacheWriteTokens": 3222,
+            "cacheReadTokens": 18382
+          },
+          "sentBack": false,
+          "findings": [
+            "- I could not run the implementation or tests: `python`, `python3`, and `pytest` are unavailable in the environment."
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ]
+    },
+    "R3": {
+      "break-filter-js-from-html": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 1,
+          "failure": null,
+          "steps": 7,
+          "usage": {
+            "inputTokens": 19920,
+            "outputTokens": 1992,
+            "cacheWriteTokens": 3046,
+            "cacheReadTokens": 16853
+          },
+          "sentBack": true,
+          "findings": [
+            "- The filtered HTML does not trigger an automatic alert in Chromium, so the required XSS bypass fails.\n  `python -c 'from pathlib import Path; import tempfile, subprocess, time; from selenium import webdriver; from selenium.webdriver.chrome.options import Options; from selenium.webdriver.chrome.service import Service; from selenium.webdriver.support.ui import WebDriverWait; from selenium.webdriver.support import expected_conditions as EC; p=Path(tempfile.mktemp(suffix=\".html\")); p.write_text(Path(\"/app/out.html\").read_text()); subprocess.run([\"python\",\"/app/filter.py\",str(p)],check=True); o=Options(); o.add_argument(\"--headless\"); o.add_argument(\"--no-sandbox\"); o.add_argument(\"--disable-dev-shm-usage\"); o.binary_location=\"/usr/bin/chromium\"; d=webdriver.Chrome(service=Service(\"/usr/bin/chromedriver\"),options=o); d.get(p.as_uri());\ntry: print(\"alert:\", WebDriverWait(d,5).until(EC.alert_is_present()).text)\nexcept Exception: print(\"alert: none\")\nd.quit(); p.unlink()'` printed:\n    alert:",
+            "- Running `python /app/test_outputs.py` exited successfully but produced no output, so it did not demonstrate the expected verification."
+          ],
+          "wrote": ["./__pycache__/filter.cpython-313.pyc"],
+          "restored": true
+        }
+      ],
+      "configure-git-webserver": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 1,
+          "failure": null,
+          "steps": 4,
+          "usage": {
+            "inputTokens": 13601,
+            "outputTokens": 3198,
+            "cacheWriteTokens": 3599,
+            "cacheReadTokens": 9990
+          },
+          "sentBack": false,
+          "findings": [
+            "- The integration test could not run because `git` is unavailable in this environment. The shell syntax check passed."
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "constraints-scheduling": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 4,
+          "usage": {
+            "inputTokens": 12760,
+            "outputTokens": 2649,
+            "cacheWriteTokens": 3847,
+            "cacheReadTokens": 8901
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "filter-js-from-html": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 0,
+          "failure": null,
+          "steps": 3,
+          "usage": {
+            "inputTokens": 8919,
+            "outputTokens": 1703,
+            "cacheWriteTokens": 2897,
+            "cacheReadTokens": 6013
+          },
+          "sentBack": true,
+          "findings": [
+            "- A meta refresh can navigate to a `data:text/html` URL containing a script, but the sanitizer leaves this attribute unchanged. This fails the requirement to remove JavaScript from HTML.\n  `python3 -c 'from filter import sanitize; s=\"<meta http-equiv=refresh content=\\\"0;url=data:text/html,<script>alert(1)</script>\\\"><p>ok</p>\"; print(sanitize(s))'` printed:\n    <meta http-equiv=refresh content=\"0;url=data:text/html,<script>alert(1)</script>\"><p>ok</p>"
+          ],
+          "wrote": ["./__pycache__/filter.cpython-313.pyc"],
+          "restored": true
+        }
+      ],
+      "fix-code-vulnerability": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 2,
+          "failure": null,
+          "steps": 7,
+          "usage": {
+            "inputTokens": 88811,
+            "outputTokens": 3053,
+            "cacheWriteTokens": 16130,
+            "cacheReadTokens": 72660
+          },
+          "sentBack": false,
+          "findings": [
+            "- `pytest -rA` passed all 367 tests, but the malformed-input behavior above remains unfixed.",
+            "- `parse_range_header` silently ignores malformed range input instead of raising the appropriate error, so the requested invalid-input handling fix is missing.\n  `python -c \"import bottle; print(list(bottle.parse_range_header('bytes=1-not-a-number', 10)))\"` printed:\n    []"
+          ],
+          "wrote": ["./.pytest_cache/v/cache/nodeids"],
+          "restored": true
+        }
+      ],
+      "multi-source-data-merger": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 8,
+          "usage": {
+            "inputTokens": 20748,
+            "outputTokens": 2744,
+            "cacheWriteTokens": 2761,
+            "cacheReadTokens": 17963
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "pypi-server": [
+        {
+          "status": "completed",
+          "blocking": 0,
+          "notes": 0,
+          "failure": null,
+          "steps": 10,
+          "usage": {
+            "inputTokens": 25095,
+            "outputTokens": 2447,
+            "cacheWriteTokens": 2252,
+            "cacheReadTokens": 22813
+          },
+          "sentBack": false,
+          "findings": [],
+          "wrote": [],
+          "restored": true
+        }
+      ],
+      "sanitize-git-repo": [
+        {
+          "status": "completed",
+          "blocking": 1,
+          "notes": 1,
+          "failure": null,
+          "steps": 10,
+          "usage": {
+            "inputTokens": 387426,
+            "outputTokens": 5855,
+            "cacheWriteTokens": 60715,
+            "cacheReadTokens": 326681
+          },
+          "sentBack": true,
+          "findings": [
+            "- The API keys and tokens remain in Git history, so the repository still contains sensitive values after sanitization. The committed `HEAD` tree includes AWS, GitHub, and Hugging Face credentials.\n  `git grep -n -I -E 'AKIA|ASIA|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|hf_[A-Za-z0-9]{20,}' HEAD -- || true; git grep -n -I -E 'AKIA|ASIA|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|hf_[A-Za-z0-9]{20,}' HEAD^ -- || true` printed:\n    HEAD:ray_processing/ray_cluster.yaml:43:    - git clone -b https://ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789@github.com/mlfoundations/dcnlp.git",
+            "- The current `ray_processing/process.py` also visibly contains a non-placeholder AWS secret access key."
+          ],
+          "wrote": [],
+          "restored": true
+        }
+      ]
+    }
+  },
+  "firstRequestTokens": {
+    "adaptive-rejection-sampler": {
+      "B2": 3158,
+      "R1": 3158,
+      "R2": 3158,
+      "R3": 3158
+    },
+    "break-filter-js-from-html": {
+      "B2": 2626,
+      "R1": 2626,
+      "R2": 2626,
+      "R3": 2626
+    },
+    "configure-git-webserver": {
+      "B2": 2578,
+      "R1": 2578,
+      "R2": 2578,
+      "R3": 2578
+    },
+    "constraints-scheduling": {
+      "B2": 3104,
+      "R1": 3104,
+      "R2": 3104,
+      "R3": 3104
+    },
+    "dna-assembly": {
+      "B2": 2962,
+      "R1": 2962,
+      "R2": 2962,
+      "R3": 2962
+    },
+    "feal-differential-cryptanalysis": {
+      "B2": 2617,
+      "R1": 2617,
+      "R2": 2617,
+      "R3": 2617
+    },
+    "filter-js-from-html": {
+      "B2": 2628,
+      "R1": 2628,
+      "R2": 2628,
+      "R3": 2628
+    },
+    "fix-code-vulnerability": {
+      "B2": 5298,
+      "R1": 5298,
+      "R2": 5298,
+      "R3": 5298
+    },
+    "gcode-to-text": {
+      "B2": 2534,
+      "R1": 2534,
+      "R2": 2534,
+      "R3": 2534
+    },
+    "git-multibranch": {
+      "B2": 2742,
+      "R1": 2742,
+      "R2": 2742,
+      "R3": 2742
+    },
+    "largest-eigenval": {
+      "B2": 2663,
+      "R1": 2663,
+      "R2": 2663,
+      "R3": 2663
+    },
+    "mcmc-sampling-stan": {
+      "B2": 2841,
+      "R1": 2841,
+      "R2": 2841,
+      "R3": 2841
+    },
+    "merge-diff-arc-agi-task": {
+      "B2": 2901,
+      "R1": 2901,
+      "R2": 2901,
+      "R3": 2901
+    },
+    "model-extraction-relu-logits": {
+      "B2": 2624,
+      "R1": 2624,
+      "R2": 2624,
+      "R3": 2624
+    },
+    "multi-source-data-merger": {
+      "B2": 2961,
+      "R1": 2961,
+      "R2": 2961,
+      "R3": 2961
+    },
+    "overfull-hbox": {
+      "B2": 2578,
+      "R1": 2578,
+      "R2": 2578,
+      "R3": 2578
+    },
+    "path-tracing-reverse": {
+      "B2": 2612,
+      "R1": 2612,
+      "R2": 2612,
+      "R3": 2612
+    },
+    "protein-assembly": {
+      "B2": 3160,
+      "R1": 3160,
+      "R2": 3160,
+      "R3": 3160
+    },
+    "pypi-server": {
+      "B2": 2675,
+      "R1": 2675,
+      "R2": 2675,
+      "R3": 2675
+    },
+    "regex-chess": {
+      "B2": 2896,
+      "R1": 2896,
+      "R2": 2896,
+      "R3": 2896
+    },
+    "sanitize-git-repo": {
+      "B2": 7727,
+      "R1": 7727,
+      "R2": 7727,
+      "R3": 7727
+    },
+    "schemelike-metacircular-eval": {
+      "B2": 2992,
+      "R1": 2992,
+      "R2": 2992,
+      "R3": 2992
+    },
+    "torch-pipeline-parallelism": {
+      "B2": 2941,
+      "R1": 2941,
+      "R2": 2941,
+      "R3": 2941
+    },
+    "train-fasttext": {
+      "B2": 2562,
+      "R1": 2562,
+      "R2": 2562,
+      "R3": 2562
+    },
+    "video-processing": {
+      "B2": 2845,
+      "R1": 2845,
+      "R2": 2845,
+      "R3": 2845
+    }
+  }
+}

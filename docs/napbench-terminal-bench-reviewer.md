@@ -19,7 +19,9 @@ task's published image on a GitHub-hosted x86 runner, through the `Benchmark` wo
 Baseline 2 is the same code as the reviewer runs with the reviewer off: it measures how far the
 score moves by chance alone, and checks that this change left the agent without a reviewer as it
 was. Every figure below comes from `packages/runtime/src/harbor-report.ts` read over each run's
-artifact; `napbench-terminal-bench-reviewer.report.json` beside this file holds all five reports.
+artifact; `napbench-terminal-bench-reviewer.report.json` beside this file holds all five reports,
+and `napbench-terminal-bench-reviewer.reviews.json` holds what each review said and wrote and the
+size of every trial's first request, which the reports do not carry.
 Intervals are 95% Wilson for a rate and Newcombe's hybrid score for a difference of two rates.
 
 ---
@@ -42,8 +44,11 @@ difference runs from about eleven points worse to twenty better.
 
 **False claims of done fell, and that holds up.** Over the two baselines Nap said it was done 24
 times and the hidden tests disagreed 15 times. Over the three reviewer runs it said so 19 times and
-the tests disagreed 5 times. The difference per trial excludes zero by a margin, and when Nap now
-says "done", the tests agree about three times in four instead of about one in three.
+the tests disagreed 5 times. When Nap now says "done", the tests agree about three times in
+four instead of three in eight. Both intervals treat the 75 trials as independent, though they are
+three repeats of the same 25 tasks and false claims cluster on a few of them
+(`configure-git-webserver` is three of the five), so they are narrower than they should be; the
+direction holds in every run, the size of the drop less firmly.
 
 ## How the reviewer got there
 
@@ -101,14 +106,18 @@ with it (−45.3 points, −64.2 to −19.0).
 
 **The agent never had more steps than the baseline.** A task's 20 agent steps are shared by every
 round of it: a fix round gets only what the first turn left, so a task sent back after 14 steps has
-6 to fix it with. That is why seven of ten send-backs ended on the step budget, and why the reviewer
-runs used 435 to 461 agent steps against the baselines' 426 to 429: the extra steps are the ones a
-sent-back task would otherwise have left unused, never a step past 20.
+6 to fix it with. That is why seven of ten send-backs ended on the step budget. The reviewer runs used
+435 to 461 agent steps against the baselines' 426 to 429, and no trial went past 20. Some of the
+difference is sent-back tasks spending steps they would otherwise have left; more of it is first
+turns that ran out of steps more often in the reviewer runs, which the caveat above describes.
 
 **The reviewer's own calls are separate and counted.** It took 41 to 62 model calls a run, about two
-a task and five to seven a review on average, capped at 10 a review. They are not agent steps and cannot
-change a file the hidden tests read: the task's directory is copied before each review and every
-file a review's commands wrote is put back from the copy (`task-review-guard.ts`). Reviews wrote
+a task and five to seven a review on average, capped at 10 a review. They are not agent steps, and what a
+review's commands write is put back: the task's directory is copied before each review and every
+file written during it is restored from the copy or removed (`task-review-guard.ts`). The measured
+runs used the guard before it also put back a repository's `.git`; the one git task reviewed,
+`sanitize-git-repo`, was checked with history-reading commands (`git log`, `git show`, per its
+findings), and whether any of them changed `.git` was not recorded. Reviews wrote
 files in seven trials across the three runs, and all were put back; no review's writes went
 unread (each report's `review.unknownWrites` is empty). Six were caches
 (`__pycache__`, `.pytest_cache`); in `multi-source-data-merger` the reviewer ran the agent's program,

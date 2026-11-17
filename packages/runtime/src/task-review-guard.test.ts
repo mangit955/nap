@@ -87,4 +87,28 @@ describe("the review guard", () => {
       restored: false,
     });
   });
+
+  it("puts a repository's history back whole when a review changed it", async () => {
+    const git = (...args: string[]) => exec("git", ["-C", paths.root, ...args]);
+    await git("init", "-q", "-b", "main");
+    await git("-c", "user.email=a@b", "-c", "user.name=a", "add", ".");
+    await git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qm", "one");
+    await writeFile(join(paths.root, "solve.py"), "print(3)\n");
+    await git("-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qam", "two");
+    const head = (await git("rev-parse", "HEAD")).stdout.trim();
+    const past = new Date(Date.now() - 60_000);
+    await utimes(join(paths.root, "solve.py"), past, past);
+    const shell = new LocalShell();
+    const before = await beforeReview(shell, "box", paths);
+
+    // A review's command that moves the repository: the tests would see the older commit.
+    await git("checkout", "-q", "HEAD~1");
+
+    const after = await afterReview(shell, "box", before, paths);
+    expect(after.restored).toBe(true);
+    expect(after.wrote).toContain("./.git");
+    expect((await git("rev-parse", "HEAD")).stdout.trim()).toBe(head);
+    expect((await git("symbolic-ref", "HEAD")).stdout.trim()).toBe("refs/heads/main");
+    expect((await git("status", "--porcelain")).stdout).toBe("");
+  });
 });

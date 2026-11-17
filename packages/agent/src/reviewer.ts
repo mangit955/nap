@@ -272,11 +272,22 @@ function proved(finding: ReviewFinding, ran: ReadonlyMap<string, readonly string
 
 /** Every part of the command is one that only shows text; see `SHOWS_ONLY`. */
 export function showsOnly(command: string): boolean {
-  return command
-    .split(/&&|\|\||;|\|/)
-    .map((part) => part.trim().split(/\s+/)[0] ?? "")
-    .filter((word) => word !== "")
-    .every((word) => SHOWS_ONLY.has(word.replace(/^.*\//, "")));
+  return (
+    command
+      // Quoted text is an argument, never a command: `grep -E "a|b"` is one grep, not two.
+      .replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, "''")
+      .split(/&&|\|\||;|\||\n|\(|\)|\{|\}/)
+      .map((part) => commandWord(part))
+      .filter((word) => word !== "")
+      .every((word) => SHOWS_ONLY.has(word.replace(/^.*\//, "")))
+  );
+}
+
+/** The program a simple command runs: past `VAR=value` settings and a `!`. */
+function commandWord(part: string): string {
+  const words = part.trim().split(/\s+/);
+  const index = words.findIndex((word) => word !== "!" && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word));
+  return index === -1 ? "" : (words[index] ?? "");
 }
 
 /** Whitespace differences are how a model copies output, not a sign it invented it. */

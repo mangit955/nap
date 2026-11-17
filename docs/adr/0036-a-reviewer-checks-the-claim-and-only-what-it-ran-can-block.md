@@ -49,8 +49,11 @@ put back afterwards:
   reset that fails drops the review, and the job goes on as its checks decided.
 - **On Terminal-Bench**, where there is no commit, the task's directory is copied before the review
   and every file the review wrote is put back from the copy, or removed if it is new
-  (`task-review-guard.ts`). A directory over 200 MB is not copied; there the files are listed but
-  stay, and the report flags the trial. A file a review deleted is not noticed.
+  (`task-review-guard.ts`); if anything under `.git` changed, `.git` is put back whole. A
+  directory over 200 MB is not copied; there the files are listed but stay, and the report flags
+  the trial. What the guard cannot see it does not restore: a deleted file, a new empty directory
+  or link, a file name with a newline. And it restores whatever changed while the review ran,
+  including a file the agent's own background process wrote then.
 
 ### D3: Only a finding it confirmed by running something can block
 

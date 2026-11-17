@@ -88,10 +88,11 @@ real verifier blind spot, but the sample was too small to support a claim about 
 See the [first measurement](docs/napbench-verification-measurement.md) and the
 [re-measurement](docs/napbench-luna-remeasurement.md).
 
-On 25 locked Terminal-Bench 2.1 tasks with `gpt-6-luna`, the reviewer cut false claims of done from
-15 in 50 trials to 5 in 75, and when nap said "done" the hidden tests agreed about three times in
-four instead of about one in three. The pass rate did not measurably move (24% across two baselines,
-29% across three runs with the reviewer, inside the noise). See the
+On 25 locked Terminal-Bench 2.1 tasks with `gpt-6-luna`, of the times nap first said it was done, 15
+in 24 ended false without the reviewer and 5 in 29 with it, mostly because the reviewer sent the
+false ones back. When nap said "done" the hidden tests agreed about three times in four, up from
+three in eight. The pass rate did not measurably move (24% across two baselines, 29% across three
+runs with the reviewer, inside the noise). See the
 [baseline](docs/napbench-terminal-bench-baseline.md) and the
 [reviewer measurement](docs/napbench-terminal-bench-reviewer.md).
 

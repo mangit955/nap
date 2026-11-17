@@ -1,9 +1,17 @@
+import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import { FAKE_COMMIT_SHA, scriptGit } from "@nap/sandbox/testing/script-git";
 import type { NapEvent } from "@nap/shared/events";
-import type { ReviewResult } from "@nap/shared/ports/reviewer";
+import { MAX_REVIEW_ROUNDS, type ReviewResult } from "@nap/shared/ports/reviewer";
 import { describe, expect, it } from "vitest";
-import { changedFilesOf, renderFinding, reviewCheck, reviewRounds } from "./review-round.ts";
+import {
+  changedFilesOf,
+  renderFinding,
+  reviewCheck,
+  reviewJob,
+  reviewRounds,
+} from "./review-round.ts";
 
-const result = (overrides: Partial<ReviewResult>): ReviewResult => ({
+const result_ = (overrides: Partial<ReviewResult>): ReviewResult => ({
   status: "completed",
   blocking: [],
   notes: [],
@@ -16,7 +24,7 @@ const proved = { summary: "parse returns 2", command: "pytest -q", observed: "ex
 
 describe("reviewCheck", () => {
   it("passes with no notes as a check with no output", () => {
-    expect(reviewCheck(result({}))).toEqual({
+    expect(reviewCheck(result_({}))).toEqual({
       check: { name: "review", outcome: "passed", output: null },
       failure: null,
     });
@@ -24,7 +32,7 @@ describe("reviewCheck", () => {
 
   it("passes with its notes, and says when it did not finish, but blocks nothing", () => {
     const { check, failure } = reviewCheck(
-      result({
+      result_({
         status: "failed",
         failure: "Ran out of steps before reporting.",
         notes: [{ summary: "unproved", command: "ls", observed: "x" }],
@@ -37,7 +45,7 @@ describe("reviewCheck", () => {
   });
 
   it("fails with what it proved, as the failure a repair is prompted from", () => {
-    const { check, failure } = reviewCheck(result({ blocking: [proved] }));
+    const { check, failure } = reviewCheck(result_({ blocking: [proved] }));
     expect(check.outcome).toBe("failed");
     expect(failure).toEqual({
       name: "review",
@@ -101,5 +109,49 @@ describe("reviewRounds", () => {
       verified(4, "j", ["review"]),
     ];
     expect(reviewRounds(history, "j")).toBe(2);
+  });
+});
+
+describe("reviewJob", () => {
+  it("runs no review once the log shows the job's last allowed one, whatever the caller thought", async () => {
+    // A backstop behind the runtime's repairs-left gate, which already keeps a job to two reviews
+    // today: this bound holds if that gate or the repair bound ever changes.
+    const envelope = { sessionId: "s", turnId: "t", createdAt: "2026-01-01T00:00:00.000Z" };
+    const reviewed = (seq: number) =>
+      ({
+        ...envelope,
+        seq,
+        type: "verification.completed",
+        payload: { jobId: "j", checks: [{ name: "review", outcome: "failed", output: null }] },
+      }) as NapEvent;
+    let calls = 0;
+    const sandbox = scriptGit(new InMemorySandboxManager());
+    const created = await sandbox.create("p");
+    if (!created.ok) throw new Error(created.error.message);
+    const review = (history: NapEvent[]) =>
+      reviewJob({
+        reviewer: {
+          review: async () => {
+            calls += 1;
+            return result_({});
+          },
+        },
+        sandbox,
+        sandboxId: created.value.id,
+        commitSha: FAKE_COMMIT_SHA,
+        jobId: "j",
+        history,
+        objective: "x",
+        model: undefined,
+        credentials: undefined,
+        signal: undefined,
+      });
+    // One short of the bound, the review runs: the sandbox is not what stops it.
+    expect(await review([reviewed(1)])).not.toBeNull();
+    expect(calls).toBe(1);
+    expect(
+      await review(Array.from({ length: MAX_REVIEW_ROUNDS }, (_, index) => reviewed(index + 1))),
+    ).toBeNull();
+    expect(calls).toBe(1);
   });
 });

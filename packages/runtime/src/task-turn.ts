@@ -15,7 +15,8 @@
  * reviewer's steps and tokens are metered apart from the agent's. A score measured with the
  * reviewer then cannot owe anything to the agent getting more steps than the baseline did. What a
  * review's commands wrote is put back afterwards, as the product resets to its commit
- * (`task-review-guard.ts`), so the review cannot change the answer by itself either.
+ * (`task-review-guard.ts`), so a review does not change the answer by itself, within the limits
+ * that file states.
  *
  * Model calls and tokens are counted here, at the provider, and HTTP requests by whoever built the
  * client, for one reason: a free model's daily quota is counted in requests, and a benchmark run
@@ -65,9 +66,10 @@ export const TaskReviewSchema = z.strictObject({
    */
   wrote: z.array(z.string()).nullable(),
   /**
-   * Whether those files were put back as they were before the review. False only when the
+   * Whether the files listed were put back as they were before the review. False when the
    * directory was too large to copy, or the copy failed: then a review's writes stayed, and a
-   * report shows the trial as one the review itself could have changed.
+   * report shows the trial as one the review itself could have changed. It covers only what the
+   * guard can see; `task-review-guard.ts` names what it cannot.
    */
   restored: z.boolean(),
 });

@@ -8,9 +8,11 @@
  * copies the task's directory before the review and, afterwards, puts back every file the review
  * wrote: a changed file from the copy, a new one removed.
  *
- * Two limits, both recorded rather than hidden. A directory over `COPY_LIMIT_KB` is not copied, so
- * what a review writes there is listed but stays. And a file a review deleted is not noticed, since
- * only what changed after the review began is looked for.
+ * Its limits. A directory over `COPY_LIMIT_KB` is not copied, so what a review writes there is
+ * listed but stays, and the record says so. What it cannot see, it cannot record: a file a review
+ * deleted, a new empty directory or link, and a file name containing a newline are not put back,
+ * and `restored` does not cover them. And it puts back whatever changed while the review ran, so a
+ * file the agent's own background process wrote then is put back too.
  */
 
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
@@ -70,11 +72,14 @@ export async function afterReview(
   const command = [
     `cd ${shellQuote(paths.root)}`,
     `find . -path ./.git -prune -o -type f -newer ${scratch}/start -print > ${scratch}/wrote 2>/dev/null`,
+    // A repository's history is listed as one entry and put back whole: a checkout, a commit or a
+    // garbage collection changes refs and objects no file-by-file restore would get right.
+    `{ [ ! -d .git ] || [ -z "$(find .git -newer ${scratch}/start -print 2>/dev/null | head -n 1)" ] || echo ./.git >> ${scratch}/wrote; }`,
     `head -n ${WROTE_LIMIT} ${scratch}/wrote`,
     ...(before.copied
       ? [
           // A file the copy has comes back as it was; one it lacks was new, and stays removed.
-          `while IFS= read -r f; do rm -f -- "$f"; tar -xf ${scratch}/copy.tar -- "$f" 2>/dev/null || true; done < ${scratch}/wrote`,
+          `while IFS= read -r f; do rm -rf -- "$f"; tar -xf ${scratch}/copy.tar -- "$f" 2>/dev/null || true; done < ${scratch}/wrote`,
         ]
       : []),
     `rm -rf ${scratch}`,

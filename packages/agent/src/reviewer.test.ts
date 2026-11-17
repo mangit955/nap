@@ -215,4 +215,19 @@ describe("what cannot prove a problem", () => {
     expect(showsOnly("/usr/bin/cat out.txt")).toBe(true);
     expect(showsOnly("cd /app && pytest -q; echo done")).toBe(false);
   });
+
+  it("is not fooled by quoted separators, settings, or a subshell", () => {
+    // Each of these only shows text, though a naive split finds a second "command" in it.
+    expect(showsOnly('grep -E "error|fail" app.log')).toBe(true);
+    expect(showsOnly('echo "FAIL; expected 3 got 2"')).toBe(true);
+    expect(showsOnly("awk '{print $1; print $2}' f")).toBe(true);
+    expect(showsOnly("sed -n '1p;2p' f")).toBe(true);
+    expect(showsOnly("LC_ALL=C sort f")).toBe(true);
+    expect(showsOnly("(cat f)")).toBe(true);
+    expect(showsOnly("cat solve.py\necho done")).toBe(true);
+    // And these run the work, wherever they sit.
+    expect(showsOnly("cat solve.py\npython3 solve.py")).toBe(false);
+    expect(showsOnly('cd /app && PYTHONPATH=. python3 -c "print(1); print(2)"')).toBe(false);
+    expect(showsOnly("(cd /app && pytest -q)")).toBe(false);
+  });
 });
