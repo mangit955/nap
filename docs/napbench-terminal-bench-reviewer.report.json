@@ -40,6 +40,7 @@
         },
         "requests": 429,
         "steps": 429,
+        "review": null,
         "failures": {
           "step_budget": [
             "terminal-bench/adaptive-rejection-sampler",
@@ -79,7 +80,9 @@
               "cacheReadTokens": 131854
             },
             "usd": 0.01156,
-            "durationMs": 206021
+            "durationMs": 206021,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/break-filter-js-from-html",
@@ -95,7 +98,9 @@
               "cacheReadTokens": 97329
             },
             "usd": 0.01228,
-            "durationMs": 290642
+            "durationMs": 290642,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/configure-git-webserver",
@@ -111,7 +116,9 @@
               "cacheReadTokens": 47324
             },
             "usd": 0.00445,
-            "durationMs": 86480
+            "durationMs": 86480,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/constraints-scheduling",
@@ -127,7 +134,9 @@
               "cacheReadTokens": 66892
             },
             "usd": 0.00538,
-            "durationMs": 97064
+            "durationMs": 97064,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/dna-assembly",
@@ -143,7 +152,9 @@
               "cacheReadTokens": 183570
             },
             "usd": 0.01813,
-            "durationMs": 325956
+            "durationMs": 325956,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/feal-differential-cryptanalysis",
@@ -159,7 +170,9 @@
               "cacheReadTokens": 72744
             },
             "usd": 0.0133,
-            "durationMs": 272915
+            "durationMs": 272915,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/filter-js-from-html",
@@ -175,7 +188,9 @@
               "cacheReadTokens": 81371
             },
             "usd": 0.0097,
-            "durationMs": 185096
+            "durationMs": 185096,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/fix-code-vulnerability",
@@ -191,7 +206,9 @@
               "cacheReadTokens": 191830
             },
             "usd": 0.0067,
-            "durationMs": 53406
+            "durationMs": 53406,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/gcode-to-text",
@@ -207,7 +224,9 @@
               "cacheReadTokens": 120727
             },
             "usd": 0.0077,
-            "durationMs": 123997
+            "durationMs": 123997,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/git-multibranch",
@@ -223,7 +242,9 @@
               "cacheReadTokens": 119340
             },
             "usd": 0.00649,
-            "durationMs": 111759
+            "durationMs": 111759,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/largest-eigenval",
@@ -239,7 +260,9 @@
               "cacheReadTokens": 103420
             },
             "usd": 0.00711,
-            "durationMs": 149716
+            "durationMs": 149716,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/mcmc-sampling-stan",
@@ -255,7 +278,9 @@
               "cacheReadTokens": 232367
             },
             "usd": 0.01023,
-            "durationMs": 931543
+            "durationMs": 931543,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/merge-diff-arc-agi-task",
@@ -271,7 +296,9 @@
               "cacheReadTokens": 115671
             },
             "usd": 0.00728,
-            "durationMs": 152154
+            "durationMs": 152154,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/model-extraction-relu-logits",
@@ -287,7 +314,9 @@
               "cacheReadTokens": 45951
             },
             "usd": 0.00825,
-            "durationMs": 170481
+            "durationMs": 170481,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/multi-source-data-merger",
@@ -303,7 +332,9 @@
               "cacheReadTokens": 57508
             },
             "usd": 0.00308,
-            "durationMs": 55324
+            "durationMs": 55324,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/overfull-hbox",
@@ -319,7 +350,9 @@
               "cacheReadTokens": 117222
             },
             "usd": 0.00512,
-            "durationMs": 101595
+            "durationMs": 101595,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/path-tracing-reverse",
@@ -335,7 +368,9 @@
               "cacheReadTokens": 915333
             },
             "usd": 0.02254,
-            "durationMs": 133124
+            "durationMs": 133124,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/protein-assembly",
@@ -351,7 +386,9 @@
               "cacheReadTokens": 159243
             },
             "usd": 0.00797,
-            "durationMs": 126474
+            "durationMs": 126474,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/pypi-server",
@@ -367,7 +404,9 @@
               "cacheReadTokens": 46103
             },
             "usd": 0.00253,
-            "durationMs": 58450
+            "durationMs": 58450,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/regex-chess",
@@ -383,7 +422,9 @@
               "cacheReadTokens": 66300
             },
             "usd": 0.01088,
-            "durationMs": 209537
+            "durationMs": 209537,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/sanitize-git-repo",
@@ -399,7 +440,9 @@
               "cacheReadTokens": 320246
             },
             "usd": 0.01037,
-            "durationMs": 108794
+            "durationMs": 108794,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/schemelike-metacircular-eval",
@@ -415,7 +458,9 @@
               "cacheReadTokens": 357675
             },
             "usd": 0.01229,
-            "durationMs": 204471
+            "durationMs": 204471,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/torch-pipeline-parallelism",
@@ -431,7 +476,9 @@
               "cacheReadTokens": 48213
             },
             "usd": 0.00747,
-            "durationMs": 144776
+            "durationMs": 144776,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/train-fasttext",
@@ -447,7 +494,9 @@
               "cacheReadTokens": 188122
             },
             "usd": 0.00561,
-            "durationMs": 810538
+            "durationMs": 810538,
+            "reviews": null,
+            "sentBack": null
           },
           {
             "task": "terminal-bench/video-processing",
@@ -463,7 +512,9 @@
               "cacheReadTokens": 376056
             },
             "usd": 0.01613,
-            "durationMs": 208545
+            "durationMs": 208545,
+            "reviews": null,
+            "sentBack": null
           }
         ]
       }

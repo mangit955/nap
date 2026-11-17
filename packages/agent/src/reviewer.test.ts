@@ -72,6 +72,21 @@ describe("NapReviewer", () => {
     expect(result.notes.map((note) => note.summary)).toEqual(["tests fail"]);
   });
 
+  it("does not block on a quote another command printed", async () => {
+    // `cat` printed the line; the finding cites a test run it never made, quoting that line.
+    const { result } = await review([
+      [
+        { toolCalls: [{ id: "c", name: "run_command", input: { command: "cat a.py" } }] },
+        report({
+          problems: [
+            { summary: "x is wrong", command: "pytest -q", observed: "FAILED test_parse" },
+          ],
+        }),
+      ],
+    ]);
+    expect(result.blocking).toEqual([]);
+  });
+
   it("does not block on a quote its command did not print", async () => {
     const { result } = await review([
       [

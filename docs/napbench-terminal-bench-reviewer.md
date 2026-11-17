@@ -133,6 +133,13 @@ and blocking rule run in an imported GitHub project's job before its pull reques
 the budget: in the product a repair turn has a turn's full budget, so a sent-back job there has
 more room to fix the problem than a benchmark task with its last few steps.
 
+The runs used the reviewer as of `a7bdb43`. Review found two holes after them, both fixed on this
+branch: the rule that a command which only shows text proves nothing now reads quotes, newlines,
+brackets and `VAR=` settings (before, `grep -E "a|b"` could prove), and the benchmark guard now
+puts back `.git` too. The prompt and the loop are unchanged. Every recorded finding that cites a
+command (13 of them, in `napbench-terminal-bench-reviewer.reviews.json`) gets the same verdict
+under both versions of the rule.
+
 **The prompt was not tuned on these tasks.** The reviewer prompt was written once against the
 request in general and tried on the dev set with a free model; nothing in it changed after a
 test-set run.
@@ -151,6 +158,9 @@ which is a separate experiment against a raised step limit.
 | Reviewer 2 | $0.2938 | $0.2938 |
 | Reviewer 3 | $0.3076 | $0.3076 |
 | Total | $1.1630 | $1.1631 |
+
+The account's usage went from $2.713627 to $3.876675, $1.163048 in all; the rows above are each
+rounded, and add to $1.1631.
 
 Two dev-set runs with the reviewer on a free model (`nvidia/nemotron-3-ultra-550b-a55b:free`) cost
 nothing; they checked the wiring on real task images, including putting back what a review wrote.
