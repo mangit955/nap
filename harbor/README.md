@@ -55,6 +55,45 @@ network tools, and shell writes to any absolute path outside `/home/user/app`, w
 task's own path (`echo x > /app/out.txt` is refused; the same write through `/home/user/app` or a
 relative path is not). The file tools have no such check. ADR-0035 records why it is unchanged.
 
+### Scoring a task set
+
+A score comes from a **locked task set**, never from tasks picked by hand. `task-sets/` holds the
+dataset's 89 task ids and two sets drawn from them by `nap_harbor/task_sets.py` with a fixed seed:
+**test** (25 tasks), which reported numbers come from and which nothing is ever tuned against, and
+**dev** (10 tasks, disjoint from test), where a change is tried first. `tests/test_task_sets.py`
+redraws both and fails on a hand edit; a different draw is a new set and a new baseline.
+
+```bash
+uv run --directory harbor python -m nap_harbor.task_sets dev   # Harbor's -i flags for a set
+uv run --directory harbor --extra harbor harbor run -d terminal-bench/terminal-bench-2-1 \
+  $(uv run --directory harbor python -m nap_harbor.task_sets dev) \
+  -a nap_harbor.agent:NapAgent -m nvidia/nemotron-3-ultra-550b-a55b:free -n 2 -o <jobs> --job-name <name>
+bun run packages/runtime/scripts/harbor-report.ts <jobs>/<name>   # writes report.md and report.json
+```
+
+The report (`packages/runtime/src/harbor-report.ts`) gives:
+
+- **Pass rate** over every trial, a harness error counted as a failure, with its 95% Wilson
+  interval. At 25 tasks that interval is about twenty points either side, so two runs that differ
+  by less have not shown a difference.
+- **Claimed done against the hidden tests**: a two-by-two of Nap's claim and the reward. The claim
+  is the turn's ending: `completed` means the agent stopped and handed back, which Nap shows as
+  done. Its prose is not read, so a turn that completes by saying it failed still counts as a claim.
+- **Cost** from Nap's own token counts priced by `@nap/shared/pricing`: an estimate, not a bill.
+- **Failures by kind**: Harbor's timeout, a harness error, the step budget, the model unreachable,
+  a claim of done the tests refuted, and the rest.
+
+`NAP_HARBOR_FLAGS=--scripted` runs a scripted model instead of OpenRouter: no key, no spend. It
+checks the wiring end to end and nothing about the agent; its report says so.
+
+**On GitHub.** The `Benchmark` workflow (`.github/workflows/benchmark.yml`) does the same on a
+free x86 runner, where the task images run natively. It is manual only (Actions, Benchmark, Run
+workflow) and takes the set, the model, `spend`, the concurrency and `scripted`. It reads the key
+from the repository secret `BENCHMARK_OPENROUTER_API_KEY`, refuses a paid model without `spend`,
+holds a free model to two trials at once (its quota is about 20 requests a minute), and uploads
+the job directory with the report as an artifact. Harbor's output goes there rather than into the
+log, to keep the log readable; both are public, as the repository is. A workflow can be dispatched only once it is on the default branch.
+
 ## NapBench
 
 ### What is here
