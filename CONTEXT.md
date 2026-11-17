@@ -57,8 +57,8 @@ events exactly as a turn is, with no table and no file behind it, so there is on
 and resuming is replaying. Every turn belongs to one. A job opens on a prompt and stays open until
 verification agrees it is satisfied or its attempts run out — so a trivial request is a job that
 opens and closes in a single turn, and a large one is a job that spans six, without anything having
-to decide in advance which it is. **Not NapBench's `Task`**, which is a specification of work to be
-repeated; a job is one actual piece of work being done once. See `docs/adr/0006`.
+to decide in advance which it is. **Not a benchmark's task**, which is a specification of work to
+be repeated; a job is one actual piece of work being done once. See `docs/adr/0006`.
 
 A job is *working*, *verifying* or *repairing* while it is open, and once closed its phase is how it
 ended: **verified** (checks passed, so the commit is a checkpoint), **unverified** (the turn changed
@@ -84,8 +84,7 @@ is a note. Not a helper: the system calls it, not the agent.
 failure and the gap is load-bearing in both directions: a project with no `test` script has not
 failed its tests, and treating a missing script as a failure would put every fresh project into a
 repair loop it cannot leave. Which checks exist is discovered from the project rather than declared
-by the model. Owned by `@nap/verify` and shared with NapBench, which adds scoring metadata to it —
-see the NapBench **Check** entry, and `docs/adr/0007`. The passed/failed/absent triple itself sits
+by the model. Owned by `@nap/verify` (`docs/adr/0007`). The passed/failed/absent triple itself sits
 one layer lower still, in `@nap/shared`, because `verification.completed` carries it into the log.
 
 **Verdict** — what a whole *run* of the checks came to, as against the outcome of any one of them:
@@ -411,7 +410,11 @@ own host, where it is not. Not a session: it is worth nothing on any other route
 
 ## NapBench glossary
 
-NapBench is the evaluation harness that measures Nap's agent. Its vocabulary is kept separate
+**NapBench was retired on 2026-11-17**, and its code is at the git tag `napbench-v1`. This glossary
+stays because its write-ups (`docs/napbench-*.md`, `docs/NAPBENCH.md`) and ADRs use these words, and
+the public-benchmark glossary below borrows **Trial** and **Reward** from it.
+
+NapBench was the evaluation harness that measured Nap's agent. Its vocabulary is kept separate
 because it describes the thing *observing* the system, not the system — a user never encounters any
 of these words. Where the two vocabularies collide, the collision is named below rather than
 resolved by hoping nobody notices. See `docs/adr/0001`–`0005`, `0007` and `0012`–`0013` for the

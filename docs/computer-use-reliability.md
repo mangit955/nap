@@ -27,12 +27,13 @@ classification are kept under `computer-reliability-results/`, which git ignores
 All three apps are **correct**, so a run passes only if the test completes, records at least one
 assertion, and every assertion passes. A failed assertion on a correct app counts as a failure, as
 does one left untested. This measures whether the flow finishes with a right answer. It does not
-measure whether the agent catches a planted bug; NapBench's app-test tasks are for that.
+measure whether the agent catches a planted bug; the retired NapBench's app-test tasks did that
+(tag `napbench-v1`).
 
 | App | Weight | What it is | Goal the test is given |
 |---|---|---|---|
-| cart | light | NapBench's correct cart specimen: plain HTML and JS | Changing quantity to 3 shows a total of $36.00 |
-| notes | medium | NapBench's correct notes specimen: saves to `localStorage` | A saved note is still listed after a reload |
+| cart | light | Plain HTML and JS, in `apps/api/scripts/fixtures/reliability/cart` | Changing quantity to 3 shows a total of $36.00 |
+| notes | medium | Plain HTML and JS that saves to `localStorage`, in `apps/api/scripts/fixtures/reliability/notes` | A saved note is still listed after a reload |
 | kanban | heavy | React on the template's own components: add, move, delete, counts | Adding, moving and deleting tasks keeps the column counts right |
 
 ## Results

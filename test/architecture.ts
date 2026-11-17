@@ -21,8 +21,8 @@ export type Manifest = {
   dependencies: string[];
   /**
    * Optional, and only the exclusive-externals rule reads it. The two rules want different
-   * answers: a sibling package may sit here (docs/adr/0001 — @nap/bench carries them for
-   * their published fakes), while a third-party library that is supposed to have exactly
+   * answers: a sibling package may sit here, so that a package's tests can use another's
+   * published fakes (`@nap/agent` carries `@nap/sandbox` this way), while a third-party library that is supposed to have exactly
    * one owner may not, because the production image is built by one workspace-wide install
    * with no --production and therefore ships devDependencies too.
    */
@@ -62,23 +62,15 @@ const ALLOWED: Record<string, readonly string[]> = {
   // it photographs an address it is handed and knows nothing about projects or turns.
   "@nap/capture": ["@nap/shared"],
   // Running one check against a sandbox and saying what it produced: the preview probe, the
-  // captured output of a failed command, and the passed/failed/absent answer. It sits below
-  // both of its consumers deliberately. The runtime verifies a turn's claim and the benchmark
-  // scores a run, and the machinery underneath is the same — but a dependency from the runtime
-  // to the benchmark would make the system under test import the thing that grades it, and
-  // every future scoring change a production change. See docs/adr/0007.
+  // captured output of a failed command, and the passed/failed/absent answer. The runtime uses
+  // it to verify a turn's claim. It was moved below the runtime so that the retired NapBench
+  // could share it without the runtime importing the benchmark (docs/adr/0007), and it stays a
+  // package of its own because it knows nothing about turns.
   "@nap/verify": ["@nap/shared"],
-  // The pure half of NapBench: task specifications, scoring, gates, metric derivation,
-  // report serialisation. None of it may reach for a sandbox, a model or a browser — those
-  // arrive through ports, which is what keeps the part that has to be trustworthy testable
-  // with no network. Its sibling packages appear under devDependencies for their published
-  // fakes, which this check deliberately does not read. See docs/adr/0001.
-  "@nap/bench": ["@nap/shared", "@nap/verify"],
   // The pure half of the load harness: percentile maths, metric rollup, threshold verdicts, the
-  // scripted user's ordering, and how slow the fakes pretend to be. It sits beside `bench` and
-  // for the same reason — it is written against the ports in `shared` and knows nothing about
-  // Postgres, a socket or a server, which is what lets the arithmetic a report is read through
-  // be tested rather than trusted. The process that composes real infrastructure behind it is
+  // scripted user's ordering, and how slow the fakes pretend to be. It sits beside `shared`: it is
+  // written against the ports there and knows nothing about Postgres, a socket or a server, which
+  // is what lets the arithmetic a report is read through be tested rather than trusted. The process that composes real infrastructure behind it is
   // `apps/api/scripts/loadgen.ts`, which is an app and may reach for anything.
   "@nap/loadgen": ["@nap/shared"],
   "@nap/runtime": [
@@ -94,7 +86,10 @@ const ALLOWED: Record<string, readonly string[]> = {
   // Apps compose everything; they are the top of the graph.
   "@nap/web": ["*"],
   "@nap/api": ["*"],
-  "@nap/napbench": ["*"],
+  // A developer tool, never deployed: it drives a real Chrome against a local Nap to prove a UI
+  // change. It is an app so that it can own Playwright (below) without anything that ships
+  // owning it.
+  "@nap/verify-nap": ["*"],
 };
 
 /**
@@ -123,14 +118,9 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
       "The browser belongs to @nap/capture, which is the only place that knows a thumbnail is made by rendering a page. Depend on the PageCapture interface from @nap/shared instead — everything above it is written against one method and must keep working when the browser is a fake handing back four bytes.",
   },
   "playwright-core": {
-    owner: "@nap/napbench",
+    owner: "@nap/verify-nap",
     reason:
-      "Playwright belongs to apps/napbench, which drives a browser against a generated app to judge it. Nothing that ships to production may depend on it — the deployed image is built from one workspace-wide install, so an evaluation tool's browser driver would otherwise become the API's problem. Depend on the BrowserSession interface from @nap/bench instead. See docs/adr/0001.",
-  },
-  "axe-core": {
-    owner: "@nap/napbench",
-    reason:
-      "The accessibility scanner belongs to apps/napbench for the same reason Playwright does: it is an evaluation tool, it runs inside a browser nothing that ships has, and the deployed image is built from one workspace-wide install. Depend on BrowserSession.scanAccessibility from @nap/bench instead — what counts as a violation is axe's answer, and nothing above the port needs to know whose. See docs/adr/0001.",
+      "Playwright belongs to apps/verify-nap, the developer tool that drives a real Chrome against a local Nap. Nothing that ships to production may depend on it — the deployed image is built from one workspace-wide install, so a test tool's browser driver would otherwise become the API's problem. A shipped package that needs a browser goes through the PageCapture interface (@nap/capture); a test that needs one speaks the DevTools protocol, as sidebar-drag.integration.test.ts does.",
   },
 };
 
@@ -146,7 +136,7 @@ const EXCLUSIVE_EXTERNALS: Record<string, { owner: string; reason: string }> = {
  */
 const SPECIFIER = /\b(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
 
-/** `@nap/bench/category` → `@nap/bench`. Every package exports `./*`, so specifiers are deep. */
+/** `@nap/db/schema` → `@nap/db`. Every package exports `./*`, so specifiers are deep. */
 function packageOf(specifier: string): string {
   const [scope, name] = specifier.split("/");
   return name === undefined ? specifier : `${scope}/${name}`;
@@ -184,21 +174,6 @@ function layerViolation(
 }
 
 /**
- * Packages the test exemption does not extend to.
- *
- * A test may otherwise reach sideways once the manifest declares it — docs/adr/0001 has sibling
- * packages arriving as devDependencies so that runners and adapters can be exercised against
- * published fakes. But `runtime → bench` is the one edge docs/adr/0007 says must never exist, and
- * "only in a test" would not make the system under test importing the thing that grades it any
- * less true: the import still has to typecheck, so scoring changes still become production
- * changes. Apps are unaffected — `apps/napbench` is what the benchmark is for.
- */
-const NO_TEST_EXEMPTION: Record<string, string> = {
-  "@nap/bench":
-    "docs/adr/0007: nothing below apps/napbench may import the benchmark, tests included — a test edge still makes every change to scoring a change to the system being scored",
-};
-
-/**
  * The same rule table, read against the imports rather than the manifests.
  *
  * The manifest check can only see edges somebody remembered to declare, and Bun hoists every
@@ -207,9 +182,8 @@ const NO_TEST_EXEMPTION: Record<string, string> = {
  * whole repo. Two things are checked here:
  *
  *   - Shipped source may only import what ALLOWED lets the package depend on. Tests and scripts
- *     are exempt from *this* half: docs/adr/0001 has siblings arriving as devDependencies for
- *     their published fakes, and a test-only edge is not the layering the table is about. The
- *     exception is NO_TEST_EXEMPTION, for the one edge an ADR says must never exist at all.
+ *     are exempt from *this* half: siblings arrive as devDependencies for their published fakes,
+ *     and a test-only edge is not the layering the table is about.
  *   - Every file — shipped, test or script — may only import a package its manifest declares.
  *     That is the hoisting hole, and it is how a test importing @nap/sandbox with no
  *     devDependency on it shipped green.
@@ -249,15 +223,8 @@ export function checkSourceImports(packages: PackageSources[]): Violation[] {
 
         const layering = layerViolation(manifest.name, dep, allowed, "imports");
 
-        if (fileRole(path) !== "shipped") {
-          // Tests and scripts answer to the manifest, not the table — except for the one edge
-          // no amount of declaring makes acceptable.
-          const absolute = NO_TEST_EXEMPTION[dep];
-          if (layering !== undefined && absolute !== undefined) {
-            violations.push({ from: path, to: dep, reason: absolute });
-          }
-          continue;
-        }
+        // Tests and scripts answer to the manifest, not the table.
+        if (fileRole(path) !== "shipped") continue;
 
         if (layering !== undefined) {
           violations.push({ from: path, to: dep, reason: `${path}: ${layering}` });

@@ -222,10 +222,8 @@ async function runOne(
   }
 
   if (!result.ok) {
-    // Absent, not failed: the command never produced an answer about the project. NapBench
-    // makes the opposite call on the same event, and for a reason that does not apply here —
-    // an absent check drops out of its weighting, so an unrunnable one could raise a score.
-    // Nothing is being scored here, and the verdict below is what routes it.
+    // Absent, not failed: the command never produced an answer about the project, and the
+    // verdict below is what routes it.
     return {
       check: {
         name: check.name,

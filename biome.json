@@ -13,7 +13,7 @@
       "!**/dist",
       "!**/.turbo",
       "!packages/db/drizzle",
-      "!apps/napbench/fixtures",
+      "!apps/api/scripts/fixtures/reliability",
       "!docs/nap-navigation-plan.html"
     ]
   },

@@ -97,9 +97,8 @@ describe("the agent's fixed context", () => {
       measure(),
       "The agent's fixed context changed size. Set test/agent-context-budget.json to the measured " +
         "values, so the change is visible in review. Before you cut text to fit, measure the cut " +
-        "with NapBench (docs/NAPBENCH.md): its tasks run Nap-project turns and app tests, and none " +
-        "runs an imported repository, plan mode or a helper, so a cut there is unmeasured — say so " +
-        "in the PR. On fakes it scores nothing; a real run spends money and needs approval.",
+        "on Terminal-Bench (harbor/README.md). A cut to a prompt or tool its task turns never " +
+        "send is unmeasured — say so in the PR. A run on a paid model needs approval.",
     ).toEqual(budget);
   });
 

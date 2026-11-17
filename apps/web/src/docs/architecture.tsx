@@ -28,12 +28,7 @@ Worker  claim ─► renew ─► settle        ← executes; serves nothing
 
 Reaper (exactly one)                    ← idle sweep · capacity · the janitor`;
 
-const DIRECTION = `runtime ──► context · agent · sandbox · storage · capture · db · verify ──► shared
-
-bench ──► verify · shared          (NapBench's pure half — tasks, scoring, reports)
-apps/napbench ──► bench            (the shell: Playwright, real infrastructure)
-
-the edge that must never exist:    runtime ──► bench`;
+const DIRECTION = `runtime ──► context · agent · sandbox · storage · capture · db · verify ──► shared`;
 
 const OWNERSHIP = [
   {
@@ -130,10 +125,8 @@ export function Architecture() {
       <P>
         <Code>agent</Code> imports the <Term>SandboxManager</Term> interface and never the E2B
         adapter, which is what makes swapping E2B for something else a one-package change rather
-        than an audit. <Code>verify</Code> sits below both the runtime and the benchmark: the
-        runtime uses it to arbitrate a turn&rsquo;s claim, the benchmark uses it to build a score,
-        and the edge that must never exist is the system under test importing the thing that grades
-        it.
+        than an audit. <Code>verify</Code> sits below the runtime: it runs one check and says what
+        it produced, and the runtime uses it to arbitrate a turn&rsquo;s claim.
       </P>
 
       <P>

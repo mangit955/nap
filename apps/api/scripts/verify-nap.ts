@@ -6,8 +6,9 @@
  * the sandbox (in memory), object storage (in memory) and the app a project previews (a static page
  * served here). Nothing reaches E2B, OpenRouter, R2 or GitHub, so a run costs $0.
  *
- * It also starts a headless Chrome with a DevTools port, which `apps/napbench/scripts/verify-nap.ts`
- * connects to for every action, so one browser and its sign-in persist across driver commands.
+ * It also starts a headless Chrome with a DevTools port, which the driver
+ * (`apps/verify-nap/scripts/verify-nap.ts`) connects to for every action, so one browser and its
+ * sign-in persist across driver commands.
  *
  * Run: bun apps/api/scripts/verify-nap.ts [--port=3057]
  *   web on the port, the API on port+1, the previewed app on port+2, Chrome's DevTools on port+3.

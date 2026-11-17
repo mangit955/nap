@@ -21,8 +21,9 @@ them, nor a task spec — link to it instead.
 | `docs/adr/` | What was decided and why — choices expensive to reverse | The ADRs touching whatever you are about to change |
 | `docs/DEPLOY.md` | How it is deployed (Render + Vercel), what each process scales and drains on | Before touching anything that runs in production |
 | `docs/computer-use.md` | The desktop, the `computer` tool and "Test the app", and what has been verified | Before touching computer use |
-| `docs/NAPBENCH.md`, `harbor/README.md` | How the agent is measured, locally and under an external harness | Before touching `packages/bench`, `apps/napbench` or `harbor/`, or quoting a score |
-| `docs/napbench-*.md` | What funded runs found | Before spending on a real run, or quoting one |
+| `harbor/README.md` | How the agent is measured: Terminal-Bench under Harbor | Before touching `harbor/` or the `Benchmark` workflow, or quoting a score |
+| `docs/napbench-*.md` | What funded runs found, Terminal-Bench's included | Before spending on a real run, or quoting one |
+| `docs/NAPBENCH.md` | NapBench, the retired homemade benchmark; its code is at tag `napbench-v1` | When a write-up or ADR cites it |
 | `apps/web/src/docs/` | What the public is told about how it works (`/docs`) | Before changing a mechanism a reader was promised |
 | `docs/PLAN.md`, `PROGRESS.md` | What v1 was and where it got to. Frozen | When touching something v1 built |
 
@@ -31,10 +32,10 @@ them, nor a task spec — link to it instead.
 weights, the ceilings) live only there. A funded run's headline figures live in `docs/napbench-*.md`
 and may be quoted in the README, never beside mechanism numbers. Nothing enforces this.
 
-**Frozen areas.** Load testing, the Kubernetes deployment and NapBench's product judge keep their
-code and reports but are not being built on: see `docs/scaling-baseline.md` and
-`docs/scaling-cluster.md` (load and cluster runs, and the ramp's gotchas), `infra/k8s/README.md`
-(the manifests), and `docs/NAPBENCH.md` (the judge). Their commands are in `docs/commands.md`.
+**Frozen areas.** Load testing and the Kubernetes deployment keep their code and reports but are
+not being built on: see `docs/scaling-baseline.md` and `docs/scaling-cluster.md` (load and cluster
+runs, and the ramp's gotchas) and `infra/k8s/README.md` (the manifests). Their commands are in
+`docs/commands.md`.
 
 ## Everyday commands
 
@@ -52,7 +53,6 @@ bun run harness "<prompt>"         # one turn against fakes — free, no network
 bun run harness --real "<prompt>"  # real E2B and a real model — spends money
 bun run computer:local    # the whole app on a local Docker desktop, scripted model — free
 bun run verify-nap:up     # the real web app on fakes, to drive a UI change like a user — free. See .agents/skills/verify-nap
-bun run napbench <task-id>         # one benchmark run on fakes; --real spends money
 bun run test:integration  # real services; most of it costs money — milestone boundaries only
 ```
 
@@ -102,10 +102,9 @@ on every push; fix the cause, never `--no-verify`. `harbor/` is Python and has i
 Full detail, and the component ownership table, in `docs/architecture.md`.
 
 - **Dependency direction, enforced by `test/architecture.ts`:** `runtime` → {`context`, `agent`,
-  `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`. `bench` and `loadgen` sit beside
-  `shared`; `verify` sits below both `runtime` and `bench`. **`runtime` never imports `bench`**, and
-  nothing below `apps/napbench` imports `@nap/bench`. A new workspace package fails the test until
-  it is added to the rule table there.
+  `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`. `loadgen` sits beside `shared`.
+  Playwright belongs to `apps/verify-nap` alone, never to anything that ships. A new workspace
+  package fails the test until it is added to the rule table there.
 - **`apps/api` is three processes from one image** — `index.ts` serves, `worker.ts` executes turns,
   `reaper.ts` sweeps (exactly one) — all composed once by `bootNap` in `src/boot.ts`.
 - **Tools run in the sandbox, never on the API host.** The tool set is declared in

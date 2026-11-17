@@ -16,8 +16,7 @@ A model saying "done" is a claim. A passing checkpoint is evidence.
 [![CI](https://github.com/mangit955/nap/actions/workflows/ci.yml/badge.svg)](https://github.com/mangit955/nap/actions/workflows/ci.yml)
 
 [Live demo](https://nap-tawny.vercel.app) · [Docs](https://nap-tawny.vercel.app/docs) ·
-[Architecture](https://nap-tawny.vercel.app/docs#architecture) ·
-[NapBench](https://nap-tawny.vercel.app/docs#napbench)
+[Architecture](https://nap-tawny.vercel.app/docs#architecture)
 
 ![A prompt for a finance dashboard, the agent reading files and running the project's checks, the verdict "Verified successfully with both npm run typecheck and npm run build", and the app it built](docs/demo.gif)
 
@@ -153,7 +152,6 @@ Every real turn uses a model call and a sandbox. Use the fake harness for a free
 
 ```bash
 bun run harness --real "build a todo list"
-bun run napbench --real --suite=all
 ```
 
 ## Run the checks
@@ -182,14 +180,14 @@ repository's Vitest project configuration.
 |---|---|
 | [`apps/web`](apps/web) | Next.js interface: chat, transcript, and live preview |
 | [`apps/api`](apps/api) | Hono API, WebSocket streaming, authentication, admission, worker, and reaper processes |
-| [`apps/napbench`](apps/napbench) | CLI that runs NapBench against the agent and real or fake infrastructure |
+| [`apps/verify-nap`](apps/verify-nap) | Developer tool that drives a real Chrome against a local nap to prove a UI change |
 | [`packages/runtime`](packages/runtime) | Turn lifecycle, jobs, commits, verification, checkpoints, and continuation |
 | [`packages/agent`](packages/agent) | Model loop, its sandbox-backed tools, and the helpers it can hand a search to |
 | [`packages/context`](packages/context) | Prompt assembly, token budgets, and truncation |
 | [`packages/sandbox`](packages/sandbox) | Sandbox, filesystem, command, and preview ports plus the E2B adapter |
 | [`packages/db`](packages/db) and [`packages/storage`](packages/storage) | Postgres event data and Git bundle snapshots in R2 |
-| [`packages/verify`](packages/verify) and [`packages/bench`](packages/bench) | Project checks and the pure benchmark layer |
-| [`harbor`](harbor) | Python adapter for running NapBench under an external harness |
+| [`packages/verify`](packages/verify) | Project checks |
+| [`harbor`](harbor) | Python adapter that runs nap's agent on Terminal-Bench under Harbor |
 | [`infra/k8s`](infra/k8s) | Kubernetes manifests and proof/load-test environments |
 
 ## Architecture in one picture
@@ -214,7 +212,7 @@ reverse.
 ## Current scope
 
 The durable job loop, worker queue, verification and repair, checkpoints, project continuation,
-NapBench, and the multi-process deployment are implemented. nap is still deliberately focused:
+and the multi-process deployment are implemented. nap is still deliberately focused:
 
 - No multi-agent orchestration.
 - No built-in billing.
@@ -223,13 +221,13 @@ NapBench, and the multi-process deployment are implemented. nap is still deliber
 - Long-term memory is an interface with a no-op implementation.
 
 Those boundaries have extension points in the code. See the [full docs](https://nap-tawny.vercel.app/docs),
-[`docs/DEPLOY.md`](docs/DEPLOY.md), and [`docs/NAPBENCH.md`](docs/NAPBENCH.md) for operational and
+[`docs/DEPLOY.md`](docs/DEPLOY.md), and [`harbor/README.md`](harbor/README.md) for operational and
 benchmark details.
 
 ## Read next
 
 - [How nap works](https://nap-tawny.vercel.app/docs) for the event model, jobs, verification, sandboxes, and scale.
-- [`docs/NAPBENCH.md`](docs/NAPBENCH.md) for benchmark design, scoring, and task authoring.
+- [`harbor/README.md`](harbor/README.md) for running and scoring nap's agent on Terminal-Bench.
 - [`docs/scaling-design.md`](docs/scaling-design.md) for queue semantics, leases, and load-test invariants.
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) for deployment topology and environment variables.
 - [`docs/gotchas/`](docs/gotchas/README.md) for constraints that have caused real failures, one file per area.

@@ -16,7 +16,6 @@ const COLUMNS = [
     links: [
       { label: "Docs", href: "/docs" },
       { label: "Architecture", href: "/docs#architecture" },
-      { label: "NapBench", href: "/docs#napbench" },
     ],
   },
   {

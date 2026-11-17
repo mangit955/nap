@@ -135,8 +135,8 @@ export type ModelRoute = {
 /**
  * The route a script's real run takes, read from an environment the way the API reads its own.
  *
- * For the compositions that run without the API's env schema — `harness --real`, `napbench
- * --real`, anything else that drives a turn from a script — so they reach the endpoint a
+ * For the compositions that run without the API's env schema — `harness --real`, anything else
+ * that drives a turn from a script — so they reach the endpoint a
  * deployment configured with the same `.env` would, and fail before spending on a sandbox when it
  * is misconfigured. Unset is absent; a blank value is refused, as the API refuses it at boot.
  */

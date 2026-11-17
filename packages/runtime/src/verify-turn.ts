@@ -15,7 +15,7 @@
  *
  * **The preview is a check.** Verification confined to sandbox commands and a preview probe is
  * ADR-0006's line, and the probe is the half that catches the application which compiles and
- * does not run. No browser: ADR-0001 keeps that in NapBench alone.
+ * does not run. No browser: ADR-0006 draws the line at sandbox commands and the probe.
  */
 
 import type { VerifiedCheck } from "@nap/shared/events";

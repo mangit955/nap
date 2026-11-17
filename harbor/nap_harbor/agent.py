@@ -1,10 +1,9 @@
 """Nap's agent, as an agent Harbor runs inside a task's own machine.
 
-The opposite shape to ``napbench_harbor``: there the trial ran on the host and Harbor's container
-was vestigial; here the task's container is the workspace and Harbor's verifier is the judge (see
-``docs/adr/0035``, which says what changed since ``0014``). The agent loop is TypeScript and runs
-as a ``bun`` child; this class hands it the instruction, answers the commands it sends with
-``environment.exec``, and files what it counted. Nothing here decides anything about the task.
+The task's container is the workspace and Harbor's verifier is the judge (see ``docs/adr/0035``,
+which says what changed since ``0014``, when NapBench's retired adapter ran the trial on the
+host). The agent loop is TypeScript and runs as a ``bun`` child; this class hands it the
+instruction, answers the commands it sends with ``environment.exec``, and files what it counted. Nothing here decides anything about the task.
 """
 
 from __future__ import annotations

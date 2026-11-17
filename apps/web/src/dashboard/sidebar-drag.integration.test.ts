@@ -15,7 +15,7 @@
  * committed copy.
  *
  * The protocol is spoken directly over a WebSocket rather than through Playwright, which belongs
- * to apps/napbench alone (`test/architecture.ts`).
+ * to apps/verify-nap alone (`test/architecture.ts`).
  */
 
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";

@@ -73,26 +73,6 @@ describe("dependency direction", () => {
     expect(checkDependencyDirection(readWorkspaceManifests())).toEqual([]);
   });
 
-  it("keeps @nap/bench's internal runtime dependencies below it", () => {
-    // docs/adr/0001 permits @nap/bench to carry sibling packages as devDependencies, for
-    // their published in-memory fakes — and the checker above reads `dependencies` only,
-    // so that arrangement passes partly by not being looked at. This asserts the half that
-    // matters directly: what a consumer of the pure core pulls in at runtime.
-    //
-    // @nap/verify joined @nap/shared here at docs/adr/0007, and the list is exhaustive on
-    // purpose: what the ADR forbids is the pure core reaching *sideways or up*, so a third
-    // entry appearing without a decision behind it is the thing worth failing on.
-    //
-    // Third-party dependencies are not the subject. The pure core validates every task and
-    // report it parses, so it depends on zod exactly as @nap/shared does; what would break
-    // the ADR is an unsanctioned *workspace* package.
-    const bench = readWorkspaceManifests().find((m) => m.name === "@nap/bench");
-    expect(bench?.dependencies.filter((dep) => dep.startsWith("@nap/")).toSorted()).toEqual([
-      "@nap/shared",
-      "@nap/verify",
-    ]);
-  });
-
   it("covers every workspace package", () => {
     // Guards against the check silently going quiet because a package was
     // renamed or added and the rule table never learned about it.
@@ -100,17 +80,16 @@ describe("dependency direction", () => {
     expect(names.toSorted()).toEqual([
       "@nap/agent",
       "@nap/api",
-      "@nap/bench",
       "@nap/capture",
       "@nap/context",
       "@nap/db",
       "@nap/loadgen",
-      "@nap/napbench",
       "@nap/runtime",
       "@nap/sandbox",
       "@nap/shared",
       "@nap/storage",
       "@nap/verify",
+      "@nap/verify-nap",
       "@nap/web",
     ]);
   });
@@ -148,34 +127,34 @@ describe("dependency direction at the import — the checker actually catches vi
     },
   ];
 
-  it("catches the edge docs/adr/0007 exists to forbid", () => {
-    // The demonstration this check was written for: @nap/verify reaching up into the thing
-    // that grades the system it serves.
+  it("catches a lower package reaching up, even when its manifest declares the edge", () => {
+    // The demonstration this check was written for: @nap/verify reaching up into the runtime
+    // that calls it.
     const violations = checkSourceImports(
-      pkg("@nap/verify", ["@nap/shared", "@nap/bench"], {
-        "packages/verify/src/preview.ts": 'import { CATEGORIES } from "@nap/bench/category";',
+      pkg("@nap/verify", ["@nap/shared", "@nap/runtime"], {
+        "packages/verify/src/preview.ts": 'import { turn } from "@nap/runtime/verify-turn";',
       }),
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]?.from).toBe("packages/verify/src/preview.ts");
-    expect(violations[0]?.to).toBe("@nap/bench");
+    expect(violations[0]?.to).toBe("@nap/runtime");
   });
 
   it("counts a type-only import, which is the form a violation is likeliest to take", () => {
     // `import type` erases at runtime, so nothing in a build or a bundle notices it. It is
-    // still a layering edge: the compiler had to read @nap/bench to check this file.
+    // still a layering edge: the compiler had to read @nap/runtime to check this file.
     const violations = checkSourceImports(
-      pkg("@nap/verify", ["@nap/shared", "@nap/bench"], {
+      pkg("@nap/verify", ["@nap/shared", "@nap/runtime"], {
         "packages/verify/src/preview.ts":
-          'import type { TaskCategory } from "@nap/bench/category";',
+          'import type { TurnRequest } from "@nap/runtime/single-agent-runtime";',
       }),
     );
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.to).toBe("@nap/bench");
+    expect(violations[0]?.to).toBe("@nap/runtime");
   });
 
   it("resolves the subpath form to its package", () => {
-    // Specifiers here are always deep — `@nap/bench/category`, never `@nap/bench` — because
+    // Specifiers here are always deep — `@nap/db/schema`, never `@nap/db` — because
     // every package exports `./*`. Matching the bare name would have caught nothing at all.
     const violations = checkSourceImports(
       pkg("@nap/agent", ["@nap/shared", "@nap/db"], {
@@ -214,15 +193,15 @@ describe("dependency direction at the import — the checker actually catches vi
   });
 
   it("lets a test reach sideways once the manifest says so", () => {
-    // docs/adr/0001: sibling packages appear under devDependencies for their published fakes,
-    // which is what makes runners and adapters testable without a network. The direction rule
-    // is about what shipped source may reach for; a declared test-only edge is not that.
+    // Sibling packages appear under devDependencies for their published fakes, which is what
+    // makes the agent loop testable without a network. The direction rule is about what
+    // shipped source may reach for; a declared test-only edge is not that.
     const violations = checkSourceImports(
       pkg(
-        "@nap/bench",
+        "@nap/agent",
         ["@nap/shared"],
         {
-          "packages/bench/src/runner.test.ts":
+          "packages/agent/src/agent-service.test.ts":
             'import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";',
         },
         ["@nap/sandbox"],
@@ -233,13 +212,13 @@ describe("dependency direction at the import — the checker actually catches vi
 
   it("holds shipped source to the table even when the manifest declares the edge", () => {
     // A devDependency is not a licence for src to use it: declaring @nap/sandbox is how the
-    // fakes get in, and the two rules would disagree about @nap/bench's core if this one
+    // fakes get in, and the two rules would disagree about @nap/agent's core if this one
     // read the manifest rather than the layer table.
     const violations = checkSourceImports(
       pkg(
-        "@nap/bench",
+        "@nap/agent",
         ["@nap/shared"],
-        { "packages/bench/src/runner.ts": 'import { x } from "@nap/sandbox/template";' },
+        { "packages/agent/src/agent-service.ts": 'import { x } from "@nap/sandbox/template";' },
         ["@nap/sandbox"],
       ),
     );
@@ -291,9 +270,9 @@ describe("dependency direction at the import — the checker actually catches vi
   it("reads re-exports, side-effect imports and require as the edges they are", () => {
     const violations = checkSourceImports(
       pkg("@nap/verify", ["@nap/shared"], {
-        "packages/verify/src/a.ts": 'export { CATEGORIES } from "@nap/bench/category";',
-        "packages/verify/src/b.ts": 'import "@nap/bench/register";',
-        "packages/verify/src/c.ts": 'const bench = require("@nap/bench/report");',
+        "packages/verify/src/a.ts": 'export { turn } from "@nap/runtime/verify-turn";',
+        "packages/verify/src/b.ts": 'import "@nap/runtime/register";',
+        "packages/verify/src/c.ts": 'const runtime = require("@nap/runtime/single-agent-runtime");',
       }),
     );
     expect(violations.map((v) => v.from).toSorted()).toEqual([
@@ -350,30 +329,6 @@ describe("dependency direction at the import — the checker actually catches vi
     expect(violations[0]?.reason).toContain("only as a devDependency");
   });
 
-  it("refuses the benchmark to a test, declared or not", () => {
-    // The one edge the exemption does not cover. docs/adr/0007: a test importing @nap/bench
-    // still has to typecheck, so it still makes every scoring change a production change.
-    const violations = checkSourceImports(
-      pkg(
-        "@nap/runtime",
-        ["@nap/shared"],
-        { "packages/runtime/src/turn.test.ts": 'import { score } from "@nap/bench/score";' },
-        ["@nap/bench"],
-      ),
-    );
-    expect(violations).toHaveLength(1);
-    expect(violations[0]?.reason).toContain("docs/adr/0007");
-  });
-
-  it("still lets the benchmark app's own tests use it", () => {
-    const violations = checkSourceImports(
-      pkg("@nap/napbench", ["@nap/bench"], {
-        "apps/napbench/src/run.test.ts": 'import { score } from "@nap/bench/score";',
-      }),
-    );
-    expect(violations).toEqual([]);
-  });
-
   it("fails loudly on a package the rule table has never heard of", () => {
     const violations = checkSourceImports(
       pkg("@nap/mystery", ["@nap/shared"], {
@@ -386,8 +341,8 @@ describe("dependency direction at the import — the checker actually catches vi
 
   it("reports every violating file, not just the first", () => {
     const violations = checkSourceImports(
-      pkg("@nap/verify", ["@nap/shared", "@nap/bench"], {
-        "packages/verify/src/a.ts": 'import { a } from "@nap/bench/category";',
+      pkg("@nap/verify", ["@nap/shared", "@nap/runtime", "@nap/agent"], {
+        "packages/verify/src/a.ts": 'import { a } from "@nap/agent/agent-service";',
         "packages/verify/src/b.ts": 'import { b } from "@nap/runtime/single-agent-runtime";',
       }),
     );
@@ -437,47 +392,47 @@ describe("dependency direction — the checker actually catches violations", () 
     expect(violations).toEqual([]);
   });
 
-  it("rejects Playwright anywhere but the benchmark app", () => {
-    // docs/adr/0001: the deployed image is one workspace-wide install, so a browser driver
-    // added to any package is a browser driver the production API carries.
+  it("rejects Playwright anywhere but the verify-nap tool", () => {
+    // The deployed image is one workspace-wide install, so a browser driver added to any
+    // package is a browser driver the production API carries.
     const violations = checkDependencyDirection([
       { name: "@nap/capture", dependencies: ["playwright-core"] },
     ]);
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.reason).toContain("BrowserSession");
+    expect(violations[0]?.reason).toContain("apps/verify-nap");
   });
 
   it("rejects an exclusive external hidden in devDependencies", () => {
     // The image is built by one workspace-wide `bun install` with no --production, so a
     // devDependency ships too. Reading `dependencies` alone would have let the browser
-    // driver into production through the back door — which is the exact thing
-    // docs/adr/0001 justifies the rule by.
+    // driver into production through the back door — which is the exact thing the rule
+    // exists to stop.
     const violations = checkDependencyDirection([
       { name: "@nap/capture", dependencies: [], devDependencies: ["playwright-core"] },
     ]);
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.reason).toContain("BrowserSession");
+    expect(violations[0]?.reason).toContain("apps/verify-nap");
   });
 
   it("allows a sibling package in devDependencies", () => {
-    // docs/adr/0001: @nap/bench carries siblings as devDependencies for their published
-    // fakes, which is what makes the runner unit-testable. Only the *externals* rule
-    // widens to devDependencies; the direction rule stays on runtime dependencies.
+    // @nap/agent carries siblings as devDependencies for their published fakes, which is
+    // what makes the agent loop unit-testable. Only the *externals* rule widens to
+    // devDependencies; the direction rule stays on runtime dependencies.
     const violations = checkDependencyDirection([
-      { name: "@nap/bench", dependencies: ["@nap/shared"], devDependencies: ["@nap/sandbox"] },
+      { name: "@nap/agent", dependencies: ["@nap/shared"], devDependencies: ["@nap/sandbox"] },
     ]);
     expect(violations).toEqual([]);
   });
 
-  it("allows the benchmark app to depend on Playwright", () => {
+  it("allows the verify-nap tool to depend on Playwright", () => {
     expect(
-      checkDependencyDirection([{ name: "@nap/napbench", dependencies: ["playwright-core"] }]),
+      checkDependencyDirection([{ name: "@nap/verify-nap", dependencies: ["playwright-core"] }]),
     ).toEqual([]);
   });
 
-  it("rejects the benchmark core reaching past @nap/shared", () => {
+  it("rejects the load harness's core reaching past @nap/shared", () => {
     const violations = checkDependencyDirection([
-      { name: "@nap/bench", dependencies: ["@nap/runtime"] },
+      { name: "@nap/loadgen", dependencies: ["@nap/runtime"] },
     ]);
     expect(violations).toHaveLength(1);
     expect(violations[0]?.reason).toContain("may only depend on");

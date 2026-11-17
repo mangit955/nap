@@ -70,7 +70,7 @@ jobs:
       # a test drives imports nothing but the standard library, so the suite works on a
       # checkout with no evaluation framework installed. The second installs Harbor, which is
       # what makes `agent.py` — the file coupled to somebody else's classes — reachable by any
-      # gate at all. Skipped tests in the first run are expected; see harbor/tests/test_agent.py.
+      # gate at all. Skipped tests in the first run are expected; see harbor/tests/test_nap_agent.py.
       # The entrypoint test needs no evaluation framework, so it is required in the first run
       # only, and skips in the second rather than starting a container twice.
       - run: uv run --directory harbor --with pytest pytest -q

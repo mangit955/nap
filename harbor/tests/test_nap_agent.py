@@ -1,6 +1,6 @@
 """The half of the Terminal-Bench adapter that only exists when Harbor is installed.
 
-Skips on a checkout without Harbor, like ``test_agent.py``, and fails where Harbor has moved
+Skips on a checkout without Harbor, and fails where Harbor has moved
 something ``nap_harbor/agent.py`` depends on.
 """
 

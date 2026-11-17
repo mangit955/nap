@@ -45,22 +45,14 @@
         "postgres": "3.4.9",
       },
     },
-    "apps/napbench": {
-      "name": "@nap/napbench",
+    "apps/verify-nap": {
+      "name": "@nap/verify-nap",
       "version": "0.0.0",
       "dependencies": {
-        "@nap/bench": "workspace:*",
         "@nap/sandbox": "workspace:*",
         "@nap/shared": "workspace:*",
-        "axe-core": "4.13.0",
         "playwright-core": "1.57.0",
         "zod": "4.4.3",
-      },
-      "devDependencies": {
-        "@nap/agent": "workspace:*",
-        "@nap/context": "workspace:*",
-        "@nap/db": "workspace:*",
-        "@nap/runtime": "workspace:*",
       },
     },
     "apps/web": {
@@ -114,19 +106,6 @@
         "@nap/db": "workspace:*",
         "@nap/sandbox": "workspace:*",
         "@nap/storage": "workspace:*",
-      },
-    },
-    "packages/bench": {
-      "name": "@nap/bench",
-      "version": "0.0.0",
-      "dependencies": {
-        "@nap/shared": "workspace:*",
-        "@nap/verify": "workspace:*",
-        "zod": "4.4.3",
-      },
-      "devDependencies": {
-        "@nap/db": "workspace:*",
-        "@nap/sandbox": "workspace:*",
       },
     },
     "packages/capture": {
@@ -483,8 +462,6 @@
 
     "@nap/api": ["@nap/api@workspace:apps/api"],
 
-    "@nap/bench": ["@nap/bench@workspace:packages/bench"],
-
     "@nap/capture": ["@nap/capture@workspace:packages/capture"],
 
     "@nap/context": ["@nap/context@workspace:packages/context"],
@@ -492,8 +469,6 @@
     "@nap/db": ["@nap/db@workspace:packages/db"],
 
     "@nap/loadgen": ["@nap/loadgen@workspace:packages/loadgen"],
-
-    "@nap/napbench": ["@nap/napbench@workspace:apps/napbench"],
 
     "@nap/runtime": ["@nap/runtime@workspace:packages/runtime"],
 
@@ -504,6 +479,8 @@
     "@nap/storage": ["@nap/storage@workspace:packages/storage"],
 
     "@nap/verify": ["@nap/verify@workspace:packages/verify"],
+
+    "@nap/verify-nap": ["@nap/verify-nap@workspace:apps/verify-nap"],
 
     "@nap/web": ["@nap/web@workspace:apps/web"],
 
@@ -808,8 +785,6 @@
     "async-lock": ["async-lock@1.4.1", "", {}, "sha512-Az2ZTpuytrtqENulXwO3GGv1Bztugx6TT37NIo7imr/Qo0gsYiGtSdBa2B6fsXhTpVZDNfu1Qn3pk531e3q+nQ=="],
 
     "atomic-sleep": ["atomic-sleep@1.0.0", "", {}, "sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ=="],
-
-    "axe-core": ["axe-core@4.13.0", "", {}, "sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A=="],
 
     "b4a": ["b4a@1.8.1", "", { "peerDependencies": { "react-native-b4a": "*" }, "optionalPeers": ["react-native-b4a"] }, "sha512-aiqre1Nr0B/6DgE2N5vwTc+2/oQZ4Wh1t4NznYY4E00y8LCt6NqdRv81so00oo27D8MVKTpUa/MwUUtBLXCoDw=="],
 
