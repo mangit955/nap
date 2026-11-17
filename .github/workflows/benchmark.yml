@@ -4,6 +4,9 @@ name: Benchmark
 # a run can spend money, and nothing about a push says it should. harbor/README.md, "Scoring a task
 # set", says what each input does and what a run leaves behind.
 on:
+  # TEMPORARY, for runs before the workflow is on main. Never merged.
+  push:
+    branches: [tmp/benchmark-dry-run]
   workflow_dispatch:
     inputs:
       set:
@@ -41,12 +44,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      SET: ${{ inputs.set }}
-      MODEL: ${{ inputs.model }}
-      SPEND: ${{ inputs.spend }}
-      CONCURRENCY: ${{ inputs.concurrency }}
-      SCRIPTED: ${{ inputs.scripted }}
-      JOB_NAME: ${{ inputs.set }}-${{ github.run_id }}
+      SET: ${{ inputs.set || 'test' }}
+      MODEL: ${{ inputs.model || 'openai/gpt-6-luna' }}
+      SPEND: ${{ inputs.spend || 'true' }}
+      CONCURRENCY: ${{ inputs.concurrency || '4' }}
+      SCRIPTED: ${{ inputs.scripted || 'false' }}
+      JOB_NAME: ${{ inputs.set || 'test' }}-${{ github.run_id }}
     steps:
       # Inputs arrive as environment variables, never spliced into a script, and are checked
       # before anything is installed: a model that costs money without spend set would otherwise
