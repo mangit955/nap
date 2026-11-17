@@ -1,15 +1,7 @@
 "use client";
 
 import type { ProjectRepository } from "@nap/shared/github-protocol";
-import {
-  type CSSProperties,
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { TurnActivity } from "../chat/use-turn-submission.ts";
 import { foldAppTests } from "../computer/app-test-state.ts";
 import { computerIsBusy } from "../computer/computer-activity.ts";
@@ -25,18 +17,15 @@ import { useSessionLog } from "../hooks/use-session-log.ts";
 import { phaseOf, recordState } from "../projects/project-phase.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { announceSessionsChanged } from "../projects/use-session-navigation.ts";
-import { Splitter } from "../ui/splitter.tsx";
-import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
 import { ChangesPanel } from "../workspace/changes-panel.tsx";
 import { FilePanel } from "../workspace/file-panel.tsx";
-import { PANEL_SPLIT } from "../workspace/split.ts";
 import { ThreadDetailsPanel, useThreadDetails } from "../workspace/thread-details.tsx";
 import { useNarrowPanel } from "../workspace/use-narrow-panel.ts";
-import { usePaneWidth } from "../workspace/use-pane-width.ts";
 import { usePanelLayout } from "../workspace/use-panel-layout.ts";
 import { Workbench } from "../workspace/workbench.tsx";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
+import { WorkspacePanes } from "../workspace/workspace-panes.tsx";
 import { LiveChatPane } from "./chat-pane.tsx";
 import { FileTreePane } from "./file-tree-pane.tsx";
 import { PreviewPane } from "./preview-pane.tsx";
@@ -246,9 +235,6 @@ export function AppShell({
   }, [sessionId]);
   const [reloads, setReloads] = useState(0);
   const [route, setRoute] = useState("/");
-  const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(PANEL_SPLIT, 540);
-  useDocumentScrollLock();
-  const paneStyle: CSSProperties & { "--panel-width": string } = { "--panel-width": `${width}px` };
   const [computerPosition, setComputerPosition] = useState<{
     sessionId: string | undefined;
     seq: number | null;
@@ -302,20 +288,15 @@ export function AppShell({
   );
 
   return (
-    <div className="t3-workspace relative flex h-dvh flex-col overflow-hidden bg-surface">
-      <main
-        ref={containerRef}
-        className="t3-workspace-panes relative grid min-h-0 flex-1 overflow-hidden"
-        data-panel-open={visiblePanel}
-        data-maximized={maximized && visiblePanel}
-        style={paneStyle}
-      >
-        <div
-          ref={details.ref}
-          className="t3-chat-column min-h-0 min-w-0"
-          hidden={chatHidden}
-          data-details-card={details.open ? details.presentation : undefined}
-        >
+    <WorkspacePanes
+      panelOpen={visiblePanel}
+      maximized={maximized}
+      chatHidden={chatHidden}
+      onDismissPanel={panels.hide}
+      chatRef={details.ref}
+      detailsCard={details.open ? details.presentation : undefined}
+      chat={
+        <>
           <WorkspaceHeader
             projectName={headerNote(status, project?.name)}
             {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
@@ -375,27 +356,9 @@ export function AppShell({
               fetchJson={fetchJson}
             />
           )}
-        </div>
-        {visiblePanel && !maximized && (
-          <div className="t3-panel-divider">
-            <Splitter
-              label="Right panel width"
-              value={width}
-              onGrab={onGrab}
-              onKeyDown={onKeyDown}
-              quiet
-            />
-          </div>
-        )}
-        {visiblePanel && (
-          <button
-            type="button"
-            className="t3-panel-backdrop"
-            tabIndex={-1}
-            aria-label="Dismiss right panel"
-            onClick={panels.hide}
-          />
-        )}
+        </>
+      }
+      workbench={
         <Workbench
           job={log.jobs.summary}
           chatHidden={chatHidden}
@@ -482,11 +445,13 @@ export function AppShell({
             <FilePanel sessionId={sessionId} path={path} log={log} fetchJson={fetchJson} />
           )}
         />
-      </main>
-      {viewerOpen && (
-        <RecordingViewer recording={recording} onClose={() => setRecordingPosition(null)} />
-      )}
-    </div>
+      }
+      overlay={
+        viewerOpen && (
+          <RecordingViewer recording={recording} onClose={() => setRecordingPosition(null)} />
+        )
+      }
+    />
   );
 }
 

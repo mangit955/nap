@@ -138,6 +138,36 @@ describe("a replay", () => {
     expectNoRequests();
   });
 
+  it("leaves the panel alone once the visitor has closed it", () => {
+    const recording = readingList();
+    render(<ReplayShell recording={recording} />);
+    fireEvent.click(screen.getByRole("button", { name: "Hide right panel" }));
+    playToEnd(recording);
+    // Following the session would have reopened it twice: for the file, then for the app.
+    expect(screen.getByRole("button", { name: "Show right panel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide right panel" })).toBeNull();
+  });
+
+  it("picks up where it paused, not where the clock has got to", () => {
+    const recording = readingList();
+    render(<ReplayShell recording={recording} />);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /pause/i }));
+    act(() => {
+      vi.advanceTimersByTime(10 * 60_000);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /resume/i }));
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    // Two seconds of playback in, the reply that ends the session is half a minute away.
+    expect(screen.queryByText(/type checking and production build both pass/i)).toBeNull();
+    playToEnd(recording);
+    expect(screen.getByText(/type checking and production build both pass/i)).toBeInTheDocument();
+  });
+
   it("holds still while paused", () => {
     const recording = readingList();
     render(<ReplayShell recording={recording} />);

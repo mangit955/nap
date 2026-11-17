@@ -82,6 +82,7 @@ export function ChatPane({
   onAddKey,
   computerNotice,
   composer,
+  offerAppTest = true,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
@@ -140,9 +141,15 @@ export function ChatPane({
   onAddKey?: (() => void) | undefined;
   /**
    * What sits where the composer does, for a transcript nobody can reply to — a replay, whose
-   * controls are play and pause rather than send. Absent, the composer.
+   * controls are play and pause rather than send. Absent, the composer. It replaces the input and
+   * nothing else.
    */
   composer?: ReactNode;
+  /**
+   * Whether to offer a test of the app once a job has finished. Off where nobody can act on the
+   * offer, such as a replay; on everywhere else, where the offer explains itself when it cannot run.
+   */
+  offerAppTest?: boolean;
 }) {
   const empty = events.length === 0 && pending === undefined && pendingSteer === undefined;
   // Folded once, read twice: the transcript renders it and the composer asks it whether a
@@ -235,8 +242,7 @@ export function ChatPane({
                   <PendingMessage text={pending} />
                 )}
                 {pendingSteer !== undefined && <PendingSteer text={pendingSteer} />}
-                {/* The offer to start a test, which a transcript nobody can act on does not make. */}
-                {composer === undefined && (
+                {offerAppTest && (
                   <AppTestCards
                     events={events}
                     running={running}

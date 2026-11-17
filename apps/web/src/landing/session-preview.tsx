@@ -150,8 +150,6 @@ export function SessionPreview({ stage }: { stage: DemoStage }) {
                 job={job}
                 panelOpen
                 onTogglePanel={noAction}
-                detailsOpen={false}
-                onToggleDetails={noAction}
               />
             </div>
             <div className="lp-session-mobile-tabs">

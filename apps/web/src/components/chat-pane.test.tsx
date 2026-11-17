@@ -3,6 +3,7 @@ import type { MediaAttachment } from "@nap/shared/media";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { findReplay } from "../replay/replays.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
 import { ChatPane } from "./chat-pane.tsx";
 
@@ -41,6 +42,11 @@ const call: StoredEvent = {
   createdAt: "2026-08-09T12:00:01.000Z",
   payload: { toolCallId: "a", toolName: "run_command", input: { command: "bun install" } },
 } satisfies NapEvent;
+
+/** A real session whose one job finished verified — the point at which a test of the app is offered. */
+function finishedJob(): readonly StoredEvent[] {
+  return findReplay("reading-list")?.events ?? [];
+}
 
 describe("ChatPane", () => {
   it("invites a first prompt when nothing has happened yet", () => {
@@ -100,6 +106,19 @@ describe("ChatPane", () => {
 
     rerender(<ChatPane events={[message]} />);
     expect(screen.getByRole("region", { name: "Chat" })).toBeInTheDocument();
+  });
+
+  it("puts something else where the composer sits, and only there", () => {
+    render(<ChatPane events={finishedJob()} composer={<p>Played back</p>} />);
+    expect(screen.getByText("Played back")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    // Replacing the input is not a reason to stop offering a test of what was built.
+    expect(screen.getByRole("region", { name: "Test the app" })).toBeInTheDocument();
+  });
+
+  it("offers no test of the app where nobody can take it up", () => {
+    render(<ChatPane events={finishedJob()} offerAppTest={false} />);
+    expect(screen.queryByRole("region", { name: "Test the app" })).toBeNull();
   });
 
   it("always offers somewhere to type", () => {

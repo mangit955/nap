@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import { describe, expect, it } from "vitest";
 import { FEATURED_REPLAY_PATH } from "./featured.ts";
-import { buildAt, filesAt, listingAt, MAX_GAP_MS, playbackOffsets } from "./playback.ts";
+import {
+  buildAt,
+  filesAt,
+  listingAt,
+  MAX_GAP_MS,
+  playbackOffsets,
+  withStandInPreviews,
+} from "./playback.ts";
 import type { ReplayRecording } from "./recording.ts";
 import { findReplay, replaySlugs } from "./replays.ts";
 
@@ -120,6 +127,19 @@ describe("playback", () => {
     expect(filesAt(recording, first.seq - 1).get(first.path)).toBe(recording.files[first.path]);
     expect(filesAt(recording, first.seq).get(first.path)).toBe(first.contents);
     expect(listingAt(recording, 1).files).toEqual(Object.keys(recording.files).sort());
+  });
+
+  it("points a preview's address at the build standing in for it, and touches nothing else", () => {
+    const recording = findReplay("reading-list");
+    if (!recording) throw new Error("missing");
+    const shown = withStandInPreviews(recording, recording.events, "https://nap.example");
+    const ready = shown.find((event) => event.type === "preview.ready");
+    expect(ready?.type === "preview.ready" && ready.payload.url).toBe(
+      `https://nap.example${buildAt(recording, ready?.seq ?? 0)?.path}`,
+    );
+    expect(shown.filter((event) => event.type !== "preview.ready")).toEqual(
+      recording.events.filter((event) => event.type !== "preview.ready"),
+    );
   });
 
   it("shows no build before the session's preview came up", () => {

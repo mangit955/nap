@@ -49,7 +49,9 @@ export function usePlayback(recorded: readonly StoredEvent[]): Playback {
     [recorded, offsets],
   );
 
-  // `run` is what a restart changes, so the same state starting over still re-arms the clock.
+  // `run` is what a restart changes, so restarting while already playing still re-arms the clock.
+  // The bar offers a restart only once playback has ended, but `restart` is this hook's to keep
+  // correct whoever calls it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     if (state !== "playing") return;

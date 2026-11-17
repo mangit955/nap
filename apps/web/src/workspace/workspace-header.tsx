@@ -12,7 +12,7 @@ export function WorkspaceHeader({
   job,
   panelOpen,
   onTogglePanel,
-  detailsOpen,
+  detailsOpen = false,
   detailsId,
   detailsPresentation,
   onToggleDetails,
@@ -22,7 +22,7 @@ export function WorkspaceHeader({
   job: JobSummary | null;
   panelOpen: boolean;
   onTogglePanel: () => void;
-  detailsOpen: boolean;
+  detailsOpen?: boolean;
   detailsId?: string;
   detailsPresentation?: DetailsPresentation;
   onToggleDetails?: (() => void) | undefined;
@@ -51,7 +51,7 @@ export function WorkspaceHeader({
           </>
         )}
       </p>
-      {/* A replay has no thread details to show, and a button that opens nothing is worse than none. */}
+      {/* Only where there are thread details to open: a button that opens nothing is worse than none. */}
       {onToggleDetails && (
         <ThreadDetailsToggle
           open={detailsOpen}

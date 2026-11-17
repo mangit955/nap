@@ -253,7 +253,9 @@ played back to anybody at `/replay/<slug>`, in the workspace's own panes, on a c
 the files the session started from, each file it changed, and static builds of the app that stand
 in for the preview, because the sandbox behind it is gone. Watching one makes no request, so it
 starts no sandbox and calls no model. Only real sessions, never made-up ones. Not the socket's
-catching up after a reconnect, which is *catching up* from a `seq`.
+catch-up after a connection opens, which the stream code also calls a replay (`useEventStream`,
+`SessionLog.replayed`): there it means "everything after `seq` has arrived", and a replay's own
+log says `replayed: true` in that sense, because all of it is in hand.
 
 **Toolset** — the tools one turn is *offered*, as against the closed list of tool names the log
 accepts. Chosen from facts about the turn — who asked, what is wired, the model's family, whether it

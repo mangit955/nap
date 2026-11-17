@@ -56,3 +56,22 @@ export function listingAt(recording: ReplayRecording, seq: number): FileListing 
 export function buildAt(recording: ReplayRecording, seq: number) {
   return recording.builds.findLast((build) => build.fromSeq <= seq);
 }
+
+/**
+ * The log as a replay shows it: identical, except that a preview's address names the build
+ * standing in for it. The recorded address is a sandbox long since gone, and the transcript links
+ * it — so left alone it would offer a link to nothing beside a preview showing something else.
+ */
+export function withStandInPreviews(
+  recording: ReplayRecording,
+  events: readonly StoredEvent[],
+  origin: string,
+): StoredEvent[] {
+  return events.map((event) => {
+    if (event.type !== "preview.ready") return event;
+    const build = buildAt(recording, event.seq);
+    return build
+      ? { ...event, payload: { ...event.payload, url: `${origin}${build.path}` } }
+      : event;
+  });
+}
