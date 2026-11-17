@@ -1,0 +1,2687 @@
+{
+  "note": "Five Terminal-Bench 2.1 test-set runs on openai/gpt-6-luna: two baselines (reviewer off) and three with Nap's reviewer (ADR-0036). Each entry is harbor-report.ts output read over that run's artifact.",
+  "runs": [
+    {
+      "name": "B1",
+      "githubRun": "44003376019",
+      "reviewer": false,
+      "report": {
+        "models": ["openai/gpt-6-luna"],
+        "dataset": "terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+        "trials": 25,
+        "passed": 7,
+        "passRate": 0.28,
+        "interval": {
+          "low": 0.1428367383738157,
+          "high": 0.47576971896558296
+        },
+        "harnessErrors": 0,
+        "unfinished": 0,
+        "agreement": {
+          "claimedPassed": 5,
+          "claimedFailed": 8,
+          "unclaimedPassed": 2,
+          "unclaimedFailed": 10,
+          "rate": 0.6,
+          "notRun": 0
+        },
+        "cost": {
+          "usd": 0.23256,
+          "perPricedTrialUsd": 0.0093,
+          "priced": 25,
+          "unpriced": 0,
+          "priceTableVersion": "2026-11-17"
+        },
+        "usage": {
+          "inputTokens": 4608217,
+          "outputTokens": 293483,
+          "cacheWriteTokens": 344519,
+          "cacheReadTokens": 4262411
+        },
+        "requests": 429,
+        "steps": 429,
+        "review": null,
+        "failures": {
+          "step_budget": [
+            "terminal-bench/adaptive-rejection-sampler",
+            "terminal-bench/break-filter-js-from-html",
+            "terminal-bench/dna-assembly",
+            "terminal-bench/largest-eigenval",
+            "terminal-bench/mcmc-sampling-stan",
+            "terminal-bench/merge-diff-arc-agi-task",
+            "terminal-bench/overfull-hbox",
+            "terminal-bench/path-tracing-reverse",
+            "terminal-bench/protein-assembly",
+            "terminal-bench/train-fasttext"
+          ],
+          "claimed_done_tests_failed": [
+            "terminal-bench/configure-git-webserver",
+            "terminal-bench/filter-js-from-html",
+            "terminal-bench/gcode-to-text",
+            "terminal-bench/model-extraction-relu-logits",
+            "terminal-bench/regex-chess",
+            "terminal-bench/sanitize-git-repo",
+            "terminal-bench/torch-pipeline-parallelism",
+            "terminal-bench/video-processing"
+          ]
+        },
+        "rows": [
+          {
+            "task": "terminal-bench/adaptive-rejection-sampler",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 141946,
+              "outputTokens": 17972,
+              "cacheWriteTokens": 10032,
+              "cacheReadTokens": 131854
+            },
+            "usd": 0.01156,
+            "durationMs": 206021,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/break-filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 104338,
+              "outputTokens": 20864,
+              "cacheWriteTokens": 6949,
+              "cacheReadTokens": 97329
+            },
+            "usd": 0.01228,
+            "durationMs": 290642,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/configure-git-webserver",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 13,
+            "requests": 13,
+            "usage": {
+              "inputTokens": 50792,
+              "outputTokens": 7096,
+              "cacheWriteTokens": 3429,
+              "cacheReadTokens": 47324
+            },
+            "usd": 0.00445,
+            "durationMs": 86480,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/constraints-scheduling",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 14,
+            "requests": 14,
+            "usage": {
+              "inputTokens": 71929,
+              "outputTokens": 8175,
+              "cacheWriteTokens": 4995,
+              "cacheReadTokens": 66892
+            },
+            "usd": 0.00538,
+            "durationMs": 97064,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/dna-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 196275,
+              "outputTokens": 29416,
+              "cacheWriteTokens": 12645,
+              "cacheReadTokens": 183570
+            },
+            "usd": 0.01813,
+            "durationMs": 325956,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/feal-differential-cryptanalysis",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 16,
+            "requests": 16,
+            "usage": {
+              "inputTokens": 78062,
+              "outputTokens": 23823,
+              "cacheWriteTokens": 5270,
+              "cacheReadTokens": 72744
+            },
+            "usd": 0.0133,
+            "durationMs": 272915,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/filter-js-from-html",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 14,
+            "requests": 14,
+            "usage": {
+              "inputTokens": 89778,
+              "outputTokens": 15670,
+              "cacheWriteTokens": 8365,
+              "cacheReadTokens": 81371
+            },
+            "usd": 0.0097,
+            "durationMs": 185096,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/fix-code-vulnerability",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 12,
+            "requests": 12,
+            "usage": {
+              "inputTokens": 218807,
+              "outputTokens": 2811,
+              "cacheWriteTokens": 26941,
+              "cacheReadTokens": 191830
+            },
+            "usd": 0.0067,
+            "durationMs": 53406,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/gcode-to-text",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 17,
+            "requests": 17,
+            "usage": {
+              "inputTokens": 131848,
+              "outputTokens": 10204,
+              "cacheWriteTokens": 11070,
+              "cacheReadTokens": 120727
+            },
+            "usd": 0.0077,
+            "durationMs": 123997,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/git-multibranch",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 127199,
+              "outputTokens": 8637,
+              "cacheWriteTokens": 7799,
+              "cacheReadTokens": 119340
+            },
+            "usd": 0.00649,
+            "durationMs": 111759,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/largest-eigenval",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 109732,
+              "outputTokens": 10569,
+              "cacheWriteTokens": 6252,
+              "cacheReadTokens": 103420
+            },
+            "usd": 0.00711,
+            "durationMs": 149716,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/mcmc-sampling-stan",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 260470,
+              "outputTokens": 8786,
+              "cacheWriteTokens": 28043,
+              "cacheReadTokens": 232367
+            },
+            "usd": 0.01023,
+            "durationMs": 931543,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/merge-diff-arc-agi-task",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 123311,
+              "outputTokens": 10334,
+              "cacheWriteTokens": 7580,
+              "cacheReadTokens": 115671
+            },
+            "usd": 0.00728,
+            "durationMs": 152154,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/model-extraction-relu-logits",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 13,
+            "requests": 13,
+            "usage": {
+              "inputTokens": 49903,
+              "outputTokens": 14594,
+              "cacheWriteTokens": 3913,
+              "cacheReadTokens": 45951
+            },
+            "usd": 0.00825,
+            "durationMs": 170481,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/multi-source-data-merger",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 14,
+            "requests": 14,
+            "usage": {
+              "inputTokens": 62399,
+              "outputTokens": 3794,
+              "cacheWriteTokens": 4849,
+              "cacheReadTokens": 57508
+            },
+            "usd": 0.00308,
+            "durationMs": 55324,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/overfull-hbox",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 123392,
+              "outputTokens": 6358,
+              "cacheWriteTokens": 6110,
+              "cacheReadTokens": 117222
+            },
+            "usd": 0.00512,
+            "durationMs": 101595,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/path-tracing-reverse",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 982726,
+              "outputTokens": 9925,
+              "cacheWriteTokens": 67333,
+              "cacheReadTokens": 915333
+            },
+            "usd": 0.02254,
+            "durationMs": 133124,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/protein-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 172220,
+              "outputTokens": 9509,
+              "cacheWriteTokens": 12917,
+              "cacheReadTokens": 159243
+            },
+            "usd": 0.00797,
+            "durationMs": 126474,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/pypi-server",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 14,
+            "requests": 14,
+            "usage": {
+              "inputTokens": 49405,
+              "outputTokens": 3324,
+              "cacheWriteTokens": 3260,
+              "cacheReadTokens": 46103
+            },
+            "usd": 0.00253,
+            "durationMs": 58450,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/regex-chess",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 13,
+            "requests": 13,
+            "usage": {
+              "inputTokens": 73773,
+              "outputTokens": 18574,
+              "cacheWriteTokens": 7434,
+              "cacheReadTokens": 66300
+            },
+            "usd": 0.01088,
+            "durationMs": 209537,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/sanitize-git-repo",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 17,
+            "requests": 17,
+            "usage": {
+              "inputTokens": 350629,
+              "outputTokens": 6746,
+              "cacheWriteTokens": 30332,
+              "cacheReadTokens": 320246
+            },
+            "usd": 0.01037,
+            "durationMs": 108794,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/schemelike-metacircular-eval",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 382147,
+              "outputTokens": 11311,
+              "cacheWriteTokens": 24412,
+              "cacheReadTokens": 357675
+            },
+            "usd": 0.01229,
+            "durationMs": 204471,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/torch-pipeline-parallelism",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 12,
+            "requests": 12,
+            "usage": {
+              "inputTokens": 53209,
+              "outputTokens": 12732,
+              "cacheWriteTokens": 4960,
+              "cacheReadTokens": 48213
+            },
+            "usd": 0.00747,
+            "durationMs": 144776,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/train-fasttext",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 200368,
+              "outputTokens": 4394,
+              "cacheWriteTokens": 12186,
+              "cacheReadTokens": 188122
+            },
+            "usd": 0.00561,
+            "durationMs": 810538,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/video-processing",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 403559,
+              "outputTokens": 17865,
+              "cacheWriteTokens": 27443,
+              "cacheReadTokens": 376056
+            },
+            "usd": 0.01613,
+            "durationMs": 208545,
+            "reviews": null,
+            "sentBack": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "B2",
+      "githubRun": "44020421571",
+      "reviewer": false,
+      "report": {
+        "models": ["openai/gpt-6-luna"],
+        "dataset": "terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+        "trials": 25,
+        "passed": 5,
+        "passRate": 0.2,
+        "interval": {
+          "low": 0.08860454100652487,
+          "high": 0.3913133553653824
+        },
+        "harnessErrors": 0,
+        "unfinished": 0,
+        "agreement": {
+          "claimedPassed": 4,
+          "claimedFailed": 7,
+          "unclaimedPassed": 1,
+          "unclaimedFailed": 13,
+          "rate": 0.68,
+          "notRun": 0
+        },
+        "cost": {
+          "usd": 0.27291,
+          "perPricedTrialUsd": 0.01092,
+          "priced": 25,
+          "unpriced": 0,
+          "priceTableVersion": "2026-11-17"
+        },
+        "usage": {
+          "inputTokens": 4980646,
+          "outputTokens": 357155,
+          "cacheWriteTokens": 386208,
+          "cacheReadTokens": 4593160
+        },
+        "requests": 426,
+        "steps": 426,
+        "review": null,
+        "failures": {
+          "step_budget": [
+            "terminal-bench/adaptive-rejection-sampler",
+            "terminal-bench/break-filter-js-from-html",
+            "terminal-bench/dna-assembly",
+            "terminal-bench/fix-code-vulnerability",
+            "terminal-bench/largest-eigenval",
+            "terminal-bench/mcmc-sampling-stan",
+            "terminal-bench/merge-diff-arc-agi-task",
+            "terminal-bench/overfull-hbox",
+            "terminal-bench/path-tracing-reverse",
+            "terminal-bench/protein-assembly",
+            "terminal-bench/regex-chess",
+            "terminal-bench/schemelike-metacircular-eval",
+            "terminal-bench/train-fasttext"
+          ],
+          "claimed_done_tests_failed": [
+            "terminal-bench/configure-git-webserver",
+            "terminal-bench/filter-js-from-html",
+            "terminal-bench/gcode-to-text",
+            "terminal-bench/model-extraction-relu-logits",
+            "terminal-bench/sanitize-git-repo",
+            "terminal-bench/torch-pipeline-parallelism",
+            "terminal-bench/video-processing"
+          ]
+        },
+        "rows": [
+          {
+            "task": "terminal-bench/adaptive-rejection-sampler",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 144895,
+              "outputTokens": 21427,
+              "cacheWriteTokens": 12267,
+              "cacheReadTokens": 132568
+            },
+            "usd": 0.01358,
+            "durationMs": 254181,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/break-filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 95860,
+              "outputTokens": 16235,
+              "cacheWriteTokens": 6401,
+              "cacheReadTokens": 89399
+            },
+            "usd": 0.00982,
+            "durationMs": 251406,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/configure-git-webserver",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 16,
+            "requests": 16,
+            "usage": {
+              "inputTokens": 73830,
+              "outputTokens": 9492,
+              "cacheWriteTokens": 4594,
+              "cacheReadTokens": 69188
+            },
+            "usd": 0.00602,
+            "durationMs": 127477,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/constraints-scheduling",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 7,
+            "requests": 7,
+            "usage": {
+              "inputTokens": 28144,
+              "outputTokens": 2992,
+              "cacheWriteTokens": 3085,
+              "cacheReadTokens": 25038
+            },
+            "usd": 0.00213,
+            "durationMs": 39979,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/dna-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 184215,
+              "outputTokens": 33359,
+              "cacheWriteTokens": 19242,
+              "cacheReadTokens": 164913
+            },
+            "usd": 0.02074,
+            "durationMs": 368109,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/feal-differential-cryptanalysis",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 108290,
+              "outputTokens": 28443,
+              "cacheWriteTokens": 6826,
+              "cacheReadTokens": 101404
+            },
+            "usd": 0.01609,
+            "durationMs": 303289,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/filter-js-from-html",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 10,
+            "requests": 10,
+            "usage": {
+              "inputTokens": 50033,
+              "outputTokens": 9305,
+              "cacheWriteTokens": 4444,
+              "cacheReadTokens": 45559
+            },
+            "usd": 0.00567,
+            "durationMs": 105663,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/fix-code-vulnerability",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 290405,
+              "outputTokens": 4809,
+              "cacheWriteTokens": 23131,
+              "cacheReadTokens": 267214
+            },
+            "usd": 0.00797,
+            "durationMs": 87221,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/gcode-to-text",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 14,
+            "requests": 14,
+            "usage": {
+              "inputTokens": 409882,
+              "outputTokens": 6640,
+              "cacheWriteTokens": 35521,
+              "cacheReadTokens": 374319
+            },
+            "usd": 0.01151,
+            "durationMs": 93645,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/git-multibranch",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 167621,
+              "outputTokens": 8946,
+              "cacheWriteTokens": 11363,
+              "cacheReadTokens": 156198
+            },
+            "usd": 0.00746,
+            "durationMs": 130462,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/largest-eigenval",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 108327,
+              "outputTokens": 11069,
+              "cacheWriteTokens": 6787,
+              "cacheReadTokens": 101480
+            },
+            "usd": 0.0074,
+            "durationMs": 149940,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/mcmc-sampling-stan",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 218418,
+              "outputTokens": 11707,
+              "cacheWriteTokens": 16200,
+              "cacheReadTokens": 202158
+            },
+            "usd": 0.00991,
+            "durationMs": 438499,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/merge-diff-arc-agi-task",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 160180,
+              "outputTokens": 24869,
+              "cacheWriteTokens": 9733,
+              "cacheReadTokens": 150387
+            },
+            "usd": 0.01516,
+            "durationMs": 289413,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/model-extraction-relu-logits",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 11,
+            "requests": 11,
+            "usage": {
+              "inputTokens": 37789,
+              "outputTokens": 23690,
+              "cacheWriteTokens": 3953,
+              "cacheReadTokens": 33803
+            },
+            "usd": 0.01268,
+            "durationMs": 261875,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/multi-source-data-merger",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 10,
+            "requests": 10,
+            "usage": {
+              "inputTokens": 44522,
+              "outputTokens": 5123,
+              "cacheWriteTokens": 4911,
+              "cacheReadTokens": 39581
+            },
+            "usd": 0.00357,
+            "durationMs": 57146,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/overfull-hbox",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 139802,
+              "outputTokens": 7973,
+              "cacheWriteTokens": 6913,
+              "cacheReadTokens": 132829
+            },
+            "usd": 0.00618,
+            "durationMs": 117336,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/path-tracing-reverse",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 636631,
+              "outputTokens": 13366,
+              "cacheWriteTokens": 53099,
+              "cacheReadTokens": 583472
+            },
+            "usd": 0.01916,
+            "durationMs": 165379,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/protein-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 182564,
+              "outputTokens": 32150,
+              "cacheWriteTokens": 13244,
+              "cacheReadTokens": 169260
+            },
+            "usd": 0.01943,
+            "durationMs": 365093,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/pypi-server",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 15,
+            "requests": 15,
+            "usage": {
+              "inputTokens": 47616,
+              "outputTokens": 2839,
+              "cacheWriteTokens": 2626,
+              "cacheReadTokens": 44945
+            },
+            "usd": 0.0022,
+            "durationMs": 59860,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/regex-chess",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 185303,
+              "outputTokens": 30908,
+              "cacheWriteTokens": 11641,
+              "cacheReadTokens": 173602
+            },
+            "usd": 0.01865,
+            "durationMs": 343622,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/sanitize-git-repo",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 14,
+            "requests": 14,
+            "usage": {
+              "inputTokens": 309981,
+              "outputTokens": 7834,
+              "cacheWriteTokens": 33337,
+              "cacheReadTokens": 276602
+            },
+            "usd": 0.01085,
+            "durationMs": 108408,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/schemelike-metacircular-eval",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 432287,
+              "outputTokens": 14578,
+              "cacheWriteTokens": 26257,
+              "cacheReadTokens": 405970
+            },
+            "usd": 0.01464,
+            "durationMs": 177119,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/torch-pipeline-parallelism",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 10,
+            "requests": 10,
+            "usage": {
+              "inputTokens": 39546,
+              "outputTokens": 10286,
+              "cacheWriteTokens": 5175,
+              "cacheReadTokens": 34341
+            },
+            "usd": 0.00614,
+            "durationMs": 125308,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/train-fasttext",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 284922,
+              "outputTokens": 4404,
+              "cacheWriteTokens": 22015,
+              "cacheReadTokens": 262847
+            },
+            "usd": 0.00759,
+            "durationMs": 816193,
+            "reviews": null,
+            "sentBack": null
+          },
+          {
+            "task": "terminal-bench/video-processing",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 19,
+            "requests": 19,
+            "usage": {
+              "inputTokens": 599583,
+              "outputTokens": 14711,
+              "cacheWriteTokens": 43443,
+              "cacheReadTokens": 556083
+            },
+            "usd": 0.01835,
+            "durationMs": 182757,
+            "reviews": null,
+            "sentBack": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "R1",
+      "githubRun": "44023121826",
+      "reviewer": true,
+      "report": {
+        "models": ["openai/gpt-6-luna"],
+        "dataset": "terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+        "trials": 25,
+        "passed": 6,
+        "passRate": 0.24,
+        "interval": {
+          "low": 0.11496157730326725,
+          "high": 0.43430059955238565
+        },
+        "harnessErrors": 0,
+        "unfinished": 0,
+        "agreement": {
+          "claimedPassed": 4,
+          "claimedFailed": 2,
+          "unclaimedPassed": 2,
+          "unclaimedFailed": 17,
+          "rate": 0.84,
+          "notRun": 0
+        },
+        "cost": {
+          "usd": 0.28876,
+          "perPricedTrialUsd": 0.01155,
+          "priced": 25,
+          "unpriced": 0,
+          "priceTableVersion": "2026-11-17"
+        },
+        "usage": {
+          "inputTokens": 5724962,
+          "outputTokens": 352326,
+          "cacheWriteTokens": 480131,
+          "cacheReadTokens": 5243343
+        },
+        "requests": 496,
+        "steps": 455,
+        "review": {
+          "reviewed": 8,
+          "sentBack": 2,
+          "sentBackPassed": 0,
+          "sentBackClaimedFailed": 0,
+          "sentBackStepBudget": 2,
+          "wrote": [
+            {
+              "task": "terminal-bench/multi-source-data-merger",
+              "files": [
+                "./__pycache__/merge_users.cpython-311.pyc",
+                "./merged_users.parquet",
+                "./conflicts.json"
+              ],
+              "restored": true
+            }
+          ],
+          "unknownWrites": [],
+          "reviews": 8,
+          "steps": 41,
+          "usage": {
+            "inputTokens": 351285,
+            "outputTokens": 24203,
+            "cacheWriteTokens": 63337,
+            "cacheReadTokens": 287825
+          },
+          "usd": 0.02291
+        },
+        "failures": {
+          "step_budget": [
+            "terminal-bench/adaptive-rejection-sampler",
+            "terminal-bench/break-filter-js-from-html",
+            "terminal-bench/dna-assembly",
+            "terminal-bench/feal-differential-cryptanalysis",
+            "terminal-bench/filter-js-from-html",
+            "terminal-bench/fix-code-vulnerability",
+            "terminal-bench/gcode-to-text",
+            "terminal-bench/git-multibranch",
+            "terminal-bench/mcmc-sampling-stan",
+            "terminal-bench/merge-diff-arc-agi-task",
+            "terminal-bench/model-extraction-relu-logits",
+            "terminal-bench/overfull-hbox",
+            "terminal-bench/path-tracing-reverse",
+            "terminal-bench/protein-assembly",
+            "terminal-bench/regex-chess",
+            "terminal-bench/train-fasttext",
+            "terminal-bench/video-processing"
+          ],
+          "claimed_done_tests_failed": [
+            "terminal-bench/configure-git-webserver",
+            "terminal-bench/torch-pipeline-parallelism"
+          ]
+        },
+        "rows": [
+          {
+            "task": "terminal-bench/adaptive-rejection-sampler",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 163738,
+              "outputTokens": 18951,
+              "cacheWriteTokens": 11088,
+              "cacheReadTokens": 152590
+            },
+            "usd": 0.01239,
+            "durationMs": 220478,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/break-filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 90043,
+              "outputTokens": 16705,
+              "cacheWriteTokens": 6265,
+              "cacheReadTokens": 83718
+            },
+            "usd": 0.00998,
+            "durationMs": 273937,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/configure-git-webserver",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 16,
+            "requests": 19,
+            "usage": {
+              "inputTokens": 79772,
+              "outputTokens": 16349,
+              "cacheWriteTokens": 7516,
+              "cacheReadTokens": 72199
+            },
+            "usd": 0.00984,
+            "durationMs": 211566,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/constraints-scheduling",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 6,
+            "requests": 10,
+            "usage": {
+              "inputTokens": 36015,
+              "outputTokens": 5906,
+              "cacheWriteTokens": 6714,
+              "cacheReadTokens": 29271
+            },
+            "usd": 0.00409,
+            "durationMs": 72917,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/dna-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 163671,
+              "outputTokens": 16681,
+              "cacheWriteTokens": 12050,
+              "cacheReadTokens": 151561
+            },
+            "usd": 0.01137,
+            "durationMs": 194557,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/feal-differential-cryptanalysis",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 163247,
+              "outputTokens": 31956,
+              "cacheWriteTokens": 18944,
+              "cacheReadTokens": 144243
+            },
+            "usd": 0.01979,
+            "durationMs": 478398,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 23,
+            "usage": {
+              "inputTokens": 114902,
+              "outputTokens": 14554,
+              "cacheWriteTokens": 14040,
+              "cacheReadTokens": 100793
+            },
+            "usd": 0.01005,
+            "durationMs": 184758,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/fix-code-vulnerability",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 641807,
+              "outputTokens": 7518,
+              "cacheWriteTokens": 44871,
+              "cacheReadTokens": 596876
+            },
+            "usd": 0.01534,
+            "durationMs": 113157,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/gcode-to-text",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 550519,
+              "outputTokens": 13839,
+              "cacheWriteTokens": 36021,
+              "cacheReadTokens": 514438
+            },
+            "usd": 0.01657,
+            "durationMs": 194728,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/git-multibranch",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 139074,
+              "outputTokens": 7496,
+              "cacheWriteTokens": 7971,
+              "cacheReadTokens": 131043
+            },
+            "usd": 0.00606,
+            "durationMs": 104202,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/largest-eigenval",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 117914,
+              "outputTokens": 13338,
+              "cacheWriteTokens": 7613,
+              "cacheReadTokens": 110241
+            },
+            "usd": 0.00873,
+            "durationMs": 192199,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/mcmc-sampling-stan",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 246584,
+              "outputTokens": 5614,
+              "cacheWriteTokens": 26206,
+              "cacheReadTokens": 220318
+            },
+            "usd": 0.00829,
+            "durationMs": 941710,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/merge-diff-arc-agi-task",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 219847,
+              "outputTokens": 16669,
+              "cacheWriteTokens": 15935,
+              "cacheReadTokens": 203852
+            },
+            "usd": 0.01237,
+            "durationMs": 193597,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/model-extraction-relu-logits",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 26,
+            "usage": {
+              "inputTokens": 120479,
+              "outputTokens": 21698,
+              "cacheWriteTokens": 14400,
+              "cacheReadTokens": 106001
+            },
+            "usd": 0.01372,
+            "durationMs": 274252,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/multi-source-data-merger",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 9,
+            "requests": 13,
+            "usage": {
+              "inputTokens": 48877,
+              "outputTokens": 4707,
+              "cacheWriteTokens": 7510,
+              "cacheReadTokens": 41328
+            },
+            "usd": 0.00371,
+            "durationMs": 66676,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/overfull-hbox",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 166062,
+              "outputTokens": 10074,
+              "cacheWriteTokens": 9035,
+              "cacheReadTokens": 156967
+            },
+            "usd": 0.00774,
+            "durationMs": 130312,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/path-tracing-reverse",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 724226,
+              "outputTokens": 14980,
+              "cacheWriteTokens": 62737,
+              "cacheReadTokens": 661429
+            },
+            "usd": 0.02195,
+            "durationMs": 189830,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/protein-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 152635,
+              "outputTokens": 11155,
+              "cacheWriteTokens": 10694,
+              "cacheReadTokens": 141881
+            },
+            "usd": 0.00834,
+            "durationMs": 143554,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/pypi-server",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 16,
+            "requests": 22,
+            "usage": {
+              "inputTokens": 68474,
+              "outputTokens": 4984,
+              "cacheWriteTokens": 6482,
+              "cacheReadTokens": 61926
+            },
+            "usd": 0.00393,
+            "durationMs": 96565,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/regex-chess",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 215651,
+              "outputTokens": 28867,
+              "cacheWriteTokens": 13269,
+              "cacheReadTokens": 202322
+            },
+            "usd": 0.01812,
+            "durationMs": 335283,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/sanitize-git-repo",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 15,
+            "requests": 25,
+            "usage": {
+              "inputTokens": 573540,
+              "outputTokens": 14126,
+              "cacheWriteTokens": 70514,
+              "cacheReadTokens": 502951
+            },
+            "usd": 0.02091,
+            "durationMs": 207684,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/schemelike-metacircular-eval",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 353659,
+              "outputTokens": 12597,
+              "cacheWriteTokens": 22977,
+              "cacheReadTokens": 330622
+            },
+            "usd": 0.01248,
+            "durationMs": 189513,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/torch-pipeline-parallelism",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 13,
+            "requests": 18,
+            "usage": {
+              "inputTokens": 85868,
+              "outputTokens": 19041,
+              "cacheWriteTokens": 10115,
+              "cacheReadTokens": 75699
+            },
+            "usd": 0.01155,
+            "durationMs": 212692,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/train-fasttext",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 149514,
+              "outputTokens": 4614,
+              "cacheWriteTokens": 9001,
+              "cacheReadTokens": 140453
+            },
+            "usd": 0.00484,
+            "durationMs": 821227,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/video-processing",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 338844,
+              "outputTokens": 19907,
+              "cacheWriteTokens": 28163,
+              "cacheReadTokens": 310621
+            },
+            "usd": 0.01659,
+            "durationMs": 241560,
+            "reviews": 0,
+            "sentBack": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "R2",
+      "githubRun": "44026867069",
+      "reviewer": true,
+      "report": {
+        "models": ["openai/gpt-6-luna"],
+        "dataset": "terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+        "trials": 25,
+        "passed": 10,
+        "passRate": 0.4,
+        "interval": {
+          "low": 0.23403057664190918,
+          "high": 0.5926087221487266
+        },
+        "harnessErrors": 1,
+        "unfinished": 0,
+        "agreement": {
+          "claimedPassed": 6,
+          "claimedFailed": 2,
+          "unclaimedPassed": 4,
+          "unclaimedFailed": 12,
+          "rate": 0.75,
+          "notRun": 1
+        },
+        "cost": {
+          "usd": 0.29379,
+          "perPricedTrialUsd": 0.01175,
+          "priced": 25,
+          "unpriced": 0,
+          "priceTableVersion": "2026-11-17"
+        },
+        "usage": {
+          "inputTokens": 5496458,
+          "outputTokens": 356777,
+          "cacheWriteTokens": 524357,
+          "cacheReadTokens": 4970613
+        },
+        "requests": 497,
+        "steps": 435,
+        "review": {
+          "reviewed": 11,
+          "sentBack": 5,
+          "sentBackPassed": 2,
+          "sentBackClaimedFailed": 0,
+          "sentBackStepBudget": 2,
+          "wrote": [
+            {
+              "task": "terminal-bench/feal-differential-cryptanalysis",
+              "files": ["./__pycache__/attack.cpython-313.pyc"],
+              "restored": true
+            },
+            {
+              "task": "terminal-bench/fix-code-vulnerability",
+              "files": ["./.pytest_cache/v/cache/nodeids"],
+              "restored": true
+            },
+            {
+              "task": "terminal-bench/model-extraction-relu-logits",
+              "files": ["./__pycache__/steal.cpython-313.pyc"],
+              "restored": true
+            }
+          ],
+          "unknownWrites": [],
+          "reviews": 11,
+          "steps": 62,
+          "usage": {
+            "inputTokens": 571225,
+            "outputTokens": 34791,
+            "cacheWriteTokens": 122984,
+            "cacheReadTokens": 448055
+          },
+          "usd": 0.03726
+        },
+        "failures": {
+          "step_budget": [
+            "terminal-bench/adaptive-rejection-sampler",
+            "terminal-bench/break-filter-js-from-html",
+            "terminal-bench/dna-assembly",
+            "terminal-bench/filter-js-from-html",
+            "terminal-bench/gcode-to-text",
+            "terminal-bench/mcmc-sampling-stan",
+            "terminal-bench/overfull-hbox",
+            "terminal-bench/path-tracing-reverse",
+            "terminal-bench/protein-assembly",
+            "terminal-bench/regex-chess",
+            "terminal-bench/train-fasttext",
+            "terminal-bench/video-processing"
+          ],
+          "claimed_done_tests_failed": [
+            "terminal-bench/configure-git-webserver",
+            "terminal-bench/torch-pipeline-parallelism"
+          ],
+          "harness_error": ["terminal-bench/model-extraction-relu-logits"]
+        },
+        "rows": [
+          {
+            "task": "terminal-bench/adaptive-rejection-sampler",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 137117,
+              "outputTokens": 22981,
+              "cacheWriteTokens": 8372,
+              "cacheReadTokens": 128685
+            },
+            "usd": 0.01383,
+            "durationMs": 250314,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/break-filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 102459,
+              "outputTokens": 19289,
+              "cacheWriteTokens": 7085,
+              "cacheReadTokens": 95314
+            },
+            "usd": 0.01149,
+            "durationMs": 274548,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/configure-git-webserver",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 10,
+            "requests": 17,
+            "usage": {
+              "inputTokens": 60499,
+              "outputTokens": 14351,
+              "cacheWriteTokens": 7076,
+              "cacheReadTokens": 53372
+            },
+            "usd": 0.0086,
+            "durationMs": 182769,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/constraints-scheduling",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 3,
+            "requests": 7,
+            "usage": {
+              "inputTokens": 26413,
+              "outputTokens": 5068,
+              "cacheWriteTokens": 6578,
+              "cacheReadTokens": 19814
+            },
+            "usd": 0.00356,
+            "durationMs": 56579,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/dna-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 146357,
+              "outputTokens": 16566,
+              "cacheWriteTokens": 9487,
+              "cacheReadTokens": 136810
+            },
+            "usd": 0.01084,
+            "durationMs": 201140,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/feal-differential-cryptanalysis",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 12,
+            "requests": 18,
+            "usage": {
+              "inputTokens": 64838,
+              "outputTokens": 20081,
+              "cacheWriteTokens": 6777,
+              "cacheReadTokens": 58007
+            },
+            "usd": 0.01147,
+            "durationMs": 232036,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 23,
+            "usage": {
+              "inputTokens": 123526,
+              "outputTokens": 17787,
+              "cacheWriteTokens": 15178,
+              "cacheReadTokens": 108279
+            },
+            "usd": 0.01188,
+            "durationMs": 211789,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/fix-code-vulnerability",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 27,
+            "usage": {
+              "inputTokens": 601002,
+              "outputTokens": 9490,
+              "cacheWriteTokens": 69328,
+              "cacheReadTokens": 531593
+            },
+            "usd": 0.01874,
+            "durationMs": 150020,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/gcode-to-text",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 541828,
+              "outputTokens": 15679,
+              "cacheWriteTokens": 36953,
+              "cacheReadTokens": 504815
+            },
+            "usd": 0.01751,
+            "durationMs": 286208,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/git-multibranch",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 177671,
+              "outputTokens": 8609,
+              "cacheWriteTokens": 11986,
+              "cacheReadTokens": 165625
+            },
+            "usd": 0.00747,
+            "durationMs": 177320,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/largest-eigenval",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 100259,
+              "outputTokens": 7122,
+              "cacheWriteTokens": 5757,
+              "cacheReadTokens": 94442
+            },
+            "usd": 0.00523,
+            "durationMs": 118019,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/mcmc-sampling-stan",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 249519,
+              "outputTokens": 6154,
+              "cacheWriteTokens": 24187,
+              "cacheReadTokens": 225272
+            },
+            "usd": 0.00836,
+            "durationMs": 346174,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/merge-diff-arc-agi-task",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 152765,
+              "outputTokens": 12337,
+              "cacheWriteTokens": 10220,
+              "cacheReadTokens": 142485
+            },
+            "usd": 0.00888,
+            "durationMs": 155955,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/model-extraction-relu-logits",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "harness_error",
+            "steps": 20,
+            "requests": 25,
+            "usage": {
+              "inputTokens": 150462,
+              "outputTokens": 31029,
+              "cacheWriteTokens": 19643,
+              "cacheReadTokens": 130744
+            },
+            "usd": 0.01928,
+            "durationMs": 342995,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/multi-source-data-merger",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 8,
+            "requests": 13,
+            "usage": {
+              "inputTokens": 41949,
+              "outputTokens": 5061,
+              "cacheWriteTokens": 6240,
+              "cacheReadTokens": 35670
+            },
+            "usd": 0.00367,
+            "durationMs": 67930,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/overfull-hbox",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 195515,
+              "outputTokens": 14610,
+              "cacheWriteTokens": 11776,
+              "cacheReadTokens": 183679
+            },
+            "usd": 0.01062,
+            "durationMs": 158126,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/path-tracing-reverse",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 771615,
+              "outputTokens": 12619,
+              "cacheWriteTokens": 57135,
+              "cacheReadTokens": 714420
+            },
+            "usd": 0.0206,
+            "durationMs": 163579,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/protein-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 184110,
+              "outputTokens": 13494,
+              "cacheWriteTokens": 13327,
+              "cacheReadTokens": 170723
+            },
+            "usd": 0.01013,
+            "durationMs": 328196,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/pypi-server",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 12,
+            "requests": 18,
+            "usage": {
+              "inputTokens": 51028,
+              "outputTokens": 4762,
+              "cacheWriteTokens": 4211,
+              "cacheReadTokens": 46763
+            },
+            "usd": 0.00338,
+            "durationMs": 85915,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/regex-chess",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 25,
+            "usage": {
+              "inputTokens": 174556,
+              "outputTokens": 34396,
+              "cacheWriteTokens": 40115,
+              "cacheReadTokens": 134369
+            },
+            "usd": 0.02356,
+            "durationMs": 466330,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/sanitize-git-repo",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 28,
+            "usage": {
+              "inputTokens": 537424,
+              "outputTokens": 14638,
+              "cacheWriteTokens": 84697,
+              "cacheReadTokens": 452643
+            },
+            "usd": 0.02244,
+            "durationMs": 186490,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/schemelike-metacircular-eval",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 367572,
+              "outputTokens": 13467,
+              "cacheWriteTokens": 21618,
+              "cacheReadTokens": 345894
+            },
+            "usd": 0.0129,
+            "durationMs": 191273,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/torch-pipeline-parallelism",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 10,
+            "requests": 16,
+            "usage": {
+              "inputTokens": 60364,
+              "outputTokens": 15933,
+              "cacheWriteTokens": 8211,
+              "cacheReadTokens": 52105
+            },
+            "usd": 0.00952,
+            "durationMs": 178297,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/train-fasttext",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 134962,
+              "outputTokens": 4655,
+              "cacheWriteTokens": 9039,
+              "cacheReadTokens": 125863
+            },
+            "usd": 0.00472,
+            "durationMs": 78268,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/video-processing",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 342648,
+              "outputTokens": 16599,
+              "cacheWriteTokens": 29361,
+              "cacheReadTokens": 313227
+            },
+            "usd": 0.01511,
+            "durationMs": 190344,
+            "reviews": 0,
+            "sentBack": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "R3",
+      "githubRun": "44035523345",
+      "reviewer": true,
+      "report": {
+        "models": ["openai/gpt-6-luna"],
+        "dataset": "terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+        "trials": 25,
+        "passed": 6,
+        "passRate": 0.24,
+        "interval": {
+          "low": 0.11496157730326725,
+          "high": 0.43430059955238565
+        },
+        "harnessErrors": 0,
+        "unfinished": 0,
+        "agreement": {
+          "claimedPassed": 4,
+          "claimedFailed": 1,
+          "unclaimedPassed": 2,
+          "unclaimedFailed": 18,
+          "rate": 0.88,
+          "notRun": 0
+        },
+        "cost": {
+          "usd": 0.30759,
+          "perPricedTrialUsd": 0.0123,
+          "priced": 25,
+          "unpriced": 0,
+          "priceTableVersion": "2026-11-17"
+        },
+        "usage": {
+          "inputTokens": 6289894,
+          "outputTokens": 366588,
+          "cacheWriteTokens": 532641,
+          "cacheReadTokens": 5755711
+        },
+        "requests": 514,
+        "steps": 461,
+        "review": {
+          "reviewed": 8,
+          "sentBack": 3,
+          "sentBackPassed": 0,
+          "sentBackClaimedFailed": 0,
+          "sentBackStepBudget": 3,
+          "wrote": [
+            {
+              "task": "terminal-bench/break-filter-js-from-html",
+              "files": ["./__pycache__/filter.cpython-313.pyc"],
+              "restored": true
+            },
+            {
+              "task": "terminal-bench/filter-js-from-html",
+              "files": ["./__pycache__/filter.cpython-313.pyc"],
+              "restored": true
+            },
+            {
+              "task": "terminal-bench/fix-code-vulnerability",
+              "files": ["./.pytest_cache/v/cache/nodeids"],
+              "restored": true
+            }
+          ],
+          "unknownWrites": [],
+          "reviews": 8,
+          "steps": 53,
+          "usage": {
+            "inputTokens": 577280,
+            "outputTokens": 23641,
+            "cacheWriteTokens": 95247,
+            "cacheReadTokens": 481874
+          },
+          "usd": 0.02857
+        },
+        "failures": {
+          "step_budget": [
+            "terminal-bench/adaptive-rejection-sampler",
+            "terminal-bench/break-filter-js-from-html",
+            "terminal-bench/dna-assembly",
+            "terminal-bench/filter-js-from-html",
+            "terminal-bench/gcode-to-text",
+            "terminal-bench/git-multibranch",
+            "terminal-bench/largest-eigenval",
+            "terminal-bench/mcmc-sampling-stan",
+            "terminal-bench/merge-diff-arc-agi-task",
+            "terminal-bench/overfull-hbox",
+            "terminal-bench/path-tracing-reverse",
+            "terminal-bench/protein-assembly",
+            "terminal-bench/regex-chess",
+            "terminal-bench/sanitize-git-repo",
+            "terminal-bench/schemelike-metacircular-eval",
+            "terminal-bench/torch-pipeline-parallelism",
+            "terminal-bench/train-fasttext",
+            "terminal-bench/video-processing"
+          ],
+          "claimed_done_tests_failed": ["terminal-bench/configure-git-webserver"]
+        },
+        "rows": [
+          {
+            "task": "terminal-bench/adaptive-rejection-sampler",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 187609,
+              "outputTokens": 22890,
+              "cacheWriteTokens": 12210,
+              "cacheReadTokens": 175339
+            },
+            "usd": 0.01473,
+            "durationMs": 259880,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/break-filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 27,
+            "usage": {
+              "inputTokens": 111199,
+              "outputTokens": 15440,
+              "cacheWriteTokens": 12444,
+              "cacheReadTokens": 98674
+            },
+            "usd": 0.01027,
+            "durationMs": 297284,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/configure-git-webserver",
+            "passed": false,
+            "claimedDone": true,
+            "kind": "claimed_done_tests_failed",
+            "steps": 16,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 74906,
+              "outputTokens": 14524,
+              "cacheWriteTokens": 7969,
+              "cacheReadTokens": 66877
+            },
+            "usd": 0.00893,
+            "durationMs": 185097,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/constraints-scheduling",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 7,
+            "requests": 11,
+            "usage": {
+              "inputTokens": 41299,
+              "outputTokens": 5841,
+              "cacheWriteTokens": 7128,
+              "cacheReadTokens": 34138
+            },
+            "usd": 0.00416,
+            "durationMs": 71346,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/dna-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 194409,
+              "outputTokens": 24694,
+              "cacheWriteTokens": 13413,
+              "cacheReadTokens": 180936
+            },
+            "usd": 0.01584,
+            "durationMs": 281891,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/feal-differential-cryptanalysis",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 90780,
+              "outputTokens": 27536,
+              "cacheWriteTokens": 5509,
+              "cacheReadTokens": 85211
+            },
+            "usd": 0.01531,
+            "durationMs": 291710,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/filter-js-from-html",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 23,
+            "usage": {
+              "inputTokens": 142814,
+              "outputTokens": 13310,
+              "cacheWriteTokens": 13419,
+              "cacheReadTokens": 129326
+            },
+            "usd": 0.00963,
+            "durationMs": 170222,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/fix-code-vulnerability",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 14,
+            "requests": 21,
+            "usage": {
+              "inputTokens": 283643,
+              "outputTokens": 5619,
+              "cacheWriteTokens": 38261,
+              "cacheReadTokens": 245319
+            },
+            "usd": 0.01005,
+            "durationMs": 95367,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/gcode-to-text",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 914401,
+              "outputTokens": 12456,
+              "cacheWriteTokens": 62580,
+              "cacheReadTokens": 851761
+            },
+            "usd": 0.02257,
+            "durationMs": 160267,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/git-multibranch",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 155695,
+              "outputTokens": 7662,
+              "cacheWriteTokens": 10137,
+              "cacheReadTokens": 145498
+            },
+            "usd": 0.00656,
+            "durationMs": 97632,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/largest-eigenval",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 113437,
+              "outputTokens": 12118,
+              "cacheWriteTokens": 6315,
+              "cacheReadTokens": 107062
+            },
+            "usd": 0.00792,
+            "durationMs": 176871,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/mcmc-sampling-stan",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 342910,
+              "outputTokens": 8054,
+              "cacheWriteTokens": 30792,
+              "cacheReadTokens": 312058
+            },
+            "usd": 0.011,
+            "durationMs": 411138,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/merge-diff-arc-agi-task",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 179905,
+              "outputTokens": 10770,
+              "cacheWriteTokens": 13780,
+              "cacheReadTokens": 166065
+            },
+            "usd": 0.00877,
+            "durationMs": 138005,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/model-extraction-relu-logits",
+            "passed": true,
+            "claimedDone": false,
+            "kind": null,
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 96264,
+              "outputTokens": 18693,
+              "cacheWriteTokens": 5452,
+              "cacheReadTokens": 90752
+            },
+            "usd": 0.01094,
+            "durationMs": 234933,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/multi-source-data-merger",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 12,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 65540,
+              "outputTokens": 5975,
+              "cacheWriteTokens": 6492,
+              "cacheReadTokens": 58988
+            },
+            "usd": 0.00439,
+            "durationMs": 94878,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/overfull-hbox",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 200543,
+              "outputTokens": 13066,
+              "cacheWriteTokens": 11664,
+              "cacheReadTokens": 188819
+            },
+            "usd": 0.00989,
+            "durationMs": 144225,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/path-tracing-reverse",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 622795,
+              "outputTokens": 9852,
+              "cacheWriteTokens": 48527,
+              "cacheReadTokens": 574208
+            },
+            "usd": 0.01674,
+            "durationMs": 143124,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/protein-assembly",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 203330,
+              "outputTokens": 25487,
+              "cacheWriteTokens": 15344,
+              "cacheReadTokens": 187926
+            },
+            "usd": 0.01655,
+            "durationMs": 460509,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/pypi-server",
+            "passed": true,
+            "claimedDone": true,
+            "kind": null,
+            "steps": 12,
+            "requests": 22,
+            "usage": {
+              "inputTokens": 63646,
+              "outputTokens": 5102,
+              "cacheWriteTokens": 4983,
+              "cacheReadTokens": 58597
+            },
+            "usd": 0.00377,
+            "durationMs": 109250,
+            "reviews": 1,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/regex-chess",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 273887,
+              "outputTokens": 37685,
+              "cacheWriteTokens": 20175,
+              "cacheReadTokens": 253652
+            },
+            "usd": 0.02391,
+            "durationMs": 397301,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/sanitize-git-repo",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 30,
+            "usage": {
+              "inputTokens": 684219,
+              "outputTokens": 14394,
+              "cacheWriteTokens": 101958,
+              "cacheReadTokens": 582171
+            },
+            "usd": 0.02577,
+            "durationMs": 223025,
+            "reviews": 1,
+            "sentBack": 1
+          },
+          {
+            "task": "terminal-bench/schemelike-metacircular-eval",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 656103,
+              "outputTokens": 18777,
+              "cacheWriteTokens": 41337,
+              "cacheReadTokens": 614706
+            },
+            "usd": 0.02071,
+            "durationMs": 201389,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/torch-pipeline-parallelism",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 134460,
+              "outputTokens": 15502,
+              "cacheWriteTokens": 10412,
+              "cacheReadTokens": 123988
+            },
+            "usd": 0.0103,
+            "durationMs": 186790,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/train-fasttext",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 101882,
+              "outputTokens": 8117,
+              "cacheWriteTokens": 6424,
+              "cacheReadTokens": 95398
+            },
+            "usd": 0.00582,
+            "durationMs": 106196,
+            "reviews": 0,
+            "sentBack": 0
+          },
+          {
+            "task": "terminal-bench/video-processing",
+            "passed": false,
+            "claimedDone": false,
+            "kind": "step_budget",
+            "steps": 20,
+            "requests": 20,
+            "usage": {
+              "inputTokens": 354218,
+              "outputTokens": 13024,
+              "cacheWriteTokens": 25916,
+              "cacheReadTokens": 328242
+            },
+            "usd": 0.01304,
+            "durationMs": 180384,
+            "reviews": 0,
+            "sentBack": 0
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -27,6 +27,10 @@ on:
         description: "Wiring check: a scripted model, no key, no spend; the score means nothing"
         type: boolean
         default: false
+      review:
+        description: "Have Nap's reviewer check each claim of done (ADR-0036). Off is the baseline"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,7 +50,8 @@ jobs:
       SPEND: ${{ inputs.spend }}
       CONCURRENCY: ${{ inputs.concurrency }}
       SCRIPTED: ${{ inputs.scripted }}
-      JOB_NAME: ${{ inputs.set }}-${{ github.run_id }}
+      REVIEW: ${{ inputs.review }}
+      JOB_NAME: ${{ inputs.set }}${{ inputs.review && '-review' || '' }}-${{ github.run_id }}
     steps:
       # Inputs arrive as environment variables, never spliced into a script, and are checked
       # before anything is installed: a model that costs money without spend set would otherwise
@@ -92,6 +97,7 @@ jobs:
         run: |
           flags=""
           if [[ "$SCRIPTED" == true ]]; then flags="--scripted"; elif [[ "$SPEND" == true ]]; then flags="--spend"; fi
+          if [[ "$REVIEW" == true ]]; then flags="$flags --review"; fi
           if [[ "$SCRIPTED" != true && -z "$OPENROUTER_API_KEY" ]]; then
             echo "::error::the BENCHMARK_OPENROUTER_API_KEY secret is not set"; exit 1
           fi

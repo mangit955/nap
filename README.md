@@ -37,8 +37,9 @@ project checks, verification, and the resulting app. The [full session is on the
 - **Repairs bounded failures.** A failed check opens another turn with the failure in its context.
   The repair budget has a hard limit.
 - **Works on your repositories.** Connect a GitHub repository and each job works on its own branch.
-  A verified job is published as a draft pull request, and review feedback you approve starts the
-  next job.
+  Before a job whose checks pass becomes a draft pull request, a second model reviews it by running
+  commands, and a problem it proves sends the agent back. Review feedback you approve on the pull
+  request starts the next job.
 - **Tests the app like a user would.** On a model that can read images, the agent gets a desktop
   with Chrome on the project's dev server. "Test the app" states each expectation before acting,
   records a video, and offers a fix when something fails. It never starts the fix on its own.
@@ -86,6 +87,14 @@ The verification measurements covered 12 real runs and cost $0.15 in total. They
 real verifier blind spot, but the sample was too small to support a claim about score improvement.
 See the [first measurement](docs/napbench-verification-measurement.md) and the
 [re-measurement](docs/napbench-luna-remeasurement.md).
+
+On 25 locked Terminal-Bench 2.1 tasks with `gpt-6-luna`, of the times nap first said it was done, 15
+in 24 ended false without the reviewer and 5 in 29 with it, mostly because the reviewer sent the
+false ones back. When nap said "done" the hidden tests agreed about three times in four, up from
+three in eight. The pass rate did not measurably move (24% across two baselines, 29% across three
+runs with the reviewer, inside the noise). See the
+[baseline](docs/napbench-terminal-bench-baseline.md) and the
+[reviewer measurement](docs/napbench-terminal-bench-reviewer.md).
 
 Run `bun run test:fast` to reproduce the local-suite result. The cluster numbers use fake model and
 sandbox providers. They describe the deployment path, not production model or sandbox capacity.

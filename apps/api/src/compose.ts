@@ -32,8 +32,10 @@ import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
  */
 
 import { NapAgentService } from "@nap/agent/agent-service";
+import { NapReviewer } from "@nap/agent/reviewer";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { REVIEW_PROMPTS } from "@nap/context/review-prompt";
 import { sweepOrphanedRequests } from "@nap/runtime/janitor";
 import { sweepIdleProjects } from "@nap/runtime/reaper";
 import { readRepositoryPreviewPort } from "@nap/runtime/repository-environment";
@@ -448,6 +450,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
           ? undefined
           : { explore: config.NAP_SUBAGENT_MODEL },
     }),
+    // On the agent's provider, so a review runs on the turn's model and account (ADR-0036 D5).
+    reviewer: new NapReviewer({ provider: deps.provider, prompts: REVIEW_PROMPTS }),
     events: deps.events,
     bus: deps.bus,
     memory: new NoopMemoryProvider(),

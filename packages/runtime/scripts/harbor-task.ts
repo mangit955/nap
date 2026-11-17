@@ -16,9 +16,11 @@ import { NapAgentService } from "@nap/agent/agent-service";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { countRequests } from "@nap/agent/counted-client";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { NapReviewer } from "@nap/agent/reviewer";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { REVIEW_PROMPTS } from "@nap/context/review-prompt";
 import { ChannelSandboxManager } from "@nap/sandbox/channel-sandbox-manager";
 import { LineExecChannel } from "@nap/sandbox/exec-channel";
 import { loadEnvFile } from "@nap/shared/env-file";
@@ -102,6 +104,7 @@ const trajectory = createWriteStream(join(options.jobDir, HARBOR_TASK_FILES.traj
 
 console.error(
   `Nap on a Terminal-Bench task — ${options.model}, ${options.maxSteps} steps at most` +
+    (options.review ? ", reviewed" : "") +
     (options.scripted ? ", scripted" : options.spend ? ", spending allowed" : ", free"),
 );
 
@@ -124,7 +127,14 @@ const result = await runTaskTurn({
         }),
   requests: http?.requests ?? (() => 0),
   signal: stopped.signal,
-  agentFor: (provider) => new NapAgentService({ provider, budget: { maxSteps: options.maxSteps } }),
+  agentFor: (provider, maxSteps) => new NapAgentService({ provider, budget: { maxSteps } }),
+  maxSteps: options.maxSteps,
+  ...(options.review
+    ? {
+        reviewerFor: (provider: LLMProvider) =>
+          new NapReviewer({ provider, prompts: REVIEW_PROMPTS }),
+      }
+    : {}),
   instruction,
   model: options.model,
   onEvent: (event) => {
@@ -141,6 +151,9 @@ writeFileSync(
 console.error(
   `\n${result.status} in ${(result.durationMs / 1_000).toFixed(1)}s — ${result.steps} steps, ` +
     `${result.requests} model requests, ` +
+    (result.reviews === undefined
+      ? ""
+      : `${result.reviews.length} reviews (${result.reviews.filter((review) => review.sentBack).length} sent it back), `) +
     `${result.usage.inputTokens} input and ${result.usage.outputTokens} output tokens` +
     (result.failure === null ? "" : ` — ${result.failure.reason}: ${result.failure.message}`),
 );

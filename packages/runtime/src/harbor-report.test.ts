@@ -284,3 +284,75 @@ describe("readJob", () => {
     ]);
   });
 });
+
+describe("the reviewer's share", () => {
+  const review = (sentBack: boolean) => ({
+    status: "completed" as const,
+    blocking: sentBack ? 1 : 0,
+    notes: 0,
+    failure: null,
+    steps: 3,
+    usage: { inputTokens: 10_000, outputTokens: 500 },
+    sentBack,
+    findings: [],
+    wrote: sentBack ? ["./out.txt"] : [],
+    restored: true,
+  });
+
+  it("is absent for a run without a reviewer, so a baseline reads as it did", () => {
+    const report = summarise([trial()]);
+    expect(report.review).toBeNull();
+    expect(renderReport(report)).not.toContain("## Review");
+    expect(renderReport(report)).toContain(
+      "| Task | Passed | Claimed done | Failure | Steps | Requests | Cost | Time |\n",
+    );
+  });
+
+  it("counts what it sent back and how each ended, and prices its own tokens", () => {
+    const report = summarise([
+      trial({ task: "a", nap: nap({ reviews: [review(true), review(false)] }) }),
+      trial({ task: "b", reward: 0, nap: nap({ reviews: [review(true)] }) }),
+      trial({
+        task: "c",
+        reward: 0,
+        nap: nap({
+          ...failedOn("budget_exceeded"),
+          reviews: [{ ...review(true), restored: false }],
+        }),
+      }),
+      trial({ task: "d", nap: nap({ reviews: [review(false)] }) }),
+      trial({ task: "e", reward: 0, nap: nap({ ...failedOn("budget_exceeded"), reviews: [] }) }),
+    ]);
+    expect(report.review).toMatchObject({
+      reviewed: 4,
+      sentBack: 3,
+      sentBackPassed: 1,
+      sentBackClaimedFailed: 1,
+      sentBackStepBudget: 1,
+      reviews: 5,
+      steps: 15,
+    });
+    const fiveReviews = { inputTokens: 50_000, outputTokens: 2_500 };
+    expect(report.review?.usd).toBeCloseTo(estimateCost(MODEL, fiveReviews)?.usd ?? Number.NaN, 5);
+    expect(report.rows.find((row) => row.task === "a")).toMatchObject({ reviews: 2, sentBack: 1 });
+    expect(renderReport(report)).toContain("sent 3 back");
+    expect(report.review?.wrote).toEqual([
+      { task: "a", files: ["./out.txt"], restored: true },
+      { task: "b", files: ["./out.txt"], restored: true },
+      { task: "c", files: ["./out.txt"], restored: false },
+    ]);
+    expect(renderReport(report)).toContain(
+      "**Not put back, so the review itself could have changed the answer:** c (./out.txt).",
+    );
+    expect(report.review?.unknownWrites).toEqual([]);
+  });
+
+  it("does not say no review wrote anything when what one wrote could not be read", () => {
+    const unread = { ...review(false), wrote: null, restored: false };
+    const report = summarise([trial({ task: "x", nap: nap({ reviews: [unread] }) })]);
+    expect(report.review?.unknownWrites).toEqual(["x"]);
+    const rendered = renderReport(report);
+    expect(rendered).not.toContain("No review's commands wrote a file");
+    expect(rendered).toContain("could not be read");
+  });
+});

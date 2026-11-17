@@ -48,6 +48,8 @@ export type HarborTaskOptions = {
    * nothing about the agent.
    */
   scripted: boolean;
+  /** Review the work before the turn's claim stands, as an imported repository's job is (ADR-0036). */
+  review: boolean;
 };
 
 export const HARBOR_TASK_USAGE = [
@@ -56,12 +58,13 @@ export const HARBOR_TASK_USAGE = [
   `  --max-steps=<n>   Model calls allowed in the turn (default ${HARBOR_TASK_DEFAULTS.maxSteps}); each is up to 3 requests`,
   "  --spend           Allow a model that is not free (an OpenRouter id without `:free`)",
   `  --scripted        Ignore --model and run a scripted model, recorded as ${SCRIPTED_MODEL}: free, no key`,
+  "  --review          Have Nap's reviewer check the work when the agent claims done (ADR-0036)",
   "",
   "Started by harbor/nap_harbor/agent.py, which answers its commands on stdin; see harbor/README.md.",
 ].join("\n");
 
 export function parseHarborTaskArgs(argv: readonly string[]): Result<HarborTaskOptions, string> {
-  const known = new Set(["job-dir", "model", "max-steps", "spend", "scripted"]);
+  const known = new Set(["job-dir", "model", "max-steps", "spend", "scripted", "review"]);
   const flags = new Map<string, string>();
   for (const arg of argv) {
     if (!arg.startsWith("--")) return { ok: false, error: `unexpected argument ${arg}` };
@@ -80,6 +83,7 @@ export function parseHarborTaskArgs(argv: readonly string[]): Result<HarborTaskO
 
   const spend = flags.get("spend") === "true";
   const scripted = flags.get("scripted") === "true";
+  const review = flags.get("review") === "true";
   if (!scripted && !spend && !isFreeModel(model))
     return {
       ok: false,
@@ -93,6 +97,6 @@ export function parseHarborTaskArgs(argv: readonly string[]): Result<HarborTaskO
 
   return {
     ok: true,
-    value: { jobDir, model: scripted ? SCRIPTED_MODEL : model, maxSteps, spend, scripted },
+    value: { jobDir, model: scripted ? SCRIPTED_MODEL : model, maxSteps, spend, scripted, review },
   };
 }

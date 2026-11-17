@@ -19,7 +19,9 @@ commit                  every completed turn commits
       ▼
 run the project's checks, cheapest first, stopping at the first failure
       │
-      ├── passed  ──► the commit becomes a checkpoint, job closes: verified
+      ├── passed  ──► imported repository: a reviewer checks the work (below)
+      │                 └── proved a problem ──► a repair turn opens, carrying it
+      │               the commit becomes a checkpoint, job closes: verified
       ├── failed  ──► a repair turn opens, carrying the failure
       └── errored ──► nothing was learned; job closes: abandoned`;
 
@@ -94,6 +96,28 @@ export function Verification() {
         one&rsquo;s mistake again. It is near-unevictable from the context window on purpose: the
         situation it exists for is a long repair with a full window, which is exactly when the turn
         that stated the objective has fallen out of it.
+      </P>
+
+      <Sub>An imported repository&rsquo;s job is also reviewed</Sub>
+
+      <P>
+        A project&rsquo;s checks catch what its scripts catch. Work that builds, passes an unrelated
+        suite and does not do what was asked passes them. So when an imported GitHub
+        repository&rsquo;s checks pass, and before the job becomes a pull request, a{" "}
+        <Term>reviewer</Term> looks: a second model with a fresh conversation, given the request and
+        the files the agent changed, that can read files and run commands and has no tool that
+        writes. Anything a command of its leaves behind is reset to the checked commit.
+      </P>
+
+      <P>
+        Only a problem it <em>proved</em> sends the agent back: it must name a command it ran in
+        that review and quote what the command printed, and Nap checks both against its own record
+        before believing it. A command that only shows a file or prints its own words proves
+        nothing. Anything else it says is a note, kept in the log, and a review that fails blocks
+        nothing. A job is reviewed at most twice, and only while two repairs are left: one for the
+        review, and one should that repair break a check. If both of those leave a check red, the
+        job ends out of repairs without a pull request. The review runs on the turn&rsquo;s model
+        and account, so whoever pays for the turn pays for its review.
       </P>
 
       <Sub>What a long job costs, and the ceiling that actually fires</Sub>

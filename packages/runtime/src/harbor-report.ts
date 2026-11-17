@@ -123,7 +123,36 @@ export type BenchmarkReport = {
   };
   usage: TokenUsage;
   requests: number;
+  /** The agent's steps. A reviewer's are under `review`, never here. */
   steps: number;
+  /**
+   * What the reviewer did, when the run had one (ADR-0036); `null` for a run without, such as the
+   * baseline. Its tokens and cost are already inside `usage` and `cost`, and are its share of them.
+   */
+  review: {
+    /** Trials whose claim was reviewed at least once. */
+    reviewed: number;
+    /** Trials the reviewer sent back at least once, and how each ended. */
+    sentBack: number;
+    sentBackPassed: number;
+    sentBackClaimedFailed: number;
+    sentBackStepBudget: number;
+    /**
+     * Each trial in which a review's commands wrote files to the task's directory, with the files,
+     * and whether every such review's writes were put back. One that was not is where a review
+     * could have changed the answer itself rather than through the agent (ADR-0036 D5).
+     */
+    wrote: Array<{ task: string; files: string[]; restored: boolean }>;
+    /**
+     * Trials with a review whose writes could not be read (its start was never marked, or the
+     * listing failed), so nothing was put back and nothing is known about what it wrote.
+     */
+    unknownWrites: string[];
+    reviews: number;
+    steps: number;
+    usage: TokenUsage;
+    usd: number;
+  } | null;
   failures: Partial<Record<FailureKind, string[]>>;
   rows: Array<{
     task: string;
@@ -135,6 +164,9 @@ export type BenchmarkReport = {
     usage: TokenUsage | null;
     usd: number | null;
     durationMs: number | null;
+    /** Reviews of the trial, and how many sent it back; `null` when the run had no reviewer. */
+    reviews: number | null;
+    sentBack: number | null;
   }>;
 };
 
@@ -171,6 +203,8 @@ export function summarise(
       usage: trial.nap?.usage ?? null,
       usd: trialCost(trial.nap),
       durationMs: trial.nap?.durationMs ?? null,
+      reviews: trial.nap?.reviews?.length ?? null,
+      sentBack: trial.nap?.reviews?.filter((review) => review.sentBack).length ?? null,
     };
   });
 
@@ -237,8 +271,56 @@ export function summarise(
     }),
     requests: results.reduce((total, result) => total + result.requests, 0),
     steps: results.reduce((total, result) => total + result.steps, 0),
+    review: reviewSummary(sorted),
     failures,
     rows: rows.map(({ ran: _ran, ...row }) => row),
+  };
+}
+
+/** The reviewer's share of a run, or `null` when no trial in it had a reviewer. */
+function reviewSummary(trials: readonly TrialRecord[]): BenchmarkReport["review"] {
+  const withReviewer = trials.filter((trial) => trial.nap?.reviews !== undefined);
+  if (withReviewer.length === 0) return null;
+  const sentBack = withReviewer.filter((trial) =>
+    trial.nap?.reviews?.some((review) => review.sentBack),
+  );
+  const all = withReviewer.flatMap((trial) => trial.nap?.reviews ?? []);
+  const usage = all.reduce((total, review) => addUsage(total, review.usage), {
+    inputTokens: 0,
+    outputTokens: 0,
+  });
+  const usd = withReviewer.reduce((sum, trial) => {
+    const nap = trial.nap;
+    if (nap === null || isFreeModel(nap.model)) return sum;
+    const spent = (nap.reviews ?? []).reduce((total, review) => addUsage(total, review.usage), {
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    return sum + (estimateCost(nap.model, spent)?.usd ?? 0);
+  }, 0);
+  return {
+    reviewed: withReviewer.filter((trial) => (trial.nap?.reviews?.length ?? 0) > 0).length,
+    sentBack: sentBack.length,
+    sentBackPassed: sentBack.filter(passedTrial).length,
+    sentBackClaimedFailed: sentBack.filter(
+      (trial) => failureKind(trial) === "claimed_done_tests_failed",
+    ).length,
+    sentBackStepBudget: sentBack.filter((trial) => failureKind(trial) === "step_budget").length,
+    wrote: withReviewer.flatMap((trial) => {
+      const writing = (trial.nap?.reviews ?? []).filter(
+        (review) => (review.wrote ?? []).length > 0,
+      );
+      const files = [...new Set(writing.flatMap((review) => review.wrote ?? []))];
+      const restored = writing.every((review) => review.restored);
+      return files.length === 0 ? [] : [{ task: trial.task, files, restored }];
+    }),
+    unknownWrites: withReviewer
+      .filter((trial) => (trial.nap?.reviews ?? []).some((review) => review.wrote === null))
+      .map((trial) => trial.task),
+    reviews: all.length,
+    steps: all.reduce((total, review) => total + review.steps, 0),
+    usage,
+    usd: round(usd),
   };
 }
 
@@ -252,6 +334,7 @@ const dollars = (usd: number | null) => (usd === null ? "—" : `$${usd.toFixed(
 
 export function renderReport(report: BenchmarkReport): string {
   const { agreement, cost, interval } = report;
+  const reviewed = report.review !== null;
   const lines = [
     "# Terminal-Bench report",
     "",
@@ -305,6 +388,7 @@ export function renderReport(report: BenchmarkReport): string {
     `${report.steps} steps, ${report.requests} model requests, ${report.usage.inputTokens} input ` +
       `(${report.usage.cacheReadTokens ?? 0} from cache) and ${report.usage.outputTokens} output tokens.`,
     "",
+    ...(report.review === null ? [] : renderReview(report.review)),
     "## Failures by kind",
     "",
     ...Object.entries(report.failures).map(
@@ -315,13 +399,16 @@ export function renderReport(report: BenchmarkReport): string {
     "",
     "## Tasks",
     "",
-    "| Task | Passed | Claimed done | Failure | Steps | Requests | Cost | Time |",
-    "|---|---|---|---|---|---|---|---|",
+    `| Task | Passed | Claimed done | Failure | Steps | Requests | Cost | Time |${reviewed ? " Reviews (sent back) |" : ""}`,
+    `|---|---|---|---|---|---|---|---|${reviewed ? "---|" : ""}`,
     ...report.rows.map(
       (row) =>
         `| ${row.task} | ${row.passed ? "yes" : "no"} | ${row.claimedDone ? "yes" : "no"} | ` +
         `${row.kind ?? ""} | ${row.steps ?? "—"} | ${row.requests ?? "—"} | ${dollars(row.usd)} | ` +
-        `${row.durationMs === null ? "—" : `${Math.round(row.durationMs / 1_000)}s`} |`,
+        `${row.durationMs === null ? "—" : `${Math.round(row.durationMs / 1_000)}s`} |` +
+        (reviewed
+          ? ` ${row.reviews === null ? "—" : `${row.reviews} (${row.sentBack ?? 0})`} |`
+          : ""),
     ),
     "",
   ];
@@ -409,4 +496,53 @@ function readJson(path: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+function renderReview(review: NonNullable<BenchmarkReport["review"]>): string[] {
+  return [
+    "## Review",
+    "",
+    `The reviewer checked ${review.reviewed} claims of done and sent ${review.sentBack} back with ` +
+      `a problem it proved. Of those, ${review.sentBackPassed} passed in the end, ` +
+      `${review.sentBackClaimedFailed} were claimed done again and failed, and ` +
+      `${review.sentBackStepBudget} ran out of steps fixing it.`,
+    "",
+    `${review.reviews} reviews took ${review.steps} model calls and ${dollars(review.usd)}. Both ` +
+      "are inside the totals above, and none of those calls is counted in the agent's steps, " +
+      "which stay capped across every round of a task.",
+    "",
+    ...renderWrote(review.wrote, review.unknownWrites),
+    "",
+  ];
+}
+
+/** Where a review's commands wrote in a task's directory, and whether that was put back. */
+function renderWrote(
+  wrote: NonNullable<BenchmarkReport["review"]>["wrote"],
+  unknown: readonly string[],
+): string[] {
+  const unread =
+    unknown.length === 0
+      ? []
+      : [
+          "**What a review wrote could not be read, so nothing was put back and a review could " +
+            `have changed the answer itself:** ${unknown.join(", ")}.`,
+        ];
+  if (wrote.length === 0)
+    return unknown.length === 0
+      ? ["No review's commands wrote a file in a task's directory."]
+      : unread;
+  const list = (entries: typeof wrote) =>
+    entries.map((entry) => `${entry.task} (${entry.files.join(", ")})`).join("; ");
+  const kept = wrote.filter((entry) => !entry.restored);
+  const putBack = wrote.filter((entry) => entry.restored);
+  return [
+    ...(putBack.length === 0
+      ? []
+      : [`Put back after the review, as it was before: ${list(putBack)}.`]),
+    ...(kept.length === 0
+      ? []
+      : [`**Not put back, so the review itself could have changed the answer:** ${list(kept)}.`]),
+    ...unread,
+  ];
 }

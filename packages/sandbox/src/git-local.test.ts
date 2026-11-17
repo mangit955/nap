@@ -6,7 +6,14 @@ import { promisify } from "node:util";
 import type { ExecResult, SandboxError } from "@nap/shared/ports/sandbox-manager";
 import type { Result } from "@nap/shared/result";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { bundle, commitAll, restoreBundle, workspaceState } from "./git.ts";
+import {
+  bundle,
+  checkedOutBranch,
+  commitAll,
+  discardUncommitted,
+  restoreBundle,
+  workspaceState,
+} from "./git.ts";
 import { decodeRepositoryBundle } from "./git-bundle.ts";
 import { InMemorySandboxManager } from "./testing/in-memory-sandbox-manager.ts";
 import { localGitEnvironment } from "./testing/local-git-environment.ts";
@@ -347,4 +354,41 @@ describe("restoreBundle against real git", () => {
     expect(await git(target, "rev-parse", "HEAD")).toBe(before);
     expect(await readFile(join(target, "file"), "utf8")).toBe("template");
   });
+});
+
+it("puts back what a reviewer's command changed, keeping what git ignores", async () => {
+  // A review runs commands in a workspace whose work is committed (docs/adr/0036): a test run's
+  // stray output and an edited file go, the ignored dependency cache stays.
+  await writeFile(join(source, ".gitignore"), "node_modules/\n");
+  await git(source, "add", ".");
+  await git(source, "commit", "-m", "Ignore dependencies");
+  const sha = await git(source, "rev-parse", "HEAD");
+  await mkdir(join(source, "node_modules"));
+  await writeFile(join(source, "node_modules", "kept"), "dependency");
+  await writeFile(join(source, "file"), "edited by a command");
+  await writeFile(join(source, "stray.txt"), "left by a command");
+  await git(source, "checkout", "-b", "elsewhere");
+
+  await writeFile(join(source, "file"), "committed on the other branch");
+  await git(source, "commit", "-am", "A command's commit");
+  await writeFile(join(source, "file"), "edited by a command");
+
+  const manager = new LocalSandbox();
+  expect(await checkedOutBranch(manager, "sandbox", { cwd: source })).toEqual({
+    ok: true,
+    value: "refs/heads/elsewhere",
+  });
+  const reset = await discardUncommitted(
+    manager,
+    "sandbox",
+    { sha, branch: "refs/heads/main" },
+    { cwd: source },
+  );
+
+  expect(reset).toEqual({ ok: true, value: undefined });
+  expect(await git(source, "symbolic-ref", "HEAD")).toBe("refs/heads/main");
+  expect(await readFile(join(source, "file"), "utf8")).toBe("repository");
+  await expect(stat(join(source, "stray.txt"))).rejects.toThrow();
+  expect(await readFile(join(source, "node_modules", "kept"), "utf8")).toBe("dependency");
+  expect(await git(source, "rev-parse", "HEAD")).toBe(sha);
 });

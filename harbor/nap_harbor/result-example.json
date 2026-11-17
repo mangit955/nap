@@ -12,6 +12,25 @@
     "outputTokens": 5310,
     "cacheReadTokens": 88000
   },
+  "reviews": [
+    {
+      "status": "completed",
+      "blocking": 1,
+      "notes": 0,
+      "failure": null,
+      "steps": 1,
+      "usage": {
+        "inputTokens": 6000,
+        "outputTokens": 300
+      },
+      "sentBack": true,
+      "findings": [
+        "- tests fail on the request's own example\n  `python3 test.py` printed:\n    AssertionError: expected 3, got 2"
+      ],
+      "wrote": [],
+      "restored": true
+    }
+  ],
   "durationMs": 184000,
   "workdir": "/app"
 }

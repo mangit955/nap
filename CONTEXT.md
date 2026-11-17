@@ -74,6 +74,12 @@ failure. Bounded by attempts rather than by a token ledger, and confined to sand
 preview probe. Agent computer use is a separate image-gated capability under ADR-0018;
 agent-reported assertions do not change the deterministic checkpoint.
 
+**Review** — a second model's check of a job's work against what was asked, after the checks pass
+and before an imported repository's job is published (ADR-0036). It reads and runs commands and
+never edits. A **proved** problem (one a command it ran in that review shows, quoted from that
+command's output) opens a repair turn, recorded as a failed `review` check; everything else it says
+is a note. Not a helper: the system calls it, not the agent.
+
 **Check** — one command, run in the sandbox, that passed, failed, or was **absent**. Absent is not
 failure and the gap is load-bearing in both directions: a project with no `test` script has not
 failed its tests, and treating a missing script as a failure would put every fresh project into a

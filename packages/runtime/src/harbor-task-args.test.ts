@@ -21,7 +21,15 @@ describe("parseHarborTaskArgs", () => {
         maxSteps: HARBOR_TASK_DEFAULTS.maxSteps,
         spend: false,
         scripted: false,
+        review: false,
       },
+    });
+  });
+
+  it("reviews only when --review asks for it", () => {
+    expect(parseHarborTaskArgs(["--job-dir=/j", "--model=a/b:free", "--review"])).toMatchObject({
+      ok: true,
+      value: { review: true },
     });
   });
 

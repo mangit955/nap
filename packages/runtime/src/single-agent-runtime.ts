@@ -56,6 +56,7 @@ import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
+import { REVIEW_REPAIRS_LEFT, type Reviewer } from "@nap/shared/ports/reviewer";
 import type {
   ContinueOptions,
   ResumeOutcome,
@@ -87,6 +88,7 @@ import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { shouldAnnouncePreview } from "./preview-announced.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
+import { type JobReviewRequest, reviewJob } from "./review-round.ts";
 import { SessionHistory } from "./session-history.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
@@ -312,6 +314,11 @@ export type SingleAgentRuntimeOptions = {
    * and so that reading a composition tells you which one it asked for.
    */
   verification?: "arbitrate" | "trust";
+  /**
+   * Checks an imported repository's job after its checks pass and before it is published
+   * (ADR-0036). Absent, a job is arbitrated by its checks alone, as before.
+   */
+  reviewer?: Reviewer;
   /** Injected so a test can assert on whole events rather than on everything but the clock. */
   now?: () => string;
   /**
@@ -1270,6 +1277,21 @@ export class SingleAgentRuntime implements Runtime {
           announce,
           previewPort: run.previewPort,
           signal: settings.signal,
+          // Only an imported repository's job, which ends in a pull request, and only while
+          // `REVIEW_REPAIRS_LEFT` repairs remain: the review's repair, and one more should that
+          // repair break a check. A review can still end a job its checks passed out of repairs,
+          // but only when two repairs in a row break a check (ADR-0036 D4).
+          review:
+            this.#options.reviewer !== undefined &&
+            settings.workspace === "repository" &&
+            run.repairs <= MAX_REPAIR_ATTEMPTS - REVIEW_REPAIRS_LEFT
+              ? {
+                  reviewer: this.#options.reviewer,
+                  objective: run.objective,
+                  model: settings.model,
+                  credentials: settings.credentials,
+                }
+              : null,
         });
         // Every round after the first is one this loop began itself.
         announce = true;
@@ -1705,6 +1727,8 @@ export class SingleAgentRuntime implements Runtime {
     announce: boolean;
     previewPort: number | null;
     signal: AbortSignal | undefined;
+    /** What the review, if this job may have one, is asked about and billed to. */
+    review: Pick<JobReviewRequest, "reviewer" | "objective" | "model" | "credentials"> | null;
   }): Promise<CheckFailure | null> {
     const { scope, jobId, sandboxId, commitSha, announce } = options;
     const { sink, emit } = scope;
@@ -1734,7 +1758,34 @@ export class SingleAgentRuntime implements Runtime {
       return null;
     }
 
-    emit("verification.completed", { jobId, checks: toVerifiedChecks(verified.checks) });
+    // Only once the checks pass: a red check is already a repair, and a review of work that does
+    // not build would be paid for to say so a second time.
+    const reviewed =
+      verified.verdict === "passed" && options.review !== null
+        ? await reviewJob({
+            ...options.review,
+            sandbox: this.#options.sandbox,
+            sandboxId,
+            commitSha,
+            jobId,
+            history: await scope.history.read(),
+            signal: options.signal,
+          })
+        : null;
+
+    emit("verification.completed", {
+      jobId,
+      checks: [
+        ...toVerifiedChecks(verified.checks),
+        ...(reviewed === null ? [] : [reviewed.check]),
+      ],
+    });
+
+    if (reviewed !== null && reviewed.failure !== null) {
+      await sink.drain();
+      getLogger().info({ commitSha }, "the review found problems; the job stays open");
+      return reviewed.failure;
+    }
 
     if (verified.verdict === "passed") {
       emit("job.checkpointed", { jobId, commitSha });

@@ -240,6 +240,18 @@ export const APP_TEST_TOOL_NAMES: readonly ToolName[] = [
 ];
 
 /**
+ * What the reviewer may reach (ADR-0036): everything that looks, and commands, because a finding
+ * blocks only when a command it ran shows it. Nothing that writes, no background shells, no helpers.
+ */
+export const REVIEW_TOOL_NAMES: readonly ToolName[] = [
+  "read_file",
+  "list_files",
+  "glob",
+  "search_files",
+  "run_command",
+];
+
+/**
  * What a plan mode turn may reach (ADR-0025): everything that looks and nothing that changes the
  * project, plus the tool that ends the turn with a plan.
  *
