@@ -24,6 +24,9 @@
         "outputTokens": 900
       },
       "sentBack": true,
+      "findings": [
+        "- tests fail on the request's own example\n  `python3 test.py` printed:\n    AssertionError: expected 3, got 2"
+      ],
       "wrote": [],
       "restored": true
     }

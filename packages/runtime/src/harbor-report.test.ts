@@ -294,6 +294,7 @@ describe("the reviewer's share", () => {
     steps: 3,
     usage: { inputTokens: 10_000, outputTokens: 500 },
     sentBack,
+    findings: [],
     wrote: sentBack ? ["./out.txt"] : [],
     restored: true,
   });

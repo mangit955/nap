@@ -226,6 +226,9 @@ describe("runTaskTurn with the reviewer", () => {
     // Two steps in the first round, one in the fix: never more than the task's three.
     expect(result.steps).toBe(3);
     expect(result.reviews?.map((review) => review.sentBack)).toEqual([true]);
+    expect(result.reviews?.[0]?.findings).toEqual([
+      "- matches years only\n  `./check-regex` printed:\n    FAIL: 1999-13-01 matched",
+    ]);
     const prompts = events.filter((event) => event.type === "user.message");
     expect(prompts).toHaveLength(2);
     expect(JSON.stringify(prompts[1])).toContain("A reviewer checked your work");

@@ -37,8 +37,11 @@ import { shellQuote } from "@nap/shared/shell";
 import { addUsage, type TokenUsage, TokenUsageSchema } from "@nap/shared/usage";
 import { z } from "zod";
 import { repairPrompt } from "./repair-prompt.ts";
-import { changedFilesOf, reviewCheck } from "./review-round.ts";
+import { changedFilesOf, renderFinding, reviewCheck } from "./review-round.ts";
 import { afterReview, beforeReview } from "./task-review-guard.ts";
+
+/** How much of each finding a result keeps. */
+const FINDING_CHARS = 1_000;
 
 /** One review of the task, as the report reads it. */
 export const TaskReviewSchema = z.strictObject({
@@ -51,6 +54,11 @@ export const TaskReviewSchema = z.strictObject({
   usage: TokenUsageSchema,
   /** Whether the agent was sent back on it. */
   sentBack: z.boolean(),
+  /**
+   * What it said, rendered as a person reads it: the problems it proved first, then its notes,
+   * each cut to `FINDING_CHARS`. Kept so a run's reviews can be read without its trajectory.
+   */
+  findings: z.array(z.string()),
   /**
    * Files in the task's directory written while the review ran, up to `WROTE_LIMIT`; `null` when
    * that could not be read. See `task-review-guard.ts`.
@@ -312,6 +320,9 @@ export async function runTaskTurn(options: TaskTurnOptions): Promise<TaskTurnRes
       steps: review.steps,
       usage: review.usage,
       sentBack: failure !== null,
+      findings: [...review.blocking, ...review.notes].map((finding) =>
+        renderFinding(finding).slice(0, FINDING_CHARS),
+      ),
       wrote,
       restored,
     });
