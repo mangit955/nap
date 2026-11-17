@@ -97,8 +97,8 @@ On the benchmark, the agent's steps stay capped at the baseline's 20 **across th
 round gets only the steps the first turn left. The reviewer's own steps are separate, capped, and
 reported beside the score, with its cost. So the agent never gets more steps than in the baseline,
 and the only added effort is the review itself, whose writes are put back (D2). Each fix round
-starts a fresh token budget, which has never bound on these tasks (the baseline's heaviest used a
-small fraction of it), so steps are the cap that matters. A task that ran out of steps never
+starts a fresh token budget, which has never bound on these tasks (the heaviest task in the
+baseline, `path-tracing-reverse`, billed about a quarter of it), so steps are the cap that matters. A task that ran out of steps never
 claimed done and is never reviewed.
 
 The measure is the pass rate on the same tasks, with false claims of done beside it. Fewer false
@@ -127,5 +127,6 @@ watching in the preview; a review there is cost without the pull request it prot
   pull request (D4).
 - A `review` check can appear in a job's checks, failed or passed. A passed review's notes are its
   output.
-- Whether this lowers false claims of done is measured on the locked Terminal-Bench test set,
-  beside the baseline.
+- Measured on the locked Terminal-Bench test set in
+  [napbench-terminal-bench-reviewer.md](../napbench-terminal-bench-reviewer.md): false claims of done
+  fell from 15 in 50 trials to 5 in 75, and the pass rate did not measurably move.
