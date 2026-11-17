@@ -3,7 +3,7 @@ import { NapReviewer } from "@nap/agent/reviewer";
 import { ScriptedLLMProvider, type ScriptedTurn } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
-import { REVIEW_PROMPT } from "@nap/context/review-prompt";
+import { REVIEW_PROMPTS } from "@nap/context/review-prompt";
 import { TASK_SYSTEM_PROMPT } from "@nap/context/system-prompt";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { NapEvent } from "@nap/shared/events";
@@ -79,7 +79,7 @@ async function run(
     ...(extra.review === true
       ? {
           reviewerFor: (metered: LLMProvider) =>
-            new NapReviewer({ provider: metered, systemPrompt: REVIEW_PROMPT }),
+            new NapReviewer({ provider: metered, prompts: REVIEW_PROMPTS }),
         }
       : {}),
     requests: () => http,
@@ -266,5 +266,24 @@ describe("runTaskTurn with the reviewer", () => {
     expect(result.reviews).toHaveLength(MAX_REVIEW_ROUNDS);
     expect(result.steps).toBe(2 + MAX_REVIEW_ROUNDS);
     expect(TaskTurnResultSchema.parse(result)).toEqual(result);
+  });
+});
+
+describe("what a review wrote", () => {
+  it("records the files a review's commands left in the task's directory", async () => {
+    const box = sandbox()
+      .script(/^touch \/tmp\/nap-review-start$/, { exitCode: 0 })
+      .script(/-newer \/tmp\/nap-review-start/, {
+        exitCode: 0,
+        stdout: "./out.txt\n./__pycache__/a.pyc\n",
+      });
+    const { result } = await run([SOLVES, reviewing(false)], box, 10, { review: true });
+    expect(result.reviews?.[0]?.wrote).toEqual(["./out.txt", "./__pycache__/a.pyc"]);
+  });
+
+  it("says it does not know, rather than nothing, when the mark could not be made", async () => {
+    const box = sandbox().script(/^touch \/tmp\/nap-review-start$/, { exitCode: 1 });
+    const { result } = await run([SOLVES, reviewing(false)], box, 10, { review: true });
+    expect(result.reviews?.[0]?.wrote).toBeNull();
   });
 });

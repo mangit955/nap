@@ -181,21 +181,44 @@ export async function currentSha(
 }
 
 /**
- * Puts the working tree back to `sha`, removing what is not committed and not ignored.
+ * The branch checked out, as a full ref, or `null` when HEAD is detached.
+ *
+ * Beside `workspaceState`, which compares the commit and the tree but not the branch: a checkout
+ * of another branch at the same commit changes neither.
+ */
+export async function checkedOutBranch(
+  manager: SandboxManager,
+  sandboxId: string,
+  options?: GitOptions,
+): Promise<Result<string | null, SandboxError>> {
+  const result = await git(manager, sandboxId, "git symbolic-ref --quiet HEAD || true", options);
+  if (!result.ok) return result;
+  const ref = result.value.trim();
+  return { ok: true, value: ref === "" ? null : ref };
+}
+
+/**
+ * Puts the workspace back to `sha` on `branch`, removing what is not committed and not ignored.
  *
  * For the reviewer (docs/adr/0036): it has no tool that writes, but a command it runs can, and a
- * file it left would otherwise be committed by the next turn and published with the job.
+ * file it left would otherwise be committed by the next turn and published with the job. The
+ * branch is checked out first, so a command that switched branches cannot leave the job's work
+ * on another one; `reset` then moves that branch back to `sha` if a command committed to it.
  */
 export async function discardUncommitted(
   manager: SandboxManager,
   sandboxId: string,
-  sha: string,
+  target: { sha: string; branch: string | null },
   options?: GitOptions,
 ): Promise<Result<void, SandboxError>> {
+  const checkout =
+    target.branch === null
+      ? ""
+      : `git checkout --quiet --force ${shellQuote(target.branch.replace(/^refs\/heads\//, ""))} && `;
   const result = await git(
     manager,
     sandboxId,
-    `git reset --quiet --hard ${shellQuote(sha)} && git clean -fdq`,
+    `${checkout}git reset --quiet --hard ${shellQuote(target.sha)} && git clean -fdq`,
     options,
   );
   return result.ok ? { ok: true, value: undefined } : result;

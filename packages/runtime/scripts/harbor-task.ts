@@ -20,7 +20,7 @@ import { NapReviewer } from "@nap/agent/reviewer";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
-import { REVIEW_PROMPT } from "@nap/context/review-prompt";
+import { REVIEW_PROMPTS } from "@nap/context/review-prompt";
 import { ChannelSandboxManager } from "@nap/sandbox/channel-sandbox-manager";
 import { LineExecChannel } from "@nap/sandbox/exec-channel";
 import { loadEnvFile } from "@nap/shared/env-file";
@@ -132,7 +132,7 @@ const result = await runTaskTurn({
   ...(options.review
     ? {
         reviewerFor: (provider: LLMProvider) =>
-          new NapReviewer({ provider, systemPrompt: REVIEW_PROMPT }),
+          new NapReviewer({ provider, prompts: REVIEW_PROMPTS }),
       }
     : {}),
   instruction,

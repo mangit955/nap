@@ -13,7 +13,9 @@
  * repository's job. Two things differ from the product, both about the budget: the agent's steps
  * are capped across the whole task, so a fix round gets only what the first turn left, and the
  * reviewer's steps and tokens are metered apart from the agent's. A score measured with the
- * reviewer then cannot owe anything to the agent getting more steps than the baseline did.
+ * reviewer then cannot owe anything to the agent getting more steps than the baseline did. The
+ * machine has no commit to reset after a review, so the files a review's commands wrote are
+ * recorded instead, for the report to show.
  *
  * Model calls and tokens are counted here, at the provider, and HTTP requests by whoever built the
  * client, for one reason: a free model's daily quota is counted in requests, and a benchmark run
@@ -37,6 +39,20 @@ import { z } from "zod";
 import { repairPrompt } from "./repair-prompt.ts";
 import { changedFilesOf, reviewCheck } from "./review-round.ts";
 
+/** Where a review's start is marked, so the files it wrote can be found afterwards. */
+const REVIEW_MARK = "/tmp/nap-review-start";
+
+/** How many written files a review's record lists. */
+export const WROTE_LIMIT = 20;
+
+const MARK_REVIEW_START = `touch ${REVIEW_MARK}`;
+
+/** Files under the task's directory newer than the mark, `.git` aside, relative to it. */
+const FILES_SINCE_REVIEW_START = [
+  `cd ${shellQuote(PROJECT_ROOT_PATH)}`,
+  `find . -path ./.git -prune -o -type f -newer ${REVIEW_MARK} -print 2>/dev/null | head -n ${WROTE_LIMIT}`,
+].join(" && ");
+
 /** One review of the task, as the report reads it. */
 export const TaskReviewSchema = z.strictObject({
   status: z.enum(["completed", "failed"]),
@@ -48,6 +64,13 @@ export const TaskReviewSchema = z.strictObject({
   usage: TokenUsageSchema,
   /** Whether the agent was sent back on it. */
   sentBack: z.boolean(),
+  /**
+   * Files in the task's directory written while the review ran, up to `WROTE_LIMIT`; `null` when
+   * that could not be read. A task machine has no commit to reset to (ADR-0036 D2), so a review
+   * that wrote a file the hidden tests read could change the answer, and this is how a report
+   * can tell whether one did.
+   */
+  wrote: z.array(z.string()).nullable(),
 });
 export type TaskReview = z.infer<typeof TaskReviewSchema>;
 
@@ -279,6 +302,7 @@ export async function runTaskTurn(options: TaskTurnOptions): Promise<TaskTurnRes
       options.signal?.aborted === true
     )
       break;
+    const marked = await options.sandbox.exec(sandboxId, MARK_REVIEW_START);
     const review = await reviewer.review({
       sandbox: options.sandbox,
       sandboxId,
@@ -288,6 +312,10 @@ export async function runTaskTurn(options: TaskTurnOptions): Promise<TaskTurnRes
       signal: options.signal,
     });
     const { failure } = reviewCheck(review);
+    const wrote =
+      marked.ok && marked.value.exitCode === 0
+        ? await options.sandbox.exec(sandboxId, FILES_SINCE_REVIEW_START)
+        : null;
     reviews.push({
       status: review.status,
       blocking: review.blocking.length,
@@ -296,6 +324,10 @@ export async function runTaskTurn(options: TaskTurnOptions): Promise<TaskTurnRes
       steps: review.steps,
       usage: review.usage,
       sentBack: failure !== null,
+      wrote:
+        wrote?.ok === true && wrote.value.exitCode === 0
+          ? wrote.value.stdout.split("\n").filter((line) => line !== "")
+          : null,
     });
     if (failure === null) break;
     attempts.push({ check: failure.name, detail: failure.detail, output: failure.output });

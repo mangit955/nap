@@ -60,6 +60,16 @@ export type ReviewRequest = {
   signal?: AbortSignal | undefined;
 };
 
+/**
+ * What the reviewer is told, written in `@nap/context` and handed to the reviewer by whichever
+ * composition builds it, so the product and the benchmark cannot word it differently.
+ */
+export type ReviewPrompts = {
+  system: string;
+  /** The opening message: the request, and where the work is. */
+  task: (request: Pick<ReviewRequest, "objective" | "changedFiles">) => string;
+};
+
 export interface Reviewer {
   /** Reports rather than throws: a review that fails blocks nothing. */
   review(request: ReviewRequest): Promise<ReviewResult>;

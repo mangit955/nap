@@ -19,6 +19,7 @@ import {
   REVIEW_MAX_STEPS,
   type Reviewer,
   type ReviewFinding,
+  type ReviewPrompts,
   type ReviewRequest,
   type ReviewResult,
 } from "@nap/shared/ports/reviewer";
@@ -64,8 +65,8 @@ const ReviewReportSchema = z.object({
 
 export type NapReviewerOptions = {
   provider: LLMProvider;
-  /** From `@nap/context/review-prompt`: prompts belong to the context package. */
-  systemPrompt: string;
+  /** `REVIEW_PROMPTS` from `@nap/context/review-prompt`: prompts belong to the context package. */
+  prompts: ReviewPrompts;
   maxSteps?: number;
   now?: () => string;
 };
@@ -78,7 +79,7 @@ export class NapReviewer implements Reviewer {
   }
 
   async review(request: ReviewRequest): Promise<ReviewResult> {
-    const { provider, systemPrompt } = this.#options;
+    const { provider, prompts } = this.#options;
     const maxSteps = this.#options.maxSteps ?? REVIEW_MAX_STEPS;
     const now = this.#options.now ?? (() => new Date().toISOString());
     const { signal } = request;
@@ -99,7 +100,7 @@ export class NapReviewer implements Reviewer {
     const tools = TOOL_DEFINITIONS.filter((tool) => REVIEW_TOOL_NAMES.includes(tool.name));
     const offered = new Set(REVIEW_TOOL_NAMES);
     const ledger = new FileLedger();
-    const messages: LLMMessage[] = [{ role: "user", content: reviewTask(request) }];
+    const messages: LLMMessage[] = [{ role: "user", content: prompts.task(request) }];
 
     try {
       for (let step = 1; step <= maxSteps; step += 1) {
@@ -107,7 +108,7 @@ export class NapReviewer implements Reviewer {
         if (step === maxSteps) appendText(messages, LAST_REQUEST);
         const completed = await stopAware(
           turn.complete({
-            systemPrompt,
+            systemPrompt: prompts.system,
             messages: [...messages],
             tools,
             maxOutputTokens: REVIEW_MAX_OUTPUT_TOKENS,
@@ -126,6 +127,8 @@ export class NapReviewer implements Reviewer {
         const results: LLMContentBlock[] = [];
         for (const call of completed.toolCalls) {
           if (signal?.aborted) return failed("Cancelled before it finished.");
+          // Without the project-rules hook the agent and its helpers get: the reviewer judges the
+          // work against the request, and a directory's AGENTS.md is the agent's brief, not that.
           const outcome = await executeTool(call, {
             sessionId: "review",
             turnId: "review",
@@ -167,15 +170,6 @@ export class NapReviewer implements Reviewer {
       return failed(error instanceof Error ? error.message : String(error));
     }
   }
-}
-
-/** The review's opening message: the request, and where the work is. */
-export function reviewTask(request: Pick<ReviewRequest, "objective" | "changedFiles">): string {
-  const files =
-    request.changedFiles.length === 0
-      ? "The agent's changes are in the project; look at it as it is now."
-      : `Files the agent changed:\n${request.changedFiles.map((path) => `- ${path}`).join("\n")}`;
-  return `The request the agent was given:\n\n<request>\n${request.objective}\n</request>\n\n${files}`;
 }
 
 /**

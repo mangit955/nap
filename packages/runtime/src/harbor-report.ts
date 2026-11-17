@@ -137,6 +137,12 @@ export type BenchmarkReport = {
     sentBackPassed: number;
     sentBackClaimedFailed: number;
     sentBackStepBudget: number;
+    /**
+     * Each trial in which a review's commands wrote files to the task's directory, with the files.
+     * A task machine has nothing to reset to, so these are where a review could have changed the
+     * answer itself rather than through the agent (ADR-0036 D5).
+     */
+    wrote: Array<{ task: string; files: string[] }>;
     reviews: number;
     steps: number;
     usage: TokenUsage;
@@ -268,17 +274,17 @@ export function summarise(
 
 /** The reviewer's share of a run, or `null` when no trial in it had a reviewer. */
 function reviewSummary(trials: readonly TrialRecord[]): BenchmarkReport["review"] {
-  const reviewed = trials.filter((trial) => trial.nap?.reviews !== undefined);
-  if (reviewed.length === 0) return null;
-  const sentBack = reviewed.filter((trial) =>
+  const withReviewer = trials.filter((trial) => trial.nap?.reviews !== undefined);
+  if (withReviewer.length === 0) return null;
+  const sentBack = withReviewer.filter((trial) =>
     trial.nap?.reviews?.some((review) => review.sentBack),
   );
-  const all = reviewed.flatMap((trial) => trial.nap?.reviews ?? []);
+  const all = withReviewer.flatMap((trial) => trial.nap?.reviews ?? []);
   const usage = all.reduce((total, review) => addUsage(total, review.usage), {
     inputTokens: 0,
     outputTokens: 0,
   });
-  const usd = reviewed.reduce((sum, trial) => {
+  const usd = withReviewer.reduce((sum, trial) => {
     const nap = trial.nap;
     if (nap === null || isFreeModel(nap.model)) return sum;
     const spent = (nap.reviews ?? []).reduce((total, review) => addUsage(total, review.usage), {
@@ -288,13 +294,19 @@ function reviewSummary(trials: readonly TrialRecord[]): BenchmarkReport["review"
     return sum + (estimateCost(nap.model, spent)?.usd ?? 0);
   }, 0);
   return {
-    reviewed: reviewed.filter((trial) => (trial.nap?.reviews?.length ?? 0) > 0).length,
+    reviewed: withReviewer.filter((trial) => (trial.nap?.reviews?.length ?? 0) > 0).length,
     sentBack: sentBack.length,
     sentBackPassed: sentBack.filter(passedTrial).length,
     sentBackClaimedFailed: sentBack.filter(
       (trial) => failureKind(trial) === "claimed_done_tests_failed",
     ).length,
     sentBackStepBudget: sentBack.filter((trial) => failureKind(trial) === "step_budget").length,
+    wrote: withReviewer.flatMap((trial) => {
+      const files = [
+        ...new Set((trial.nap?.reviews ?? []).flatMap((review) => review.wrote ?? [])),
+      ];
+      return files.length === 0 ? [] : [{ task: trial.task, files }];
+    }),
     reviews: all.length,
     steps: all.reduce((total, review) => total + review.steps, 0),
     usage,
@@ -488,6 +500,13 @@ function renderReview(review: NonNullable<BenchmarkReport["review"]>): string[] 
     `${review.reviews} reviews took ${review.steps} model calls and ${dollars(review.usd)}. Both ` +
       "are inside the totals above, and none of those calls is counted in the agent's steps, " +
       "which stay capped across every round of a task.",
+    "",
+    review.wrote.length === 0
+      ? "No review's commands wrote a file in a task's directory."
+      : `In ${review.wrote.length} trials a review's commands wrote files in the task's directory, ` +
+        "which nothing resets on a task machine: " +
+        review.wrote.map((entry) => `${entry.task} (${entry.files.join(", ")})`).join("; ") +
+        ".",
     "",
   ];
 }

@@ -74,6 +74,7 @@ export function scriptGit(
   return manager
     .script(COMMIT_COMMAND, dirty ? committed(sha) : NOTHING_COMMITTED)
     .script(/git rev-parse HEAD/, { exitCode: 0, stdout: `${sha}\n` })
+    .script(/git symbolic-ref --quiet HEAD/, { exitCode: 0, stdout: "refs/heads/main\n" })
     .script(BUNDLE_COMMAND, bundled("refs/heads/main", bundle));
 }
 

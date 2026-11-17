@@ -196,8 +196,30 @@ describe("the review in an imported repository's job", () => {
     f.sandbox.script(/git reset --quiet --hard/, { exitCode: 0 });
     expect(await f.run()).toMatchObject({ ok: true });
     expect(f.sandbox.commands(f.sandboxId)).toContain(
-      `cd /home/user/app && git reset --quiet --hard '${FAKE_COMMIT_SHA}' && git clean -fdq`,
+      `cd /home/user/app && git checkout --quiet --force 'main' && git reset --quiet --hard '${FAKE_COMMIT_SHA}' && git clean -fdq`,
     );
+  });
+
+  it("puts the job back on its branch when a reviewer's command switched branches", async () => {
+    // A checkout at the same commit leaves the commit and the tree as they were, so the branch is
+    // compared on its own.
+    const f = await fixture({ results: [] });
+    let reviewing = false;
+    f.review.mockImplementation(async () => {
+      reviewing = true;
+      return PASS;
+    });
+    f.sandbox.script(/git symbolic-ref --quiet HEAD/, () => ({
+      exitCode: 0,
+      stdout: reviewing ? "refs/heads/elsewhere\n" : "refs/heads/nap/job\n",
+    }));
+    f.sandbox.script(/git reset --quiet --hard/, { exitCode: 0 });
+    expect(await f.run()).toMatchObject({ ok: true });
+    expect(
+      f.sandbox
+        .commands(f.sandboxId)
+        .some((command) => command.includes("git checkout --quiet --force 'nap/job' && git reset")),
+    ).toBe(true);
   });
 
   it("is not run for a Nap project, which publishes no pull request", async () => {

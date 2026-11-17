@@ -45,7 +45,7 @@ tests) and `<trial>/result.json`, whose `agent_result.metadata` carries Nap's ou
 |---|---|
 | `instruction.md` | The Python agent: the task's instruction, read by the entrypoint |
 | `trajectory.jsonl` | The entrypoint: every event of the turn, one per line |
-| `nap-result.json` | The entrypoint: outcome, model requests and steps, token usage, wall time |
+| `nap-result.json` | The entrypoint: outcome, model requests and steps, token usage, wall time, and with `--review` each review (what it proved, its steps and tokens, whether it sent the agent back, and the files its commands wrote) |
 | `nap.log` | The entrypoint's stderr: the turn as it ran, one event per line |
 
 If Harbor gives up on a trial (its timeout, or an interrupt), the Python agent closes the
@@ -88,6 +88,10 @@ The report (`packages/runtime/src/harbor-report.ts`) gives:
   estimate, not a bill.
 - **Failures by kind**: Harbor's timeout, a harness error, a trial that never finished, the step
   budget, the model unreachable, a claim of done the tests refuted, and the rest.
+- **Review**, for a run with `--review` only: how many claims were reviewed and sent back, how
+  each sent-back trial ended, the reviewer's model calls and cost (inside the totals, never in the
+  agent's steps), and any trial where a review's commands wrote files in the task's directory. The
+  task table gains a "Reviews (sent back)" column.
 
 The first scored run, on the test set with `openai/gpt-6-luna`, is written up in
 [`docs/napbench-terminal-bench-baseline.md`](../docs/napbench-terminal-bench-baseline.md).
@@ -97,7 +101,7 @@ checks the wiring end to end and nothing about the agent; its report says so.
 
 **On GitHub.** The `Benchmark` workflow (`.github/workflows/benchmark.yml`) does the same on a
 free x86 runner, where the task images run natively. It is manual only (Actions, Benchmark, Run
-workflow) and takes the set, the model, `spend`, the concurrency and `scripted`. It reads the key
+workflow) and takes the set, the model, `spend`, the concurrency, `scripted` and `review`. It reads the key
 from the repository secret `BENCHMARK_OPENROUTER_API_KEY`, refuses a paid model without `spend`,
 holds a free model to two trials at once (its quota is about 20 requests a minute), and uploads
 the job directory with the report as an artifact. Harbor's output goes there rather than into the

@@ -61,8 +61,8 @@ A blocking review sends the agent back with the problems quoted, the way a faile
 the product the review is recorded as a check named `review` in `verification.completed`, so a
 blocked review becomes a repair through the existing machinery: it counts against the job's repair
 attempts (`MAX_REPAIR_ATTEMPTS`), a restart continues it from the log like any failed check, and
-nothing new joins the event contract. A job runs at most `MAX_REVIEW_ROUNDS` reviews; after that the
-checks alone arbitrate.
+nothing new joins the event contract. A job runs at most `MAX_REVIEW_ROUNDS` reviews, counted from the
+log so a restart cannot reset the count; after that the checks alone arbitrate.
 
 ### D5: Who pays, and what counts as more effort
 
@@ -73,8 +73,10 @@ review, and its usage is logged.
 On the benchmark, the agent's steps stay capped at the baseline's 20 **across the whole task**: a fix
 round gets only the steps the first turn left. The reviewer's own steps are separate, capped, and
 reported beside the score, with its cost. So the agent never gets more steps than in the baseline,
-and the only added effort is the review itself, which can read and run but cannot change the
-answer. A task that ran out of steps never claimed done and is never reviewed.
+and the only added effort is the review itself. The reviewer has no tool that writes, but on a task
+machine nothing resets what its commands write (D2), so each review records the files in the task's
+directory written while it ran, and the report shows them. A task that ran out of steps never
+claimed done and is never reviewed.
 
 ### D6: Imported GitHub projects only, for now
 

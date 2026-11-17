@@ -23,7 +23,8 @@
         "inputTokens": 24000,
         "outputTokens": 900
       },
-      "sentBack": true
+      "sentBack": true,
+      "wrote": []
     }
   ],
   "durationMs": 184000,

@@ -294,6 +294,7 @@ describe("the reviewer's share", () => {
     steps: 3,
     usage: { inputTokens: 10_000, outputTokens: 500 },
     sentBack,
+    wrote: sentBack ? ["./out.txt"] : [],
   });
 
   it("is absent for a run without a reviewer, so a baseline reads as it did", () => {
@@ -330,5 +331,10 @@ describe("the reviewer's share", () => {
     expect(report.review?.usd).toBeCloseTo(estimateCost(MODEL, fiveReviews)?.usd ?? Number.NaN, 5);
     expect(report.rows.find((row) => row.task === "a")).toMatchObject({ reviews: 2, sentBack: 1 });
     expect(renderReport(report)).toContain("sent 3 back");
+    expect(report.review?.wrote).toEqual([
+      { task: "a", files: ["./out.txt"] },
+      { task: "b", files: ["./out.txt"] },
+      { task: "c", files: ["./out.txt"] },
+    ]);
   });
 });

@@ -38,7 +38,7 @@ import type { ProjectComputer } from "./project-computer.ts";
  * checkpoint, which is a state the user can usually close with one sentence.
  */
 
-import { commitAll, currentSha, discardUncommitted, workspaceState } from "@nap/sandbox/git";
+import { commitAll, currentSha } from "@nap/sandbox/git";
 import { TEMPLATE_DEV_PORT, TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import type { ProposedPlan } from "@nap/shared/agent-plan";
 import { appTestTarget, failedAppTestGoal } from "@nap/shared/app-testing";
@@ -56,7 +56,7 @@ import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
-import { MAX_REVIEW_ROUNDS, REVIEW_CHECK_NAME, type Reviewer } from "@nap/shared/ports/reviewer";
+import type { Reviewer } from "@nap/shared/ports/reviewer";
 import type {
   ContinueOptions,
   ResumeOutcome,
@@ -88,7 +88,7 @@ import { continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { shouldAnnouncePreview } from "./preview-announced.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
-import { changedFilesOf, reviewCheck } from "./review-round.ts";
+import { type JobReviewRequest, reviewJob } from "./review-round.ts";
 import { SessionHistory } from "./session-history.ts";
 import { SessionQueue } from "./session-queue.ts";
 import { captureSnapshot } from "./teardown.ts";
@@ -134,15 +134,6 @@ type TurnSettings = {
   model?: string | undefined;
   credentials?: ModelCredentials | undefined;
   workspace?: "repository";
-};
-
-/** A review's request, less the sandbox and the files, which are known only when it runs. */
-type ReviewOptions = {
-  reviewer: Reviewer;
-  objective: string;
-  model: string | undefined;
-  credentials: ModelCredentials | undefined;
-  signal: AbortSignal | undefined;
 };
 
 /**
@@ -1286,7 +1277,19 @@ export class SingleAgentRuntime implements Runtime {
           announce,
           previewPort: run.previewPort,
           signal: settings.signal,
-          review: this.#reviewFor(run),
+          // Only an imported repository's job, which ends in a pull request, and only while a
+          // repair is left: a review can send a job back, never close one its checks passed.
+          review:
+            this.#options.reviewer !== undefined &&
+            settings.workspace === "repository" &&
+            run.repairs < MAX_REPAIR_ATTEMPTS
+              ? {
+                  reviewer: this.#options.reviewer,
+                  objective: run.objective,
+                  model: settings.model,
+                  credentials: settings.credentials,
+                }
+              : null,
         });
         // Every round after the first is one this loop began itself.
         announce = true;
@@ -1722,8 +1725,8 @@ export class SingleAgentRuntime implements Runtime {
     announce: boolean;
     previewPort: number | null;
     signal: AbortSignal | undefined;
-    /** What the review, if this job gets one, is asked about and billed to. */
-    review: ReviewOptions | null;
+    /** What the review, if this job may have one, is asked about and billed to. */
+    review: Pick<JobReviewRequest, "reviewer" | "objective" | "model" | "credentials"> | null;
   }): Promise<CheckFailure | null> {
     const { scope, jobId, sandboxId, commitSha, announce } = options;
     const { sink, emit } = scope;
@@ -1757,7 +1760,15 @@ export class SingleAgentRuntime implements Runtime {
     // not build would be paid for to say so a second time.
     const reviewed =
       verified.verdict === "passed" && options.review !== null
-        ? await this.#review(sandboxId, commitSha, options.review, scope, jobId)
+        ? await reviewJob({
+            ...options.review,
+            sandbox: this.#options.sandbox,
+            sandboxId,
+            commitSha,
+            jobId,
+            history: await scope.history.read(),
+            signal: options.signal,
+          })
         : null;
 
     emit("verification.completed", {
@@ -1768,7 +1779,7 @@ export class SingleAgentRuntime implements Runtime {
       ],
     });
 
-    if (reviewed?.failure != null) {
+    if (reviewed !== null && reviewed.failure !== null) {
       await sink.drain();
       getLogger().info({ commitSha }, "the review found problems; the job stays open");
       return reviewed.failure;
@@ -1797,83 +1808,6 @@ export class SingleAgentRuntime implements Runtime {
     await sink.drain();
     getLogger().info({ commitSha, check: failed.name }, "verification failed; the job stays open");
     return failureOf(failed);
-  }
-
-  /**
-   * Whether this round of the job is reviewed, and with what (ADR-0036 D4, D6).
-   *
-   * Only an imported repository's job, which ends in a pull request, and at most
-   * `MAX_REVIEW_ROUNDS` times: every review before this one sent the job back, or the job would
-   * have closed, so the attempts it recorded are the count.
-   */
-  #reviewFor(run: JobRun): ReviewOptions | null {
-    const { settings } = run;
-    if (this.#options.reviewer === undefined || settings.workspace !== "repository") return null;
-    const rounds = run.attempts.filter((attempt) => attempt.check === REVIEW_CHECK_NAME).length;
-    if (rounds >= MAX_REVIEW_ROUNDS) return null;
-    // A review can only send the job back. With no repair left to send it to, a blocking review
-    // would close a job its checks passed without publishing it, so there is none.
-    if (run.repairs >= MAX_REPAIR_ATTEMPTS) return null;
-    return {
-      reviewer: this.#options.reviewer,
-      objective: run.objective,
-      model: settings.model,
-      credentials: settings.credentials,
-      signal: settings.signal,
-    };
-  }
-
-  /**
-   * One review, as a check. The workspace is put back to the arbitrated commit afterwards: the
-   * reviewer has no tool that writes, but a command it runs can (ADR-0036 D2), and nothing it left
-   * may reach the next turn or the pull request. A review that throws, or a reset that fails,
-   * blocks nothing; the job goes on as its checks decided.
-   */
-  async #review(
-    sandboxId: string,
-    commitSha: string,
-    review: ReviewOptions,
-    scope: TurnScope,
-    jobId: string,
-  ): Promise<ReturnType<typeof reviewCheck> | null> {
-    const { sandbox } = this.#options;
-    try {
-      const before = await workspaceState(sandbox, sandboxId);
-      const history = await scope.history.read();
-      const result = await review.reviewer.review({
-        sandbox,
-        sandboxId,
-        objective: review.objective,
-        changedFiles: changedFilesOf(history, jobId),
-        model: review.model,
-        credentials: review.credentials,
-        signal: review.signal,
-      });
-      getLogger().info(
-        {
-          commitSha,
-          status: result.status,
-          blocking: result.blocking.length,
-          notes: result.notes.length,
-          steps: result.steps,
-          usage: result.usage,
-        },
-        "reviewed the job",
-      );
-      const after = await workspaceState(sandbox, sandboxId);
-      const reset =
-        before.ok && after.ok && before.value === after.value
-          ? ({ ok: true } as const)
-          : await discardUncommitted(sandbox, sandboxId, commitSha);
-      if (!reset.ok) {
-        getLogger().warn({ err: reset.error }, "could not reset the workspace after the review");
-        return null;
-      }
-      return reviewCheck(result);
-    } catch (error) {
-      getLogger().warn({ err: error }, "the review could not be run");
-      return null;
-    }
   }
 
   /**

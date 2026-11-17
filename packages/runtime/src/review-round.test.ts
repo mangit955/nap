@@ -1,7 +1,7 @@
 import type { NapEvent } from "@nap/shared/events";
 import type { ReviewResult } from "@nap/shared/ports/reviewer";
 import { describe, expect, it } from "vitest";
-import { changedFilesOf, renderFinding, reviewCheck } from "./review-round.ts";
+import { changedFilesOf, renderFinding, reviewCheck, reviewRounds } from "./review-round.ts";
 
 const result = (overrides: Partial<ReviewResult>): ReviewResult => ({
   status: "completed",
@@ -75,5 +75,31 @@ describe("changedFilesOf", () => {
   it("with a job, lists only what changed since that job opened", () => {
     const events = [changed(1, "old"), jobStarted(2, "j"), changed(3, "new")];
     expect(changedFilesOf(events, "j")).toEqual(["new"]);
+  });
+});
+
+describe("reviewRounds", () => {
+  const envelope = { sessionId: "s", turnId: "t", createdAt: "2026-01-01T00:00:00.000Z" };
+  const verified = (seq: number, jobId: string, names: string[]) =>
+    ({
+      ...envelope,
+      seq,
+      type: "verification.completed",
+      payload: {
+        jobId,
+        checks: names.map((name) => ({ name, outcome: "failed", output: null })),
+      },
+    }) as NapEvent;
+
+  it("counts the job's verifications that carried a review, from the log alone", () => {
+    // Read from the log rather than from what the running job remembers, which a restart rebuilds
+    // from the latest round only: the bound has to survive a restart.
+    const history = [
+      verified(1, "j", ["typecheck"]),
+      verified(2, "j", ["test", "review"]),
+      verified(3, "other", ["review"]),
+      verified(4, "j", ["review"]),
+    ];
+    expect(reviewRounds(history, "j")).toBe(2);
   });
 });

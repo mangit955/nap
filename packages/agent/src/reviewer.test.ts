@@ -1,6 +1,6 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { describe, expect, it } from "vitest";
-import { judge, NapReviewer, reviewTask } from "./reviewer.ts";
+import { judge, NapReviewer } from "./reviewer.ts";
 import { ScriptedLLMProvider, type ScriptedTurn } from "./testing/scripted-llm-provider.ts";
 import { PROJECT_ROOT } from "./tools/definitions.ts";
 
@@ -18,7 +18,7 @@ async function review(turns: ScriptedTurn[], maxSteps?: number) {
   const provider = new ScriptedLLMProvider(turns);
   const reviewer = new NapReviewer({
     provider,
-    systemPrompt: "review",
+    prompts: { system: "review", task: (request) => `Review: ${request.objective}` },
     ...(maxSteps === undefined ? {} : { maxSteps }),
   });
   const result = await reviewer.review({
@@ -167,13 +167,5 @@ describe("judge", () => {
       ran,
     );
     expect(verdict.blocking).toHaveLength(1);
-  });
-});
-
-describe("reviewTask", () => {
-  it("quotes the request and lists the changed files", () => {
-    expect(reviewTask({ objective: "Do X.", changedFiles: ["a.py", "b.py"] })).toBe(
-      "The request the agent was given:\n\n<request>\nDo X.\n</request>\n\nFiles the agent changed:\n- a.py\n- b.py",
-    );
   });
 });
