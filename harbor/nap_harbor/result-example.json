@@ -12,6 +12,20 @@
     "outputTokens": 5310,
     "cacheReadTokens": 88000
   },
+  "reviews": [
+    {
+      "status": "completed",
+      "blocking": 1,
+      "notes": 0,
+      "failure": null,
+      "steps": 4,
+      "usage": {
+        "inputTokens": 24000,
+        "outputTokens": 900
+      },
+      "sentBack": true
+    }
+  ],
   "durationMs": 184000,
   "workdir": "/app"
 }

@@ -100,3 +100,21 @@ describe("repairCommitSubject", () => {
     expect(subject.length).toBeLessThanOrEqual(72);
   });
 });
+
+describe("repairPrompt for a review", () => {
+  const review = {
+    name: "review",
+    detail: "1 problem shown by commands the reviewer ran",
+    output: "- parse returns 2\n  `pytest -q` printed:\n    expected 3, got 2",
+  };
+
+  it("carries every word of what the reviewer proved, and does not call it a check", () => {
+    const prompt = repairPrompt({ failed: review, attempt: 1 });
+    expect(prompt).toContain(review.output);
+    expect(prompt).not.toContain("project's own checks");
+  });
+
+  it("counts against the bound it is given", () => {
+    expect(repairPrompt({ failed: review, attempt: 1, of: 2 })).toContain("attempt 1 of 2");
+  });
+});

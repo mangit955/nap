@@ -1,5 +1,6 @@
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
+import { REVIEW_PROMPT } from "@nap/context/review-prompt";
 import { REPOSITORY_SYSTEM_PROMPT, SYSTEM_PROMPT } from "@nap/context/system-prompt";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
@@ -126,6 +127,8 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
     );
   const provider = new ScriptedLLMProvider([
     [{ text: "Updated repository." }],
+    // The review of the repository's job, before its pull request (ADR-0036).
+    [{ text: '{"problems":[],"notes":[]}' }],
     [{ text: "Built template." }],
   ]);
   const events = new InMemoryEventStore();
@@ -322,7 +325,9 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
     });
     await vi.waitFor(() => expect(queue.stateOf(publishId)).toBe("done"));
     expect(keyReads).not.toHaveBeenCalled();
-    expect(provider.requests).toHaveLength(1);
+    // The job's turn and its review; publishing again asks no model anything.
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]?.systemPrompt).toBe(REVIEW_PROMPT);
     expect(pullBodies).toHaveLength(1);
     expect((await store.job(job.jobId))?.pullRequestNumber).toBe(10);
     expect(
@@ -349,8 +354,9 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
         "verified",
       ),
     );
-    expect(provider.requests).toHaveLength(2);
-    expect(provider.requests[1]?.systemPrompt).toContain(SYSTEM_PROMPT);
+    // A Nap project's job is not reviewed: one more request, and it is the turn's.
+    expect(provider.requests).toHaveLength(3);
+    expect(provider.requests[2]?.systemPrompt).toContain(SYSTEM_PROMPT);
     expect(broker.fetch).toHaveBeenCalledOnce();
     expect(pullBodies).toHaveLength(1);
     expect(await store.jobs(template.projectId, FAKE_OWNER)).toEqual([]);

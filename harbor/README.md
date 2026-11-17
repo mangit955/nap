@@ -30,9 +30,11 @@ uv run --directory harbor --extra harbor harbor run \
   GitHub repository that has since been deleted.
 - `-i` picks tasks by namespaced name (`terminal-bench/<task>`, globs allowed);
   `harbor download terminal-bench/terminal-bench-2-1` fetches all 89 to read.
-- `NAP_HARBOR_FLAGS` passes flags to the entrypoint, e.g. `--max-steps=15`. A step is one model
-  call, and a call the provider retries after a throttle or a failure is several requests, so a
-  free model's quota, counted in requests, can go faster than the steps do.
+- `NAP_HARBOR_FLAGS` passes flags to the entrypoint, e.g. `--max-steps=15`, or `--review` to have
+  Nap's reviewer check each claim of done (ADR-0036; the workflow's `review` input). A step is one
+  model call, and a call the provider retries after a throttle or a failure is several requests, so
+  a free model's quota, counted in requests, can go faster than the steps do. A reviewer's calls
+  are requests too, on top of the agent's steps.
 - Needs Docker, `bun install` done, and `OPENROUTER_API_KEY` in `apps/api/.env`.
 
 For each trial, Harbor writes `<job>/<trial>/verifier/reward.txt` (1 or 0, from the task's hidden

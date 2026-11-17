@@ -123,7 +123,25 @@ export type BenchmarkReport = {
   };
   usage: TokenUsage;
   requests: number;
+  /** The agent's steps. A reviewer's are under `review`, never here. */
   steps: number;
+  /**
+   * What the reviewer did, when the run had one (ADR-0036); `null` for a run without, such as the
+   * baseline. Its tokens and cost are already inside `usage` and `cost`, and are its share of them.
+   */
+  review: {
+    /** Trials whose claim was reviewed at least once. */
+    reviewed: number;
+    /** Trials the reviewer sent back at least once, and how each ended. */
+    sentBack: number;
+    sentBackPassed: number;
+    sentBackClaimedFailed: number;
+    sentBackStepBudget: number;
+    reviews: number;
+    steps: number;
+    usage: TokenUsage;
+    usd: number;
+  } | null;
   failures: Partial<Record<FailureKind, string[]>>;
   rows: Array<{
     task: string;
@@ -135,6 +153,9 @@ export type BenchmarkReport = {
     usage: TokenUsage | null;
     usd: number | null;
     durationMs: number | null;
+    /** Reviews of the trial, and how many sent it back; `null` when the run had no reviewer. */
+    reviews: number | null;
+    sentBack: number | null;
   }>;
 };
 
@@ -171,6 +192,8 @@ export function summarise(
       usage: trial.nap?.usage ?? null,
       usd: trialCost(trial.nap),
       durationMs: trial.nap?.durationMs ?? null,
+      reviews: trial.nap?.reviews?.length ?? null,
+      sentBack: trial.nap?.reviews?.filter((review) => review.sentBack).length ?? null,
     };
   });
 
@@ -237,8 +260,45 @@ export function summarise(
     }),
     requests: results.reduce((total, result) => total + result.requests, 0),
     steps: results.reduce((total, result) => total + result.steps, 0),
+    review: reviewSummary(sorted),
     failures,
     rows: rows.map(({ ran: _ran, ...row }) => row),
+  };
+}
+
+/** The reviewer's share of a run, or `null` when no trial in it had a reviewer. */
+function reviewSummary(trials: readonly TrialRecord[]): BenchmarkReport["review"] {
+  const reviewed = trials.filter((trial) => trial.nap?.reviews !== undefined);
+  if (reviewed.length === 0) return null;
+  const sentBack = reviewed.filter((trial) =>
+    trial.nap?.reviews?.some((review) => review.sentBack),
+  );
+  const all = reviewed.flatMap((trial) => trial.nap?.reviews ?? []);
+  const usage = all.reduce((total, review) => addUsage(total, review.usage), {
+    inputTokens: 0,
+    outputTokens: 0,
+  });
+  const usd = reviewed.reduce((sum, trial) => {
+    const nap = trial.nap;
+    if (nap === null || isFreeModel(nap.model)) return sum;
+    const spent = (nap.reviews ?? []).reduce((total, review) => addUsage(total, review.usage), {
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    return sum + (estimateCost(nap.model, spent)?.usd ?? 0);
+  }, 0);
+  return {
+    reviewed: reviewed.filter((trial) => (trial.nap?.reviews?.length ?? 0) > 0).length,
+    sentBack: sentBack.length,
+    sentBackPassed: sentBack.filter(passedTrial).length,
+    sentBackClaimedFailed: sentBack.filter(
+      (trial) => failureKind(trial) === "claimed_done_tests_failed",
+    ).length,
+    sentBackStepBudget: sentBack.filter((trial) => failureKind(trial) === "step_budget").length,
+    reviews: all.length,
+    steps: all.reduce((total, review) => total + review.steps, 0),
+    usage,
+    usd: round(usd),
   };
 }
 
@@ -252,6 +312,7 @@ const dollars = (usd: number | null) => (usd === null ? "—" : `$${usd.toFixed(
 
 export function renderReport(report: BenchmarkReport): string {
   const { agreement, cost, interval } = report;
+  const reviewed = report.review !== null;
   const lines = [
     "# Terminal-Bench report",
     "",
@@ -305,6 +366,7 @@ export function renderReport(report: BenchmarkReport): string {
     `${report.steps} steps, ${report.requests} model requests, ${report.usage.inputTokens} input ` +
       `(${report.usage.cacheReadTokens ?? 0} from cache) and ${report.usage.outputTokens} output tokens.`,
     "",
+    ...(report.review === null ? [] : renderReview(report.review)),
     "## Failures by kind",
     "",
     ...Object.entries(report.failures).map(
@@ -315,13 +377,16 @@ export function renderReport(report: BenchmarkReport): string {
     "",
     "## Tasks",
     "",
-    "| Task | Passed | Claimed done | Failure | Steps | Requests | Cost | Time |",
-    "|---|---|---|---|---|---|---|---|",
+    `| Task | Passed | Claimed done | Failure | Steps | Requests | Cost | Time |${reviewed ? " Reviews (sent back) |" : ""}`,
+    `|---|---|---|---|---|---|---|---|${reviewed ? "---|" : ""}`,
     ...report.rows.map(
       (row) =>
         `| ${row.task} | ${row.passed ? "yes" : "no"} | ${row.claimedDone ? "yes" : "no"} | ` +
         `${row.kind ?? ""} | ${row.steps ?? "—"} | ${row.requests ?? "—"} | ${dollars(row.usd)} | ` +
-        `${row.durationMs === null ? "—" : `${Math.round(row.durationMs / 1_000)}s`} |`,
+        `${row.durationMs === null ? "—" : `${Math.round(row.durationMs / 1_000)}s`} |` +
+        (reviewed
+          ? ` ${row.reviews === null ? "—" : `${row.reviews} (${row.sentBack ?? 0})`} |`
+          : ""),
     ),
     "",
   ];
@@ -409,4 +474,20 @@ function readJson(path: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+function renderReview(review: NonNullable<BenchmarkReport["review"]>): string[] {
+  return [
+    "## Review",
+    "",
+    `The reviewer checked ${review.reviewed} claims of done and sent ${review.sentBack} back with ` +
+      `a problem it proved. Of those, ${review.sentBackPassed} passed in the end, ` +
+      `${review.sentBackClaimedFailed} were claimed done again and failed, and ` +
+      `${review.sentBackStepBudget} ran out of steps fixing it.`,
+    "",
+    `${review.reviews} reviews took ${review.steps} model calls and ${dollars(review.usd)}. Both ` +
+      "are inside the totals above, and none of those calls is counted in the agent's steps, " +
+      "which stay capped across every round of a task.",
+    "",
+  ];
 }

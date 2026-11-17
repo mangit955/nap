@@ -180,6 +180,27 @@ export async function currentSha(
   return { ok: true, value: result.value.trim() };
 }
 
+/**
+ * Puts the working tree back to `sha`, removing what is not committed and not ignored.
+ *
+ * For the reviewer (docs/adr/0036): it has no tool that writes, but a command it runs can, and a
+ * file it left would otherwise be committed by the next turn and published with the job.
+ */
+export async function discardUncommitted(
+  manager: SandboxManager,
+  sandboxId: string,
+  sha: string,
+  options?: GitOptions,
+): Promise<Result<void, SandboxError>> {
+  const result = await git(
+    manager,
+    sandboxId,
+    `git reset --quiet --hard ${shellQuote(sha)} && git clean -fdq`,
+    options,
+  );
+  return result.ok ? { ok: true, value: undefined } : result;
+}
+
 /** What `workspaceState` hands back. Opaque: the only thing to do with one is compare it. */
 export type WorkspaceState = string;
 

@@ -1,16 +1,23 @@
 import { NapAgentService } from "@nap/agent/agent-service";
+import { NapReviewer } from "@nap/agent/reviewer";
 import { ScriptedLLMProvider, type ScriptedTurn } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { REVIEW_PROMPT } from "@nap/context/review-prompt";
 import { TASK_SYSTEM_PROMPT } from "@nap/context/system-prompt";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import type { NapEvent } from "@nap/shared/events";
 import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { LLMProvider } from "@nap/shared/ports/llm-provider";
+import { MAX_REVIEW_ROUNDS } from "@nap/shared/ports/reviewer";
 import { describe, expect, it } from "vitest";
 import { linkWorkspaceCommand, runTaskTurn, TaskTurnResultSchema } from "./task-turn.ts";
 
 const MODEL = "vendor/model:free";
+
+function isTurns(turn: ScriptedTurn | ScriptedTurn[]): turn is ScriptedTurn[] {
+  return Array.isArray(turn[0]);
+}
 
 function sandbox(): InMemorySandboxManager {
   return new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0, stdout: "" }) }).script(
@@ -35,12 +42,13 @@ const SOLVES: ScriptedTurn = [
 ];
 
 async function run(
-  turn: ScriptedTurn,
+  turn: ScriptedTurn | ScriptedTurn[],
   box = sandbox(),
   maxSteps = 10,
-  extra: { signal?: AbortSignal; onComplete?: () => void } = {},
+  extra: { signal?: AbortSignal; onComplete?: () => void; review?: boolean } = {},
 ) {
-  const provider = new ScriptedLLMProvider([turn]);
+  // One script per `startTurn`: the agent's round, then the review's, then the next round's.
+  const provider = new ScriptedLLMProvider(isTurns(turn) ? turn : [turn]);
   // What the client below the provider would count: here, one HTTP request per model call plus
   // one retry on the first, so the result is seen to report this number and not the steps.
   let http = 0;
@@ -65,7 +73,15 @@ async function run(
     context: new NapContextEngine(),
     memory: new NoopMemoryProvider(),
     provider: counted,
-    agentFor: (metered) => new NapAgentService({ provider: metered, budget: { maxSteps } }),
+    agentFor: (metered, steps) =>
+      new NapAgentService({ provider: metered, budget: { maxSteps: steps } }),
+    maxSteps,
+    ...(extra.review === true
+      ? {
+          reviewerFor: (metered: LLMProvider) =>
+            new NapReviewer({ provider: metered, systemPrompt: REVIEW_PROMPT }),
+        }
+      : {}),
     requests: () => http,
     ...(extra.signal === undefined ? {} : { signal: extra.signal }),
     instruction: "Save your regex in /app/regex.txt",
@@ -155,6 +171,100 @@ describe("runTaskTurn", () => {
     expect(result.status).toBe("failed");
     expect(result.failure?.reason).toBe("cancelled");
     expect(result.steps).toBe(1);
+    expect(TaskTurnResultSchema.parse(result)).toEqual(result);
+  });
+});
+
+/** A review that runs the test and reports what it proved, or nothing. */
+function reviewing(problem: boolean): ScriptedTurn {
+  return [
+    {
+      toolCalls: [{ id: "rc_1", name: "run_command", input: { command: "cat regex.txt" } }],
+      usage: { inputTokens: 500, outputTokens: 20 },
+    },
+    {
+      text: JSON.stringify({
+        problems: problem
+          ? [{ summary: "matches years only", command: "cat regex.txt", observed: "exit code 0" }]
+          : [],
+        notes: [],
+      }),
+      usage: { inputTokens: 600, outputTokens: 30 },
+    },
+  ];
+}
+
+const FIXES: ScriptedTurn = [{ text: "Fixed it.", usage: { inputTokens: 1_500, outputTokens: 5 } }];
+
+describe("runTaskTurn with the reviewer", () => {
+  it("writes no reviews without one, so a baseline result reads as it did", async () => {
+    const { result } = await run(SOLVES);
+    expect(result).not.toHaveProperty("reviews");
+  });
+
+  it("reviews a claim of done, and keeps the reviewer's steps out of the agent's", async () => {
+    const { result } = await run([SOLVES, reviewing(false)], sandbox(), 10, { review: true });
+    expect(result.status).toBe("completed");
+    expect(result.steps).toBe(2);
+    expect(result.reviews).toEqual([
+      expect.objectContaining({ status: "completed", blocking: 0, steps: 2, sentBack: false }),
+    ]);
+    // Every token is counted: the agent's 2,200 input and the review's 1,100.
+    expect(result.usage.inputTokens).toBe(3_300);
+  });
+
+  it("sends the agent back on a proved problem, with the steps the first round left", async () => {
+    const { result, events, provider } = await run([SOLVES, reviewing(true), FIXES], sandbox(), 3, {
+      review: true,
+    });
+    expect(result.status).toBe("completed");
+    // Two steps in the first round, one in the fix: never more than the task's three.
+    expect(result.steps).toBe(3);
+    expect(result.reviews?.map((review) => review.sentBack)).toEqual([true]);
+    const prompts = events.filter((event) => event.type === "user.message");
+    expect(prompts).toHaveLength(2);
+    expect(JSON.stringify(prompts[1])).toContain("A reviewer checked your work");
+    // The fix round carries the first round's conversation, as a repair turn does. It is the
+    // last request: with the task's steps spent, nothing is left for a second review to send back.
+    const fix = provider.requests.at(-1);
+    expect(JSON.stringify(fix?.messages)).toContain("Wrote the regex.");
+  });
+
+  it("never lets a fix round take the task past the steps it was given", async () => {
+    const read = { id: "r", name: "read_file", input: { path: `${PROJECT_ROOT_PATH}/regex.txt` } };
+    const slowFix: ScriptedTurn = [
+      { toolCalls: [{ ...read, id: "r1" }] },
+      { toolCalls: [{ ...read, id: "r2" }] },
+      { text: "Fixed it." },
+    ];
+    const { result } = await run([SOLVES, reviewing(true), slowFix], sandbox(), 3, {
+      review: true,
+    });
+    expect(result.steps).toBe(3);
+    expect(result).toMatchObject({ status: "failed", failure: { reason: "budget_exceeded" } });
+  });
+
+  it("does not review a turn that ran out of steps, which claimed nothing", async () => {
+    const { result } = await run([SOLVES, reviewing(true)], sandbox(), 1, { review: true });
+    expect(result.status).toBe("failed");
+    expect(result.reviews).toEqual([]);
+  });
+
+  it("does not review a claim no step is left to fix", async () => {
+    const { result } = await run([SOLVES, reviewing(true)], sandbox(), 2, { review: true });
+    expect(result.status).toBe("completed");
+    expect(result.reviews).toEqual([]);
+  });
+
+  it(`reviews at most ${MAX_REVIEW_ROUNDS} times`, async () => {
+    const { result } = await run(
+      [SOLVES, reviewing(true), FIXES, reviewing(true), FIXES, reviewing(true)],
+      sandbox(),
+      10,
+      { review: true },
+    );
+    expect(result.reviews).toHaveLength(MAX_REVIEW_ROUNDS);
+    expect(result.steps).toBe(2 + MAX_REVIEW_ROUNDS);
     expect(TaskTurnResultSchema.parse(result)).toEqual(result);
   });
 });
