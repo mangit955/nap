@@ -104,7 +104,7 @@ $0.01618 over that run, and Nap's figure was $0.0162. Cache writes, priced at 1.
 are what make it match. Without them it would have been $0.0149.
 
 **The projection was 40% low.** The three measured tasks happened to cost less than the test
-set's average ($0.0054 a task against $0.0093). The test set's most expensive task (`path-tracing-reverse`, $0.0225) cost seven times its
+set's average ($0.0054 a task against $0.0093). The test set's most expensive task (`path-tracing-reverse`, $0.0225) cost about nine times its
 cheapest (`pypi-server`, $0.0025). A projection from three tasks should carry that spread. At
 the test set's own mean, the dev set costs about $0.09 and the test set about $0.23 a run. Both
 are far below the $1 a run that needs asking first.
