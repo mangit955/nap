@@ -11,7 +11,8 @@
  * Its limits. A directory over `COPY_LIMIT_KB` is not copied, so what a review writes there is
  * listed but stays, and the record says so. What it cannot see, it cannot record: a file a review
  * deleted, a new empty directory or link, and a file name containing a newline are not put back,
- * and `restored` does not cover them. And it puts back whatever changed while the review ran, so a
+ * and `restored` does not cover them. A write in the same clock tick as the mark is not seen
+ * either, which a review cannot make: its first command comes a model call later. And it puts back whatever changed while the review ran, so a
  * file the agent's own background process wrote then is put back too.
  */
 

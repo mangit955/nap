@@ -48,6 +48,18 @@ beforeEach(async () => {
   await utimes(join(paths.root, "solve.py"), past, past);
 });
 
+/**
+ * A write by a review's command, stamped clearly after the mark. A real review writes at least a
+ * model call after it; written here in the same instant, a filesystem whose clock ticks coarsely
+ * (Linux, a few milliseconds) gives both the same time, and `find -newer` is strict.
+ */
+async function reviewWrites(name: string, contents: string): Promise<void> {
+  const path = join(paths.root, name);
+  await writeFile(path, contents);
+  const later = new Date(Date.now() + 5_000);
+  await utimes(path, later, later);
+}
+
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
@@ -59,8 +71,8 @@ describe("the review guard", () => {
     expect(before).toEqual({ marked: true, copied: true });
 
     // What a review's command might do: run the program, which writes its answer, and touch the source.
-    await writeFile(join(paths.root, "out.txt"), "2\n");
-    await writeFile(join(paths.root, "solve.py"), "print(3)\n");
+    await reviewWrites("out.txt", "2\n");
+    await reviewWrites("solve.py", "print(3)\n");
 
     const after = await afterReview(shell, "box", before, paths);
     expect(after.restored).toBe(true);
@@ -73,7 +85,7 @@ describe("the review guard", () => {
   it("lists but cannot put back what a review wrote when nothing was copied", async () => {
     const shell = new LocalShell();
     const before = await beforeReview(shell, "box", paths);
-    await writeFile(join(paths.root, "out.txt"), "2\n");
+    await reviewWrites("out.txt", "2\n");
 
     const after = await afterReview(shell, "box", { ...before, copied: false }, paths);
     expect(after).toEqual({ wrote: ["./out.txt"], restored: false });
@@ -101,7 +113,10 @@ describe("the review guard", () => {
     const shell = new LocalShell();
     const before = await beforeReview(shell, "box", paths);
 
-    // A review's command that moves the repository: the tests would see the older commit.
+    // A review's command that moves the repository: the tests would see the older commit. A
+    // review's first command comes a model call after the mark, so this waits past the clock
+    // tick a filesystem stamps times in, rather than racing it.
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
     await git("checkout", "-q", "HEAD~1");
 
     const after = await afterReview(shell, "box", before, paths);
