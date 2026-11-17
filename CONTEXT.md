@@ -248,6 +248,13 @@ is a fact about the log rather than a third party to the conversation. `chat/tra
 `apps/web` is the fold; a second view over the same log is another fold, not another copy. See
 `docs/adr/0008`.
 
+**Replay** — a real session's log kept in the repository (`apps/web/src/replay/recordings/`) and
+played back to anybody at `/replay/<slug>`, in the workspace's own panes, on a clock. It carries
+the files the session started from, each file it changed, and static builds of the app that stand
+in for the preview, because the sandbox behind it is gone. Watching one makes no request, so it
+starts no sandbox and calls no model. Only real sessions, never made-up ones. Not the socket's
+catching up after a reconnect, which is *catching up* from a `seq`.
+
 **Toolset** — the tools one turn is *offered*, as against the closed list of tool names the log
 accepts. Chosen from facts about the turn — who asked, what is wired, the model's family, whether it
 is a helper — and never from preference. A real tool outside the toolset is refused, and the attempt

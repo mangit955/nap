@@ -81,6 +81,7 @@ export function ChatPane({
   onModelChange,
   onAddKey,
   computerNotice,
+  composer,
 }: {
   draftIdentity?: { ownerId: string; projectId: string } | undefined;
   active?: boolean;
@@ -137,6 +138,11 @@ export function ChatPane({
   onModelChange?: ((model: string) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
   onAddKey?: (() => void) | undefined;
+  /**
+   * What sits where the composer does, for a transcript nobody can reply to — a replay, whose
+   * controls are play and pause rather than send. Absent, the composer.
+   */
+  composer?: ReactNode;
 }) {
   const empty = events.length === 0 && pending === undefined && pendingSteer === undefined;
   // Folded once, read twice: the transcript renders it and the composer asks it whether a
@@ -229,13 +235,16 @@ export function ChatPane({
                   <PendingMessage text={pending} />
                 )}
                 {pendingSteer !== undefined && <PendingSteer text={pendingSteer} />}
-                <AppTestCards
-                  events={events}
-                  running={running}
-                  testPhase={testPhase}
-                  model={model}
-                  onTest={onTestApp}
-                />
+                {/* The offer to start a test, which a transcript nobody can act on does not make. */}
+                {composer === undefined && (
+                  <AppTestCards
+                    events={events}
+                    running={running}
+                    testPhase={testPhase}
+                    model={model}
+                    onTest={onTestApp}
+                  />
+                )}
                 {computerNotice?.(setNoticeShown)}
               </>
             )}
@@ -248,40 +257,42 @@ export function ChatPane({
           </section>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
-            <ChatInput
-              draftIdentity={draftIdentity}
-              dropZone={stage}
-              timeline={empty ? undefined : scroller}
-              contextControl={
-                <ContextControl
-                  events={events}
-                  running={running}
-                  modelLabel={models === undefined ? undefined : modelInUse(models, model)?.label}
-                  onCompact={() => onSubmit("/compact")}
-                />
-              }
-              queued={
-                pending !== undefined && pendingAfterCompaction
-                  ? { text: pending, attachments: pendingAttachments }
-                  : undefined
-              }
-              queueing={
-                pending === undefined &&
-                transcript.some((item) => item.kind === "compaction" && item.status === "running")
-              }
-              visible={active}
-              running={running}
-              steering={steering}
-              error={error}
-              firstPrompt={firstPrompt}
-              onSubmit={onSubmit}
-              onCancel={onCancel}
-              {...(files === undefined ? {} : { files })}
-              {...(models === undefined ? {} : { models })}
-              {...(model === undefined ? {} : { model })}
-              {...(onModelChange === undefined ? {} : { onModelChange })}
-              {...(onAddKey === undefined ? {} : { onAddKey })}
-            />
+            {composer ?? (
+              <ChatInput
+                draftIdentity={draftIdentity}
+                dropZone={stage}
+                timeline={empty ? undefined : scroller}
+                contextControl={
+                  <ContextControl
+                    events={events}
+                    running={running}
+                    modelLabel={models === undefined ? undefined : modelInUse(models, model)?.label}
+                    onCompact={() => onSubmit("/compact")}
+                  />
+                }
+                queued={
+                  pending !== undefined && pendingAfterCompaction
+                    ? { text: pending, attachments: pendingAttachments }
+                    : undefined
+                }
+                queueing={
+                  pending === undefined &&
+                  transcript.some((item) => item.kind === "compaction" && item.status === "running")
+                }
+                visible={active}
+                running={running}
+                steering={steering}
+                error={error}
+                firstPrompt={firstPrompt}
+                onSubmit={onSubmit}
+                onCancel={onCancel}
+                {...(files === undefined ? {} : { files })}
+                {...(models === undefined ? {} : { models })}
+                {...(model === undefined ? {} : { model })}
+                {...(onModelChange === undefined ? {} : { onModelChange })}
+                {...(onAddKey === undefined ? {} : { onAddKey })}
+              />
+            )}
           </div>
         </div>
       </div>

@@ -25,7 +25,7 @@ export function WorkspaceHeader({
   detailsOpen: boolean;
   detailsId?: string;
   detailsPresentation?: DetailsPresentation;
-  onToggleDetails: () => void;
+  onToggleDetails?: (() => void) | undefined;
 }) {
   return (
     <header className="workspace-header t3-chat-header">
@@ -51,12 +51,15 @@ export function WorkspaceHeader({
           </>
         )}
       </p>
-      <ThreadDetailsToggle
-        open={detailsOpen}
-        controls={detailsId}
-        presentation={detailsPresentation}
-        onToggle={onToggleDetails}
-      />
+      {/* A replay has no thread details to show, and a button that opens nothing is worse than none. */}
+      {onToggleDetails && (
+        <ThreadDetailsToggle
+          open={detailsOpen}
+          controls={detailsId}
+          presentation={detailsPresentation}
+          onToggle={onToggleDetails}
+        />
+      )}
       <button
         type="button"
         className="t3-icon-button"
