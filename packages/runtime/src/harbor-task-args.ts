@@ -30,12 +30,24 @@ export const HARBOR_TASK_FILES = {
   trajectory: "trajectory.jsonl",
 } as const;
 
+/**
+ * The model a `--scripted` run records. Not an OpenRouter id, so nothing prices it and no report
+ * mistakes a wiring check for a measurement.
+ */
+export const SCRIPTED_MODEL = "nap/scripted";
+
 export type HarborTaskOptions = {
   /** Harbor's directory for this trial's agent: the instruction is read from it, results go to it. */
   jobDir: string;
   model: string;
   maxSteps: number;
   spend: boolean;
+  /**
+   * Run on a scripted model instead of OpenRouter: no key, no network, no spend. It proves the
+   * entrypoint's wiring — the channel, the result file, stopping when Harbor closes stdin — and
+   * nothing about the agent.
+   */
+  scripted: boolean;
 };
 
 export const HARBOR_TASK_USAGE = [
@@ -43,12 +55,13 @@ export const HARBOR_TASK_USAGE = [
   "",
   `  --max-steps=<n>   Model calls allowed in the turn (default ${HARBOR_TASK_DEFAULTS.maxSteps}); each is up to 3 requests`,
   "  --spend           Allow a model that is not free (an OpenRouter id without `:free`)",
+  `  --scripted        Ignore --model and run a scripted model, recorded as ${SCRIPTED_MODEL}: free, no key`,
   "",
   "Started by harbor/nap_harbor/agent.py, which answers its commands on stdin; see harbor/README.md.",
 ].join("\n");
 
 export function parseHarborTaskArgs(argv: readonly string[]): Result<HarborTaskOptions, string> {
-  const known = new Set(["job-dir", "model", "max-steps", "spend"]);
+  const known = new Set(["job-dir", "model", "max-steps", "spend", "scripted"]);
   const flags = new Map<string, string>();
   for (const arg of argv) {
     if (!arg.startsWith("--")) return { ok: false, error: `unexpected argument ${arg}` };
@@ -66,7 +79,8 @@ export function parseHarborTaskArgs(argv: readonly string[]): Result<HarborTaskO
     return { ok: false, error: "--model is required" };
 
   const spend = flags.get("spend") === "true";
-  if (!spend && !isFreeModel(model))
+  const scripted = flags.get("scripted") === "true";
+  if (!scripted && !spend && !isFreeModel(model))
     return {
       ok: false,
       error: `${model} is not a free model; pass --spend to run it, which costs money`,
@@ -77,5 +91,8 @@ export function parseHarborTaskArgs(argv: readonly string[]): Result<HarborTaskO
   if (!Number.isSafeInteger(maxSteps) || maxSteps <= 0)
     return { ok: false, error: `max-steps must be a positive whole number, got "${rawSteps}"` };
 
-  return { ok: true, value: { jobDir, model, maxSteps, spend } };
+  return {
+    ok: true,
+    value: { jobDir, model: scripted ? SCRIPTED_MODEL : model, maxSteps, spend, scripted },
+  };
 }

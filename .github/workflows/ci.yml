@@ -55,6 +55,14 @@ jobs:
         with:
           version: "0.12.5"
 
+      # tests/test_nap_entrypoint.py starts the real Terminal-Bench entrypoint on a scripted model,
+      # answering it from a container, so this job needs the TypeScript side installed too. The
+      # variable turns that test's skip-when-missing into a failure here.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile
+
       - run: uvx ruff@0.9.10 check harbor
       - run: uvx ruff@0.9.10 format --check harbor
 
@@ -63,8 +71,14 @@ jobs:
       # checkout with no evaluation framework installed. The second installs Harbor, which is
       # what makes `agent.py` — the file coupled to somebody else's classes — reachable by any
       # gate at all. Skipped tests in the first run are expected; see harbor/tests/test_agent.py.
+      # The entrypoint test needs no evaluation framework, so it is required in the first run
+      # only, and skips in the second rather than starting a container twice.
       - run: uv run --directory harbor --with pytest pytest -q
+        env:
+          NAP_HARBOR_E2E: required
       - run: uv run --directory harbor --extra harbor --with pytest pytest -q
+        env:
+          NAP_HARBOR_E2E: skip
 
   production:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')

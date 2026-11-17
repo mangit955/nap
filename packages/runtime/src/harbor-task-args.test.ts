@@ -5,6 +5,7 @@ import {
   HARBOR_TASK_DEFAULTS,
   HARBOR_TASK_FILES,
   parseHarborTaskArgs,
+  SCRIPTED_MODEL,
 } from "./harbor-task-args.ts";
 import { TaskTurnResultSchema } from "./task-turn.ts";
 
@@ -19,8 +20,17 @@ describe("parseHarborTaskArgs", () => {
         model: "vendor/m:free",
         maxSteps: HARBOR_TASK_DEFAULTS.maxSteps,
         spend: false,
+        scripted: false,
       },
     });
+  });
+
+  it("runs the scripted model under its own name whatever --model said, without spending", () => {
+    // The Python side always passes a model, so --scripted has to win over it: a result that
+    // named the real model would be priced as a real run.
+    expect(
+      parseHarborTaskArgs(["--job-dir=/j", "--model=openai/gpt-6-luna", "--scripted"]),
+    ).toMatchObject({ ok: true, value: { model: SCRIPTED_MODEL, scripted: true, spend: false } });
   });
 
   it("refuses a model that costs money unless --spend asks for it", () => {
