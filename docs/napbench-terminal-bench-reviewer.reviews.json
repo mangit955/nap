@@ -1,5 +1,5 @@
 {
-  "note": "What each review said and wrote in the three reviewer runs, read from each trial's nap-result.json, and the size of the agent's first request in every trial of baseline 2 and the reviewer runs, read from each trajectory's first context.usage event. Kept so the write-up's claims about findings and first turns can be checked from the repository.",
+  "note": "The sanitize-git-repo task plants fake credentials for the agent to remove; where a review quoted them they are redacted here. What each review said and wrote in the three reviewer runs, read from each trial's nap-result.json, and the size of the agent's first request in every trial of baseline 2 and the reviewer runs, read from each trajectory's first context.usage event. Kept so the write-up's claims about findings and first turns can be checked from the repository.",
   "reviews": {
     "R1": {
       "configure-git-webserver": [
@@ -143,7 +143,7 @@
           },
           "sentBack": false,
           "findings": [
-            "- The credentials were replaced in the current files, but remain in Git history, so sensitive values are still present in the repository after sanitization.\n  `git log --all -p -G'AKIA1234567890123456|D4w8z9wKN1aVeT3BpQj6kIuN7wH8X0M9KfV5OqzF|ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789|hf_abcdefghijklmnopqrstuvwxyz123456' -- ray_processing/process.py ray_processing/ray_cluster.yaml` printed:\n    commit 8e04bee5930690f382f7fb0c279dfb021ed4d0a6\n    ...\n    +    - echo 'export AWS_ACCESS_KEY_ID=AKIA1234567890123456' >> ~/.bashrc\n    +    - echo 'export AWS_SECRET_ACCESS_KEY=D4w8z9wKN1aVeT3BpQj6kIuN7wH8X0M9KfV5OqzF' >> ~/.bashrc\n    ...\n    commit 13f0794e0f0122f829780b96a0ff66f71396a0f7\n    ...\n    +    - git clone -b https://ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789@github.com/mlfoundations/dcnlp.git\n    ...\n    commit d6987af002b122fef54bc0be402062c76488a4d9\n    ...\n    +    - huggingface-cli login --token hf_abcdefghijklmnopqrstuvwxyz123456 -y"
+            "- The credentials were replaced in the current files, but remain in Git history, so sensitive values are still present in the repository after sanitization.\n  `git log --all -p -G'<task credential redacted>|<task credential redacted>|<task credential redacted>|<task credential redacted>' -- ray_processing/process.py ray_processing/ray_cluster.yaml` printed:\n    commit 8e04bee5930690f382f7fb0c279dfb021ed4d0a6\n    ...\n    +    - echo 'export AWS_ACCESS_KEY_ID=<task credential redacted>' >> ~/.bashrc\n    +    - echo 'export AWS_SECRET_ACCESS_KEY=<task credential redacted>' >> ~/.bashrc\n    ...\n    commit 13f0794e0f0122f829780b96a0ff66f71396a0f7\n    ...\n    +    - git clone -b https://<task credential redacted>@github.com/mlfoundations/dcnlp.git\n    ...\n    commit d6987af002b122fef54bc0be402062c76488a4d9\n    ...\n    +    - huggingface-cli login --token <task credential redacted> -y"
           ],
           "wrote": [],
           "restored": true
@@ -557,7 +557,7 @@
           },
           "sentBack": true,
           "findings": [
-            "- The API keys and tokens remain in Git history, so the repository still contains sensitive values after sanitization. The committed `HEAD` tree includes AWS, GitHub, and Hugging Face credentials.\n  `git grep -n -I -E 'AKIA|ASIA|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|hf_[A-Za-z0-9]{20,}' HEAD -- || true; git grep -n -I -E 'AKIA|ASIA|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|hf_[A-Za-z0-9]{20,}' HEAD^ -- || true` printed:\n    HEAD:ray_processing/ray_cluster.yaml:43:    - git clone -b https://ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789@github.com/mlfoundations/dcnlp.git",
+            "- The API keys and tokens remain in Git history, so the repository still contains sensitive values after sanitization. The committed `HEAD` tree includes AWS, GitHub, and Hugging Face credentials.\n  `git grep -n -I -E 'AKIA|ASIA|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|hf_[A-Za-z0-9]{20,}' HEAD -- || true; git grep -n -I -E 'AKIA|ASIA|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|hf_[A-Za-z0-9]{20,}' HEAD^ -- || true` printed:\n    HEAD:ray_processing/ray_cluster.yaml:43:    - git clone -b https://<task credential redacted>@github.com/mlfoundations/dcnlp.git",
             "- The current `ray_processing/process.py` also visibly contains a non-placeholder AWS secret access key."
           ],
           "wrote": [],
