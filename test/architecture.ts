@@ -23,8 +23,8 @@ export type Manifest = {
    * Optional, and only the exclusive-externals rule reads it. The two rules want different
    * answers: a sibling package may sit here, so that a package's tests can use another's
    * published fakes (`@nap/agent` carries `@nap/sandbox` this way), while a third-party library
-   * that is supposed to have exactly one owner may not, because the production image is built by one workspace-wide install
-   * with no --production and therefore ships devDependencies too.
+   * that is supposed to have exactly one owner may not, because the production image is built by
+   * one workspace-wide install with no --production and therefore ships devDependencies too.
    */
   devDependencies?: string[];
 };

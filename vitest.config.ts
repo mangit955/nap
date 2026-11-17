@@ -62,8 +62,8 @@ export default defineConfig({
         },
       },
       {
-        // The computer-use suites that start real processes — the desktop start script and the local
-        // Docker sandbox's transport among them — and take tens of seconds each. Same
+        // The computer-use suites that start real processes — the desktop start script and the
+        // local Docker sandbox's transport among them — and take tens of seconds each. Same
         // node environment as `unit`; split out only so `test:fast` stays fast. `bun run test` and
         // CI still run them. The `.computer` infix still matches `*.test.ts`, hence the exclude
         // above.
