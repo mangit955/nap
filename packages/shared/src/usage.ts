@@ -35,6 +35,10 @@ import { z } from "zod";
  *   because `ClaudeProvider` marks its breakpoints `{ type: "ephemeral" }` with no TTL; a one-hour
  *   write is 2x and would need this table changed alongside the marker.
  *
+ * - OpenAI, `gpt-6-luna` ($0.10 input, $0.01 cached input, $0.125 cache write, $0.50 output per
+ *   million), read from OpenRouter's model listing on 2026-11-17. It bills twice that above
+ *   272k tokens of prompt; a benchmark request is a tenth of that, and the row is the rate below.
+ *
  * So the cache multipliers are the same everywhere Nap runs, and only output differs.
  */
 export type BilledWeights = {
@@ -59,7 +63,7 @@ function weights(output: number): BilledWeights {
 }
 
 /**
- * The weights of each model Nap runs on, keyed by the ids `MODEL_PRICES` in `@nap/bench/pricing`
+ * The weights of each model Nap runs on, keyed by the ids `MODEL_PRICES` in `@nap/shared/pricing`
  * uses — a test there holds the two tables to the same models and the same output ratio.
  *
  * The one place these numbers live. The provider hands a turn its row (`LLMTurn.billedWeights`),
@@ -68,6 +72,7 @@ function weights(output: number): BilledWeights {
  */
 export const MODEL_BILLED_WEIGHTS = {
   "openai/gpt-5.6-luna": weights(6),
+  "openai/gpt-6-luna": weights(5),
   "openai/gpt-5.6-terra": weights(6),
   "anthropic/claude-opus-5": weights(5),
 } as const satisfies Record<string, BilledWeights>;

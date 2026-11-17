@@ -16,11 +16,14 @@ import { NapAgentService } from "@nap/agent/agent-service";
 import { ClaudeProvider } from "@nap/agent/claude-provider";
 import { countRequests } from "@nap/agent/counted-client";
 import { createOpenRouterClient, toOpenRouterModel } from "@nap/agent/openrouter";
+import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NapContextEngine } from "@nap/context/context-engine";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { ChannelSandboxManager } from "@nap/sandbox/channel-sandbox-manager";
 import { LineExecChannel } from "@nap/sandbox/exec-channel";
 import { loadEnvFile } from "@nap/shared/env-file";
+import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
+import type { LLMProvider } from "@nap/shared/ports/llm-provider";
 import {
   HARBOR_TASK_DEFAULTS,
   HARBOR_TASK_FILES,
@@ -44,10 +47,42 @@ if (!parsed.ok) {
 }
 const options = parsed.value;
 
-loadEnvFile(ENV_FILE, process.env);
-if (!process.env.OPENROUTER_API_KEY) {
-  console.error(`OPENROUTER_API_KEY is not set. Add it to ${ENV_FILE}, or export it, then retry.`);
-  process.exit(2);
+/**
+ * What `--scripted` runs instead of a model: one command and one file in the task's machine,
+ * then an answer. Each goes through the channel, so a wiring check exercises both kinds of tool
+ * the real agent uses, and the file is something a test can look for afterwards
+ * (harbor/tests/test_nap_entrypoint.py).
+ */
+function scriptedProvider(): LLMProvider {
+  return new ScriptedLLMProvider([
+    [
+      { toolCalls: [{ id: "call_1", name: "run_command", input: { command: "pwd -P && ls -a" } }] },
+      {
+        toolCalls: [
+          {
+            id: "call_2",
+            name: "write_file",
+            input: {
+              path: `${PROJECT_ROOT_PATH}/nap-scripted.txt`,
+              contents: "written by Nap's scripted model\n",
+            },
+          },
+        ],
+        usage: { inputTokens: 1_000, outputTokens: 40 },
+      },
+      { text: "Wrote the marker file.", usage: { inputTokens: 1_100, outputTokens: 10 } },
+    ],
+  ]);
+}
+
+if (!options.scripted) {
+  loadEnvFile(ENV_FILE, process.env);
+  if (!process.env.OPENROUTER_API_KEY) {
+    console.error(
+      `OPENROUTER_API_KEY is not set. Add it to ${ENV_FILE}, or export it, then retry.`,
+    );
+    process.exit(2);
+  }
 }
 
 const channel = new LineExecChannel((line) => process.stdout.write(`${line}\n`));
@@ -67,22 +102,27 @@ const trajectory = createWriteStream(join(options.jobDir, HARBOR_TASK_FILES.traj
 
 console.error(
   `Nap on a Terminal-Bench task — ${options.model}, ${options.maxSteps} steps at most` +
-    (options.spend ? ", spending allowed" : ", free"),
+    (options.scripted ? ", scripted" : options.spend ? ", spending allowed" : ", free"),
 );
 
-const http = countRequests(createOpenRouterClient());
+// The scripted model sends no HTTP requests, so none are counted; its steps still are, at the
+// provider, like a real model's.
+const http = options.scripted ? undefined : countRequests(createOpenRouterClient());
 
 const result = await runTaskTurn({
   sandbox: new ChannelSandboxManager({ sandboxId: "harbor-task", channel: channel.exec }),
   context: new NapContextEngine(),
   memory: new NoopMemoryProvider(),
-  provider: new ClaudeProvider({
-    model: toOpenRouterModel(options.model),
-    effort: HARBOR_TASK_DEFAULTS.effort,
-    maxTokens: HARBOR_TASK_DEFAULTS.maxOutputTokens,
-    client: http.client,
-  }),
-  requests: http.requests,
+  provider:
+    http === undefined
+      ? scriptedProvider()
+      : new ClaudeProvider({
+          model: toOpenRouterModel(options.model),
+          effort: HARBOR_TASK_DEFAULTS.effort,
+          maxTokens: HARBOR_TASK_DEFAULTS.maxOutputTokens,
+          client: http.client,
+        }),
+  requests: http?.requests ?? (() => 0),
   signal: stopped.signal,
   agentFor: (provider) => new NapAgentService({ provider, budget: { maxSteps: options.maxSteps } }),
   instruction,

@@ -1,0 +1,462 @@
+{
+  "models": ["openai/gpt-6-luna"],
+  "dataset": "terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+  "trials": 25,
+  "passed": 7,
+  "passRate": 0.28,
+  "interval": {
+    "low": 0.1428367383738157,
+    "high": 0.47576971896558296
+  },
+  "harnessErrors": 0,
+  "unfinished": 0,
+  "agreement": {
+    "claimedPassed": 5,
+    "claimedFailed": 8,
+    "unclaimedPassed": 2,
+    "unclaimedFailed": 10,
+    "rate": 0.6,
+    "notRun": 0
+  },
+  "cost": {
+    "usd": 0.23256,
+    "perPricedTrialUsd": 0.0093,
+    "priced": 25,
+    "unpriced": 0,
+    "priceTableVersion": "2026-11-17"
+  },
+  "usage": {
+    "inputTokens": 4608217,
+    "outputTokens": 293483,
+    "cacheWriteTokens": 344519,
+    "cacheReadTokens": 4262411
+  },
+  "requests": 429,
+  "steps": 429,
+  "failures": {
+    "step_budget": [
+      "terminal-bench/adaptive-rejection-sampler",
+      "terminal-bench/break-filter-js-from-html",
+      "terminal-bench/dna-assembly",
+      "terminal-bench/largest-eigenval",
+      "terminal-bench/mcmc-sampling-stan",
+      "terminal-bench/merge-diff-arc-agi-task",
+      "terminal-bench/overfull-hbox",
+      "terminal-bench/path-tracing-reverse",
+      "terminal-bench/protein-assembly",
+      "terminal-bench/train-fasttext"
+    ],
+    "claimed_done_tests_failed": [
+      "terminal-bench/configure-git-webserver",
+      "terminal-bench/filter-js-from-html",
+      "terminal-bench/gcode-to-text",
+      "terminal-bench/model-extraction-relu-logits",
+      "terminal-bench/regex-chess",
+      "terminal-bench/sanitize-git-repo",
+      "terminal-bench/torch-pipeline-parallelism",
+      "terminal-bench/video-processing"
+    ]
+  },
+  "rows": [
+    {
+      "task": "terminal-bench/adaptive-rejection-sampler",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 141946,
+        "outputTokens": 17972,
+        "cacheWriteTokens": 10032,
+        "cacheReadTokens": 131854
+      },
+      "usd": 0.01156,
+      "durationMs": 206021
+    },
+    {
+      "task": "terminal-bench/break-filter-js-from-html",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 104338,
+        "outputTokens": 20864,
+        "cacheWriteTokens": 6949,
+        "cacheReadTokens": 97329
+      },
+      "usd": 0.01228,
+      "durationMs": 290642
+    },
+    {
+      "task": "terminal-bench/configure-git-webserver",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 13,
+      "requests": 13,
+      "usage": {
+        "inputTokens": 50792,
+        "outputTokens": 7096,
+        "cacheWriteTokens": 3429,
+        "cacheReadTokens": 47324
+      },
+      "usd": 0.00445,
+      "durationMs": 86480
+    },
+    {
+      "task": "terminal-bench/constraints-scheduling",
+      "passed": true,
+      "claimedDone": true,
+      "kind": null,
+      "steps": 14,
+      "requests": 14,
+      "usage": {
+        "inputTokens": 71929,
+        "outputTokens": 8175,
+        "cacheWriteTokens": 4995,
+        "cacheReadTokens": 66892
+      },
+      "usd": 0.00538,
+      "durationMs": 97064
+    },
+    {
+      "task": "terminal-bench/dna-assembly",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 196275,
+        "outputTokens": 29416,
+        "cacheWriteTokens": 12645,
+        "cacheReadTokens": 183570
+      },
+      "usd": 0.01813,
+      "durationMs": 325956
+    },
+    {
+      "task": "terminal-bench/feal-differential-cryptanalysis",
+      "passed": true,
+      "claimedDone": true,
+      "kind": null,
+      "steps": 16,
+      "requests": 16,
+      "usage": {
+        "inputTokens": 78062,
+        "outputTokens": 23823,
+        "cacheWriteTokens": 5270,
+        "cacheReadTokens": 72744
+      },
+      "usd": 0.0133,
+      "durationMs": 272915
+    },
+    {
+      "task": "terminal-bench/filter-js-from-html",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 14,
+      "requests": 14,
+      "usage": {
+        "inputTokens": 89778,
+        "outputTokens": 15670,
+        "cacheWriteTokens": 8365,
+        "cacheReadTokens": 81371
+      },
+      "usd": 0.0097,
+      "durationMs": 185096
+    },
+    {
+      "task": "terminal-bench/fix-code-vulnerability",
+      "passed": true,
+      "claimedDone": true,
+      "kind": null,
+      "steps": 12,
+      "requests": 12,
+      "usage": {
+        "inputTokens": 218807,
+        "outputTokens": 2811,
+        "cacheWriteTokens": 26941,
+        "cacheReadTokens": 191830
+      },
+      "usd": 0.0067,
+      "durationMs": 53406
+    },
+    {
+      "task": "terminal-bench/gcode-to-text",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 17,
+      "requests": 17,
+      "usage": {
+        "inputTokens": 131848,
+        "outputTokens": 10204,
+        "cacheWriteTokens": 11070,
+        "cacheReadTokens": 120727
+      },
+      "usd": 0.0077,
+      "durationMs": 123997
+    },
+    {
+      "task": "terminal-bench/git-multibranch",
+      "passed": true,
+      "claimedDone": false,
+      "kind": null,
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 127199,
+        "outputTokens": 8637,
+        "cacheWriteTokens": 7799,
+        "cacheReadTokens": 119340
+      },
+      "usd": 0.00649,
+      "durationMs": 111759
+    },
+    {
+      "task": "terminal-bench/largest-eigenval",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 109732,
+        "outputTokens": 10569,
+        "cacheWriteTokens": 6252,
+        "cacheReadTokens": 103420
+      },
+      "usd": 0.00711,
+      "durationMs": 149716
+    },
+    {
+      "task": "terminal-bench/mcmc-sampling-stan",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 260470,
+        "outputTokens": 8786,
+        "cacheWriteTokens": 28043,
+        "cacheReadTokens": 232367
+      },
+      "usd": 0.01023,
+      "durationMs": 931543
+    },
+    {
+      "task": "terminal-bench/merge-diff-arc-agi-task",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 123311,
+        "outputTokens": 10334,
+        "cacheWriteTokens": 7580,
+        "cacheReadTokens": 115671
+      },
+      "usd": 0.00728,
+      "durationMs": 152154
+    },
+    {
+      "task": "terminal-bench/model-extraction-relu-logits",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 13,
+      "requests": 13,
+      "usage": {
+        "inputTokens": 49903,
+        "outputTokens": 14594,
+        "cacheWriteTokens": 3913,
+        "cacheReadTokens": 45951
+      },
+      "usd": 0.00825,
+      "durationMs": 170481
+    },
+    {
+      "task": "terminal-bench/multi-source-data-merger",
+      "passed": true,
+      "claimedDone": true,
+      "kind": null,
+      "steps": 14,
+      "requests": 14,
+      "usage": {
+        "inputTokens": 62399,
+        "outputTokens": 3794,
+        "cacheWriteTokens": 4849,
+        "cacheReadTokens": 57508
+      },
+      "usd": 0.00308,
+      "durationMs": 55324
+    },
+    {
+      "task": "terminal-bench/overfull-hbox",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 123392,
+        "outputTokens": 6358,
+        "cacheWriteTokens": 6110,
+        "cacheReadTokens": 117222
+      },
+      "usd": 0.00512,
+      "durationMs": 101595
+    },
+    {
+      "task": "terminal-bench/path-tracing-reverse",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 982726,
+        "outputTokens": 9925,
+        "cacheWriteTokens": 67333,
+        "cacheReadTokens": 915333
+      },
+      "usd": 0.02254,
+      "durationMs": 133124
+    },
+    {
+      "task": "terminal-bench/protein-assembly",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 172220,
+        "outputTokens": 9509,
+        "cacheWriteTokens": 12917,
+        "cacheReadTokens": 159243
+      },
+      "usd": 0.00797,
+      "durationMs": 126474
+    },
+    {
+      "task": "terminal-bench/pypi-server",
+      "passed": true,
+      "claimedDone": true,
+      "kind": null,
+      "steps": 14,
+      "requests": 14,
+      "usage": {
+        "inputTokens": 49405,
+        "outputTokens": 3324,
+        "cacheWriteTokens": 3260,
+        "cacheReadTokens": 46103
+      },
+      "usd": 0.00253,
+      "durationMs": 58450
+    },
+    {
+      "task": "terminal-bench/regex-chess",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 13,
+      "requests": 13,
+      "usage": {
+        "inputTokens": 73773,
+        "outputTokens": 18574,
+        "cacheWriteTokens": 7434,
+        "cacheReadTokens": 66300
+      },
+      "usd": 0.01088,
+      "durationMs": 209537
+    },
+    {
+      "task": "terminal-bench/sanitize-git-repo",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 17,
+      "requests": 17,
+      "usage": {
+        "inputTokens": 350629,
+        "outputTokens": 6746,
+        "cacheWriteTokens": 30332,
+        "cacheReadTokens": 320246
+      },
+      "usd": 0.01037,
+      "durationMs": 108794
+    },
+    {
+      "task": "terminal-bench/schemelike-metacircular-eval",
+      "passed": true,
+      "claimedDone": false,
+      "kind": null,
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 382147,
+        "outputTokens": 11311,
+        "cacheWriteTokens": 24412,
+        "cacheReadTokens": 357675
+      },
+      "usd": 0.01229,
+      "durationMs": 204471
+    },
+    {
+      "task": "terminal-bench/torch-pipeline-parallelism",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 12,
+      "requests": 12,
+      "usage": {
+        "inputTokens": 53209,
+        "outputTokens": 12732,
+        "cacheWriteTokens": 4960,
+        "cacheReadTokens": 48213
+      },
+      "usd": 0.00747,
+      "durationMs": 144776
+    },
+    {
+      "task": "terminal-bench/train-fasttext",
+      "passed": false,
+      "claimedDone": false,
+      "kind": "step_budget",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 200368,
+        "outputTokens": 4394,
+        "cacheWriteTokens": 12186,
+        "cacheReadTokens": 188122
+      },
+      "usd": 0.00561,
+      "durationMs": 810538
+    },
+    {
+      "task": "terminal-bench/video-processing",
+      "passed": false,
+      "claimedDone": true,
+      "kind": "claimed_done_tests_failed",
+      "steps": 20,
+      "requests": 20,
+      "usage": {
+        "inputTokens": 403559,
+        "outputTokens": 17865,
+        "cacheWriteTokens": 27443,
+        "cacheReadTokens": 376056
+      },
+      "usd": 0.01613,
+      "durationMs": 208545
+    }
+  ]
+}

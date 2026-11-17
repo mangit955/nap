@@ -108,6 +108,13 @@ uv run --directory harbor --extra harbor harbor run -d terminal-bench/terminal-b
                           # step is one to three requests against that model's daily quota.
                           # Needs Docker.
                           # See harbor/README.md
+uv run --directory harbor python -m nap_harbor.task_sets <dev|test>
+                          # the -i flags of a locked task set, for the command above — free
+bun run packages/runtime/scripts/harbor-report.ts <jobs-dir>/<job-name>
+                          # report.md and report.json for one Terminal-Bench job: pass rate and
+                          # its interval, claimed done against the tests, cost, failures by kind
+                          # — free, reads files only. The Benchmark workflow runs both on GitHub,
+                          # manually; harbor/README.md, "Scoring a task set"
 bun run lint:py           # ruff over harbor/ — the Python no other gate here can see. Needs uv
 bun run test:py           # pytest over harbor/ — no evaluation framework required. Needs uv
 bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>

@@ -704,6 +704,21 @@ declined to grade is still one, and guessing a severity for it would understate 
 of how it measures it: the audit drives nothing and asserts no behaviour, and what it reports is the
 quality of the markup.
 
+## Public-benchmark glossary
+
+Terms for measuring Nap's agent on benchmarks somebody else wrote (Terminal-Bench, under Harbor),
+where the tasks and their hidden tests are fixed and only the agent varies. See `harbor/README.md`.
+
+**Task set** — a locked list of a public benchmark's task ids, drawn once from the whole dataset by
+a seeded shuffle and committed before any scored run. **Test** is the set a reported score comes
+from and nothing is tuned against; **dev** is disjoint from it and is where a change is tried
+first. A different draw is a new set, and its scores do not compare with the old one's.
+
+**Claimed done** — a trial whose turn ended `turn.completed`: the agent stopped and handed back,
+which is the model's claim of done (see **Turn**). Set against the hidden tests' reward, it says
+how often Nap's own "done" can be believed. Nothing reads the agent's prose, so a turn that
+completes by saying it failed still counts as a claim.
+
 ## Load-generation glossary
 
 The vocabulary of the load harness. Kept separate for the same reason NapBench's is: it describes

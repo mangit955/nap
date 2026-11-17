@@ -22,9 +22,9 @@
 
 import type { NapEvent, ToolName } from "@nap/shared/events";
 import type { TokenUsage } from "@nap/shared/ports/llm-provider";
+import { CostEstimateSchema, estimateCost } from "@nap/shared/pricing";
 import { addUsage, TokenUsageSchema } from "@nap/shared/usage";
 import { z } from "zod";
-import { CostEstimateSchema, estimateCost } from "./pricing.ts";
 
 /**
  * How the turns inside a run ended. A run is one or more turns; see `CONTEXT.md`.

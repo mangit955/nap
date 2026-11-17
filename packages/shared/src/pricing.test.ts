@@ -1,6 +1,6 @@
-import { billedWeightsFor, MODEL_BILLED_WEIGHTS } from "@nap/shared/usage";
 import { describe, expect, it } from "vitest";
 import { estimateCost, MODEL_PRICES, PRICE_TABLE_VERSION } from "./pricing.ts";
+import { billedWeightsFor, MODEL_BILLED_WEIGHTS } from "./usage.ts";
 
 const MILLION = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
 
@@ -39,6 +39,18 @@ describe("estimateCost", () => {
     });
 
     expect(estimate?.usd).toBeCloseTo(price.inputPerMTokUsd * (0.9 * 0.1 + 0.1 * 1.25), 5);
+  });
+
+  it("prices a Terminal-Bench turn on the scoring model from its own row", () => {
+    // The shape a benchmark task takes: most of a re-sent conversation read from the cache.
+    // 20k uncached at $0.10, 80k cache reads at a tenth of that, 5k output at $0.50.
+    const estimate = estimateCost("openai/gpt-6-luna", {
+      inputTokens: 100_000,
+      outputTokens: 5_000,
+      cacheReadTokens: 80_000,
+    });
+
+    expect(estimate?.usd).toBeCloseTo(0.002 + 0.0008 + 0.0025, 5);
   });
 
   it("prices usage from before the split exactly as it always did", () => {
