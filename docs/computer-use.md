@@ -60,7 +60,7 @@ The runtime test composes the real runtime, context seam, agent loop, tool execu
 
 The new queue kind needs the generated `0013_chunky_midnight.sql` migration. Database tests exercise it through a freshly constructed adapter. Deliberately replacing its ALTER with `SELECT 1` makes app-test enqueue fail. Removing expectation/observation and source-write guards also makes their tests fail. All mutations were restored.
 
-Every new event has schema parsing, issue-path, discriminant and JSON round-trip coverage plus Postgres round trips. Logging, harness formatting, and transcript event tables include the new types. New suites are collected in the unit project and package TypeScript programs. No package dependency, architecture table, hook or CI glob changed. The benchmark's editing-only test doubles now explicitly reject app-test requests; runtime imports no benchmark code.
+Every new event has schema parsing, issue-path, discriminant and JSON round-trip coverage plus Postgres round trips. Logging, harness formatting, and transcript event tables include the new types. New suites are collected in the unit project and package TypeScript programs. No package dependency, architecture table, hook or CI glob changed. At the time, the benchmark's editing-only test doubles rejected app-test requests and the runtime imported no benchmark code; NapBench has since been retired (tag `napbench-v1`).
 
 ## Desktop builds
 

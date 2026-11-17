@@ -58,8 +58,8 @@ export interface CapacityReconciler {
    *
    * Asked because "the provider is running a sandbox no row references" is not on its own
    * evidence of a leak: `bun run harness --real` creates sandboxes on the same E2B account, tagged
-   * with project ids belonging to a throwaway database or to no database at all. A deployment that destroyed everything it could not account for would kill
-   * those mid-run. A sandbox whose project this database does not know is somebody else's
+   * with project ids belonging to a throwaway database or to no database at all. A deployment that
+   * destroyed everything it could not account for would kill those mid-run. A sandbox whose project this database does not know is somebody else's
    * business; one whose project it *does* know, and does not name, is a leak.
    */
   knownProjectIds(projectIds: string[]): Promise<string[]>;

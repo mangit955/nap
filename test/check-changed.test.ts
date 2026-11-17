@@ -32,7 +32,9 @@ const tests = [
   "apps/api/scripts/local-sandbox.computer.test.ts",
 ];
 
-// Real names, from `git grep` and vitest.config.ts on the day these were written.
+// Real names, from `git grep` and vitest.config.ts on the day these were written. The `.gitignore`
+// entry is a test that names the file without reading the repository's copy; the lookup is by name
+// alone, so it stands in for one that does.
 const testsNaming = {
   "start-desktop.sh": ["packages/sandbox/src/desktop-start.computer.test.ts"],
   ".gitignore": ["test/setup-worktree.test.ts"],
@@ -203,6 +205,9 @@ describe("planChecks", () => {
   it("runs a test that reads another tree when anything in that tree changed", () => {
     expect(related(plan(["harbor/nap_harbor/result-example.json"]))).toContain(
       "packages/runtime/src/harbor-task-args.test.ts",
+    );
+    expect(related(plan(["harbor/nap_harbor/channel-example.jsonl"]))).toContain(
+      "packages/sandbox/src/exec-channel.test.ts",
     );
     expect(related(plan(["packages/shared/src/a.ts"]))).not.toContain(
       "packages/runtime/src/harbor-task-args.test.ts",

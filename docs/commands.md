@@ -52,6 +52,11 @@ bun run verify-nap:up     # the real web app, API, Postgres and queue on a scrip
                           # needs Docker and Chrome. --port=<base> runs a second beside it
 bun run verify-nap <cmd>  # drives that Chrome by role and accessible name, and saves screenshots as
                           # evidence: doctor, signin, click, fill, wait, shot, stop… See .agents/skills/verify-nap
+NAP_COMPUTER_LOCAL_MANIFEST=<run-dir>/run.json NAP_CHROME_PATH=<chrome> NAP_INTEGRATION=1 \
+  bunx vitest run --project integration apps/verify-nap/src/computer-local.integration.test.ts
+                          # drives a running `bun run computer:local` in Chrome: desktop, test, fix and
+                          # recording — free, never starts E2B or calls a model; skips without both
+                          # variables. See docs/research/computer-local-app
 bun run loadgen           # scripted users against the composed API — fakes, free; needs Docker
 bun run loadgen --users=25        # that many at once, latencies calibrated from a funded run
 bun run loadgen:ramp      # the k6 ramp to 100 concurrent turns — fakes, free; needs Docker and k6

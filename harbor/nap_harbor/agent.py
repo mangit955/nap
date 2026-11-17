@@ -3,7 +3,8 @@
 The task's container is the workspace and Harbor's verifier is the judge (see ``docs/adr/0035``,
 which says what changed since ``0014``, when NapBench's retired adapter ran the trial on the
 host). The agent loop is TypeScript and runs as a ``bun`` child; this class hands it the
-instruction, answers the commands it sends with ``environment.exec``, and files what it counted. Nothing here decides anything about the task.
+instruction, answers the commands it sends with ``environment.exec``, and files what it counted.
+Nothing here decides anything about the task.
 """
 
 from __future__ import annotations

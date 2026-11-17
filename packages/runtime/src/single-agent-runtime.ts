@@ -306,8 +306,8 @@ export type SingleAgentRuntimeOptions = {
    * worth by running the same tasks with it and without it, and an arm that could only be built
    * by checking out an older Nap would differ from the other arm in every commit between them
    * rather than in the one thing being measured (docs/adr/0004). The retired NapBench was its
-   * caller; nothing sets `trust` today. `trust` *is* v1's behaviour: the turn commits, and the job closes `unverified`,
-   * which is the same word a turn that changed nothing already closes with — no claim about the
+   * caller; nothing sets `trust` today. `trust` *is* v1's behaviour: the turn commits, and the job
+   * closes `unverified`, which is the same word a turn that changed nothing already closes with — no claim about the
    * code was arbitrated, and it must not read as a pass.
    *
    * Two words rather than a boolean, so that neither value can be arrived at by a stray `false`

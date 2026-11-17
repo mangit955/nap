@@ -16,7 +16,7 @@ const DECISIONS = [
   {
     file: "0001-napbench-splits-into-a-pure-package-and-an-app.md",
     title: "NapBench splits into a pure package and an app",
-    body: "Tasks, scoring and reports are written against ports; Playwright belongs to the shell alone and to nothing that ships.",
+    body: "NapBench, since retired for Terminal-Bench. Tasks, scoring and reports are written against ports; Playwright belongs to the shell alone and to nothing that ships.",
   },
   {
     file: "0002-absent-scoring-categories-renormalise.md",
@@ -31,7 +31,7 @@ const DECISIONS = [
   {
     file: "0004-napbench-measures-the-model.md",
     title: "NapBench measures the model, and Nap's own faults are infrastructure",
-    body: "Fixes the frame of the whole benchmark: an agent that refused is evidence, and a sandbox that died is not.",
+    body: "NapBench, since retired for Terminal-Bench. Fixes the frame of the whole benchmark: an agent that refused is evidence, and a sandbox that died is not.",
   },
   {
     file: "0005-a-navigation-that-never-arrives-is-not-a-broken-application.md",

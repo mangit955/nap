@@ -22,8 +22,8 @@ export type Manifest = {
   /**
    * Optional, and only the exclusive-externals rule reads it. The two rules want different
    * answers: a sibling package may sit here, so that a package's tests can use another's
-   * published fakes (`@nap/agent` carries `@nap/sandbox` this way), while a third-party library that is supposed to have exactly
-   * one owner may not, because the production image is built by one workspace-wide install
+   * published fakes (`@nap/agent` carries `@nap/sandbox` this way), while a third-party library
+   * that is supposed to have exactly one owner may not, because the production image is built by one workspace-wide install
    * with no --production and therefore ships devDependencies too.
    */
   devDependencies?: string[];
@@ -70,8 +70,9 @@ const ALLOWED: Record<string, readonly string[]> = {
   // The pure half of the load harness: percentile maths, metric rollup, threshold verdicts, the
   // scripted user's ordering, and how slow the fakes pretend to be. It sits beside `shared`: it is
   // written against the ports there and knows nothing about Postgres, a socket or a server, which
-  // is what lets the arithmetic a report is read through be tested rather than trusted. The process that composes real infrastructure behind it is
-  // `apps/api/scripts/loadgen.ts`, which is an app and may reach for anything.
+  // is what lets the arithmetic a report is read through be tested rather than trusted. The
+  // process that composes real infrastructure behind it is `apps/api/scripts/loadgen.ts`, which is
+  // an app and may reach for anything.
   "@nap/loadgen": ["@nap/shared"],
   "@nap/runtime": [
     "@nap/context",

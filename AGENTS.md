@@ -28,8 +28,8 @@ them, nor a task spec — link to it instead.
 | `docs/PLAN.md`, `PROGRESS.md` | What v1 was and where it got to. Frozen | When touching something v1 built |
 
 **`README.md` and `/docs` divide one subject.** The README states *consequences* and links onward;
-`apps/web/src/docs/` states *mechanisms*, and mechanism numbers (the repair bound, the category
-weights, the ceilings) live only there. A funded run's headline figures live in `docs/napbench-*.md`
+`apps/web/src/docs/` states *mechanisms*, and mechanism numbers (the repair bound, the ceilings)
+live only there. A funded run's headline figures live in `docs/napbench-*.md`
 and may be quoted in the README, never beside mechanism numbers. Nothing enforces this.
 
 **Frozen areas.** Load testing and the Kubernetes deployment keep their code and reports but are
