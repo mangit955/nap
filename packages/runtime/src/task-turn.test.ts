@@ -20,10 +20,9 @@ function isTurns(turn: ScriptedTurn | ScriptedTurn[]): turn is ScriptedTurn[] {
 }
 
 function sandbox(): InMemorySandboxManager {
-  return new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0, stdout: "" }) }).script(
-    linkWorkspaceCommand(),
-    { exitCode: 0, stdout: "/app" },
-  );
+  return new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0, stdout: "" }) })
+    .script(linkWorkspaceCommand(), { exitCode: 0, stdout: "/app" })
+    .script(/\.\/check-regex/, { exitCode: 1, stdout: "FAIL: 1999-13-01 matched\n" });
 }
 
 /** A model that writes the answer file and stops. */
@@ -179,13 +178,19 @@ describe("runTaskTurn", () => {
 function reviewing(problem: boolean): ScriptedTurn {
   return [
     {
-      toolCalls: [{ id: "rc_1", name: "run_command", input: { command: "cat regex.txt" } }],
+      toolCalls: [{ id: "rc_1", name: "run_command", input: { command: "./check-regex" } }],
       usage: { inputTokens: 500, outputTokens: 20 },
     },
     {
       text: JSON.stringify({
         problems: problem
-          ? [{ summary: "matches years only", command: "cat regex.txt", observed: "exit code 0" }]
+          ? [
+              {
+                summary: "matches years only",
+                command: "./check-regex",
+                observed: "FAIL: 1999-13-01 matched",
+              },
+            ]
           : [],
         notes: [],
       }),
@@ -270,20 +275,17 @@ describe("runTaskTurn with the reviewer", () => {
 });
 
 describe("what a review wrote", () => {
-  it("records the files a review's commands left in the task's directory", async () => {
+  it("records the files a review's commands wrote, and that they were put back", async () => {
     const box = sandbox()
-      .script(/^touch \/tmp\/nap-review-start$/, { exitCode: 0 })
-      .script(/-newer \/tmp\/nap-review-start/, {
-        exitCode: 0,
-        stdout: "./out.txt\n./__pycache__/a.pyc\n",
-      });
+      .script(/tar -cf/, { exitCode: 0, stdout: "copied\n" })
+      .script(/ -newer /, { exitCode: 0, stdout: "./out.txt\n" });
     const { result } = await run([SOLVES, reviewing(false)], box, 10, { review: true });
-    expect(result.reviews?.[0]?.wrote).toEqual(["./out.txt", "./__pycache__/a.pyc"]);
+    expect(result.reviews?.[0]).toMatchObject({ wrote: ["./out.txt"], restored: true });
   });
 
-  it("says it does not know, rather than nothing, when the mark could not be made", async () => {
-    const box = sandbox().script(/^touch \/tmp\/nap-review-start$/, { exitCode: 1 });
+  it("says it does not know, rather than nothing, when the start could not be marked", async () => {
+    const box = sandbox().script(/tar -cf/, { exitCode: 1 });
     const { result } = await run([SOLVES, reviewing(false)], box, 10, { review: true });
-    expect(result.reviews?.[0]?.wrote).toBeNull();
+    expect(result.reviews?.[0]).toMatchObject({ wrote: null, restored: false });
   });
 });

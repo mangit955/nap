@@ -19,6 +19,14 @@ export const REVIEW_CHECK_NAME = "review";
  */
 export const MAX_REVIEW_ROUNDS = 2;
 
+/**
+ * Repairs a job must have left for a review to run: one for the review to send the job back to,
+ * and one more for a check that repair breaks. With fewer, a blocking review could spend the last
+ * repair on work whose checks had passed, and a job that would have been published would end
+ * out of repairs instead.
+ */
+export const REVIEW_REPAIRS_LEFT = 2;
+
 /** Model calls one review may make: enough to read the change, run its tests and report. */
 export const REVIEW_MAX_STEPS = 10;
 

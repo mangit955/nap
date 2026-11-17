@@ -40,18 +40,33 @@ measures the reviewer users get.
 
 It is offered `read_file`, `list_files`, `glob`, `search_files` and `run_command`, and nothing that
 writes. `run_command` passes the same command guard as the agent's. A command can still write (a
-test run leaves caches), so in the product, where the turn's work is already committed, the
-workspace is reset to that commit after the review, and nothing the reviewer did reaches the next
-turn or the pull request. A Terminal-Bench machine has no commit to reset to, so there the tool set
-and the prompt are the only guard; that is a limitation of the benchmark composition.
+test run leaves caches; running the task's program writes its output), so what a review changed is
+put back afterwards:
+
+- **In the product**, where the job's work is committed, the workspace is reset to that commit and
+  branch if the review changed either (`reviewJob`, `discardUncommitted`). Ignored files, such as a
+  dependency cache a command reinstalled, and anything outside the repository are not reset. A
+  reset that fails drops the review, and the job goes on as its checks decided.
+- **On Terminal-Bench**, where there is no commit, the task's directory is copied before the review
+  and every file the review wrote is put back from the copy, or removed if it is new
+  (`task-review-guard.ts`). A directory over 200 MB is not copied; there the files are listed but
+  stay, and the report flags the trial. A file a review deleted is not noticed.
 
 ### D3: Only a finding it confirmed by running something can block
 
 The reviewer ends with a JSON report of `problems` and `notes`. A problem must name a command and
 quote what it printed. A problem **blocks** only if that command is one the reviewer ran in this
 review through `run_command`, and the quoted text appears in that command's output. This is checked
-by code against the reviewer's own record, not taken from the model. Every other problem, every
-note, and any report that cannot be parsed is non-blocking. A reviewer that fails (out of steps, a
+by code against the reviewer's own record, not taken from the model. The quote is matched against
+what the command printed, not the tool's own `exit code` line, and a command made only of ones that
+show existing text or the reviewer's own words (`cat`, `grep`, `ls`, `echo` and the like) proves
+nothing: `cat solve.py` quoting `return 2` is an opinion about code, and `echo FAIL` is the reviewer
+writing its own evidence. Every other problem, every note, and any report that cannot be parsed is
+non-blocking.
+
+What this does not cover: a reviewer that runs the program correctly and misreads correct output as
+wrong, or writes a script that prints a failure, can still block. The rule establishes that the
+evidence is real output of a real run, not that the reviewer judged it rightly. A reviewer that fails (out of steps, a
 model error) blocks nothing. Failing open is the point: the review can only add evidence, never
 substitute its opinion for the checks.
 
@@ -64,19 +79,31 @@ attempts (`MAX_REPAIR_ATTEMPTS`), a restart continues it from the log like any f
 nothing new joins the event contract. A job runs at most `MAX_REVIEW_ROUNDS` reviews, counted from the
 log so a restart cannot reset the count; after that the checks alone arbitrate.
 
+A review runs only while `REVIEW_REPAIRS_LEFT` (two) repairs remain: one for the review to send the
+job back to, and one more should that repair break a check. Before this change, a job whose checks
+passed was always published. Now a review that blocks can still end such a job **out of repairs,
+with no pull request**, if the repair it prompts and the one after both leave a check red. The
+alternative, publishing the last commit whose checks passed, would publish work a review had just
+shown to be wrong.
+
 ### D5: Who pays, and what counts as more effort
 
 The reviewer runs on the turn's model with the turn's credentials, so it is billed to whoever pays
 for the turn, the person on their own key and the deployment otherwise. Its steps are capped per
-review, and its usage is logged.
+review. Its usage is logged, but it is not yet in the log's events, so the session's token counts
+leave it out; that is a follow-up.
 
 On the benchmark, the agent's steps stay capped at the baseline's 20 **across the whole task**: a fix
 round gets only the steps the first turn left. The reviewer's own steps are separate, capped, and
 reported beside the score, with its cost. So the agent never gets more steps than in the baseline,
-and the only added effort is the review itself. The reviewer has no tool that writes, but on a task
-machine nothing resets what its commands write (D2), so each review records the files in the task's
-directory written while it ran, and the report shows them. A task that ran out of steps never
+and the only added effort is the review itself, whose writes are put back (D2). Each fix round
+starts a fresh token budget, which has never bound on these tasks (the baseline's heaviest used a
+small fraction of it), so steps are the cap that matters. A task that ran out of steps never
 claimed done and is never reviewed.
+
+The measure is the pass rate on the same tasks, with false claims of done beside it. Fewer false
+claims alone is not a gain: a sent-back task that then runs out of steps stops being a false claim
+without passing, and the report counts those separately.
 
 ### D6: Imported GitHub projects only, for now
 
@@ -96,6 +123,8 @@ watching in the preview; a review there is cost without the pull request it prot
 
 - An imported project's job takes longer and costs more when its checks pass: one review of up to
   `REVIEW_MAX_STEPS` model calls, and up to two more repair turns if the review blocks.
+- A job whose checks passed can end out of repairs, unpublished, where before it would have opened a
+  pull request (D4).
 - A `review` check can appear in a job's checks, failed or passed. A passed review's notes are its
   output.
 - Whether this lowers false claims of done is measured on the locked Terminal-Bench test set,

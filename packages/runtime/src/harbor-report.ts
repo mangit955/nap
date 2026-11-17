@@ -138,11 +138,11 @@ export type BenchmarkReport = {
     sentBackClaimedFailed: number;
     sentBackStepBudget: number;
     /**
-     * Each trial in which a review's commands wrote files to the task's directory, with the files.
-     * A task machine has nothing to reset to, so these are where a review could have changed the
-     * answer itself rather than through the agent (ADR-0036 D5).
+     * Each trial in which a review's commands wrote files to the task's directory, with the files,
+     * and whether every such review's writes were put back. One that was not is where a review
+     * could have changed the answer itself rather than through the agent (ADR-0036 D5).
      */
-    wrote: Array<{ task: string; files: string[] }>;
+    wrote: Array<{ task: string; files: string[]; restored: boolean }>;
     reviews: number;
     steps: number;
     usage: TokenUsage;
@@ -302,10 +302,12 @@ function reviewSummary(trials: readonly TrialRecord[]): BenchmarkReport["review"
     ).length,
     sentBackStepBudget: sentBack.filter((trial) => failureKind(trial) === "step_budget").length,
     wrote: withReviewer.flatMap((trial) => {
-      const files = [
-        ...new Set((trial.nap?.reviews ?? []).flatMap((review) => review.wrote ?? [])),
-      ];
-      return files.length === 0 ? [] : [{ task: trial.task, files }];
+      const writing = (trial.nap?.reviews ?? []).filter(
+        (review) => (review.wrote ?? []).length > 0,
+      );
+      const files = [...new Set(writing.flatMap((review) => review.wrote ?? []))];
+      const restored = writing.every((review) => review.restored);
+      return files.length === 0 ? [] : [{ task: trial.task, files, restored }];
     }),
     reviews: all.length,
     steps: all.reduce((total, review) => total + review.steps, 0),
@@ -501,12 +503,24 @@ function renderReview(review: NonNullable<BenchmarkReport["review"]>): string[] 
       "are inside the totals above, and none of those calls is counted in the agent's steps, " +
       "which stay capped across every round of a task.",
     "",
-    review.wrote.length === 0
-      ? "No review's commands wrote a file in a task's directory."
-      : `In ${review.wrote.length} trials a review's commands wrote files in the task's directory, ` +
-        "which nothing resets on a task machine: " +
-        review.wrote.map((entry) => `${entry.task} (${entry.files.join(", ")})`).join("; ") +
-        ".",
+    ...renderWrote(review.wrote),
     "",
+  ];
+}
+
+/** Where a review's commands wrote in a task's directory, and whether that was put back. */
+function renderWrote(wrote: NonNullable<BenchmarkReport["review"]>["wrote"]): string[] {
+  if (wrote.length === 0) return ["No review's commands wrote a file in a task's directory."];
+  const list = (entries: typeof wrote) =>
+    entries.map((entry) => `${entry.task} (${entry.files.join(", ")})`).join("; ");
+  const kept = wrote.filter((entry) => !entry.restored);
+  const putBack = wrote.filter((entry) => entry.restored);
+  return [
+    ...(putBack.length === 0
+      ? []
+      : [`Put back after the review, as it was before: ${list(putBack)}.`]),
+    ...(kept.length === 0
+      ? []
+      : [`**Not put back, so the review itself could have changed the answer:** ${list(kept)}.`]),
   ];
 }

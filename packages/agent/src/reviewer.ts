@@ -41,7 +41,46 @@ const MIN_QUOTE_CHARS = 4;
 const UNREADABLE_REPORT_CHARS = 2_000;
 
 /** What `run_command` prints first when the command actually ran, as against being refused. */
-const RAN = /^exit code -?\d+/;
+const RAN = /^exit code -?\d+\n?/;
+
+/**
+ * Commands that only show text that already exists, or text the reviewer typed itself. What they
+ * print is real, but it shows a file's contents or the reviewer's own words, not the work failing:
+ * `cat solve.py` quoting `return 2` is an opinion about code, and `echo FAIL` proves nothing. A
+ * command made only of these, joined by `&&`, `;` or `|`, cannot prove a problem.
+ */
+const SHOWS_ONLY = new Set([
+  "cd",
+  "echo",
+  "printf",
+  "cat",
+  "head",
+  "tail",
+  "grep",
+  "egrep",
+  "fgrep",
+  "rg",
+  "sed",
+  "awk",
+  "ls",
+  "find",
+  "wc",
+  "nl",
+  "stat",
+  "file",
+  "tree",
+  "pwd",
+  "true",
+  "sort",
+  "uniq",
+  "cut",
+  "tr",
+  "xxd",
+  "od",
+  "hexdump",
+  "less",
+  "more",
+]);
 
 const LAST_REQUEST =
   "This is your last request. Reply now with your JSON report, from what you have found.";
@@ -143,8 +182,11 @@ export class NapReviewer implements Reviewer {
             now,
           });
           const command = commandOf(call.name, call.input);
+          // What the command printed, without the tool's own "exit code N" line: a quote of that
+          // header would otherwise prove any problem against any command that ran.
           if (command !== null && RAN.test(outcome.output)) {
-            ran.set(command, [...(ran.get(command) ?? []), outcome.output]);
+            const printed = outcome.output.replace(RAN, "");
+            ran.set(command, [...(ran.get(command) ?? []), printed]);
           }
           results.push({
             type: "tool_result",
@@ -221,10 +263,20 @@ export function judge(
 /** Its command ran in this review, and printed what it quotes. */
 function proved(finding: ReviewFinding, ran: ReadonlyMap<string, readonly string[]>): boolean {
   if (finding.command === null || finding.observed === null) return false;
+  if (showsOnly(finding.command)) return false;
   const quote = squash(finding.observed);
   if (quote.length < MIN_QUOTE_CHARS) return false;
   const outputs = ran.get(finding.command.trim()) ?? [];
   return outputs.some((output) => squash(output).includes(quote));
+}
+
+/** Every part of the command is one that only shows text; see `SHOWS_ONLY`. */
+export function showsOnly(command: string): boolean {
+  return command
+    .split(/&&|\|\||;|\|/)
+    .map((part) => part.trim().split(/\s+/)[0] ?? "")
+    .filter((word) => word !== "")
+    .every((word) => SHOWS_ONLY.has(word.replace(/^.*\//, "")));
 }
 
 /** Whitespace differences are how a model copies output, not a sign it invented it. */

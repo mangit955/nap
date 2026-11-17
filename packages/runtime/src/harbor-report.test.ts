@@ -295,6 +295,7 @@ describe("the reviewer's share", () => {
     usage: { inputTokens: 10_000, outputTokens: 500 },
     sentBack,
     wrote: sentBack ? ["./out.txt"] : [],
+    restored: true,
   });
 
   it("is absent for a run without a reviewer, so a baseline reads as it did", () => {
@@ -313,7 +314,10 @@ describe("the reviewer's share", () => {
       trial({
         task: "c",
         reward: 0,
-        nap: nap({ ...failedOn("budget_exceeded"), reviews: [review(true)] }),
+        nap: nap({
+          ...failedOn("budget_exceeded"),
+          reviews: [{ ...review(true), restored: false }],
+        }),
       }),
       trial({ task: "d", nap: nap({ reviews: [review(false)] }) }),
       trial({ task: "e", reward: 0, nap: nap({ ...failedOn("budget_exceeded"), reviews: [] }) }),
@@ -332,9 +336,12 @@ describe("the reviewer's share", () => {
     expect(report.rows.find((row) => row.task === "a")).toMatchObject({ reviews: 2, sentBack: 1 });
     expect(renderReport(report)).toContain("sent 3 back");
     expect(report.review?.wrote).toEqual([
-      { task: "a", files: ["./out.txt"] },
-      { task: "b", files: ["./out.txt"] },
-      { task: "c", files: ["./out.txt"] },
+      { task: "a", files: ["./out.txt"], restored: true },
+      { task: "b", files: ["./out.txt"], restored: true },
+      { task: "c", files: ["./out.txt"], restored: false },
     ]);
+    expect(renderReport(report)).toContain(
+      "**Not put back, so the review itself could have changed the answer:** c (./out.txt).",
+    );
   });
 });

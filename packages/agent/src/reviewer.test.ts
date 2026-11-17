@@ -1,6 +1,6 @@
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { describe, expect, it } from "vitest";
-import { judge, NapReviewer } from "./reviewer.ts";
+import { judge, NapReviewer, showsOnly } from "./reviewer.ts";
 import { ScriptedLLMProvider, type ScriptedTurn } from "./testing/scripted-llm-provider.ts";
 import { PROJECT_ROOT } from "./tools/definitions.ts";
 
@@ -167,5 +167,52 @@ describe("judge", () => {
       ran,
     );
     expect(verdict.blocking).toHaveLength(1);
+  });
+});
+
+describe("what cannot prove a problem", () => {
+  const ran = new Map([
+    ["ls", ["src\n"]],
+    ["echo FAIL: expected 3, got 2", ["FAIL: expected 3, got 2\n"]],
+    ["cat solve.py", ["def solve():\n    return 2\n"]],
+    ["cd /app && python solve.py", ["2\n"]],
+  ]);
+  const verdict = (command: string, observed: string) =>
+    judge(JSON.stringify({ problems: [{ summary: "s", command, observed }] }), ran).blocking;
+
+  it("is the tool's own exit-code line, which every command that ran prints", async () => {
+    const { result } = await review([
+      [
+        { toolCalls: [{ id: "c", name: "run_command", input: { command: "pytest -q" } }] },
+        report({ problems: [{ summary: "wrong", command: "pytest -q", observed: "exit code 1" }] }),
+      ],
+    ]);
+    expect(result.blocking).toEqual([]);
+  });
+
+  it("is text the reviewer typed itself, or code it printed and judged", () => {
+    expect(verdict("echo FAIL: expected 3, got 2", "FAIL: expected 3, got 2")).toEqual([]);
+    expect(verdict("cat solve.py", "return 2")).toEqual([]);
+  });
+
+  it("is not a program the work runs, whose output is evidence", () => {
+    expect(verdict("cd /app && python solve.py", "2")).toEqual([]); // too short to prove
+    const longer = new Map([["cd /app && python solve.py", ["result: 2, wanted 3\n"]]]);
+    expect(
+      judge(
+        JSON.stringify({
+          problems: [
+            { summary: "s", command: "cd /app && python solve.py", observed: "result: 2" },
+          ],
+        }),
+        longer,
+      ).blocking,
+    ).toHaveLength(1);
+  });
+
+  it("reads every part of a compound command", () => {
+    expect(showsOnly("cd /app && cat out.txt | grep -c x")).toBe(true);
+    expect(showsOnly("/usr/bin/cat out.txt")).toBe(true);
+    expect(showsOnly("cd /app && pytest -q; echo done")).toBe(false);
   });
 });

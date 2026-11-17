@@ -1,5 +1,8 @@
+import { NapReviewer } from "@nap/agent/reviewer";
 import { completedTurn, ScriptedAgent } from "@nap/agent/testing/scripted-agent";
+import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
+import { REVIEW_PROMPTS } from "@nap/context/review-prompt";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
@@ -10,7 +13,12 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { FAKE_COMMIT_SHA, scriptGit } from "@nap/sandbox/testing/script-git";
 import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
-import { MAX_REVIEW_ROUNDS, type Reviewer, type ReviewResult } from "@nap/shared/ports/reviewer";
+import {
+  MAX_REVIEW_ROUNDS,
+  REVIEW_REPAIRS_LEFT,
+  type Reviewer,
+  type ReviewResult,
+} from "@nap/shared/ports/reviewer";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
@@ -42,7 +50,11 @@ const BLOCK: ReviewResult = {
   usage: USAGE,
 };
 
-async function fixture(options: { results: ReviewResult[]; repository?: boolean }) {
+async function fixture(options: {
+  results: ReviewResult[];
+  repository?: boolean;
+  reviewer?: Reviewer;
+}) {
   const sandbox = scriptGit(
     new InMemorySandboxManager({
       seed: { "/home/user/app/package.json": '{"scripts":{"typecheck":"tsc --noEmit"}}' },
@@ -77,7 +89,7 @@ async function fixture(options: { results: ReviewResult[]; repository?: boolean 
     ...(options.repository === false ? {} : { repository }),
     agent,
     context,
-    reviewer: { review },
+    reviewer: options.reviewer ?? { review },
     bus: new InMemoryEventBus(),
     memory: new NoopMemoryProvider(),
   });
@@ -158,9 +170,9 @@ describe("the review in an imported repository's job", () => {
     expect(f.review).toHaveBeenCalledOnce();
   });
 
-  it("is not run when no repair is left to send the job back to", async () => {
+  it("is not run with fewer repairs left than its own and one more for a check it breaks", async () => {
     const f = await fixture({ results: [BLOCK] });
-    let failures = MAX_REPAIR_ATTEMPTS;
+    let failures = MAX_REPAIR_ATTEMPTS - REVIEW_REPAIRS_LEFT + 1;
     f.sandbox.script(/bun run typecheck/, () =>
       failures-- > 0 ? { exitCode: 1, stderr: "TS2322" } : { exitCode: 0 },
     );
@@ -231,5 +243,43 @@ describe("the review in an imported repository's job", () => {
     // Arbitrated, so the review was skipped rather than never reached.
     const events = await f.events.readFrom(sessionId, 0);
     expect(foldJobs(events).jobs.at(-1)?.phase).toBe("verified");
+  });
+
+  it("with the real reviewer, bills the turn's account and sends the job back on real output", async () => {
+    const provider = new ScriptedLLMProvider([
+      [
+        { toolCalls: [{ id: "t", name: "run_command", input: { command: "pytest -q" } }] },
+        {
+          text: JSON.stringify({
+            problems: [
+              { summary: "parse returns 2", command: "pytest -q", observed: "expected 3, got 2" },
+            ],
+          }),
+        },
+      ],
+      [{ text: JSON.stringify({ problems: [], notes: [] }) }],
+    ]);
+    const reviewer = new NapReviewer({ provider, prompts: REVIEW_PROMPTS });
+    const f = await fixture({ results: [], reviewer });
+    f.sandbox.script(/pytest -q/, {
+      exitCode: 1,
+      stdout: "FAILED test_parse - expected 3, got 2\n",
+    });
+
+    expect(await f.run()).toMatchObject({ ok: true });
+
+    expect(provider.turnOptions[0]).toEqual({
+      model: "openai/gpt-6-luna",
+      credentials: { platform: "openrouter", apiKey: "person's key" },
+    });
+    expect(provider.requests[0]?.messages[0]?.content).toContain("Make parse return 3");
+    expect(f.sandbox.commands(f.sandboxId).some((command) => command.includes("pytest -q"))).toBe(
+      true,
+    );
+    expect(f.agent.calls).toBe(2);
+    expect(f.context.requests[1]?.userMessage).toContain("expected 3, got 2");
+    expect(f.finishJob).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ outcome: "verified" }),
+    );
   });
 });

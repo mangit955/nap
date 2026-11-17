@@ -90,8 +90,9 @@ The report (`packages/runtime/src/harbor-report.ts`) gives:
   budget, the model unreachable, a claim of done the tests refuted, and the rest.
 - **Review**, for a run with `--review` only: how many claims were reviewed and sent back, how
   each sent-back trial ended, the reviewer's model calls and cost (inside the totals, never in the
-  agent's steps), and any trial where a review's commands wrote files in the task's directory. The
-  task table gains a "Reviews (sent back)" column.
+  agent's steps), and any trial where a review's commands wrote files in the task's directory,
+  which are put back from a copy taken before the review unless the directory was too large to
+  copy. The task table gains a "Reviews (sent back)" column.
 
 The first scored run, on the test set with `openai/gpt-6-luna`, is written up in
 [`docs/napbench-terminal-bench-baseline.md`](../docs/napbench-terminal-bench-baseline.md).

@@ -24,7 +24,8 @@
         "outputTokens": 900
       },
       "sentBack": true,
-      "wrote": []
+      "wrote": [],
+      "restored": true
     }
   ],
   "durationMs": 184000,

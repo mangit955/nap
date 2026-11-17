@@ -56,7 +56,7 @@ import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import type { MemoryProvider } from "@nap/shared/ports/memory-provider";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
-import type { Reviewer } from "@nap/shared/ports/reviewer";
+import { REVIEW_REPAIRS_LEFT, type Reviewer } from "@nap/shared/ports/reviewer";
 import type {
   ContinueOptions,
   ResumeOutcome,
@@ -1277,12 +1277,14 @@ export class SingleAgentRuntime implements Runtime {
           announce,
           previewPort: run.previewPort,
           signal: settings.signal,
-          // Only an imported repository's job, which ends in a pull request, and only while a
-          // repair is left: a review can send a job back, never close one its checks passed.
+          // Only an imported repository's job, which ends in a pull request, and only while
+          // `REVIEW_REPAIRS_LEFT` repairs remain: the review's repair, and one more should that
+          // repair break a check. A review can still end a job its checks passed out of repairs,
+          // but only when two repairs in a row break a check (ADR-0036 D4).
           review:
             this.#options.reviewer !== undefined &&
             settings.workspace === "repository" &&
-            run.repairs < MAX_REPAIR_ATTEMPTS
+            run.repairs <= MAX_REPAIR_ATTEMPTS - REVIEW_REPAIRS_LEFT
               ? {
                   reviewer: this.#options.reviewer,
                   objective: run.objective,
