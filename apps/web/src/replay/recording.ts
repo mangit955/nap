@@ -11,8 +11,9 @@
  *   - **`revisions`** is every file the session changed, in full, at the `seq` of the
  *     `file.changed` that announced it. Worked out when the recording is made rather than by
  *     re-running tool calls here, because an agent also changes files through `apply_patch` and
- *     shell commands, which a client cannot replay. `recording.test.ts` checks each full read the
- *     agent made against them, so a wrong revision fails the suite instead of showing quietly.
+ *     shell commands, which a client cannot replay. `recording.test.ts` applies each
+ *     `file.changed` diff in the log to the file before it and requires the revision it produces,
+ *     so a wrong revision fails the suite instead of showing quietly.
  *   - **`builds`** stand in for the preview. The sandbox behind a recorded session is gone, so its
  *     address answers nothing; each build is the app's own source at that point, built to static
  *     files under `public/replays/` and shown from the `seq` given.
@@ -22,8 +23,8 @@
  * from, at the commit it ran on (`git archive <commit> packages/sandbox/template`). `files` is that
  * template without `node_modules` or a lockfile. Walk the log: for each `file.changed`, apply the
  * write that announced it (`write_file`'s contents, `edit_file`'s replacement, a patch) and record
- * the whole file as a revision at that `seq`; `recording.test.ts` then checks every full read the
- * agent made against the result. For each point the preview should change, install the template's
+ * the whole file as a revision at that `seq`; `recording.test.ts` then checks the result against
+ * the log's diffs and every full read the agent made. For each point the preview should change, install the template's
  * dependencies, `vite build --base ./` the source as it stood, and copy `dist` to
  * `public/replays/<slug>/<name>/`. Register the file in `replays.ts`. Grep the result for addresses,
  * keys and home directories before committing — the test does too. When the event contract changes

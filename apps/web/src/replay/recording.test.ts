@@ -24,6 +24,43 @@ function recordings(): ReplayRecording[] {
   });
 }
 
+/** The committed file, byte for byte — what the public repository actually holds. */
+function committed(slug: string): string {
+  return readFileSync(join(import.meta.dirname, "recordings", `${slug}.json`), "utf8");
+}
+
+/**
+ * A unified diff, as `file.changed` carries it, applied to the file it was taken from. Strict:
+ * every context and removed line must match the file, so a revision that is not what the log says
+ * the change produced cannot be reached from the one before it.
+ */
+function applyDiff(before: string, diff: string): string {
+  const old = before.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const out: string[] = [];
+  let cursor = 0;
+  const lines = diff.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/.exec(lines[i] ?? "");
+    if (!hunk) continue;
+    const start = Number(hunk[1]) - (hunk[2] === "0" ? 0 : 1);
+    while (cursor < start) out.push(old[cursor++] ?? "");
+    for (i++; i < lines.length && !lines[i]?.startsWith("@@"); i++) {
+      const line = lines[i] ?? "";
+      const text = line.slice(1);
+      const noNewline = lines[i + 1]?.startsWith("\\") === true;
+      if (line.startsWith("+")) out.push(noNewline ? text : `${text}\n`);
+      else if (line.startsWith(" ") || line.startsWith("-")) {
+        const was = old[cursor++] ?? "";
+        if (was.replace(/\n$/, "") !== text) throw new Error(`the diff does not fit at "${text}"`);
+        if (line.startsWith(" ")) out.push(was);
+      }
+    }
+    i--;
+  }
+  while (cursor < old.length) out.push(old[cursor++] ?? "");
+  return out.join("");
+}
+
 function projectPath(path: string): string {
   return path.startsWith(`${PROJECT_ROOT_PATH}/`) ? path.slice(PROJECT_ROOT_PATH.length + 1) : path;
 }
@@ -60,6 +97,27 @@ describe.each(recordings())("the $slug replay", (recording) => {
     expect(compared).toBeGreaterThan(0);
   });
 
+  // The reads above only reach files as they stood when the agent looked, which can be before
+  // any revision. This reaches every one: each change the log announced, applied to the file as it
+  // stood just before, must give exactly the revision the replay shows from then on.
+  it("holds each changed file exactly as the log's own diff left it", () => {
+    let compared = 0;
+    for (const event of recording.events) {
+      if (event.type !== "file.changed") continue;
+      const path = projectPath(event.payload.path);
+      const revision = recording.revisions.find((candidate) => candidate.seq === event.seq);
+      expect(revision?.path, `a revision for seq ${event.seq}`).toBe(path);
+      const before = filesAt(recording, event.seq - 1).get(path) ?? "";
+      expect(revision?.contents).toBe(applyDiff(before, event.payload.diff));
+      compared++;
+    }
+    expect(compared).toBe(recording.revisions.length);
+  });
+
+  it("is the committed file, with nothing dropped by parsing it", () => {
+    expect(recording).toEqual(JSON.parse(committed(recording.slug)));
+  });
+
   it("announces every revision with a change to the same file", () => {
     for (const revision of recording.revisions) {
       const event = recording.events[revision.seq - 1];
@@ -77,8 +135,10 @@ describe.each(recordings())("the $slug replay", (recording) => {
     }
   });
 
+  // The bytes in the repository, not the parsed copy: a field the schema stopped reading would
+  // still be published, and only the file shows it.
   it("carries no address, key or home directory of anyone", () => {
-    const text = JSON.stringify(recording);
+    const text = committed(recording.slug);
     // A letter top-level domain, so `nap-app@0.0.0` in a build log is not an address.
     expect(text).not.toMatch(/[\w.+-]+@[\w-]+(\.[\w-]+)*\.[a-z]{2,}\b/i);
     expect(text).not.toMatch(/sk-[\w-]{16,}|ghp_\w{20,}|Bearer\s+\w{16,}/);
