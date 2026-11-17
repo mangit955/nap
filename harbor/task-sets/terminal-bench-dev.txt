@@ -1,0 +1,12 @@
+# The Terminal-Bench dev set: 10 tasks, drawn with seed 20261117 by
+# nap_harbor/task_sets.py from terminal-bench-2-1.txt. Never edit by hand; see that module.
+terminal-bench/vulnerable-secret
+terminal-bench/mteb-leaderboard
+terminal-bench/extract-moves-from-video
+terminal-bench/winning-avg-corewars
+terminal-bench/path-tracing
+terminal-bench/regex-log
+terminal-bench/qemu-alpine-ssh
+terminal-bench/circuit-fibsqrt
+terminal-bench/password-recovery
+terminal-bench/qemu-startup

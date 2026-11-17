@@ -1,0 +1,27 @@
+# The Terminal-Bench test set: 25 tasks, drawn with seed 20261117 by
+# nap_harbor/task_sets.py from terminal-bench-2-1.txt. Never edit by hand; see that module.
+terminal-bench/configure-git-webserver
+terminal-bench/model-extraction-relu-logits
+terminal-bench/protein-assembly
+terminal-bench/multi-source-data-merger
+terminal-bench/train-fasttext
+terminal-bench/break-filter-js-from-html
+terminal-bench/schemelike-metacircular-eval
+terminal-bench/torch-pipeline-parallelism
+terminal-bench/sanitize-git-repo
+terminal-bench/mcmc-sampling-stan
+terminal-bench/constraints-scheduling
+terminal-bench/feal-differential-cryptanalysis
+terminal-bench/dna-assembly
+terminal-bench/fix-code-vulnerability
+terminal-bench/filter-js-from-html
+terminal-bench/video-processing
+terminal-bench/adaptive-rejection-sampler
+terminal-bench/regex-chess
+terminal-bench/path-tracing-reverse
+terminal-bench/overfull-hbox
+terminal-bench/pypi-server
+terminal-bench/merge-diff-arc-agi-task
+terminal-bench/git-multibranch
+terminal-bench/gcode-to-text
+terminal-bench/largest-eigenval
