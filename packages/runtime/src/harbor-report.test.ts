@@ -53,7 +53,7 @@ describe("wilsonInterval", () => {
     expect(wilsonInterval(25, 25).high).toBeCloseTo(1, 12);
   });
 
-  it("is up to about eighteen points either side at n=25, which is why one run proves little", () => {
+  it("spans over thirty points at n=25, which is why one run proves little", () => {
     // The published Wilson interval for 7 of 25 at 95%: 0.143 to 0.476.
     const { low, high } = wilsonInterval(7, 25);
     expect(low).toBeCloseTo(0.143, 3);
@@ -150,6 +150,14 @@ describe("summarise", () => {
   it("leaves a paid model with no price out of the cost rather than guessing", () => {
     const unknown = summarise([trial({ nap: nap({ model: "vendor/unpriced" }) })]);
     expect(unknown.cost).toMatchObject({ usd: 0, priced: 0, unpriced: 1, perPricedTrialUsd: null });
+  });
+
+  it("leaves a harness error out of the agreement even when it left a result and a reward", () => {
+    const broken = summarise([
+      trial(),
+      trial({ task: "terminal-bench/b", reward: 0, exception: "RuntimeError" }),
+    ]);
+    expect(broken.agreement).toMatchObject({ claimedFailed: 0, notRun: 1, rate: 1 });
   });
 
   it("leaves a trial the verifier never scored out of the agreement", () => {
@@ -250,15 +258,19 @@ describe("readJob", () => {
     expect(readJob(job).trials[0]?.nap).toBeNull();
   });
 
-  it("adds a record for each planned task with no finished trial, and names the dataset", () => {
+  it("adds a record for each trial the lock planned with no finished trial, and names the dataset", () => {
     const job = mkdtempSync(join(tmpdir(), "harbor-job-"));
     write(join(job, "config.json"), {
-      datasets: [
-        {
-          name: "terminal-bench/terminal-bench-2-1",
-          ref: "sha256:abc",
-          task_names: ["terminal-bench/t", "terminal-bench/never-ran"],
-        },
+      datasets: [{ name: "terminal-bench/terminal-bench-2-1", ref: "sha256:abc" }],
+    });
+    // Two attempts at t, one of which finished, and one at a task that never finished. The lock
+    // lists resolved trials, so a glob in -i never reaches here as a task name.
+    const planned = (name: string) => ({ task: { name, digest: "sha256:x" } });
+    write(join(job, "lock.json"), {
+      trials: [
+        planned("terminal-bench/t"),
+        planned("terminal-bench/t"),
+        planned("terminal-bench/never-ran"),
       ],
     });
     write(join(job, "t__1", "result.json"), { task_name: "terminal-bench/t", trial_name: "t__1" });
@@ -267,6 +279,7 @@ describe("readJob", () => {
     expect(record.dataset).toBe("terminal-bench/terminal-bench-2-1@sha256:abc");
     expect(record.trials.map((t) => [t.task, t.trial])).toEqual([
       ["terminal-bench/t", "t__1"],
+      ["terminal-bench/t", null],
       ["terminal-bench/never-ran", null],
     ]);
   });

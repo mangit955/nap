@@ -73,15 +73,19 @@ bun run packages/runtime/scripts/harbor-report.ts <jobs>/<name>   # writes repor
 
 The report (`packages/runtime/src/harbor-report.ts`) gives:
 
-- **Pass rate** over every trial, a harness error counted as a failure, with its 95% Wilson
-  interval. At 25 tasks that interval is up to about eighteen points either side (widest near 50%), so two runs that differ
-  by less have not shown a difference.
-- **Claimed done against the hidden tests**: a two-by-two of Nap's claim and the reward. The claim
-  is the turn's ending: `completed` means the agent stopped and handed back, which Nap shows as
-  done. Its prose is not read, so a turn that completes by saying it failed still counts as a claim.
-- **Cost** from Nap's own token counts priced by `@nap/shared/pricing`: an estimate, not a bill.
-- **Failures by kind**: Harbor's timeout, a harness error, the step budget, the model unreachable,
-  a claim of done the tests refuted, and the rest.
+- **Pass rate** over every trial the job planned (its `lock.json`), with a harness error or a
+  trial the job never finished counted as a failure, and its 95% Wilson interval. At 25 tasks
+  that interval spans up to about 37 points (7 of 25 is 14% to 48%), so one run cannot tell
+  apart two agents a few points apart.
+- **Claimed done against the hidden tests**: a two-by-two of Nap's claim and the reward, over the
+  trials Nap ran and the tests judged; a harness error, a missing result, a missing reward or an
+  unfinished trial is left out and counted beside it. The claim is the turn's ending:
+  `completed` means the agent stopped and handed back, which Nap shows as done. Its prose is not
+  read, so a turn that completes by saying it failed still counts as a claim.
+- **Cost** from Nap's own token counts priced by `@nap/shared/pricing`, a `:free` model at $0: an
+  estimate, not a bill.
+- **Failures by kind**: Harbor's timeout, a harness error, a trial that never finished, the step
+  budget, the model unreachable, a claim of done the tests refuted, and the rest.
 
 `NAP_HARBOR_FLAGS=--scripted` runs a scripted model instead of OpenRouter: no key, no spend. It
 checks the wiring end to end and nothing about the agent; its report says so.

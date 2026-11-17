@@ -275,8 +275,8 @@ export function renderReport(report: BenchmarkReport): string {
       : []),
     "Every planned trial counts, a harness error or an unfinished trial as a failure " +
       `(${report.harnessErrors} and ${report.unfinished} here). On a few dozen tasks the interval ` +
-      "is wide, up to about eighteen points either side at 25: two runs whose rates differ by less than " +
-      "that have not shown a difference.",
+      "is wide: at 25 tasks it spans up to about 37 points (7 of 25 is 14% to 48%), so one run " +
+      "cannot tell apart two agents a few points apart.",
     "",
     "## Claimed done against the hidden tests",
     "",
@@ -286,7 +286,8 @@ export function renderReport(report: BenchmarkReport): string {
     `| Did not claim | ${agreement.unclaimedPassed} | ${agreement.unclaimedFailed} |`,
     "",
     `Agreement ${percent(agreement.rate)} of the ${report.trials - agreement.notRun} trials Nap ` +
-      `ran (${agreement.notRun} left out: a harness error, no result, or never finished). ` +
+      `ran (${agreement.notRun} left out: a harness error, no result, no reward, or never ` +
+      "finished). " +
       "Claimed done means the turn completed: the agent stopped and handed back, which Nap shows " +
       "as done. Its prose is not read.",
     "",
@@ -340,17 +341,19 @@ const HarborTrialSchema = z.looseObject({
   exception_info: z.looseObject({ exception_type: z.string() }).nullish(),
 });
 
-/** The part of a job's `config.json` that says what it set out to run. */
+/** The part of a job's `config.json` that names the datasets it ran. */
 const HarborJobConfigSchema = z.looseObject({
   datasets: z
-    .array(
-      z.looseObject({
-        name: z.string().nullish(),
-        ref: z.string().nullish(),
-        task_names: z.array(z.string()).nullish(),
-      }),
-    )
+    .array(z.looseObject({ name: z.string().nullish(), ref: z.string().nullish() }))
     .nullish(),
+});
+
+/**
+ * The part of a job's `lock.json` that lists its trials: one entry per trial Harbor resolved, so
+ * a glob in `-i` is already expanded and each of several attempts at a task is its own entry.
+ */
+const HarborJobLockSchema = z.looseObject({
+  trials: z.array(z.looseObject({ task: z.looseObject({ name: z.string().min(1) }) })),
 });
 
 export type JobRecord = {
@@ -362,7 +365,7 @@ export type JobRecord = {
 
 /**
  * A Harbor job directory read back: each subdirectory with a trial's `result.json`, plus a record
- * for each task the job's `config.json` planned that has none, which is a trial that never ended.
+ * for each trial the job's `lock.json` planned beyond those, which is a trial that never ended.
  */
 export function readJob(jobDir: string): JobRecord {
   const config = HarborJobConfigSchema.safeParse(readJson(join(jobDir, "config.json")));
@@ -384,9 +387,15 @@ export function readJob(jobDir: string): JobRecord {
       nap: nap.success ? nap.data : null,
     });
   }
-  const finished = new Set(trials.map((trial) => trial.task));
-  for (const task of datasets.flatMap((dataset) => dataset.task_names ?? []))
-    if (!finished.has(task))
+  // Counted per task rather than matched by name, so a task run several times is short exactly
+  // as many records as it has attempts that never finished.
+  const lock = HarborJobLockSchema.safeParse(readJson(join(jobDir, "lock.json")));
+  const unmatched = new Map<string, number>();
+  for (const planned of lock.success ? lock.data.trials : [])
+    unmatched.set(planned.task.name, (unmatched.get(planned.task.name) ?? 0) + 1);
+  for (const trial of trials) unmatched.set(trial.task, (unmatched.get(trial.task) ?? 0) - 1);
+  for (const [task, missing] of unmatched)
+    for (let n = 0; n < missing; n += 1)
       trials.push({ task, trial: null, reward: null, exception: null, nap: null });
   const named = datasets.flatMap((dataset) =>
     dataset.name ? [dataset.ref ? `${dataset.name}@${dataset.ref}` : dataset.name] : [],
