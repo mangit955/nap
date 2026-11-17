@@ -143,6 +143,11 @@ export type BenchmarkReport = {
      * could have changed the answer itself rather than through the agent (ADR-0036 D5).
      */
     wrote: Array<{ task: string; files: string[]; restored: boolean }>;
+    /**
+     * Trials with a review whose writes could not be read (its start was never marked, or the
+     * listing failed), so nothing was put back and nothing is known about what it wrote.
+     */
+    unknownWrites: string[];
     reviews: number;
     steps: number;
     usage: TokenUsage;
@@ -309,6 +314,9 @@ function reviewSummary(trials: readonly TrialRecord[]): BenchmarkReport["review"
       const restored = writing.every((review) => review.restored);
       return files.length === 0 ? [] : [{ task: trial.task, files, restored }];
     }),
+    unknownWrites: withReviewer
+      .filter((trial) => (trial.nap?.reviews ?? []).some((review) => review.wrote === null))
+      .map((trial) => trial.task),
     reviews: all.length,
     steps: all.reduce((total, review) => total + review.steps, 0),
     usage,
@@ -503,14 +511,27 @@ function renderReview(review: NonNullable<BenchmarkReport["review"]>): string[] 
       "are inside the totals above, and none of those calls is counted in the agent's steps, " +
       "which stay capped across every round of a task.",
     "",
-    ...renderWrote(review.wrote),
+    ...renderWrote(review.wrote, review.unknownWrites),
     "",
   ];
 }
 
 /** Where a review's commands wrote in a task's directory, and whether that was put back. */
-function renderWrote(wrote: NonNullable<BenchmarkReport["review"]>["wrote"]): string[] {
-  if (wrote.length === 0) return ["No review's commands wrote a file in a task's directory."];
+function renderWrote(
+  wrote: NonNullable<BenchmarkReport["review"]>["wrote"],
+  unknown: readonly string[],
+): string[] {
+  const unread =
+    unknown.length === 0
+      ? []
+      : [
+          "**What a review wrote could not be read, so nothing was put back and a review could " +
+            `have changed the answer itself:** ${unknown.join(", ")}.`,
+        ];
+  if (wrote.length === 0)
+    return unknown.length === 0
+      ? ["No review's commands wrote a file in a task's directory."]
+      : unread;
   const list = (entries: typeof wrote) =>
     entries.map((entry) => `${entry.task} (${entry.files.join(", ")})`).join("; ");
   const kept = wrote.filter((entry) => !entry.restored);
@@ -522,5 +543,6 @@ function renderWrote(wrote: NonNullable<BenchmarkReport["review"]>["wrote"]): st
     ...(kept.length === 0
       ? []
       : [`**Not put back, so the review itself could have changed the answer:** ${list(kept)}.`]),
+    ...unread,
   ];
 }

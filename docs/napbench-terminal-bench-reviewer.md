@@ -109,7 +109,8 @@ sent-back task would otherwise have left unused, never a step past 20.
 a task and five to seven a review on average, capped at 10 a review. They are not agent steps and cannot
 change a file the hidden tests read: the task's directory is copied before each review and every
 file a review's commands wrote is put back from the copy (`task-review-guard.ts`). Reviews wrote
-files in seven trials across the three runs, and all were put back. Six were caches
+files in seven trials across the three runs, and all were put back; no review's writes went
+unread (each report's `review.unknownWrites` is empty). Six were caches
 (`__pycache__`, `.pytest_cache`); in `multi-source-data-merger` the reviewer ran the agent's program,
 which wrote the task's own output files (`merged_users.parquet`, `conflicts.json`), exactly the
 case the copy exists for.

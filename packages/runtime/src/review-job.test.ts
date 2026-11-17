@@ -212,6 +212,35 @@ describe("the review in an imported repository's job", () => {
     );
   });
 
+  it("spends nothing on a review when the branch cannot be read, since nothing could be put back", async () => {
+    const f = await fixture({ results: [BLOCK] });
+    f.sandbox.script(/git symbolic-ref --quiet HEAD/, { exitCode: 128, stderr: "not a git repo" });
+    expect(await f.run()).toMatchObject({ ok: true });
+    expect(f.review).not.toHaveBeenCalled();
+    expect(f.agent.calls).toBe(1);
+  });
+
+  it("puts back what a review's commands wrote even when the review then throws", async () => {
+    const f = await fixture({ results: [] });
+    let reviewing = false;
+    f.review.mockImplementation(async () => {
+      reviewing = true;
+      throw new Error("provider down");
+    });
+    f.sandbox.script(/git rev-parse HEAD && git --no-optional-locks status/, () => ({
+      exitCode: 0,
+      stdout: reviewing ? `${FAKE_COMMIT_SHA}\n?? stray.txt\n` : `${FAKE_COMMIT_SHA}\n`,
+    }));
+    f.sandbox.script(/git reset --quiet --hard/, { exitCode: 0 });
+    expect(await f.run()).toMatchObject({ ok: true });
+    expect(
+      f.sandbox
+        .commands(f.sandboxId)
+        .some((command) => command.includes("git reset --quiet --hard")),
+    ).toBe(true);
+    expect(f.agent.calls).toBe(1);
+  });
+
   it("puts the job back on its branch when a reviewer's command switched branches", async () => {
     // A checkout at the same commit leaves the commit and the tree as they were, so the branch is
     // compared on its own.

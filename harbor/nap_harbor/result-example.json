@@ -18,10 +18,10 @@
       "blocking": 1,
       "notes": 0,
       "failure": null,
-      "steps": 4,
+      "steps": 1,
       "usage": {
-        "inputTokens": 24000,
-        "outputTokens": 900
+        "inputTokens": 6000,
+        "outputTokens": 300
       },
       "sentBack": true,
       "findings": [

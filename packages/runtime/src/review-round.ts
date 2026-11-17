@@ -49,12 +49,29 @@ export type JobReviewRequest = {
 export async function reviewJob(
   request: JobReviewRequest,
 ): Promise<ReturnType<typeof reviewCheck> | null> {
-  const { sandbox, sandboxId, commitSha, jobId, history } = request;
-  if (reviewRounds(history, jobId) >= MAX_REVIEW_ROUNDS) return null;
+  if (reviewRounds(request.history, request.jobId) >= MAX_REVIEW_ROUNDS) return null;
+  // The ports report rather than throw, but the job's checks have already passed by now, and a
+  // review must never turn that into a failed turn.
   try {
-    const branch = await checkedOutBranch(sandbox, sandboxId);
-    const before = await workspaceState(sandbox, sandboxId);
-    const result = await request.reviewer.review({
+    return await reviewAndPutBack(request);
+  } catch (error) {
+    getLogger().warn({ err: error }, "the review could not be run");
+    return null;
+  }
+}
+
+async function reviewAndPutBack(
+  request: JobReviewRequest,
+): Promise<ReturnType<typeof reviewCheck> | null> {
+  const { sandbox, sandboxId, commitSha, jobId, history } = request;
+  // Read before anything is spent: without the branch, nothing a review's commands changed could
+  // be put back safely, so there is no review.
+  const branch = await checkedOutBranch(sandbox, sandboxId);
+  if (!branch.ok) return null;
+  const before = await workspaceState(sandbox, sandboxId);
+  let result: ReviewResult | null = null;
+  try {
+    result = await request.reviewer.review({
       sandbox,
       sandboxId,
       objective: request.objective,
@@ -74,29 +91,29 @@ export async function reviewJob(
       },
       "reviewed the job",
     );
-    const after = await workspaceState(sandbox, sandboxId);
-    const branchAfter = await checkedOutBranch(sandbox, sandboxId);
-    const unchanged =
-      branch.ok &&
-      branchAfter.ok &&
-      branch.value === branchAfter.value &&
-      before.ok &&
-      after.ok &&
-      before.value === after.value;
-    // Without the branch it was on, nothing can be put back safely: the review blocks nothing.
-    if (!branch.ok) return null;
-    const reset = unchanged
-      ? null
-      : await discardUncommitted(sandbox, sandboxId, { sha: commitSha, branch: branch.value });
-    if (reset !== null && !reset.ok) {
+  } catch (error) {
+    getLogger().warn({ err: error }, "the review could not be run");
+  }
+  // Whether or not the review finished: its commands may have run either way.
+  const after = await workspaceState(sandbox, sandboxId);
+  const branchAfter = await checkedOutBranch(sandbox, sandboxId);
+  const unchanged =
+    branchAfter.ok &&
+    branch.value === branchAfter.value &&
+    before.ok &&
+    after.ok &&
+    before.value === after.value;
+  if (!unchanged) {
+    const reset = await discardUncommitted(sandbox, sandboxId, {
+      sha: commitSha,
+      branch: branch.value,
+    });
+    if (!reset.ok) {
       getLogger().warn({ err: reset.error }, "could not reset the workspace after the review");
       return null;
     }
-    return reviewCheck(result);
-  } catch (error) {
-    getLogger().warn({ err: error }, "the review could not be run");
-    return null;
   }
+  return result === null ? null : reviewCheck(result);
 }
 
 /** Reviews the job has had, read from its `verification.completed` events. */

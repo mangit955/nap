@@ -86,7 +86,8 @@ export const TaskTurnResultSchema = z.strictObject({
   model: z.string().min(1),
   /**
    * HTTP requests sent to the model, every retry included: what a free model's daily quota
-   * counts. At least `steps`, more when the provider retried a throttled or failed request.
+   * counts. At least `steps` plus every review's steps, more when the provider retried a
+   * throttled or failed request: the agent and the reviewer share one counted client.
    */
   requests: z.int().nonnegative(),
   /** Model calls the agent made, across every round: its steps. The reviewer's are not here. */

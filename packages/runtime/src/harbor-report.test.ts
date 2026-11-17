@@ -344,5 +344,15 @@ describe("the reviewer's share", () => {
     expect(renderReport(report)).toContain(
       "**Not put back, so the review itself could have changed the answer:** c (./out.txt).",
     );
+    expect(report.review?.unknownWrites).toEqual([]);
+  });
+
+  it("does not say no review wrote anything when what one wrote could not be read", () => {
+    const unread = { ...review(false), wrote: null, restored: false };
+    const report = summarise([trial({ task: "x", nap: nap({ reviews: [unread] }) })]);
+    expect(report.review?.unknownWrites).toEqual(["x"]);
+    const rendered = renderReport(report);
+    expect(rendered).not.toContain("No review's commands wrote a file");
+    expect(rendered).toContain("could not be read");
   });
 });
