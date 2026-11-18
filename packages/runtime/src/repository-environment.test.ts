@@ -1,3 +1,8 @@
+import { spawn, spawnSync } from "node:child_process";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import {
   InMemorySandboxManager,
   type ScriptedExecResponse,
@@ -166,3 +171,43 @@ it("stops waiting on setup when cancelled, leaving the stopping to the setup scr
   // could leave that group running, with nothing left holding the pid.
   expect(setup?.options.stopOnGiveUp).toBeUndefined();
 });
+
+it("starts the dev server without holding the start command open until the server exits", async () => {
+  // E2B answers a command once its shell's output pipe closes, and gives up after 60 seconds. A
+  // dev server runs until stopped, so a start command that leaves it holding that pipe never
+  // answers, and every repository with a dev command fails to start. Run the real command through a
+  // real shell, the way the provider does, with a dev command that never exits on its own.
+  const marker = `nap-dev-${crypto.randomUUID()}`;
+  const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+  const created = await sandbox.create("project");
+  if (!created.ok) throw new Error(created.error.message);
+  await prepareRepositoryEnvironment({
+    sandbox,
+    sandboxId: created.value.id,
+    source: { ...source, devCommand: `sleep 30; : ${marker}` },
+  });
+  const start = sandbox.commands(created.value.id).find((command) => command.includes(marker));
+  if (start === undefined) throw new Error("the dev command was never started");
+  const workdir = await mkdtemp(join(tmpdir(), "nap-repository-"));
+
+  const startedAt = Date.now();
+  await new Promise<void>((resolve, reject) => {
+    const command = start
+      .replaceAll(TEMPLATE_WORKDIR, workdir)
+      .replaceAll("/tmp/nap-preview.log", join(workdir, "preview.log"));
+    const shell = spawn("/bin/sh", ["-c", command], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    shell.stdout.resume();
+    shell.stderr.resume();
+    // `close` waits for the output pipes, not just the shell's exit: what E2B waits for.
+    shell.on("close", () => resolve());
+    shell.on("error", reject);
+  });
+  const answeredAfterMs = Date.now() - startedAt;
+  const serverRunning = spawnSync("pgrep", ["-f", marker]).status === 0;
+  spawnSync("pkill", ["-f", marker]);
+
+  expect(answeredAfterMs).toBeLessThan(5_000);
+  expect(serverRunning).toBe(true);
+}, 40_000);
