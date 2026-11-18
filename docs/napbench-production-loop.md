@@ -94,11 +94,13 @@ cold-start race on the recorder's 5-second first-frame deadline, but it is not c
 
 ## What it did not prove
 
-- **The first app test on a cold desktop loses its video** ([#290](https://github.com/mangit955/nap/issues/290)). The video above comes from the
-  retest.
+- **The first app test on a cold desktop loses its video**
+  ([#290](https://github.com/mangit955/nap/issues/290)). The video above comes from the retest.
 - **One run, one model, one small repository.** It says nothing about larger apps or other models.
 - **Cost is an estimate** from a price table, and the table and the vendor page disagree by a
   factor of two.
-- **The in-app player** in the agent harness's own embedded browser reported a format error. The
-  file itself is valid (ffprobe, decoded frames), so this looks like that browser lacking H.264.
-  It was not checked in a regular browser.
+- **The in-app player failed once.** The first time the viewer opened, a minute after the retest,
+  it showed "This recording could not be loaded" with a media format error. The same route then
+  served the same 59,864 bytes with a `206`. Five minutes later the viewer played all 29.4 s,
+  chapter by chapter, in the same browser (Electron 44, Chrome 152). The failure did not happen
+  again, so it is recorded here, not filed.
