@@ -5,11 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
+import { forgetSignedOut } from "../auth/forget-signed-out.ts";
 import { recentProjects } from "../dashboard/filters.ts";
 import { seenChange } from "../dashboard/session-rows.ts";
 import { Sidebar } from "../dashboard/sidebar.tsx";
-import { forgetAllLogs, forgetLog } from "../hooks/remembered-logs.ts";
-import { ComposerDraftStore } from "../projects/composer-draft.ts";
+import { forgetLog } from "../hooks/remembered-logs.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 
 /**
@@ -85,11 +85,7 @@ export function SessionSidebar({
           void authClient
             .signOut()
             .then(async () => {
-              forgetAllLogs();
-              if (data?.user.id) {
-                await new ComposerDraftStore().clearOwner(data.user.id).catch(() => {});
-                sessionStorage.removeItem(`nap.composer.${data.user.id}`);
-              }
+              await forgetSignedOut(data?.user.id);
               router.replace("/");
             })
             .catch(() => setSigningOut(false));

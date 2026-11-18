@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
+import { forgetSignedOut } from "../auth/forget-signed-out.ts";
 import { useModels } from "../chat/use-models.ts";
-import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { SpinnerIcon } from "../ui/icons.tsx";
 import {
@@ -142,8 +142,7 @@ function SignedInDashboard({
               void authClient
                 .signOut()
                 .then(async () => {
-                  await new ComposerDraftStore().clearOwner(user.id).catch(() => {});
-                  sessionStorage.removeItem(`nap.composer.${user.id}`);
+                  await forgetSignedOut(user.id);
                   // The session hook and the project list both hold answers that are now wrong,
                   // and the landing page is where a signed-out visitor belongs. The rail is left
                   // marked busy through the redirect: releasing it first invites a second press
