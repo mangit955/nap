@@ -27,6 +27,15 @@ Without an account, you can [watch a recorded session](https://nap-tawny.vercel.
 play back in nap's own workspace, ending in the app it built; nothing runs while you watch, so it
 costs nothing.
 
+**On a real repository.** The live deployment took one task for a public GitHub repository, a
+small tip calculator, and returned [a reviewed draft pull request](https://github.com/mangit955/tab-split/pull/1)
+that adds splitting the bill. Before opening it, nap ran the project's checks and had a second
+model review the change. Then it tested the running app in its own browser and recorded the test,
+for about a cent of model spend. The first attempt failed on a bug that
+[a fix](https://github.com/mangit955/nap/pull/289) removed, and the first recording was lost to
+[another bug](https://github.com/mangit955/nap/issues/290). The
+[write-up](docs/napbench-production-loop.md) covers the run, its cost, and what it did not prove.
+
 ## What nap does
 
 - **Builds in an isolated workspace.** The agent reads and edits files in an E2B sandbox. A Vite
