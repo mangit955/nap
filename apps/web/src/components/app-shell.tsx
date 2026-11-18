@@ -146,6 +146,7 @@ export function AppShell({
 
   const log = useSessionLog({
     sessionId,
+    projectId,
     ...(createSocket === undefined ? {} : { createSocket }),
   });
 

@@ -27,10 +27,11 @@ const PROJECT_B = "4e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const BETA_TURN = "8d2e3f40-5b6c-4d7e-9f0a-1b2c3d4e5f60";
 const ALPHA_REQUEST = "9e3f4a51-6c7d-4e8f-8a1b-2c3d4e5f6a71";
 
-let currentParams: { projectId?: string } = {};
+/** The address bar, which is where the workspace reads its project. See `open-project.ts`. */
+let currentPath = "/p";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
-  useParams: () => currentParams,
+  usePathname: () => currentPath,
 }));
 vi.mock("../auth/client.ts", () => ({
   authClient: {
@@ -149,10 +150,10 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
 };
 
 function workspace(projectId: string) {
-  currentParams = { projectId };
+  currentPath = `/p/${projectId}`;
   return (
     <WorkspaceFrame>
-      <LiveWorkspace projectId={projectId} fetchJson={fetchJson} createSocket={net.createSocket} />
+      <LiveWorkspace fetchJson={fetchJson} createSocket={net.createSocket} />
     </WorkspaceFrame>
   );
 }
@@ -441,6 +442,68 @@ describe("switching projects in place", () => {
     });
     expect(within(screen.getByRole("main")).queryByText("Alpha started")).toBeNull();
     expect(posted.filter((url) => url.includes("/turns"))).toEqual([]);
+  });
+
+  it("draws a project seen earlier at once on coming back, and asks only for what came after", async () => {
+    const view = render(workspace(PROJECT_A));
+    await replayAlpha();
+    expect(await screen.findByText("Alpha reply")).toBeVisible();
+
+    view.rerender(workspace(PROJECT_B));
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+    });
+
+    // A's record is held, so nothing from the server can be what draws A below.
+    const record = gate();
+    recordHeld = record.wait;
+    const announced = vi.spyOn(BroadcastChannel.prototype, "postMessage");
+    view.rerender(workspace(PROJECT_A));
+
+    const conversation = within(screen.getByRole("region", { name: "Conversation" }));
+    expect(conversation.getByText("Alpha prompt")).toBeVisible();
+    expect(conversation.getByText("Alpha reply")).toBeVisible();
+    expect(screen.queryByRole("status", { name: "Loading this conversation" })).toBeNull();
+    expect(net.opened).toHaveLength(2);
+    // Only the transcript is drawn from memory: the preview A announced waits for the server.
+    for (const frame of screen.queryAllByTitle(PREVIEW_TITLE))
+      expect(frame).not.toHaveAttribute("src", expect.stringContaining("alpha"));
+
+    await act(async () => {
+      record.open();
+    });
+    await waitFor(() => expect(net.opened).toHaveLength(3));
+    const again = net.latest;
+    expect(new URL(again.url).searchParams.get("seq")).toBe("4");
+    await act(async () => {
+      again.open();
+      // What happened while B was open, replayed after A's last seq: history, not news.
+      again.deliver({ type: "event", event: ev("agent.message", { text: " meanwhile" }, 5) });
+      again.deliver({
+        type: "event",
+        event: ev(
+          "turn.completed",
+          { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 10, commitSha: null },
+          6,
+        ),
+      });
+      again.deliver({ type: "ready" });
+    });
+    const now = () => within(screen.getByRole("region", { name: "Conversation" }));
+    // The reply's chunks join into one passage: drawn once, with what came after it on the end.
+    expect(await now().findByText("Alpha reply meanwhile")).toBeVisible();
+    expect(now().getAllByText("Alpha prompt")).toHaveLength(1);
+    const changes = () => announced.mock.calls.filter(([message]) => message === "changed").length;
+    expect(changes()).toBe(0);
+
+    // A turn that starts now is news, which shows the count above could have moved.
+    await act(async () => {
+      again.deliver({ type: "event", event: ev("turn.started", { source: "user" }, 7) });
+    });
+    await waitFor(() => expect(changes()).toBe(1));
+    announced.mockRestore();
   });
 
   it("keeps the sidebar mounted across the switch", async () => {

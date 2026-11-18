@@ -2,6 +2,7 @@ import type { NapEvent } from "@nap/shared/events";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sockets } from "../testing/fake-socket.ts";
+import { forgetAllLogs, recallLog } from "./remembered-logs.ts";
 import { BACKOFF, LIVE_BATCH_MS, useEventStream } from "./use-event-stream.ts";
 
 /**
@@ -778,5 +779,124 @@ describe("committing the log in batches", () => {
 
     expect(result.current.events.map((e) => e.payload)).toEqual([{ text: "next" }]);
     expect(result.current.lastSeq).toBe(1);
+  });
+});
+
+describe("coming back to a project this tab has seen", () => {
+  const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
+
+  function renderProject(net: ReturnType<typeof sockets>, sessionId: string | undefined) {
+    return renderHook(
+      ({ id }: { id: string | undefined }) =>
+        useEventStream({
+          sessionId: id,
+          projectId: PROJECT,
+          baseUrl: URL_BASE,
+          createSocket: net.createSocket,
+        }),
+      { initialProps: { id: sessionId } },
+    );
+  }
+
+  /** A first visit that saw the log up to `seq` 2, then left. */
+  function visitOnce() {
+    const net = sockets();
+    const first = renderProject(net, SESSION);
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: event(1, "one") });
+      net.latest.deliver({ type: "event", event: event(2, "two") });
+      net.latest.deliver({ type: "ready" });
+    });
+    first.unmount();
+  }
+
+  afterEach(forgetAllLogs);
+
+  it("draws the last log it saw before the server has answered, and before the session is known", () => {
+    visitOnce();
+    const net = sockets();
+    const { result, rerender } = renderProject(net, undefined);
+
+    expect(result.current.remembered?.map((e) => e.seq)).toEqual([1, 2]);
+    expect(net.opened).toHaveLength(0);
+
+    rerender({ id: SESSION });
+    expect(result.current.remembered?.map((e) => e.seq)).toEqual([1, 2]);
+  });
+
+  it("resumes the stream after the last seq it saw, not from the start", () => {
+    visitOnce();
+    const net = sockets();
+    renderProject(net, SESSION);
+
+    expect(net.seqOf(0)).toBe("2");
+  });
+
+  it("hands nothing remembered to the log's readers until the server's replay is in", () => {
+    // Everything that reads `events` and `replayed` — the sidebar's announcement, the phase, the
+    // file listing, the preview's handshake — must see a revisit exactly as it sees a first visit:
+    // nothing, then the whole log at once with `replayed`. Only the transcript draws `remembered`.
+    visitOnce();
+    const net = sockets();
+    const { result } = renderProject(net, SESSION);
+
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: event(3, "three") });
+    });
+    expect(result.current.events).toEqual([]);
+    expect(result.current.replayed).toBe(false);
+
+    act(() => net.latest.deliver({ type: "ready" }));
+
+    expect(result.current.events.map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(result.current.lastSeq).toBe(3);
+    expect(result.current.replayed).toBe(true);
+    expect(result.current.remembered).toBeUndefined();
+  });
+
+  it("keeps what arrives live for the next visit", () => {
+    vi.useFakeTimers();
+    visitOnce();
+    const net = sockets();
+    const second = renderProject(net, SESSION);
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+      net.latest.deliver({ type: "event", event: event(3, "three") });
+    });
+    act(() => void vi.advanceTimersByTime(LIVE_BATCH_MS));
+    second.unmount();
+
+    expect(recallLog(PROJECT)?.events.map((e) => e.seq)).toEqual([1, 2, 3]);
+  });
+
+  it("starts from nothing when the project's session is not the one the log was kept for", () => {
+    visitOnce();
+    const net = sockets();
+    const { result } = renderProject(net, OTHER_SESSION);
+
+    expect(result.current.remembered).toBeUndefined();
+    expect(net.seqOf(0)).toBe("0");
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: event(1, "other", OTHER_SESSION) });
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(result.current.events.map((e) => e.payload)).toEqual([{ text: "other" }]);
+  });
+
+  it("keeps nothing for a stream that names no project", () => {
+    const net = sockets();
+    const first = render(net);
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: event(1, "one") });
+      net.latest.deliver({ type: "ready" });
+    });
+    first.unmount();
+
+    expect(recallLog(PROJECT)).toBeUndefined();
   });
 });

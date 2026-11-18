@@ -18,6 +18,7 @@ import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { Profiler } from "react";
 import { beforeEach, expect, it } from "vitest";
+import { forgetAllLogs } from "../hooks/remembered-logs.ts";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 import { AppShell } from "./app-shell.tsx";
@@ -104,6 +105,8 @@ async function open(writes: number) {
   await waitFor(() => expect(listings).toHaveLength(1));
   await quiet();
   view.unmount();
+  // Each open measured here is a first one; a revisit would resume from this log instead.
+  forgetAllLogs();
 
   return { duringReplay, total: commits - before, listings: listings.length };
 }

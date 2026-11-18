@@ -1,7 +1,16 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { NavigationSchema } from "@nap/shared/session-navigation";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import { PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 
 const navigate = vi.fn();
@@ -29,11 +38,15 @@ beforeAll(() => {
     this.dispatchEvent(new Event("close"));
   };
 });
+/** Where a switch went: by the history API, not the router — see `SessionSidebar`. */
+let switched: MockInstance<History["pushState"]>;
 beforeEach(() => {
   vi.clearAllMocks();
+  switched = vi.spyOn(window.history, "pushState").mockImplementation(() => {});
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  switched.mockRestore();
 });
 
 function server(deleteStatus: number) {
@@ -209,11 +222,13 @@ describe("switching to another project", () => {
 
       expect(fireEvent.click(link, { detail: 1 })).toBe(false);
 
-      expect(navigate).toHaveBeenCalledExactlyOnceWith(`/p/${OTHER_PROJECT}`);
+      expect(switched).toHaveBeenCalledExactlyOnceWith(null, "", `/p/${OTHER_PROJECT}`);
+      // Not through the router, which would fetch the page from the server first.
+      expect(navigate).not.toHaveBeenCalled();
       expect(onNavigate).toHaveBeenCalledOnce();
       // Nothing left to replay the click a moment later.
       vi.advanceTimersByTime(1_000);
-      expect(navigate).toHaveBeenCalledOnce();
+      expect(switched).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
@@ -225,7 +240,7 @@ describe("switching to another project", () => {
 
     expect(fireEvent.click(await otherLink(), { detail: 0 })).toBe(false);
 
-    expect(navigate).toHaveBeenCalledExactlyOnceWith(`/p/${OTHER_PROJECT}`);
+    expect(switched).toHaveBeenCalledExactlyOnceWith(null, "", `/p/${OTHER_PROJECT}`);
   });
 
   // A modified click is never a switch: ⌘/Ctrl and Shift select rows in the list, and anything
@@ -238,6 +253,7 @@ describe("switching to another project", () => {
 
       fireEvent.click(await otherLink(), { detail: 1, [modifier]: true });
 
+      expect(switched).not.toHaveBeenCalled();
       expect(navigate).not.toHaveBeenCalled();
     },
   );
@@ -248,6 +264,7 @@ describe("switching to another project", () => {
 
     expect(fireEvent.click(await otherLink(), { detail: 1, altKey: true })).toBe(true);
 
+    expect(switched).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -258,6 +275,7 @@ describe("switching to another project", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: /Current app/ }), { detail: 1 });
 
+    expect(switched).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(onNavigate).toHaveBeenCalledOnce();
   });

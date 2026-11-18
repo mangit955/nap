@@ -3,10 +3,11 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
 const useSession = vi.fn();
-let params: Record<string, string | string[]> = {};
+/** The address bar: the frame reads the open project from it. See `open-project.ts`. */
+let pathname = "/p";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace }),
-  useParams: () => params,
+  usePathname: () => pathname,
 }));
 vi.mock("../auth/client.ts", () => ({ authClient: { useSession: () => useSession() } }));
 vi.mock("./session-sidebar.tsx", () => ({
@@ -23,7 +24,7 @@ const { PROJECT_ID, SESSION_ID } = await import("../testing/events.ts");
 
 beforeEach(() => {
   vi.clearAllMocks();
-  params = {};
+  pathname = "/p";
   forgetPrefetchedProject();
 });
 
@@ -55,7 +56,7 @@ it("waits for the session before moving anybody", () => {
 
 it("marks the project the URL names as the open one in the sidebar", () => {
   useSession.mockReturnValue({ data: { user: { id: "owner" } }, isPending: false });
-  params = { projectId: "abc" };
+  pathname = "/p/abc";
 
   render(
     <WorkspaceFrame>
@@ -71,7 +72,7 @@ it("asks for the project while the session is still being checked, and draws the
   // The two used to run one after the other: the session check, and only then the project. Each
   // is a round trip from the page's host to the API's, and nobody is helped by waiting for both.
   useSession.mockReturnValue({ data: null, isPending: true });
-  params = { projectId: "abc" };
+  pathname = "/p/abc";
   const asked: string[] = [];
 
   render(
@@ -91,7 +92,7 @@ it("asks for the project while the session is still being checked, and draws the
 
 it("asks for nothing early once the session is known: the workspace asks for itself", () => {
   useSession.mockReturnValue({ data: { user: { id: "owner" } }, isPending: false });
-  params = { projectId: "abc" };
+  pathname = "/p/abc";
   const asked: string[] = [];
 
   render(
@@ -110,7 +111,7 @@ it("asks for nothing early once the session is known: the workspace asks for its
 
 it("opens the workspace on the answer it asked for early, without asking a second time", async () => {
   useSession.mockReturnValue({ data: null, isPending: true });
-  params = { projectId: PROJECT_ID };
+  pathname = `/p/${PROJECT_ID}`;
   const asked: string[] = [];
   const fetchJson = async (url: string) => {
     const path = new URL(url).pathname;
@@ -135,7 +136,7 @@ it("opens the workspace on the answer it asked for early, without asking a secon
   // A function, so the rerender below hands React a new element rather than one it can skip.
   const page = () => (
     <WorkspaceFrame fetchJson={fetchJson}>
-      <LiveWorkspace projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />
+      <LiveWorkspace fetchJson={fetchJson} createSocket={net.createSocket} />
     </WorkspaceFrame>
   );
 

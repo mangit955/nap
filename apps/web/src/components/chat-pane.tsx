@@ -527,10 +527,12 @@ export function LiveChatPane({
       <ChatPane
         draftIdentity={ownerId && projectId ? { ownerId, projectId } : undefined}
         active={active}
-        events={events}
+        // A project this tab has seen is drawn as it was last seen until its replay is in — a
+        // picture only: the submission state above reads the confirmed log, never this.
+        events={log.remembered ?? events}
         // Nothing has been asked for yet when there is no session: the project record is still on
         // its way, so the log this pane will show has not even been subscribed to.
-        loading={sessionId === undefined || !replayed}
+        loading={log.remembered === undefined && (sessionId === undefined || !replayed)}
         pending={pending ?? early}
         pendingSteer={pendingSteer}
         pendingAttachments={pendingAttachments}
