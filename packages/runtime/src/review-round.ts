@@ -18,6 +18,7 @@ import {
   type ReviewResult,
 } from "@nap/shared/ports/reviewer";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
+import type { TokenUsage } from "@nap/shared/usage";
 import type { CheckFailure } from "./verify-turn.ts";
 
 export type JobReviewRequest = {
@@ -36,38 +37,49 @@ export type JobReviewRequest = {
 };
 
 /**
- * One review of a product job, as a check, or `null` when there is none to record.
+ * What one review of a product job came to: the check to record, and what it cost.
  *
- * `null` when the job has had its `MAX_REVIEW_ROUNDS`, counted from the log so a restart cannot
- * reset the count, and when the review throws or the workspace cannot be put back: a review that
- * did not happen cleanly blocks nothing, and the job goes on as its checks decided.
+ * Kept apart because a review can cost tokens and still have no check to record, and the person
+ * is billed for those tokens either way.
+ */
+export type JobReview = {
+  /**
+   * `null` when the job has had its `MAX_REVIEW_ROUNDS`, counted from the log so a restart cannot
+   * reset the count, and when the review throws or the workspace cannot be put back: a review that
+   * did not happen cleanly blocks nothing, and the job goes on as its checks decided.
+   */
+  verdict: ReturnType<typeof reviewCheck> | null;
+  /** `null` when no review ran, or one threw and so reported nothing. */
+  usage: TokenUsage | null;
+};
+
+const NO_REVIEW: JobReview = { verdict: null, usage: null };
+
+/**
+ * One review of a product job.
  *
  * The workspace is put back to the checked commit if the review changed it. The reviewer has no
  * tool that writes, but a command it runs can (ADR-0036 D2), and nothing it left may reach the
  * next turn or the pull request.
  */
-export async function reviewJob(
-  request: JobReviewRequest,
-): Promise<ReturnType<typeof reviewCheck> | null> {
-  if (reviewRounds(request.history, request.jobId) >= MAX_REVIEW_ROUNDS) return null;
+export async function reviewJob(request: JobReviewRequest): Promise<JobReview> {
+  if (reviewRounds(request.history, request.jobId) >= MAX_REVIEW_ROUNDS) return NO_REVIEW;
   // The ports report rather than throw, but the job's checks have already passed by now, and a
   // review must never turn that into a failed turn.
   try {
     return await reviewAndPutBack(request);
   } catch (error) {
     getLogger().warn({ err: error }, "the review could not be run");
-    return null;
+    return NO_REVIEW;
   }
 }
 
-async function reviewAndPutBack(
-  request: JobReviewRequest,
-): Promise<ReturnType<typeof reviewCheck> | null> {
+async function reviewAndPutBack(request: JobReviewRequest): Promise<JobReview> {
   const { sandbox, sandboxId, commitSha, jobId, history } = request;
   // Read before anything is spent: without the branch, nothing a review's commands changed could
   // be put back safely, so there is no review.
   const branch = await checkedOutBranch(sandbox, sandboxId);
-  if (!branch.ok) return null;
+  if (!branch.ok) return NO_REVIEW;
   const before = await workspaceState(sandbox, sandboxId);
   let result: ReviewResult | null = null;
   try {
@@ -94,26 +106,41 @@ async function reviewAndPutBack(
   } catch (error) {
     getLogger().warn({ err: error }, "the review could not be run");
   }
-  // Whether or not the review finished: its commands may have run either way.
-  const after = await workspaceState(sandbox, sandboxId);
-  const branchAfter = await checkedOutBranch(sandbox, sandboxId);
-  const unchanged =
-    branchAfter.ok &&
-    branch.value === branchAfter.value &&
-    before.ok &&
-    after.ok &&
-    before.value === after.value;
-  if (!unchanged) {
-    const reset = await discardUncommitted(sandbox, sandboxId, {
-      sha: commitSha,
-      branch: branch.value,
-    });
-    if (!reset.ok) {
+  // Whether or not the review finished: its commands may have run either way. Dropped if that
+  // cannot be done, but what it cost is kept: those tokens were billed whatever happens next.
+  if (!(await putBack(request, branch.value, before)))
+    return { verdict: null, usage: result?.usage ?? null };
+  return result === null ? NO_REVIEW : { verdict: reviewCheck(result), usage: result.usage };
+}
+
+/**
+ * Resets the workspace to the checked commit and branch if the review changed either, and says
+ * whether it is now as the checks left it. Never throws: the review has already been paid for by
+ * the time this runs, and a throw would lose the record of that along with the review.
+ */
+async function putBack(
+  { sandbox, sandboxId, commitSha }: JobReviewRequest,
+  branch: string | null,
+  before: Awaited<ReturnType<typeof workspaceState>>,
+): Promise<boolean> {
+  try {
+    const after = await workspaceState(sandbox, sandboxId);
+    const branchAfter = await checkedOutBranch(sandbox, sandboxId);
+    const unchanged =
+      branchAfter.ok &&
+      branch === branchAfter.value &&
+      before.ok &&
+      after.ok &&
+      before.value === after.value;
+    if (unchanged) return true;
+    const reset = await discardUncommitted(sandbox, sandboxId, { sha: commitSha, branch });
+    if (!reset.ok)
       getLogger().warn({ err: reset.error }, "could not reset the workspace after the review");
-      return null;
-    }
+    return reset.ok;
+  } catch (error) {
+    getLogger().warn({ err: error }, "could not reset the workspace after the review");
+    return false;
   }
-  return result === null ? null : reviewCheck(result);
 }
 
 /** Reviews the job has had, read from its `verification.completed` events. */

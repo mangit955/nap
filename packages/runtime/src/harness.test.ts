@@ -168,6 +168,18 @@ describe("formatEvent", () => {
     expect(line).toContain("9e107d9d");
   });
 
+  it("reports what a review spent, cache included, the way a turn's line does", () => {
+    const line = formatEvent(
+      event("review.completed", {
+        jobId: "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c",
+        usage: { inputTokens: 4_000, outputTokens: 300, cacheReadTokens: 3_500 },
+      }),
+    );
+
+    expect(line).toContain("review.completed");
+    expect(line).toContain("4000 in (3500 from cache) / 300 out");
+  });
+
   it("says how much of a turn's input the cache served, when it served any", () => {
     const line = formatEvent(
       event("turn.completed", {

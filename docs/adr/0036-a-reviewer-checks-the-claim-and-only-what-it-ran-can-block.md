@@ -96,6 +96,11 @@ for the turn, the person on their own key and the deployment otherwise. Its step
 review. Its usage is logged, but it is not yet in the log's events, so the session's token counts
 leave it out; that is a follow-up.
 
+*Amended 2026-11-18:* each review that returns now writes its usage as `review.completed`, before
+the `verification.completed` carrying its check, and also when the review is dropped because the
+workspace could not be put back. `sessionUsage` (`@nap/shared/session-usage`) counts it beside the
+turns and the title. No pane draws that total yet.
+
 On the benchmark, the agent's steps stay capped at the baseline's 20 **across the whole task**: a fix
 round gets only the steps the first turn left. The reviewer's own steps are separate, capped, and
 reported beside the score, with its cost. So the agent never gets more steps than in the baseline,

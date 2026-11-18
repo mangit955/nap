@@ -4,6 +4,7 @@ import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { NoopMemoryProvider } from "@nap/context/noop-memory-provider";
 import { REVIEW_PROMPTS } from "@nap/context/review-prompt";
 import { StubContextEngine } from "@nap/context/testing/stub-context-engine";
+import { expectEventSequence } from "@nap/db/testing/event-assertions";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
@@ -11,6 +12,7 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { TEMPLATE_DEV_PORT } from "@nap/sandbox/template";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { FAKE_COMMIT_SHA, scriptGit } from "@nap/sandbox/testing/script-git";
+import type { NapEvent } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
 import type { RepositorySource, RepositoryWorkspace } from "@nap/shared/ports/repository-workspace";
 import {
@@ -19,6 +21,8 @@ import {
   type Reviewer,
   type ReviewResult,
 } from "@nap/shared/ports/reviewer";
+import { sessionUsage } from "@nap/shared/session-usage";
+import { addUsage, type TokenUsage } from "@nap/shared/usage";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it, vi } from "vitest";
 import { SingleAgentRuntime } from "./single-agent-runtime.ts";
@@ -32,14 +36,14 @@ const source: RepositorySource = {
   initialBundle: async () => ({ ok: true, value: Buffer.from("bundle") }),
 };
 
-const USAGE = { inputTokens: 10, outputTokens: 1 };
+// Different numbers, so a test that reads a review's usage can tell which review wrote it.
 const PASS: ReviewResult = {
   status: "completed",
   blocking: [],
   notes: [{ summary: "naming could be clearer", command: null, observed: null }],
   failure: null,
   steps: 2,
-  usage: USAGE,
+  usage: { inputTokens: 10, outputTokens: 1 },
 };
 const BLOCK: ReviewResult = {
   status: "completed",
@@ -47,8 +51,17 @@ const BLOCK: ReviewResult = {
   notes: [],
   failure: null,
   steps: 3,
-  usage: USAGE,
+  usage: { inputTokens: 700, outputTokens: 40, cacheReadTokens: 500 },
 };
+
+/** The turns' own totals, which a review's spend is added to. */
+function turnsUsage(events: readonly NapEvent[]): TokenUsage {
+  return events.reduce<TokenUsage>(
+    (total, event) =>
+      event.type === "turn.completed" ? addUsage(total, event.payload.usage) : total,
+    { inputTokens: 0, outputTokens: 0 },
+  );
+}
 
 async function fixture(options: {
   results: ReviewResult[];
@@ -191,6 +204,8 @@ describe("the review in an imported repository's job", () => {
     const events = await f.events.readFrom(sessionId, 0);
     const verification = events.find((event) => event.type === "verification.completed");
     expect(verification?.payload.checks.some((check) => check.name === "review")).toBe(false);
+    // It reported nothing it spent, so there is nothing to record, not a review of zero tokens.
+    expect(events.some((event) => event.type === "review.completed")).toBe(false);
     expect(foldJobs(events).jobs.at(-1)?.phase).toBe("verified");
   });
 
@@ -218,6 +233,8 @@ describe("the review in an imported repository's job", () => {
     expect(await f.run()).toMatchObject({ ok: true });
     expect(f.review).not.toHaveBeenCalled();
     expect(f.agent.calls).toBe(1);
+    const events = await f.events.readFrom(sessionId, 0);
+    expect(events.some((event) => event.type === "review.completed")).toBe(false);
   });
 
   it("puts back what a review's commands wrote even when the review then throws", async () => {
@@ -261,6 +278,93 @@ describe("the review in an imported repository's job", () => {
         .commands(f.sandboxId)
         .some((command) => command.includes("git checkout --quiet --force 'nap/job' && git reset")),
     ).toBe(true);
+  });
+
+  it("records what each review spent, so the session's total counts it beside the turns", async () => {
+    const f = await fixture({ results: [BLOCK, PASS] });
+    expect(await f.run()).toMatchObject({ ok: true });
+    const events = await f.events.readFrom(sessionId, 0);
+    const jobId = events.find((event) => event.type === "job.started")?.payload.jobId;
+
+    // Written before the check it produced, so a crash between the two loses no spend that a
+    // replay would then show as a review.
+    expectEventSequence(events, [
+      "user.message",
+      "job.started",
+      "turn.started",
+      "turn.completed",
+      "verification.started",
+      "review.completed",
+      "verification.completed",
+      "user.message",
+      "turn.started",
+      "turn.completed",
+      "verification.started",
+      "review.completed",
+      "verification.completed",
+      "job.checkpointed",
+      "job.completed",
+    ]);
+    expect(
+      events.flatMap((event) => (event.type === "review.completed" ? [event.payload] : [])),
+    ).toEqual([
+      { jobId, usage: BLOCK.usage },
+      { jobId, usage: PASS.usage },
+    ]);
+    expect(sessionUsage(events)).toEqual(
+      addUsage(turnsUsage(events), addUsage(BLOCK.usage, PASS.usage)),
+    );
+  });
+
+  it("records a review's spend even when what its commands left could not be put back", async () => {
+    // The review is dropped, so nothing it found counts; the tokens it cost were still billed.
+    const f = await fixture({ results: [BLOCK] });
+    let reviewing = false;
+    f.review.mockImplementation(async () => {
+      reviewing = true;
+      return BLOCK;
+    });
+    f.sandbox.script(/git rev-parse HEAD && git --no-optional-locks status/, () => ({
+      exitCode: 0,
+      stdout: reviewing ? `${FAKE_COMMIT_SHA}\n?? stray.txt\n` : `${FAKE_COMMIT_SHA}\n`,
+    }));
+    f.sandbox.script(/git reset --quiet --hard/, { exitCode: 1, stderr: "locked" });
+    expect(await f.run()).toMatchObject({ ok: true });
+    const events = await f.events.readFrom(sessionId, 0);
+    expect(
+      events.flatMap((event) => (event.type === "review.completed" ? [event.payload.usage] : [])),
+    ).toEqual([BLOCK.usage]);
+    expect(sessionUsage(events)).toEqual(addUsage(turnsUsage(events), BLOCK.usage));
+    expect(f.agent.calls).toBe(1);
+  });
+
+  it("records a review's spend even when putting the workspace back throws", async () => {
+    const f = await fixture({ results: [BLOCK] });
+    let reviewing = false;
+    f.review.mockImplementation(async () => {
+      reviewing = true;
+      return BLOCK;
+    });
+    f.sandbox.script(/git rev-parse HEAD && git --no-optional-locks status/, () => {
+      if (reviewing) throw new Error("sandbox went away");
+      return { exitCode: 0, stdout: `${FAKE_COMMIT_SHA}\n` };
+    });
+    expect(await f.run()).toMatchObject({ ok: true });
+    const events = await f.events.readFrom(sessionId, 0);
+    expect(
+      events.flatMap((event) => (event.type === "review.completed" ? [event.payload.usage] : [])),
+    ).toEqual([BLOCK.usage]);
+    expect(f.agent.calls).toBe(1);
+  });
+
+  it("records no review spend for a job that had no review, and the total is its turns alone", async () => {
+    const f = await fixture({ results: [BLOCK], repository: false });
+    f.sandbox.listen(f.sandboxId, TEMPLATE_DEV_PORT);
+    expect(await f.run()).toMatchObject({ ok: true });
+    const events = await f.events.readFrom(sessionId, 0);
+    expect(events.some((event) => event.type === "review.completed")).toBe(false);
+    expect(turnsUsage(events).inputTokens).toBeGreaterThan(0);
+    expect(sessionUsage(events)).toEqual(turnsUsage(events));
   });
 
   it("is not run for a Nap project, which publishes no pull request", async () => {

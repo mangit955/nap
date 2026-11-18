@@ -39,8 +39,15 @@ import { PROJECT_ROOT_PATH } from "@nap/shared/files-protocol";
 import type { LLMProvider, LLMRequest } from "@nap/shared/ports/llm-provider";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { RequestSteering } from "@nap/shared/ports/steer-queue";
+import { sessionUsage } from "@nap/shared/session-usage";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
-import { formatEvent, HARNESS_DEFAULTS, HARNESS_USAGE, parseHarnessArgs } from "../src/harness.ts";
+import {
+  formatEvent,
+  formatUsage,
+  HARNESS_DEFAULTS,
+  HARNESS_USAGE,
+  parseHarnessArgs,
+} from "../src/harness.ts";
 import { SingleAgentRuntime } from "../src/single-agent-runtime.ts";
 
 /** Credentials live here by convention; Bun only auto-loads a `.env` from the working directory. */
@@ -383,6 +390,7 @@ console.log(
     ? `\nDone in ${seconds}s — commit ${outcome.commitSha ?? "none (no files changed)"}`
     : `\nFailed in ${seconds}s — ${outcome.reason}: ${outcome.message}`,
 );
+console.log(`Session usage: ${formatUsage(sessionUsage(await events.readFrom(sessionId, 0)))}`);
 
 const sandboxId = (await sessions.get(sessionId))?.sandboxId ?? null;
 

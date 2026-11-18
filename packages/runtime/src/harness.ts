@@ -9,6 +9,7 @@
 
 import type { NapEvent } from "@nap/shared/events";
 import type { Result } from "@nap/shared/result";
+import type { TokenUsage } from "@nap/shared/usage";
 
 /**
  * What a real run costs, capped up front.
@@ -262,8 +263,7 @@ function detail(event: NapEvent): string {
       return "";
     case "turn.completed": {
       const { usage, durationMs, commitSha, awaiting } = event.payload;
-      const read = usage.cacheReadTokens ?? 0;
-      return `${usage.inputTokens} in${read > 0 ? ` (${read} from cache)` : ""} / ${usage.outputTokens} out, ${durationMs}ms, commit ${commitSha ?? "none"}${awaiting === undefined ? "" : `, awaiting ${awaiting.replace("_", " ")}`}`;
+      return `${formatUsage(usage)}, ${durationMs}ms, commit ${commitSha ?? "none"}${awaiting === undefined ? "" : `, awaiting ${awaiting.replace("_", " ")}`}`;
     }
     case "turn.failed":
       return `${event.payload.reason}: ${oneLine(event.payload.message)}`;
@@ -280,11 +280,19 @@ function detail(event: NapEvent): string {
       return "";
     case "verification.completed":
       return event.payload.checks.map((check) => `${check.name} ${check.outcome}`).join(", ");
+    case "review.completed":
+      return formatUsage(event.payload.usage);
     case "job.checkpointed":
       return event.payload.commitSha;
     case "job.completed":
       return event.payload.outcome;
   }
+}
+
+/** Tokens as a line reads them: input, the part of it read from cache, and output. */
+export function formatUsage(usage: TokenUsage): string {
+  const read = usage.cacheReadTokens ?? 0;
+  return `${usage.inputTokens} in${read > 0 ? ` (${read} from cache)` : ""} / ${usage.outputTokens} out`;
 }
 
 const PLAN_MARKS = { pending: " ", in_progress: "~", completed: "x" } as const;

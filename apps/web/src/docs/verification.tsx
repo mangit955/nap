@@ -117,7 +117,8 @@ export function Verification() {
         nothing. A job is reviewed at most twice, and only while two repairs are left: one for the
         review, and one should that repair break a check. If both of those leave a check red, the
         job ends out of repairs without a pull request. The review runs on the turn&rsquo;s model
-        and account, so whoever pays for the turn pays for its review.
+        and account, so whoever pays for the turn pays for its review, and once it returns, the
+        tokens it spent are recorded in the session&rsquo;s log beside the turn&rsquo;s.
       </P>
 
       <Sub>What a long job costs, and the ceiling that actually fires</Sub>
