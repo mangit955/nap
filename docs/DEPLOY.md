@@ -105,10 +105,15 @@ different here, and why:
 - **GitHub Actions releases production after CI passes on `main`.** Render's own auto-deploys
   stay off. The `production` job deploys the worker, API and reaper in that order, then Vercel,
   using the same commit SHA throughout. See [Release production](#release-production).
-- **The free database expires after thirty days.** Upgrade `nap-db` to `basic-256mb` before then,
-  or its data goes with it. Render Postgres rather than Neon's free tier because three processes
-  each hold a permanent `LISTEN` connection, so a Neon compute never scales to zero and its free
-  quota runs out within the month.
+- **`nap-db` is the paid `0.1c-256mb` plan, because the free one expires.** A free Render
+  Postgres becomes unreachable thirty days after it is created and is deleted with its data
+  fourteen days after that. It was upgraded on 2026-11-18, two days before its expiry, with
+  `render pg update nap-db --plan 0.1c-256mb` (Render's newer name for `basic-256mb`; both pass
+  `render blueprints validate`). The change restarted the database: for about 90 seconds the
+  worker could not claim, the reaper's sweeps were interrupted and `/readyz` reported the database
+  down, and all three processes reconnected their `LISTEN` on their own. Render Postgres rather
+  than Neon's free tier because three processes each hold a permanent `LISTEN` connection, so a
+  Neon compute never scales to zero and its free quota runs out within the month.
 
 ## Release production
 

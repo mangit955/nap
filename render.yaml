@@ -10,11 +10,11 @@
 # `render blueprints validate render.yaml` checks it.
 
 databases:
-  # The free plan expires thirty days after creation; `basic-256mb` is the paid plan that keeps it.
-  # Render Postgres rather than Neon's free tier because three processes each hold a permanent
-  # LISTEN connection, so the compute never scales to zero and a free Neon quota runs out monthly.
+  # Paid, because the free plan expires thirty days after creation and is then deleted. Render
+  # Postgres rather than Neon's free tier because three processes each hold a permanent LISTEN
+  # connection, so the compute never scales to zero and a free Neon quota runs out monthly.
   - name: nap-db
-    plan: free
+    plan: 0.1c-256mb
     region: oregon
     postgresMajorVersion: "17"
 
