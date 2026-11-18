@@ -1,3 +1,9 @@
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
 import {
   InMemorySandboxManager,
   type ScriptedExecResponse,
@@ -166,3 +172,56 @@ it("stops waiting on setup when cancelled, leaving the stopping to the setup scr
   // could leave that group running, with nothing left holding the pid.
   expect(setup?.options.stopOnGiveUp).toBeUndefined();
 });
+
+it("starts the dev server without holding the start command open until the server exits", async () => {
+  // E2B runs a command with `bash -c` and answers once that shell's output pipes close, giving up
+  // after 60 seconds. A dev server runs until stopped, so a start command that leaves it holding
+  // those pipes never answers, and every repository with a dev command fails to start. Run the real
+  // command through bash, not `/bin/sh`: dash, CI's `/bin/sh`, hands the pipe over where bash does
+  // not, so it passes the broken command. The dev command never exits on its own, and its own
+  // command line carries a marker so the server itself can be found and stopped.
+  // Minutes, not hours: long past the five-second wait, short if a killed run leaves it behind.
+  const marker = `${300 + Math.floor(Math.random() * 300)}.${Date.now() % 1_000_000}`;
+  const server = `sleep ${marker}`;
+  const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
+  const created = await sandbox.create("project");
+  if (!created.ok) throw new Error(created.error.message);
+  await prepareRepositoryEnvironment({
+    sandbox,
+    sandboxId: created.value.id,
+    source: { ...source, devCommand: server },
+  });
+  const start = sandbox.commands(created.value.id).find((command) => command.includes(server));
+  if (start === undefined) throw new Error("the dev command was never started");
+  const workdir = await mkdtemp(join(tmpdir(), "nap-repository-"));
+  const log = join(workdir, "preview.log");
+
+  const command = start
+    .replaceAll(TEMPLATE_WORKDIR, workdir)
+    .replaceAll("/tmp/nap-preview.log", log);
+  const shell = spawn("bash", ["-c", command], { stdio: ["ignore", "pipe", "pipe"] });
+
+  try {
+    shell.stdout.resume();
+    shell.stderr.resume();
+    // `close` waits for the output pipes, not just the shell's exit: what E2B waits for.
+    const answered = await new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(false), 5_000);
+      shell.on("close", () => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+      shell.on("error", reject);
+    });
+    const serverRunning = spawnSync("pgrep", ["-f", server]).status === 0;
+
+    expect(answered).toBe(true);
+    expect(serverRunning).toBe(true);
+    // The log path was rewritten, so the server's output reached the work dir rather than the host.
+    expect(existsSync(log)).toBe(true);
+  } finally {
+    shell.kill("SIGKILL");
+    spawnSync("pkill", ["-f", server]);
+    await rm(workdir, { recursive: true, force: true });
+  }
+}, 20_000);
