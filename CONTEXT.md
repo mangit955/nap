@@ -78,7 +78,14 @@ agent-reported assertions do not change the deterministic checkpoint.
 and before an imported repository's job is published (ADR-0036). It reads and runs commands and
 never edits. A **proved** problem (one a command it ran in that review shows, quoted from that
 command's output) opens a repair turn, recorded as a failed `review` check; everything else it says
-is a note. Not a helper: the system calls it, not the agent.
+is a note. Not a helper: the system calls it, not the agent. What it cost is in the log as
+`review.completed`, outside any turn's usage, and the **session's usage** adds it.
+
+**Session usage** — the tokens a session's log records as spent: every completed turn, the
+project's title, and every review. Not a compaction or a helper, which ran inside a turn and are
+already in its total, and nothing from a failed turn, which records none. Tokens, not money: the
+log does not say which model each turn ran on. Defined by `sessionUsage`
+(`@nap/shared/session-usage`).
 
 **Check** — one command, run in the sandbox, that passed, failed, or was **absent**. Absent is not
 failure and the gap is load-bearing in both directions: a project with no `test` script has not
