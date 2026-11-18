@@ -276,8 +276,6 @@ function DemoSession({
             job={job}
             panelOpen={panels.layout.open}
             onTogglePanel={panels.toggle}
-            detailsOpen={false}
-            onToggleDetails={noAction}
           />
           <ChatPane
             key={activeThread}

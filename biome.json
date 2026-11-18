@@ -14,6 +14,7 @@
       "!**/.turbo",
       "!packages/db/drizzle",
       "!apps/api/scripts/fixtures/reliability",
+      "!apps/web/public/replays",
       "!docs/nap-navigation-plan.html"
     ]
   },

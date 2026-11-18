@@ -58,6 +58,13 @@ export function EventModel() {
         second tab all land on the same picture without anything having to be reconciled.
       </P>
 
+      <P>
+        A <Term>replay</Term> is the same fold over a log kept in the repository: a real
+        session&rsquo;s events are handed to the workspace&rsquo;s own panes on a clock, with the
+        app&rsquo;s source at each point built to static files standing in for the sandbox that is
+        gone, so watching one opens no socket and calls no model.
+      </P>
+
       <Facts
         items={[
           {

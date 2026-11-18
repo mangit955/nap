@@ -23,6 +23,10 @@ A model saying "done" is a claim. A passing checkpoint is evidence.
 The GIF is a 22-second cut from a real two-minute session. It shows the prompt, sandbox tool calls,
 project checks, verification, and the resulting app. The [full session is on the docs page](https://nap-tawny.vercel.app/docs).
 
+Without an account, you can [watch a recorded session](https://nap-tawny.vercel.app/replay/reading-list)
+play back in nap's own workspace, ending in the app it built; nothing runs while you watch, so it
+costs nothing.
+
 ## What nap does
 
 - **Builds in an isolated workspace.** The agent reads and edits files in an E2B sandbox. A Vite

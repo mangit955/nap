@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { FEATURED_REPLAY_PATH } from "../replay/featured.ts";
 import { ArrowRightIcon } from "../ui/icons.tsx";
 import { SessionPreview } from "./session-preview.tsx";
 import { useHeroReveal } from "./use-hero-reveal.ts";
@@ -36,8 +37,8 @@ export function Hero() {
               <a href="/sign-up" className="lp-pill lp-pill-light">
                 Start building <ArrowRightIcon className="size-4" />
               </a>
-              <a href="#why" className="lp-text-link">
-                See how it works <span aria-hidden="true">↘</span>
+              <a href={FEATURED_REPLAY_PATH} className="lp-text-link">
+                Watch a real session <span aria-hidden="true">→</span>
               </a>
             </div>
           </div>
