@@ -17,6 +17,16 @@ function log(...payloads: readonly Omit<NapEvent, keyof typeof ENVELOPE | "seq">
 /** A log written before reviews recorded their usage: one turn, a compaction inside it, a title. */
 const OLD_LOG = log(
   { type: "turn.started", payload: { source: "user" } },
+  // A first attempt that failed, then one that worked: both ran on the turn's provider.
+  {
+    type: "compaction.failed",
+    payload: {
+      id: JOB_ID,
+      message: "truncated",
+      cancelled: false,
+      usage: { inputTokens: 100, outputTokens: 10 },
+    },
+  },
   { type: "compaction.started", payload: { id: JOB_ID, trigger: "automatic" } },
   {
     type: "compaction.completed",
@@ -64,7 +74,7 @@ const OLD_LOG = log(
 
 describe("sessionUsage", () => {
   it("adds every turn and the title, and not the calls already inside a turn's own total", () => {
-    // The compaction and the helper ran on the turn's provider, so the turn's 1,500 includes them.
+    // The compactions and the helper ran on the turn's provider, so the turn's 1,500 includes them.
     expect(sessionUsage(OLD_LOG)).toEqual({
       inputTokens: 2_400,
       outputTokens: 166,

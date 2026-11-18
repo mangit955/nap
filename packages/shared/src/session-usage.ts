@@ -51,7 +51,8 @@ const COUNTED: Record<UsageEventType, boolean> = {
  * The tokens a session's completed turns, titles and reviews spent.
  *
  * Not everything the log records: a failed turn writes no total of its own, so neither its model
- * calls nor the compaction and helper usage it did record are in this total.
+ * calls nor the compaction and helper usage it did record are in this total. A turn marked
+ * `usageIncomplete` is added with what it counted, and this total does not say so.
  */
 export function sessionUsage(events: readonly NapEvent[]): TokenUsage {
   let total: TokenUsage = { inputTokens: 0, outputTokens: 0 };

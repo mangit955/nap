@@ -446,11 +446,22 @@ turn. Browser tabs need nothing: a tab from before this change drops a frame it 
 carries on, and the event draws nothing in the transcript anyway. There is no database migration
 and no new env key.
 
-So readers go first, in the order of the [usage cache split rollout](#usage-cache-split-rollout):
-`nap-api`, then `nap-reaper`, then `nap-worker`, with `[skip ci]` on the merge commit to hold the
-worker-first automatic release. Until every reader is on the release, a session whose job was
-reviewed by a new worker cannot be opened from an old API instance. Once a `review.completed` row
-exists, do not roll a reader back past this change; roll forward instead.
+So readers go first. Follow every step of the
+[usage cache split rollout](#usage-cache-split-rollout), with this change in its place:
+
+1. Merge with `[skip ci]` in the merge commit's message, to hold the worker-first automatic release.
+2. From Render, deploy that commit to `nap-api`, and wait for `/readyz` and for its old instances to
+   exit. Then the same for `nap-reaper`. Then `nap-worker`. Render starts the new worker before it
+   signals the old one, so for that moment an old worker can claim a session that already has a
+   `review.completed` row and fail that turn; a resend succeeds.
+3. Merge nothing else to `main` until this release has finished.
+4. Run the **CI** workflow on `main` with **Run workflow** while `main` is still that commit. It
+   finds the three services live at it, and deploys the web, whose `/docs` changed, at the same
+   SHA. Skipping this leaves the web on the old commit and CI never run on the new one.
+
+Until every reader is on the release, a session whose job was reviewed by a new worker cannot be
+opened from an old API instance. Once a `review.completed` row exists, do not roll a reader back past
+this change; roll forward instead.
 
 ## Viewer keep-warm rollout
 

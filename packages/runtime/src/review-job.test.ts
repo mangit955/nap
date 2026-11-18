@@ -36,14 +36,14 @@ const source: RepositorySource = {
   initialBundle: async () => ({ ok: true, value: Buffer.from("bundle") }),
 };
 
-const USAGE = { inputTokens: 10, outputTokens: 1 };
+// Different numbers, so a test that reads a review's usage can tell which review wrote it.
 const PASS: ReviewResult = {
   status: "completed",
   blocking: [],
   notes: [{ summary: "naming could be clearer", command: null, observed: null }],
   failure: null,
   steps: 2,
-  usage: USAGE,
+  usage: { inputTokens: 10, outputTokens: 1 },
 };
 const BLOCK: ReviewResult = {
   status: "completed",
@@ -51,7 +51,7 @@ const BLOCK: ReviewResult = {
   notes: [],
   failure: null,
   steps: 3,
-  usage: USAGE,
+  usage: { inputTokens: 700, outputTokens: 40, cacheReadTokens: 500 },
 };
 
 /** The turns' own totals, which a review's spend is added to. */
@@ -204,6 +204,8 @@ describe("the review in an imported repository's job", () => {
     const events = await f.events.readFrom(sessionId, 0);
     const verification = events.find((event) => event.type === "verification.completed");
     expect(verification?.payload.checks.some((check) => check.name === "review")).toBe(false);
+    // It reported nothing it spent, so there is nothing to record, not a review of zero tokens.
+    expect(events.some((event) => event.type === "review.completed")).toBe(false);
     expect(foldJobs(events).jobs.at(-1)?.phase).toBe("verified");
   });
 
@@ -231,6 +233,8 @@ describe("the review in an imported repository's job", () => {
     expect(await f.run()).toMatchObject({ ok: true });
     expect(f.review).not.toHaveBeenCalled();
     expect(f.agent.calls).toBe(1);
+    const events = await f.events.readFrom(sessionId, 0);
+    expect(events.some((event) => event.type === "review.completed")).toBe(false);
   });
 
   it("puts back what a review's commands wrote even when the review then throws", async () => {
