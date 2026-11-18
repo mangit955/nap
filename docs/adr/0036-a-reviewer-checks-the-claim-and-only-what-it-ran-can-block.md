@@ -121,9 +121,6 @@ watching in the preview; a review there is cost without the pull request it prot
 
 ## Deferred
 
-- **Notes on the pull request.** Non-blocking findings are in the log, as the `review` check's
-  output. Putting them in the pull request needs the publisher to read the log or the job row to
-  carry them.
 - **Checks derived from a repository's CI config, with a per-repository override.** The review does
   not depend on it, and it is the product path's own change.
 
@@ -134,7 +131,11 @@ watching in the preview; a review there is cost without the pull request it prot
 - A job whose checks passed can end out of repairs, unpublished, where before it would have opened a
   pull request (D4).
 - A `review` check can appear in a job's checks, failed or passed. A passed review's notes are its
-  output.
+  output, and the draft pull request the job opens shows them
+  (`apps/api/src/github/pull-request-body.ts`): read from the log at publish time, so a retried
+  publish writes the same description and spends no model call. Only the review in the job's last
+  `verification.completed` is shown, because that is the one that saw the published commit. A job
+  that reuses an existing pull request leaves its description as it was.
 - Measured on the locked Terminal-Bench test set in
   [napbench-terminal-bench-reviewer.md](../napbench-terminal-bench-reviewer.md): false claims of done
   fell from 15 in 50 trials to 5 in 75, and the pass rate did not measurably move.

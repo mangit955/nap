@@ -22,6 +22,7 @@ import { shellQuote } from "@nap/shared/shell";
 import { z } from "zod";
 import type { GitHubApp, GitHubResult } from "./app.ts";
 import type { GitBroker } from "./git-broker.ts";
+import { pullRequestBody } from "./pull-request-body.ts";
 
 const denied = <T>(): GitHubResult<T> => ({
   ok: false,
@@ -358,9 +359,8 @@ export class GitHubIntegration implements RepositoryWorkspace {
     const access = await this.authorize(session.userId, binding.installationId, binding.repository);
     if (!access.ok) return this.#publicationFailed(jobId, access);
     const repository = access.value.repository;
-    const state = foldJobs(await this.deps.events.readFrom(session.sessionId, 0)).jobs.find(
-      (entry) => entry.jobId === jobId,
-    );
+    const events = await this.deps.events.readFrom(session.sessionId, 0);
+    const state = foldJobs(events).jobs.find((entry) => entry.jobId === jobId);
     if (state?.phase !== "verified" || state.checkpointSha === null)
       return this.#publicationFailed(
         jobId,
@@ -475,7 +475,7 @@ export class GitHubIntegration implements RepositoryWorkspace {
         head: job.headBranch,
         base: job.baseBranch,
         title: `Nap changes ${job.jobId.slice(0, 8)}`,
-        body: `Changes prepared and checked in Nap.\n\nJob: ${job.jobId}\nVerified commit: ${state.checkpointSha}\n\nReview this draft before merging.`,
+        body: pullRequestBody({ jobId: job.jobId, verifiedSha: state.checkpointSha, events }),
         signal,
       });
       if (created.ok) pr = created.value;

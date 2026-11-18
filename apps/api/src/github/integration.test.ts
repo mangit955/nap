@@ -5,6 +5,7 @@ import { InMemoryGitHubStore } from "@nap/db/testing/in-memory-github-store";
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
+import type { VerifiedCheck } from "@nap/shared/events";
 import type { GitHubRepository, RepositoryJob } from "@nap/shared/github-protocol";
 import type { SessionRecord } from "@nap/shared/ports/session-store";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
@@ -256,7 +257,10 @@ async function fixture() {
   };
 }
 
-async function verified(f: Awaited<ReturnType<typeof fixture>>) {
+async function verified(
+  f: Awaited<ReturnType<typeof fixture>>,
+  checks: VerifiedCheck[] = [{ name: "test", outcome: "passed", output: null }],
+) {
   const envelope = {
     sessionId: f.session.sessionId,
     turnId: randomUUID(),
@@ -280,7 +284,7 @@ async function verified(f: Awaited<ReturnType<typeof fixture>>) {
   await f.events.append({
     ...envelope,
     type: "verification.completed",
-    payload: { jobId: f.job.jobId, checks: [{ name: "test", outcome: "passed", output: null }] },
+    payload: { jobId: f.job.jobId, checks },
   });
   await f.events.append({
     ...envelope,
@@ -294,6 +298,15 @@ async function verified(f: Awaited<ReturnType<typeof fixture>>) {
   });
   await f.objects.put("saved.bundle", new TextEncoder().encode("saved repository"));
   await f.snapshots.record({ projectId: f.session.projectId, key: "saved.bundle", gitSha: SHA });
+}
+
+/** The description of the pull request publication asked GitHub to create. */
+function createdBody(f: Awaited<ReturnType<typeof fixture>>): unknown {
+  const create = f.transport.calls.find(
+    (call) => call.path === "/repos/org/app/pulls" && call.method === "POST",
+  );
+  const body: unknown = create?.body;
+  return typeof body === "object" && body !== null && "body" in body ? body.body : undefined;
 }
 
 function publish(f: Awaited<ReturnType<typeof fixture>>, signal?: AbortSignal) {
@@ -502,6 +515,33 @@ describe("verified PR publication", () => {
       pullRequestNumber: 10,
       publishState: "published",
     });
+  });
+
+  it("opens the pull request with today's body when the review left no notes", async () => {
+    const f = await fixture();
+    await verified(f, [
+      { name: "test", outcome: "passed", output: null },
+      { name: "review", outcome: "passed", output: null },
+    ]);
+    expect(await publish(f)).toMatchObject({ ok: true });
+    expect(createdBody(f)).toBe(
+      `Changes prepared and checked in Nap.\n\nJob: ${f.job.jobId}\nVerified commit: ${SHA}\n\nReview this draft before merging.`,
+    );
+  });
+
+  it("puts the review's notes on the pull request it opens", async () => {
+    const f = await fixture();
+    await verified(f, [
+      { name: "test", outcome: "passed", output: null },
+      {
+        name: "review",
+        outcome: "passed",
+        output: "- Git is not installed, so the push was not tried.",
+      },
+    ]);
+    expect(await publish(f)).toMatchObject({ ok: true });
+    expect(createdBody(f)).toContain("- Git is not installed, so the push was not tried.");
+    expect(createdBody(f)).toContain(`Verified commit: ${SHA}`);
   });
 
   it("keeps a successful push when PR creation fails, then adopts an existing PR on retry", async () => {

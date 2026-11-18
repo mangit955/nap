@@ -120,7 +120,8 @@ export type PromptSource = z.infer<typeof PromptSourceSchema>;
  * `output` is what a failed check said, already budgeted by whoever ran it — this is a
  * transcript entry, not the place a cap is decided. `null` on a check that passed, was never
  * asked, or failed silently: a passing build's output is noise in a log somebody reads to find
- * out why something broke.
+ * out why something broke. The one exception is a passed `review`, whose output is the notes it
+ * left without blocking (docs/adr/0036), which the draft pull request then shows.
  */
 export const VerifiedCheckSchema = z.strictObject({
   /** The check's name as the project knows it — `typecheck`, `lint`, `build`, `test`, `preview`. */
