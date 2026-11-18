@@ -113,12 +113,14 @@ export function Verification() {
         Only a problem it <em>proved</em> sends the agent back: it must name a command it ran in
         that review and quote what the command printed, and Nap checks both against its own record
         before believing it. A command that only shows a file or prints its own words proves
-        nothing. Anything else it says is a note, kept in the log, and a review that fails blocks
-        nothing. A job is reviewed at most twice, and only while two repairs are left: one for the
-        review, and one should that repair break a check. If both of those leave a check red, the
-        job ends out of repairs without a pull request. The review runs on the turn&rsquo;s model
-        and account, so whoever pays for the turn pays for its review, and once it returns, the
-        tokens it spent are recorded in the session&rsquo;s log beside the turn&rsquo;s.
+        nothing. Anything else it says is a note. When the review that passed the published commit
+        left notes, the draft pull request&rsquo;s description shows them in a code block, with
+        common credential shapes redacted on a best effort. A review that fails blocks nothing. A
+        job is reviewed at most twice, and only while two repairs are left: one for the review, and
+        one should that repair break a check. If both of those leave a check red, the job ends out
+        of repairs without a pull request. The review runs on the turn&rsquo;s model and account, so
+        whoever pays for the turn pays for its review, and once it returns, the tokens it spent are
+        recorded in the session&rsquo;s log beside the turn&rsquo;s.
       </P>
 
       <Sub>What a long job costs, and the ceiling that actually fires</Sub>
