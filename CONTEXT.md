@@ -360,7 +360,8 @@ never reconciliation.
 
 **Put away** — a project whose sandbox has been destroyed on purpose, its work preserved in a
 snapshot. Not an error and not an empty project: its files are safe, and starting it back up takes
-seconds. The state a project spends most of its life in.
+seconds. The state a project spends most of its life in. Opening one starts nothing: it shows the
+last snapshot until a message or **Resume** starts it (ADR-0037).
 
 **Phase** — what a project is doing right now, as one named answer: *opening*, *idle*, *starting*,
 *running*, *put away* or *failed*. Reconciles three sources that each know something the others

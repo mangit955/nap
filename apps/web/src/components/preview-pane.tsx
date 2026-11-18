@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { NapLoader } from "../brand/nap-loader.tsx";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { pickDifferent } from "../brand/nap-tricks.ts";
@@ -87,7 +87,10 @@ export type PreviewPaneProps = {
    * the page switches projects without a document load, so the last one's is always close by.
    */
   projectId?: string | undefined;
-  /** The project's last picture, shown under the start-up loader. Ignored unless it is this project's. */
+  /**
+   * The project's last picture, shown behind the put-away screen and the start-up loader. Ignored
+   * unless it is this project's.
+   */
   thumbnail?: { projectId: string; src: string } | undefined;
 };
 
@@ -164,12 +167,13 @@ export function PreviewPane({
       )}
       {reloading && <Notice label="Loading the preview…" />}
       {replacing && <Notice label="Updating the preview…" corner />}
-      {phase.kind !== "running" && phase.kind !== "starting" && phase.kind !== "opening" && (
-        <Waiting
-          phase={phase}
-          {...(onResume === undefined ? {} : { onResume })}
-          {...(resumeError === undefined ? {} : { resumeError })}
-        />
+      {phase.kind === "put-away" && (
+        <Snapshot {...(picture ? { picture } : {})}>
+          <PutAway onResume={onResume} error={resumeError} />
+        </Snapshot>
+      )}
+      {(phase.kind === "idle" || phase.kind === "no-preview" || phase.kind === "failed") && (
+        <Waiting phase={phase} />
       )}
     </Pane>
   );
@@ -292,15 +296,11 @@ function Notice({ label, corner = false }: { label: string; corner?: boolean }) 
   );
 }
 
-/** Everything that is neither the app nor its start-up: nothing asked for yet, put away, or broken. */
+/** Nothing asked for yet, a repository with no preview, or a start that broke. */
 function Waiting({
   phase,
-  onResume,
-  resumeError,
 }: {
-  phase: Exclude<ProjectPhase, { kind: "running" | "starting" | "opening" }>;
-  onResume?: (() => void) | undefined;
-  resumeError?: string | undefined;
+  phase: Extract<ProjectPhase, { kind: "idle" | "no-preview" | "failed" }>;
 }) {
   return (
     // No box. The workbench already draws a bordered panel around this, so a second frame two
@@ -329,8 +329,6 @@ function Waiting({
           </>
         )}
 
-        {phase.kind === "put-away" && <PutAway onResume={onResume} error={resumeError} />}
-
         {phase.kind === "failed" && <PreviewFailure message={phase.message} />}
       </div>
     </div>
@@ -353,6 +351,35 @@ function Waiting({
 function StartingUp({ previewRequired, picture }: { previewRequired: boolean; picture?: string }) {
   const word = useRotating(WAITING_WORDS, WORD_MS);
   const elapsed = useElapsed({ precision: 0 });
+
+  return (
+    <Snapshot {...(picture === undefined ? {} : { picture })}>
+      {/*
+        The ghost rather than a spinner, and big enough to be a character rather than an icon:
+        a 20px spinner in a pane this size stops reading as progress about two seconds in.
+      */}
+      <NapLoader className="size-14 text-ink-2" />
+
+      <div className="flex flex-col items-center gap-1">
+        {/* The spotlight the transcript's "Thinking" row wears, so waiting looks like one thing
+            wherever it happens. */}
+        <p aria-hidden="true" className="text-[13px] text-muted">
+          <Spotlight label={`${word}…`} />
+        </p>
+        <p className="font-mono text-[11px] text-muted tabular-nums">
+          {previewRequired ? "Starting the dev server" : "Starting the workspace"} ·{" "}
+          <span aria-hidden="true">{elapsed}</span>
+        </p>
+      </div>
+    </Snapshot>
+  );
+}
+
+/**
+ * The app as the last turn left it, behind whatever the pane is saying about it: the put-away
+ * screen, which is where opening a put-away project lands, and the start-up loader after it.
+ */
+function Snapshot({ picture, children }: { picture?: string; children: ReactNode }) {
   /**
    * Which picture loaded, and which one failed — addresses rather than flags, so a new picture is
    * tried afresh. Failing is the ordinary case for a project that has never finished a turn.
@@ -367,10 +394,10 @@ function StartingUp({ previewRequired, picture }: { previewRequired: boolean; pi
     // show through. `relative` children, because the picture is positioned against this box.
     <div className="absolute inset-0 overflow-hidden bg-panel">
       {showPicture && (
-        // The app as the last turn left it — **never mistakable for the app itself**: dimmed and
-        // blurred so it reads as a backdrop, unclickable, and named as a snapshot for a reader.
-        // Invisible until it has loaded, so a slow picture never shows its alt text and a missing
-        // one never shows the browser's broken-image icon before it is taken away.
+        // **Never mistakable for the app itself**: dimmed and blurred so it reads as a backdrop,
+        // unclickable, and named as a snapshot for a reader. Invisible until it has loaded, so a
+        // slow picture never shows its alt text and a missing one never shows the browser's
+        // broken-image icon before it is taken away.
         //
         // `crossOrigin` and a plain `<img>` for the same reasons as the dashboard's card: the API
         // is another origin, the route asks who is calling, and `next/image` would fetch it from a
@@ -387,25 +414,7 @@ function StartingUp({ previewRequired, picture }: { previewRequired: boolean; pi
         />
       )}
       <div className="relative flex h-full items-center justify-center p-8">
-        <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-          {/*
-            The ghost rather than a spinner, and big enough to be a character rather than an icon:
-            a 20px spinner in a pane this size stops reading as progress about two seconds in.
-          */}
-          <NapLoader className="size-14 text-ink-2" />
-
-          <div className="flex flex-col items-center gap-1">
-            {/* The spotlight the transcript's "Thinking" row wears, so waiting looks like one thing
-                wherever it happens. */}
-            <p aria-hidden="true" className="text-[13px] text-muted">
-              <Spotlight label={`${word}…`} />
-            </p>
-            <p className="font-mono text-[11px] text-muted tabular-nums">
-              {previewRequired ? "Starting the dev server" : "Starting the workspace"} ·{" "}
-              <span aria-hidden="true">{elapsed}</span>
-            </p>
-          </div>
-        </div>
+        <div className="flex max-w-sm flex-col items-center gap-3 text-center">{children}</div>
       </div>
       {pictureUp && (
         // Said in words as well as by the dimming, because a dimmed picture of an app also looks
@@ -439,15 +448,16 @@ function useRotating(words: readonly string[], everyMs: number): string {
 }
 
 /**
- * The pane for a project nobody is paying for right now.
+ * The pane for a project nobody is paying for right now, and what opening one lands on.
  *
  * **It says the files are safe before it says anything else**, because that is the question
  * somebody has on finding their app gone. It is also true: the work is in a snapshot, and the
  * only thing that was destroyed is the machine that was serving it.
  *
- * Sending a message also brings a project back, so this is a shortcut rather than the only way
- * through — which is why the button is offered rather than demanded, and why a refusal leaves
- * it on screen instead of replacing it.
+ * Opening a project starts nothing, so somebody can look through their projects without each one
+ * taking a sandbox. Two things start it: a message, which brings it up for the turn, and this
+ * button, for somebody who wants the running app without asking for a change. A refusal leaves
+ * the button on screen, because pressing it again is what they do once a slot is free.
  */
 function PutAway({
   onResume,
@@ -466,7 +476,7 @@ function PutAway({
 
       <p className="font-display font-semibold text-[15px] text-ink">This project is put away.</p>
       <p className="text-[12.5px] text-muted leading-relaxed">
-        Its files are still saved. Starting it back up takes a few seconds.
+        Its files are still saved. Send a message to carry on, or resume it to use the app.
       </p>
 
       {/*

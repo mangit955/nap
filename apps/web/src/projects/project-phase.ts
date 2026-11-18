@@ -10,8 +10,8 @@
  * They used to be reconciled in five places — a boolean in the shell, an override in the preview
  * pane, another in the file tree, a comparison in `preview-state.ts`, and a wait in
  * `use-projects.ts` — with the rule written out in four separate doc comments, each reading as
- * authoritative. Two bugs lived in the gaps: the put-away screen flashing on every open, and a
- * running project announcing that nothing was running for the two seconds before its log arrived.
+ * authoritative. Bugs lived in the gaps, such as a running project announcing that nothing was
+ * running for the two seconds before its log arrived.
  *
  * **The precedence below is the interface.** A caller needs to know the order to predict what it
  * will get, so the order is stated once, here, and every clause says which fact it defends.
@@ -25,7 +25,7 @@ export type ProjectPhase =
   | { kind: "opening" }
   /** Nothing is running here and nothing is on its way. The pane invites a prompt. */
   | { kind: "idle" }
-  /** A sandbox is coming up, or is about to be asked for. */
+  /** A sandbox is coming up. */
   | { kind: "starting" }
   /**
    * Something is serving the project. `seq` travels with the address because a reload keys on it:
@@ -47,6 +47,8 @@ export type PhaseInputs = {
   /**
    * The instant the server last had no sandbox, or `undefined` once this page has started the
    * project. An instant rather than a flag so it can be compared against an announcement.
+   * Opening a project does not start it, so a put-away project keeps this until somebody sends
+   * a message or presses Resume.
    */
   putAwayAt: string | undefined;
   /** What the log says. */
@@ -55,8 +57,6 @@ export type PhaseInputs = {
   replayed: boolean;
   /** A start this page asked for is in flight, or waiting to be announced. */
   resuming: boolean;
-  /** Why the last start was refused, if it was. */
-  resumeError: string | undefined;
   previewRequired?: boolean;
 };
 
@@ -67,7 +67,6 @@ export function phaseOf({
   preview,
   replayed,
   resuming,
-  resumeError,
   previewRequired = true,
 }: PhaseInputs): ProjectPhase {
   // Nothing is known. Deriving a state from an empty log here is how the pane came to announce
@@ -81,14 +80,6 @@ export function phaseOf({
   if (status === "missing") return { kind: "idle" };
 
   if (resuming) return { kind: "starting" };
-
-  // The gap between the record arriving and the effect that acts on it. The record says the
-  // project is not running and nothing has refused to start it, so a start is about to be asked
-  // for — and without this the pane draws the whole put-away screen, button included, offering to
-  // do the thing that is already being done. The `resumeError` qualifier is what stops it claiming
-  // forever to be starting a project that nothing is starting: a refusal leaves the record saying
-  // exactly the same thing.
-  if (putAwayAt !== undefined && resumeError === undefined) return { kind: "starting" };
 
   if (!previewRequired && record === "running") return { kind: "no-preview" };
   // A repository with no dev server never announces a preview, so a failed or stopped first start

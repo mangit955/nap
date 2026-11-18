@@ -1,7 +1,12 @@
 /**
- * Pressing Resume and getting the app back, without reloading the page.
+ * Opening a put-away project, and then either pressing Resume or sending a message.
  *
- * This is the one assertion that describes the bug it was written for: the pane sat on
+ * Opening asks for nothing. The page shows the last snapshot and the chat, and the workspace
+ * starts only when somebody does one of those two things: a project opened just to look at it
+ * holds none of the person's sandbox slots, and is not moved to the top of their list as if
+ * somebody had worked on it.
+ *
+ * The Resume test also pins the bug this file was first written for: the pane sat on
  * "Starting the dev server…" forever, because the flag that says a restore is under way was set
  * on the request and cleared by nothing. A page reload fixed it only because reloading threw the
  * flag away — the announcement had been in the log the whole time.
@@ -23,8 +28,10 @@ import { sockets } from "../testing/fake-socket.ts";
 import { AppShell } from "./app-shell.tsx";
 import { PREVIEW_TITLE } from "./preview-pane.tsx";
 
-/** Every open request the page made, so "exactly once" is a countable thing. */
+/** Every open request the page made, so "exactly once" — and "never" — is a countable thing. */
 let opens: number;
+/** Every turn the page asked for. */
+let turns: number;
 /** What the server says to an open request. A 202 unless a test wants a refusal. */
 let openWith: () => Response;
 let net: ReturnType<typeof sockets>;
@@ -34,6 +41,14 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
   if (init?.method === "POST" && url.endsWith("/open")) {
     opens += 1;
     return openWith();
+  }
+
+  if (init?.method === "POST" && url.endsWith("/turns")) {
+    turns += 1;
+    return Response.json(
+      { accepted: true, requestId: "8c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f" },
+      { status: 202 },
+    );
   }
 
   if (url.includes("/files")) {
@@ -78,9 +93,18 @@ async function replayPutAway() {
   });
 }
 
+/** Presses the put-away screen's Resume, once it is on screen. */
+async function pressResume() {
+  const resume = await screen.findByRole("button", { name: /^resume$/i });
+  await act(async () => {
+    fireEvent.click(resume);
+  });
+}
+
 beforeEach(() => {
   localStorage.clear();
   opens = 0;
+  turns = 0;
   net = sockets();
   net.countGlobalToo(vi.stubGlobal);
   openWith = () =>
@@ -92,7 +116,19 @@ beforeEach(() => {
 
 describe("opening a put-away project", () => {
   it("retains the exact preview iframe through compaction start and completion", async () => {
-    open();
+    // A project whose sandbox is serving: the record names it, so nothing here is put away.
+    const running = async (url: string, init?: RequestInit) =>
+      url.endsWith(`/projects/${PROJECT_ID}`)
+        ? Response.json({
+            projectId: PROJECT_ID,
+            name: "Todo app",
+            status: "ready",
+            sandboxId: "running-sandbox",
+            updatedAt: "2026-08-09T12:30:00.000Z",
+            sessionIds: [SESSION_ID],
+          })
+        : fetchJson(url, init);
+    render(<AppShell projectId={PROJECT_ID} fetchJson={running} createSocket={net.createSocket} />);
     await waitFor(() => expect(net.opened).toHaveLength(1));
     await act(async () => {
       net.latest.open();
@@ -340,11 +376,13 @@ describe("opening a put-away project", () => {
       return fetchJson(url, init);
     };
     render(<AppShell projectId={PROJECT_ID} fetchJson={read} createSocket={net.createSocket} />);
-    await waitFor(() => expect(opens).toBe(1));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
     await act(async () => {
       net.latest.open();
       net.latest.deliver({ type: "ready" });
     });
+    await pressResume();
+    expect(opens).toBe(1);
     expect(screen.queryByText("No preview configured")).toBeNull();
     ready = true;
     await act(async () => {
@@ -361,15 +399,25 @@ describe("opening a put-away project", () => {
     expect(opens).toBe(1);
   });
 
-  it("starts it without anybody pressing anything", async () => {
-    // Nobody navigates to their own app to be asked whether they meant it.
-    open();
-
-    await waitFor(() => expect(opens).toBe(1));
+  it("asks for nothing, and lands on the snapshot with its Resume button", async () => {
+    // Under `StrictMode` because that is how Next runs it in development: mounted, unmounted and
+    // mounted again, which is where an effect that starts something would fire twice.
+    render(
+      <StrictMode>
+        <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(net.opened.length).toBeGreaterThan(0));
     await replayPutAway();
 
-    expect(screen.getByText(/starting the dev server/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^resume$/i })).toBeInTheDocument();
+    expect(screen.getByText(/this project is put away/i)).toBeVisible();
+    expect(screen.getByRole("img", { name: /last snapshot/i })).toHaveAttribute(
+      "src",
+      expect.stringContaining(`/projects/${PROJECT_ID}/thumbnail`),
+    );
+    expect(screen.queryByText(/starting the dev server/i)).toBeNull();
+    expect(opens).toBe(0);
   });
 
   it("subscribes once for the whole workspace", async () => {
@@ -377,32 +425,38 @@ describe("opening a put-away project", () => {
     // carrying identical frames — and two panes free to sit at different sequence numbers in the
     // same frame, one offering the address of a sandbox the other had watched stop.
     open();
-    await waitFor(() => expect(opens).toBe(1));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await replayPutAway();
 
     expect(net.opened).toHaveLength(1);
   });
 
-  it("never flashes the put-away screen on the way in", async () => {
-    // Effects run *after* paint, so a flag set by the auto-start effect is false for the frame
-    // the panes first draw in — and in that frame the log already says `preview.stopped`, so
-    // the pane drew the whole "This project is put away" screen and its button. An offer to do
-    // something that was already happening, for one frame, every single time.
+  it("sends a message without asking to open the project first", async () => {
+    // The turn brings the sandbox back up itself — its acquire step restores the snapshot — so
+    // the composer needs no start of its own, and a separate open would be a second request
+    // racing the turn for the same sandbox.
     open();
-
-    // The first paint, before anything has settled.
-    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
-
-    // And every frame after it, up to the request going out.
-    await waitFor(() => expect(opens).toBe(1));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
     await replayPutAway();
-    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/starting the dev server/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "Add a dark mode" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(turns).toBe(1));
+    expect(opens).toBe(0);
   });
 
-  it("shows the app as soon as the restore announces itself, with no reload", async () => {
+  it("starts it when Resume is pressed, and shows the app with no reload", async () => {
     open();
-    await waitFor(() => expect(opens).toBe(1));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
     await replayPutAway();
+
+    await pressResume();
+    expect(opens).toBe(1);
+    expect(screen.getByText(/starting the dev server/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
 
     await act(async () => {
       net.latest.deliver({
@@ -418,41 +472,37 @@ describe("opening a put-away project", () => {
     );
   });
 
-  it("asks once, and only once, when the server refuses", async () => {
-    // A refusal deliberately leaves the record still saying the project is put away — the
-    // project *is* put away, the request was turned down — so nothing about the page's own
-    // state would stop a second attempt, and a page that retries a quota refusal on every
-    // render is a page hammering an endpoint that has already said no.
-    //
-    // Rendered under `StrictMode` because that is how Next runs this in development: it mounts,
-    // unmounts and remounts to shake out effects that are not safe to run twice.
+  it("shows a refusal beside the button, and asks again only when pressed again", async () => {
+    // A refusal leaves the record still saying the project is put away — it *is* put away, the
+    // request was turned down — so the button stays, and nothing retries on its own.
     openWith = () =>
       new Response(JSON.stringify({ error: "You already have 2 projects running." }), {
         status: 409,
         headers: { "content-type": "application/json" },
       });
 
-    render(
-      <StrictMode>
-        <AppShell projectId={PROJECT_ID} fetchJson={fetchJson} createSocket={net.createSocket} />
-      </StrictMode>,
-    );
-
-    await waitFor(() => expect(net.opened.length).toBeGreaterThan(0));
+    open();
+    await waitFor(() => expect(net.opened).toHaveLength(1));
     await replayPutAway();
 
-    // The refusal, its reason, and the button that is now the way through.
+    await pressResume();
     expect(await screen.findByRole("alert")).toHaveTextContent(/2 projects running/);
     expect(screen.getByRole("button", { name: /^resume$/i })).toBeInTheDocument();
     expect(opens).toBe(1);
+
+    await pressResume();
+    expect(opens).toBe(2);
   });
 
-  it("starts the next project too, rather than latching after the first", async () => {
-    // The guard is keyed to *which* project was started, not to "have I ever started one". A
-    // plain boolean would mean the second project you opened in a session never came up — and
-    // that failure looks exactly like a server that ignored the request.
+  it("shows the next project put away too, after resuming the one before it", async () => {
+    // Resuming marks the open record out of date, which hides the put-away screen for that
+    // project. Carried over to the next project, it would hide the screen — and its button —
+    // for a project nobody has started.
     const { rerender } = open();
-    await waitFor(() => expect(opens).toBe(1));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await replayPutAway();
+    await pressResume();
+    expect(opens).toBe(1);
 
     rerender(
       <AppShell
@@ -462,26 +512,7 @@ describe("opening a put-away project", () => {
       />,
     );
 
-    await waitFor(() => expect(opens).toBe(2));
-  });
-
-  it("still starts it by hand after a refusal", async () => {
-    openWith = () =>
-      new Response(JSON.stringify({ error: "You already have 2 projects running." }), {
-        status: 409,
-        headers: { "content-type": "application/json" },
-      });
-
-    open();
-    await waitFor(() => expect(net.opened.length).toBeGreaterThan(0));
-    await replayPutAway();
-
-    const resume = await screen.findByRole("button", { name: /^resume$/i });
-
-    await act(async () => {
-      fireEvent.click(resume);
-    });
-
-    expect(opens).toBe(2);
+    expect(await screen.findByRole("button", { name: /^resume$/i })).toBeInTheDocument();
+    expect(opens).toBe(1);
   });
 });

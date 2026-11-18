@@ -11,6 +11,8 @@ the preview comes up.
 - `preview-interact`: the previewed app responds inside the iframe.
 - `preview-announced`: the transcript says `Preview ready ·` with a link to the preview host.
 - `preview-panel`: Hide right panel, Close right panel and Hide chat change the layout.
+- `preview-put-away`: opening a put-away project shows `This project is put away.` and the button
+  `Resume`, and starts nothing. A message or `Resume` brings the preview back.
 
 ## How to get to it (user POV)
 
@@ -38,7 +40,20 @@ Preconditions:
   `snapshot --label "preview: reloaded" --frame "App preview"`. The list `Notes` is empty again,
   because the page reloaded.
 
+- **Put away, then open.** With **Seeded notes app** open, run
+  `click --role link --name "Seeded notes app" --loose --right`, then
+  `click --role menuitem --name "Put away workspace"` and `wait --role button --name "Resume"`. Go to
+  `/dashboard` and click the project again: the pane shows `This project is put away.` and `Resume`,
+  and no `POST /projects/<id>/open` is sent. Either send a message (the turn restores the sandbox and
+  the preview returns when it ends) or `click --role button --name "Resume"`, then
+  `wait --role heading --name "Fixture notes" --frame "App preview"`.
+
 ## Gotchas
+
+- The driver does not record network requests. To show that opening sent no `/open`, attach a
+  second Playwright client to the run's `cdp` address and log the page's requests.
+- The fixture captures no thumbnails, so `/projects/<id>/thumbnail` answers 404 and the put-away
+  screen shows no snapshot picture behind it. The picture is covered by the web tests.
 
 - The page snapshot stops at the iframe and shows only `- iframe`. Use `--frame "App preview"` to see
   inside it.

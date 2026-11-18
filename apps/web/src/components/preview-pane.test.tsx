@@ -90,6 +90,35 @@ describe("a project that has been put away", () => {
     expect(screen.getByRole("button", { name: /resume/i })).toBeEnabled();
   });
 
+  it("shows the app as it was left, marked as not live, behind the Resume button", () => {
+    // Opening a put-away project lands here and starts nothing, so this picture is what somebody
+    // looking through their projects sees of each one.
+    const src = "https://api.test/projects/project-a/thumbnail?v=1";
+    render(
+      <PreviewPane
+        projectId="project-a"
+        phase={{ kind: "put-away" }}
+        thumbnail={{ projectId: "project-a", src }}
+      />,
+    );
+
+    const picture = screen.getByRole("img", { name: /last snapshot/i });
+    expect(picture).toHaveAttribute("src", src);
+    fireEvent.load(picture);
+
+    expect(screen.getByText(/not live/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: /resume/i })).toBeVisible();
+    expect(frame()).toBeNull();
+  });
+
+  it("says a message starts it as well as the button", () => {
+    // The button is not the only way in, and somebody who came back to change something should
+    // not think they have to press it first.
+    show({ kind: "put-away" });
+
+    expect(screen.getByText(/send a message/i)).toBeVisible();
+  });
+
   it("says the files are safe, because that is the question being asked", () => {
     show({ kind: "put-away" });
 

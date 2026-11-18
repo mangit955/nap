@@ -43,6 +43,7 @@ import { createProjectSession } from "@nap/db/session-bootstrap";
 import { PostgresSessionNavigationStore } from "@nap/db/session-navigation-store";
 import { PostgresSessionStartStore } from "@nap/db/session-start-store";
 import { startDockerPostgres } from "@nap/db/testing/docker-postgres";
+import { BUNDLE_COMMAND, bundled } from "@nap/sandbox/testing/script-git";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { eq } from "drizzle-orm";
 import { upgradeWebSocket, websocket } from "hono/bun";
@@ -252,8 +253,9 @@ try {
   });
 
   // Every running project previews the same static page: the pane is what is being verified,
-  // not the generated app.
-  const sandbox = fakeSandbox(() => PREVIEW);
+  // not the generated app. The bundle is scripted so a project can be put away and restored, which
+  // is how the put-away screen and a restore are reached through the interface.
+  const sandbox = fakeSandbox(() => PREVIEW).script(BUNDLE_COMMAND, bundled());
 
   const config = {
     ...loadgenConfig(2),

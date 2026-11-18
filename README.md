@@ -53,8 +53,9 @@ its own browser and recorded the test, for one to two cents of model spend. The
 - **Tests the app like a user would.** On a model that can read images, the agent gets a desktop
   with Chrome on the project's dev server. "Test the app" states each expectation before acting,
   records a video, and offers a fix when something fails. It never starts the fix on its own.
-- **Puts idle projects away.** nap stores the Git repository, destroys the idle sandbox, and restores
-  the project when you return.
+- **Puts idle projects away.** nap stores the Git repository and destroys the idle sandbox. Opening
+  the project later shows its last snapshot and costs nothing. It starts again when you send a
+  message or press Resume.
 
 ## How a prompt becomes a verified project
 
