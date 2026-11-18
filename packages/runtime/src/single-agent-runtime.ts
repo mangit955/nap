@@ -1760,7 +1760,7 @@ export class SingleAgentRuntime implements Runtime {
 
     // Only once the checks pass: a red check is already a repair, and a review of work that does
     // not build would be paid for to say so a second time.
-    const reviewed =
+    const review =
       verified.verdict === "passed" && options.review !== null
         ? await reviewJob({
             ...options.review,
@@ -1772,6 +1772,11 @@ export class SingleAgentRuntime implements Runtime {
             signal: options.signal,
           })
         : null;
+    // Before the check it produced, and whether or not there is one: the turn's payer was billed
+    // for these tokens, and no `turn.completed` counts them.
+    if (review !== null && review.usage !== null)
+      emit("review.completed", { jobId, usage: review.usage });
+    const reviewed = review?.verdict ?? null;
 
     emit("verification.completed", {
       jobId,

@@ -114,6 +114,9 @@ const DRAWN_ELSEWHERE = [
   "job.started",
   "verification.started",
   "verification.completed",
+  // Accounting, not chronology: the review's outcome is its check above, and its tokens are read
+  // by the session's total (`@nap/shared/session-usage`), which no pane draws yet.
+  "review.completed",
   "job.checkpointed",
   "job.completed",
 ] as const satisfies readonly NapEventType[];
@@ -296,7 +299,7 @@ describe("the treatment table covers the union", () => {
     // and the compile check green while rendering nowhere at all, which is the exact failure
     // this table exists to catch. Only status events and assertion data rendered in the result card may sit there.
     for (const type of DRAWN_ELSEWHERE) {
-      expect(type).toMatch(/^(job|verification|context)\.|^test\.annotation$/);
+      expect(type).toMatch(/^(job|verification|context)\.|^test\.annotation$|^review\.completed$/);
       expect(CASES.map((c) => c.type)).not.toContain(type);
     }
   });

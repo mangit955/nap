@@ -462,6 +462,20 @@ const CASES = [
     issuePath: ["payload", "checks", 0, "outcome"],
   },
   {
+    type: "review.completed",
+    valid: {
+      ...ENVELOPE,
+      type: "review.completed",
+      payload: {
+        jobId: JOB_ID,
+        usage: { inputTokens: 41_000, outputTokens: 900, cacheReadTokens: 30_000 },
+      },
+    },
+    // A review that reported nothing it spent is the gap this event exists to close.
+    malformed: { ...ENVELOPE, type: "review.completed", payload: { jobId: JOB_ID } },
+    issuePath: ["payload", "usage"],
+  },
+  {
     type: "job.checkpointed",
     valid: {
       ...ENVELOPE,

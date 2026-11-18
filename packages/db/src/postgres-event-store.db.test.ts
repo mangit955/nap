@@ -661,6 +661,13 @@ const PAYLOADS = [
       ],
     },
   },
+  {
+    type: "review.completed",
+    payload: {
+      jobId: JOB,
+      usage: { inputTokens: 4_000, outputTokens: 300, cacheReadTokens: 3_000 },
+    },
+  },
   { type: "job.checkpointed", payload: { jobId: JOB, commitSha: "a1b2c3d" } },
   { type: "job.completed", payload: { jobId: JOB, outcome: "exhausted" } },
   {

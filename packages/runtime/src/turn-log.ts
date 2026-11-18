@@ -237,6 +237,9 @@ function detail(event: NapEvent): Record<string, unknown> {
         checks: Object.fromEntries(event.payload.checks.map((c) => [c.name, c.outcome])),
       };
 
+    case "review.completed":
+      return { jobId: event.payload.jobId, usage: event.payload.usage };
+
     case "job.checkpointed":
       return { jobId: event.payload.jobId, commitSha: event.payload.commitSha };
 

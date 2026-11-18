@@ -447,6 +447,16 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    */
   event("verification.completed", { jobId: z.uuid(), checks: z.array(VerifiedCheckSchema) }),
   /**
+   * What a review (ADR-0036) cost. It runs on the turn's model and credentials after that turn has
+   * completed, so its tokens are in no `turn.completed`, and without this event they would be
+   * billed to the person and appear nowhere in their session.
+   *
+   * Written whenever a review returned, before the `verification.completed` carrying its check,
+   * and also when the review is then dropped because the workspace could not be put back: the
+   * tokens were spent either way. A review that threw reported no usage, so it writes nothing.
+   */
+  event("review.completed", { jobId: z.uuid(), usage: TokenUsageSchema }),
+  /**
    * A commit that verification agreed with — a *checkpoint*, as against the commit every
    * completed turn makes. `HEAD == last checkpoint` is what "is this project in a valid state"
    * means, which is why the sha is here and not merely implied by the passing checks above it.
