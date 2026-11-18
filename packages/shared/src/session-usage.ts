@@ -31,8 +31,10 @@ export type UsageEventType = NapEvent extends infer E
 /**
  * Whether the session's total adds each one.
  *
- * Not a compaction or a helper: both run on the turn's provider, and `turn.completed` already adds
- * their tokens to the turn's (`AgentService`, where the turn completes).
+ * Not a compaction or a helper: both run on the turn's provider, and when the turn completes,
+ * `turn.completed` already adds their tokens to the turn's (`AgentService`, where the turn
+ * completes). When the turn fails instead, their own events are the only record of what they
+ * spent, and this total leaves them out with the rest of that turn.
  */
 const COUNTED: Record<UsageEventType, boolean> = {
   "turn.completed": true,
@@ -46,9 +48,10 @@ const COUNTED: Record<UsageEventType, boolean> = {
 };
 
 /**
- * The tokens a session's log records as spent.
+ * The tokens a session's completed turns, titles and reviews spent.
  *
- * A turn that failed recorded no usage, so what it spent before failing is not in this total.
+ * Not everything the log records: a failed turn writes no total of its own, so neither its model
+ * calls nor the compaction and helper usage it did record are in this total.
  */
 export function sessionUsage(events: readonly NapEvent[]): TokenUsage {
   let total: TokenUsage = { inputTokens: 0, outputTokens: 0 };

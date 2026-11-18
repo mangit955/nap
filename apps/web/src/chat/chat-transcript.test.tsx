@@ -316,7 +316,7 @@ describe("every event type has a visual treatment", () => {
     void _exhaustive;
   });
 
-  it("restricts omissions to status and assertion data", () => {
+  it("restricts omissions to status, assertion data and accounting", () => {
     // The list is otherwise an escape hatch: a type moved into it renders nowhere while both
     // the count and the compile check stay green, which is what this table exists to catch.
     for (const type of DRAWN_ELSEWHERE) {

@@ -453,7 +453,8 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    *
    * Written whenever a review returned, before the `verification.completed` carrying its check,
    * and also when the review is then dropped because the workspace could not be put back: the
-   * tokens were spent either way. A review that threw reported no usage, so it writes nothing.
+   * tokens were spent either way. A review that never ran (the branch could not be read) or whose
+   * reviewer threw reported no usage, so it writes nothing.
    */
   event("review.completed", { jobId: z.uuid(), usage: TokenUsageSchema }),
   /**

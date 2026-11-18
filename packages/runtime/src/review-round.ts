@@ -106,26 +106,41 @@ async function reviewAndPutBack(request: JobReviewRequest): Promise<JobReview> {
   } catch (error) {
     getLogger().warn({ err: error }, "the review could not be run");
   }
-  // Whether or not the review finished: its commands may have run either way.
-  const after = await workspaceState(sandbox, sandboxId);
-  const branchAfter = await checkedOutBranch(sandbox, sandboxId);
-  const unchanged =
-    branchAfter.ok &&
-    branch.value === branchAfter.value &&
-    before.ok &&
-    after.ok &&
-    before.value === after.value;
-  if (!unchanged) {
-    const reset = await discardUncommitted(sandbox, sandboxId, {
-      sha: commitSha,
-      branch: branch.value,
-    });
-    if (!reset.ok) {
-      getLogger().warn({ err: reset.error }, "could not reset the workspace after the review");
-      return { verdict: null, usage: result?.usage ?? null };
-    }
-  }
+  // Whether or not the review finished: its commands may have run either way. Dropped if that
+  // cannot be done, but what it cost is kept: those tokens were billed whatever happens next.
+  if (!(await putBack(request, branch.value, before)))
+    return { verdict: null, usage: result?.usage ?? null };
   return result === null ? NO_REVIEW : { verdict: reviewCheck(result), usage: result.usage };
+}
+
+/**
+ * Resets the workspace to the checked commit and branch if the review changed either, and says
+ * whether it is now as the checks left it. Never throws: the review has already been paid for by
+ * the time this runs, and a throw would lose the record of that along with the review.
+ */
+async function putBack(
+  { sandbox, sandboxId, commitSha }: JobReviewRequest,
+  branch: string | null,
+  before: Awaited<ReturnType<typeof workspaceState>>,
+): Promise<boolean> {
+  try {
+    const after = await workspaceState(sandbox, sandboxId);
+    const branchAfter = await checkedOutBranch(sandbox, sandboxId);
+    const unchanged =
+      branchAfter.ok &&
+      branch === branchAfter.value &&
+      before.ok &&
+      after.ok &&
+      before.value === after.value;
+    if (unchanged) return true;
+    const reset = await discardUncommitted(sandbox, sandboxId, { sha: commitSha, branch });
+    if (!reset.ok)
+      getLogger().warn({ err: reset.error }, "could not reset the workspace after the review");
+    return reset.ok;
+  } catch (error) {
+    getLogger().warn({ err: error }, "could not reset the workspace after the review");
+    return false;
+  }
 }
 
 /** Reviews the job has had, read from its `verification.completed` events. */

@@ -334,6 +334,25 @@ describe("the review in an imported repository's job", () => {
     expect(f.agent.calls).toBe(1);
   });
 
+  it("records a review's spend even when putting the workspace back throws", async () => {
+    const f = await fixture({ results: [BLOCK] });
+    let reviewing = false;
+    f.review.mockImplementation(async () => {
+      reviewing = true;
+      return BLOCK;
+    });
+    f.sandbox.script(/git rev-parse HEAD && git --no-optional-locks status/, () => {
+      if (reviewing) throw new Error("sandbox went away");
+      return { exitCode: 0, stdout: `${FAKE_COMMIT_SHA}\n` };
+    });
+    expect(await f.run()).toMatchObject({ ok: true });
+    const events = await f.events.readFrom(sessionId, 0);
+    expect(
+      events.flatMap((event) => (event.type === "review.completed" ? [event.payload.usage] : [])),
+    ).toEqual([BLOCK.usage]);
+    expect(f.agent.calls).toBe(1);
+  });
+
   it("records no review spend for a job that had no review, and the total is its turns alone", async () => {
     const f = await fixture({ results: [BLOCK], repository: false });
     f.sandbox.listen(f.sandboxId, TEMPLATE_DEV_PORT);
