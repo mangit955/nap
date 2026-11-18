@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TEMPLATE_WORKDIR } from "@nap/sandbox/template";
@@ -173,41 +174,53 @@ it("stops waiting on setup when cancelled, leaving the stopping to the setup scr
 });
 
 it("starts the dev server without holding the start command open until the server exits", async () => {
-  // E2B answers a command once its shell's output pipe closes, and gives up after 60 seconds. A
-  // dev server runs until stopped, so a start command that leaves it holding that pipe never
-  // answers, and every repository with a dev command fails to start. Run the real command through a
-  // real shell, the way the provider does, with a dev command that never exits on its own.
-  const marker = `nap-dev-${crypto.randomUUID()}`;
+  // E2B runs a command with `bash -c` and answers once that shell's output pipes close, giving up
+  // after 60 seconds. A dev server runs until stopped, so a start command that leaves it holding
+  // those pipes never answers, and every repository with a dev command fails to start. Run the real
+  // command through bash, not `/bin/sh`: dash, CI's `/bin/sh`, hands the pipe over where bash does
+  // not, so it passes the broken command. The dev command never exits on its own, and its own
+  // command line carries a marker so the server itself can be found and stopped.
+  const marker = `${30_000 + Math.floor(Math.random() * 9_000)}.${Date.now() % 1_000_000}`;
+  const server = `sleep ${marker}`;
   const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
   const created = await sandbox.create("project");
   if (!created.ok) throw new Error(created.error.message);
   await prepareRepositoryEnvironment({
     sandbox,
     sandboxId: created.value.id,
-    source: { ...source, devCommand: `sleep 30; : ${marker}` },
+    source: { ...source, devCommand: server },
   });
-  const start = sandbox.commands(created.value.id).find((command) => command.includes(marker));
+  const start = sandbox.commands(created.value.id).find((command) => command.includes(server));
   if (start === undefined) throw new Error("the dev command was never started");
   const workdir = await mkdtemp(join(tmpdir(), "nap-repository-"));
+  const log = join(workdir, "preview.log");
 
-  const startedAt = Date.now();
-  await new Promise<void>((resolve, reject) => {
-    const command = start
-      .replaceAll(TEMPLATE_WORKDIR, workdir)
-      .replaceAll("/tmp/nap-preview.log", join(workdir, "preview.log"));
-    const shell = spawn("/bin/sh", ["-c", command], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+  const command = start
+    .replaceAll(TEMPLATE_WORKDIR, workdir)
+    .replaceAll("/tmp/nap-preview.log", log);
+  const shell = spawn("bash", ["-c", command], { stdio: ["ignore", "pipe", "pipe"] });
+
+  try {
     shell.stdout.resume();
     shell.stderr.resume();
     // `close` waits for the output pipes, not just the shell's exit: what E2B waits for.
-    shell.on("close", () => resolve());
-    shell.on("error", reject);
-  });
-  const answeredAfterMs = Date.now() - startedAt;
-  const serverRunning = spawnSync("pgrep", ["-f", marker]).status === 0;
-  spawnSync("pkill", ["-f", marker]);
+    const answered = await new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(false), 5_000);
+      shell.on("close", () => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+      shell.on("error", reject);
+    });
+    const serverRunning = spawnSync("pgrep", ["-f", server]).status === 0;
 
-  expect(answeredAfterMs).toBeLessThan(5_000);
-  expect(serverRunning).toBe(true);
-}, 40_000);
+    expect(answered).toBe(true);
+    expect(serverRunning).toBe(true);
+    // Both paths were rewritten, so the server ran where the real one would and logged there.
+    expect(existsSync(log)).toBe(true);
+  } finally {
+    shell.kill("SIGKILL");
+    spawnSync("pkill", ["-f", server]);
+    await rm(workdir, { recursive: true, force: true });
+  }
+}, 20_000);
