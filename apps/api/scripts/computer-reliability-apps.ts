@@ -8,9 +8,9 @@ import { join } from "node:path";
  * is what the job that built the app was asked for — the runtime hands it to the test as the
  * job's goal — and names concrete outcomes, so a run has something it can be judged on.
  *
- * The two vanilla apps are NapBench's correct app-test specimens, read in place so there is one
- * copy of each. The kanban board is React on the template's own components, the shape of an app
- * Nap actually builds.
+ * The two vanilla apps are plain HTML and JavaScript in `fixtures/reliability/`, kept byte for
+ * byte as the recorded runs used them (see the Biome exclusion in docs/gotchas/workspace.md). The
+ * kanban board is React on the template's own components, the shape of an app Nap actually builds.
  */
 export type ReliabilityApp = {
   id: "cart" | "notes" | "kanban";
@@ -28,7 +28,7 @@ export const RELIABILITY_APP_IDS = ["cart", "notes", "kanban"] as const;
 
 export function reliabilityApps(repositoryRoot: string): ReliabilityApp[] {
   const specimen = (name: string, file: string) =>
-    readFileSync(join(repositoryRoot, "apps/napbench/fixtures/app-test", name, file), "utf8");
+    readFileSync(join(repositoryRoot, "apps/api/scripts/fixtures/reliability", name, file), "utf8");
   return [
     {
       id: "cart",

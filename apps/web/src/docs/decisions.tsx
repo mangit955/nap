@@ -88,6 +88,11 @@ export function Decisions() {
         rather than reconstructed afterwards.
       </Lede>
 
+      <P>
+        Seven of them (0001 to 0005, 0012 and 0013) shaped NapBench, the homemade benchmark Nap was
+        measured on before Terminal-Bench replaced it. They stay as the record of what it measured.
+      </P>
+
       <ol className="mt-7 max-w-2xl space-y-6">
         {DECISIONS.map((decision, index) => (
           <li key={decision.file} className="flex gap-4">

@@ -82,7 +82,7 @@ export function DurableJobs() {
           },
           {
             term: "A job is not a benchmark task",
-            body: "NapBench's task is a specification of work to be repeated; a job is one actual piece of work being done once. The words collide and both keep their names.",
+            body: "A benchmark's task, such as one of Terminal-Bench's, is a specification of work to be repeated; a job is one actual piece of work being done once. The words collide and both keep their names.",
           },
         ]}
       />

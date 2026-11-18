@@ -18,8 +18,8 @@
  *     deadline is pushed back when a turn acquires an existing one and again before a round of
  *     checks.
  *
- * They live in `shared` because `@nap/verify`, `@nap/runtime` and `@nap/bench` all read them, and
- * the first has no business importing the others.
+ * They live in `shared` because `@nap/verify` and `@nap/runtime` both read them, and the first has
+ * no business importing the second.
  */
 
 /**

@@ -4,9 +4,10 @@ Every script this repository runs, with what it needs and what it costs. `AGENTS
 everyday ones; this is the rest. **Always `bun run test`, never `bun test`** — `test` is a Bun
 built-in that runs Bun's own runner over Vitest files and reports nonsense.
 
-Load testing, the Kubernetes clusters and NapBench's product judge are **frozen**: the code and
-reports stay (`docs/scaling-*.md`, `infra/k8s/`, `packages/loadgen`, `docs/napbench-*.md`) and the
-commands below still work, but nothing is being built on them.
+Load testing and the Kubernetes clusters are **frozen**: the code and reports stay
+(`docs/scaling-*.md`, `infra/k8s/`, `packages/loadgen`) and the commands below still work, but
+nothing is being built on them. NapBench, the homemade benchmark, is retired: its code is at tag
+`napbench-v1` and its write-ups are `docs/napbench-*.md` and `docs/NAPBENCH.md`.
 
 ```bash
 bun run test              # unit + type + web + db + computer suites — deterministic and free; db needs Docker
@@ -38,8 +39,8 @@ bun run harness --real --model=anthropic/claude-opus-5 "<prompt>"  # the demo mo
 NAP_PLATFORM=anthropic NAP_MODEL_BASE_URL=http://localhost:11434 ANTHROPIC_API_KEY=ollama \
   bun run harness --real --platform=anthropic --model=qwen3.5:9b --effort=low "<prompt>"
                           # the same turn on a local Ollama: free model, but E2B still bills the
-                          # sandbox. The API and `napbench --real` read NAP_MODEL_BASE_URL too;
-                          # napbench-app-test and the computer-use scripts do not
+                          # sandbox. The API reads NAP_MODEL_BASE_URL too; the computer-use
+                          # scripts do not
 bun run computer:reliability       # "Test the app" against three correct apps, 10 runs each, on the local
                           # Docker desktop at 2 GiB — scripted model, free; needs Docker. Evidence lands
                           # in computer-reliability-results/. --model=<image model> uses a real one;
@@ -51,6 +52,11 @@ bun run verify-nap:up     # the real web app, API, Postgres and queue on a scrip
                           # needs Docker and Chrome. --port=<base> runs a second beside it
 bun run verify-nap <cmd>  # drives that Chrome by role and accessible name, and saves screenshots as
                           # evidence: doctor, signin, click, fill, wait, shot, stop… See .agents/skills/verify-nap
+NAP_COMPUTER_LOCAL_MANIFEST=<run-dir>/run.json NAP_CHROME_PATH=<chrome> NAP_INTEGRATION=1 \
+  bunx vitest run --project integration apps/verify-nap/src/computer-local.integration.test.ts
+                          # drives a running `bun run computer:local` in Chrome: desktop, test, fix and
+                          # recording — free, never starts E2B or calls a model; skips without both
+                          # variables. See docs/research/computer-local-app
 bun run loadgen           # scripted users against the composed API — fakes, free; needs Docker
 bun run loadgen --users=25        # that many at once, latencies calibrated from a funded run
 bun run loadgen:ramp      # the k6 ramp to 100 concurrent turns — fakes, free; needs Docker and k6
@@ -73,33 +79,6 @@ bun run loadgen:teardown --older-than-minutes=60   # what it would delete: the d
                           # exits; --confirm is what deletes. DATABASE_URL says which deployment, and
                           # this cannot tell a load run's identity from a real visitor's — read the
                           # script before pointing it at anything shared
-bun run napbench <task-id>        # one benchmark run — fakes, free; scores mean nothing
-bun run napbench --suite=all      # the four tasks, serially, same fakes — frozen, see docs/NAPBENCH.md
-bun run napbench --suite=hard     # the tasks built to separate two models
-bun run napbench --suite=product  # the tasks scored on both halves — what it does, and whether it
-                          # is a product anybody would want. Free: the judge is scripted, and its
-                          # grades mean nothing about any application. See docs/NAPBENCH.md
-bun run napbench --real --suite=all  # real E2B + a real model + real Chrome; this spends money
-                          # --real needs NAP_CHROME_PATH as well as the usual credentials.
-                          # Results (reports, trajectories, screenshots) land in napbench-results/
-bun run napbench:corpus   # re-photographs the nine fixture applications an evaluator has to be
-                          # able to tell apart — free, needs only a Chrome at NAP_CHROME_PATH.
-                          # The PNGs are committed; run this only after changing a fixture, and
-                          # re-capture the whole corpus at once. See docs/NAPBENCH.md
-bun run napbench:vision-spike --real --model=<id>
-                          # one real judgement of one corpus fixture, to confirm a model accepts
-                          # image input through the OpenRouter path this repo uses — spends a
-                          # fraction of a cent. Nothing may be pinned as the judge before this
-                          # says yes about it. Without --real it prints what it would do
-bun run napbench:trial run --task=<id> --job-dir=<dir> [-- <napbench flags>]
-                          # one task into one job directory, for an external harness to drive —
-                          # report.json, trajectory.json and trial.log under fixed names. Shells
-                          # out to napbench, so it is free unless `--real` is passed after `--`
-bun run napbench:trial verify --job-dir=<dir> --reward-dir=<dir>
-                          # projects that report into reward.json, or writes nothing and exits
-                          # non-zero when the run measured nothing. See harbor/README.md
-bun run harbor:tasks      # regenerates harbor/tasks/ from @nap/bench/suite — free, offline.
-                          # Generated, gitignored, and includes a bundled verifier per task
 uv run --directory harbor --extra harbor harbor run -d terminal-bench/terminal-bench-2-1 \
   -i terminal-bench/<task> -a nap_harbor.agent:NapAgent -m <openrouter-id> -n 1 -o <jobs-dir>
                           # Nap's agent on Terminal-Bench 2.1 tasks, inside each task's own
@@ -117,8 +96,6 @@ bun run packages/runtime/scripts/harbor-report.ts <jobs-dir>/<job-name>
                           # manually; harbor/README.md, "Scoring a task set"
 bun run lint:py           # ruff over harbor/ — the Python no other gate here can see. Needs uv
 bun run test:py           # pytest over harbor/ — no evaluation framework required. Needs uv
-bun run napbench --baseline=<run-id|path> --candidate=<run-id|path>
-                          # what moved between two finished runs — reads reports, runs nothing
 bun run typecheck         # turbo: tsc --noEmit per workspace, then a root pass for test/ + configs
 bun run lint              # biome check
 bun run format            # biome check --write — Biome owns formatting, don't hand-format
@@ -135,4 +112,4 @@ bun run dev:reaper        # the third: sweeps idle projects, reconciles capacity
 
 ## The Python under `harbor/`
 
-**`harbor/` is Python, and none of those three can see it.** Biome does not read it, `tsc` cannot, vitest collects nothing from it — the exact shape of the mistake the definition of done was written after. Its gates are `bun run lint:py` (ruff) and `bun run test:py` (pytest): lefthook runs both on any commit touching a `*.py`, and CI runs them unconditionally in a job of their own. Editing that directory therefore needs [`uv`](https://docs.astral.sh/uv/) installed; nothing else in the repo does. The claims that span both languages are guarded so that neither toolchain alone misses a drift: for NapBench's adapter, from the TypeScript side in `apps/napbench/src/harbor-agreement.test.ts`; for the Terminal-Bench adapter, by example files both sides' tests read (listed in `harbor/README.md`, "Gates").
+**`harbor/` is Python, and none of those three can see it.** Biome does not read it, `tsc` cannot, vitest collects nothing from it — the exact shape of the mistake the definition of done was written after. Its gates are `bun run lint:py` (ruff) and `bun run test:py` (pytest): lefthook runs both on any commit touching a `*.py`, and CI runs them unconditionally in a job of their own. Editing that directory therefore needs [`uv`](https://docs.astral.sh/uv/) installed; nothing else in the repo does. The claims that span both languages are guarded so that neither toolchain alone misses a drift, by example files both sides' tests read (listed in `harbor/README.md`, "Gates").

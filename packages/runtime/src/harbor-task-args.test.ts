@@ -65,8 +65,7 @@ describe("parseHarborTaskArgs", () => {
 
 /**
  * The Python half that starts the entrypoint and reads what it leaves is not something any gate
- * here can import, so what the two must agree on is read as text, the way
- * apps/napbench/src/harbor-agreement.test.ts does for the older adapter.
+ * here can import, so what the two must agree on is read as text.
  */
 describe("agreement with harbor/nap_harbor", () => {
   const trial = readFileSync(join(HARBOR, "trial.py"), "utf8");

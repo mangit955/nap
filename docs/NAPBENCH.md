@@ -1,5 +1,11 @@
 # NapBench
 
+> **Retired on 2026-11-17.** Nap is now measured on Terminal-Bench 2.1 under Harbor
+> ([`harbor/README.md`](../harbor/README.md)). NapBench's code — `packages/bench`, `apps/napbench`
+> and `harbor/napbench_harbor` — was deleted from `main` and is kept at the git tag `napbench-v1`.
+> This page and the `docs/napbench-*.md` write-ups stay as the record of what it measured. The
+> commands and paths below work only on that tag.
+
 An evaluation harness for Nap's agent. It runs the real product end to end against a fixed set of
 tasks and produces, for each one, a score, a report and the trajectory the score was derived from.
 

@@ -9,7 +9,7 @@
  *
  * **A model with no entry gets no number.** Guessing a price from a similar model would put a
  * confident, wrong figure in an archived report, which is worse than a gap — see ADR-0003 on
- * why absent beats inferred throughout NapBench.
+ * why absent beats inferred.
  */
 
 import { z } from "zod";

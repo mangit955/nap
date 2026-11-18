@@ -4,8 +4,8 @@ dist/
 .turbo/
 coverage/
 
-# NapBench writes reports, trajectories and screenshots here. Running the benchmark must
-# not dirty the tree; the name is stated once, in @nap/bench, and pinned by its test.
+# NapBench, retired (tag napbench-v1), wrote its reports, trajectories and screenshots here.
+# Checkouts that ran it still hold the directory, which must not show up as untracked.
 napbench-results/
 
 # The load harness writes k6 summaries, server samples and reports here, for the same reason.
@@ -36,9 +36,8 @@ next-env.d.ts
 # reads them, and an untracked folder here made the uncommitted-work Stop hook fire every session.
 /output/
 
-# The Harbor task registry is generated from @nap/bench/suite by `bun run harbor:tasks`, and
-# each task carries a half-megabyte bundle of the trial entrypoint. A committed copy would be
-# a second answer to "what does the benchmark measure", stale the first time a task changes.
+# NapBench's generated Harbor task registry, from before it was retired (tag napbench-v1).
+# Checkouts that generated it still hold it, and it must not show up as untracked.
 harbor/tasks/
 
 # Python's build and tool droppings. The lockfile goes with them: nothing reads it — CI pins

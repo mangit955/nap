@@ -146,9 +146,9 @@ forget stops itself after `--ttl-minutes`.
 
 - `apps/api/scripts/verify-nap.ts` is the fixture: the composition, the seed, the processes and cleanup.
 - `apps/api/scripts/verify-nap-model.ts` is the scripted model.
-- `apps/napbench/scripts/verify-nap.ts` is the driver. It lives in `apps/napbench` because
-  `test/architecture.ts` keeps `playwright-core` there.
-- `apps/napbench/scripts/verify-nap-cli.ts` holds the command grammar and the run-file schema.
+- `apps/verify-nap/scripts/verify-nap.ts` is the driver. It lives in `apps/verify-nap` because
+  `test/architecture.ts` keeps `playwright-core` there, out of anything that ships.
+- `apps/verify-nap/scripts/verify-nap-cli.ts` holds the command grammar and the run-file schema.
 
 ## Keeping the map true
 

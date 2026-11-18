@@ -10,7 +10,7 @@ Under that lease, runtime confirms the latest job is completed at its checkpoint
 
 App tests offer source-reading tools and the image-gated computer. The executor also refuses invented write/edit/command calls. These turns have a separate budget, perform no git commit, and never enter deterministic arbitration or automatic repair. Their assertions do not advance a checkpoint.
 
-`AppTestRun` is the assertion ledger. Setup precedes test chapters. An assertion first records an ID, expectation and `untested` result. Computer input requires a pending expectation. A verdict must match that ID and expectation in the current chapter, follow input, and follow a newer stored screenshot. `test.annotation` carries the annotation and its time in milliseconds: on the recording's clock while one runs, otherwise elapsed since the test started. `test.completed` carries distinct assertion counts and whether execution completed or was interrupted. These sequence guards cannot establish whether a model's visual judgement is true; that is the benchmark's question.
+`AppTestRun` is the assertion ledger. Setup precedes test chapters. An assertion first records an ID, expectation and `untested` result. Computer input requires a pending expectation. A verdict must match that ID and expectation in the current chapter, follow input, and follow a newer stored screenshot. `test.annotation` carries the annotation and its time in milliseconds: on the recording's clock while one runs, otherwise elapsed since the test started. `test.completed` carries distinct assertion counts and whether execution completed or was interrupted. These sequence guards cannot establish whether a model's visual judgement is true; that is a question for a measurement, not for the runtime.
 
 Cancellation preserves untested assertions and closes the test as interrupted. The janitor does the same after a lost worker, reading durable annotations and avoiding duplicate terminals on a later sweep. It does not requeue the test. A failing assertion never invokes a repair callback.
 
@@ -60,7 +60,7 @@ The runtime test composes the real runtime, context seam, agent loop, tool execu
 
 The new queue kind needs the generated `0013_chunky_midnight.sql` migration. Database tests exercise it through a freshly constructed adapter. Deliberately replacing its ALTER with `SELECT 1` makes app-test enqueue fail. Removing expectation/observation and source-write guards also makes their tests fail. All mutations were restored.
 
-Every new event has schema parsing, issue-path, discriminant and JSON round-trip coverage plus Postgres round trips. Logging, harness formatting, and transcript event tables include the new types. New suites are collected in the unit project and package TypeScript programs. No package dependency, architecture table, hook or CI glob changed. The benchmark's editing-only test doubles now explicitly reject app-test requests; runtime imports no benchmark code.
+Every new event has schema parsing, issue-path, discriminant and JSON round-trip coverage plus Postgres round trips. Logging, harness formatting, and transcript event tables include the new types. New suites are collected in the unit project and package TypeScript programs. No package dependency, architecture table, hook or CI glob changed. At the time, the benchmark's editing-only test doubles rejected app-test requests and the runtime imported no benchmark code; NapBench has since been retired (tag `napbench-v1`).
 
 ## Desktop builds
 

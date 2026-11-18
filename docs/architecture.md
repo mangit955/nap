@@ -6,10 +6,10 @@ carries the short version; this is the reference. What each concept is called is
 ## Layout
 
 ```
-packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  bench  loadgen
-apps/      web (Next.js)   api (Hono, runs on Bun)   napbench (the benchmark CLI)
-harbor/    Nap's agents for the Harbor harness — Python, outside the workspace: Terminal-Bench
-           inside each task's machine (ADR-0035), and NapBench on the host (ADR-0014)
+packages/  shared  db  sandbox  storage  capture  agent  context  runtime  verify  loadgen
+apps/      web (Next.js)   api (Hono, runs on Bun)   verify-nap (drives Chrome against a local Nap)
+harbor/    Nap's agent for the Harbor harness — Python, outside the workspace: Terminal-Bench
+           inside each task's machine (ADR-0035)
 render.yaml  the deployment — three services and their database, one image. See docs/DEPLOY.md
 ```
 
@@ -21,15 +21,14 @@ Render's own schema and needs the Render CLI and a login.
 
 **Dependency direction, enforced:** `runtime` → {`context`, `agent`, `sandbox`, `storage`, `capture`, `db`, `verify`} → `shared`. `agent` imports the `SandboxManager` *interface*, never the E2B adapter.
 
-- **`bench` sits beside `shared`** rather than above `runtime`: it is NapBench's pure half — tasks, scoring, gates, reports — written against ports, and `apps/napbench` is the shell that composes real infrastructure behind them. Playwright belongs to that app alone and to nothing that ships. See `docs/adr/0001`.
-- **`loadgen` sits beside `bench`** and for the same reason: percentile maths, metric rollup, threshold verdicts, degradation rules, k6-summary parsing and the scripted user's ordering, written against ports and knowing nothing about a socket or a server. `apps/api/scripts/loadgen-composition.ts` is the shell that composes the real API with a fake sandbox and a fake model against a real Postgres; `loadgen.ts` drives it with in-process users and `loadgen-ramp.ts` holds it open for k6.
-- **`verify` sits *below both* `runtime` and `bench`**: running one check against a sandbox and saying whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim; the benchmark uses it to build a score. The edge that must never exist is `runtime` → `bench` — the system under test importing the thing that grades it. See `docs/adr/0007`.
+- **`loadgen` sits beside `shared`** rather than above `runtime`: percentile maths, metric rollup, threshold verdicts, degradation rules, k6-summary parsing and the scripted user's ordering, written against ports and knowing nothing about a socket or a server. `apps/api/scripts/loadgen-composition.ts` is the shell that composes the real API with a fake sandbox and a fake model against a real Postgres; `loadgen.ts` drives it with in-process users and `loadgen-ramp.ts` holds it open for k6.
+- **`verify` sits below `runtime`**: running one check against a sandbox and saying whether it passed, failed or was never asked. The runtime uses it to arbitrate a turn's claim. It was split out so that the retired NapBench could share it without the runtime importing the benchmark (`docs/adr/0007`).
+- **`apps/verify-nap` owns Playwright**, and nothing that ships may depend on it: the deployed image is one workspace-wide install. It is a developer tool — the driver for the `verify-nap` skill and the browser half of the `computer:local` acceptance test (`apps/verify-nap/src/computer-local.integration.test.ts`). It is in the image, as everything is, but nothing in production runs it.
 
-This is enforced by `test/architecture.ts`, not by vigilance, and at both ends: one rule reads every package's `package.json`, a second reads the `@nap/*` specifiers its `src` and `scripts` actually import — type-only ones included, because Bun hoists workspace packages and an undeclared import otherwise resolves, typechecks and ships. Either way `bun run test` goes red. Three things hold:
+This is enforced by `test/architecture.ts`, not by vigilance, and at both ends: one rule reads every package's `package.json`, a second reads the `@nap/*` specifiers its `src` and `scripts` actually import — type-only ones included, because Bun hoists workspace packages and an undeclared import otherwise resolves, typechecks and ships. Either way `bun run test` goes red. Two things hold:
 
 - Every file may only import a package its manifest declares.
 - Shipped source — `src`, minus the tests — may only import what the table above allows, and must have it as a real `dependency`. Tests and `scripts/` answer to the manifest but not the table, which is how sibling packages arrive as devDependencies for their fakes.
-- `@nap/bench` is the exception to that exemption: nothing below `apps/napbench` may import it, tests included. See `docs/adr/0007`.
 
 Adding a new workspace package also fails the test until you add it to the rule table there.
 

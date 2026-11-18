@@ -69,18 +69,10 @@ const IMPORTABLE = /\.(?:[cm]?[jt]sx?|json)$/;
 // component tests (`.test.tsx`, left out of the workspace run below) that touch the filesystem.
 // test/check-changed.test.ts fails when a component test imports node:fs and is not listed.
 export const TREE_READERS = [
-  // Every Python file under harbor/ is checked against the TypeScript it mirrors.
-  { test: "apps/napbench/src/harbor-agreement.test.ts", reads: /^harbor\// },
-  // The app-test fixtures: run in a real browser by a computer suite, and in jsdom by a
-  // component test.
-  {
-    test: "apps/napbench/scripts/app-test-command.computer.test.ts",
-    reads: /^apps\/napbench\/fixtures\/app-test\//,
-  },
-  {
-    test: "apps/napbench/src/app-test-flows.test.tsx",
-    reads: /^apps\/napbench\/fixtures\/app-test\//,
-  },
+  // The Terminal-Bench adapter's example files and trial.py, read as text by the TypeScript side
+  // of each cross-language claim (harbor/README.md, "Gates").
+  { test: "packages/runtime/src/harbor-task-args.test.ts", reads: /^harbor\/nap_harbor\// },
+  { test: "packages/sandbox/src/exec-channel.test.ts", reads: /^harbor\/nap_harbor\// },
   // Checks that the video the docs page points at is in apps/web/public.
   { test: "apps/web/src/docs/docs-page.test.tsx", reads: /^apps\/web\/public\// },
   // Hashes DESKTOP_SOURCES (packages/sandbox/src/desktop-template.ts) and fails on any edit to one

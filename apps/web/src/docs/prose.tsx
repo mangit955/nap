@@ -1,5 +1,5 @@
 /**
- * The typographic kit the nine sections are written with.
+ * The typographic kit the eight sections are written with.
  *
  * It exists so the sections are prose rather than markup: a section file should read as an
  * argument somebody wrote, not as a wall of class strings with sentences hidden in it. Nothing
@@ -31,7 +31,7 @@ export function P({ children }: { children: ReactNode }) {
   );
 }
 
-/** A run-in heading inside a section — the level below the nine, and never in the sidebar. */
+/** A run-in heading inside a section — the level below the eight, and never in the sidebar. */
 export function Sub({ children }: { children: ReactNode }) {
   return (
     <h3 className="mt-10 font-medium text-[15px] text-[var(--s-text-primary)] tracking-[-0.01em]">

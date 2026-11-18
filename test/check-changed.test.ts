@@ -14,13 +14,12 @@ import {
 const workspaces = [
   { name: "@nap/shared", dir: "packages/shared", dependsOn: [] },
   { name: "@nap/capture", dir: "packages/capture", dependsOn: ["@nap/shared"] },
-  { name: "@nap/bench", dir: "packages/bench", dependsOn: ["@nap/capture"] },
   { name: "@nap/web", dir: "apps/web", dependsOn: ["@nap/shared"] },
   { name: "@nap/sandbox", dir: "packages/sandbox", dependsOn: ["@nap/shared"] },
 ];
-// Runs apps/napbench's script, which imports @nap/bench, as a separate process.
-const runner = "apps/napbench/scripts/napbench-app-test.test.ts";
-const processRunners = { [runner]: ["@nap/bench"] };
+// Runs a script in another workspace, which imports @nap/capture, as a separate process.
+const runner = "apps/api/scripts/capture-cli.test.ts";
+const processRunners = { [runner]: ["@nap/capture"] };
 const repoTests = ["test/architecture.test.ts", "test/docs.test.ts"];
 const webTests = ["apps/web/src/app/font-placement.test.ts", "apps/web/src/brand/nap-mark.test.ts"];
 const tests = [
@@ -33,10 +32,12 @@ const tests = [
   "apps/api/scripts/local-sandbox.computer.test.ts",
 ];
 
-// Real names, from `git grep` and vitest.config.ts on the day these were written.
+// Real names, from `git grep` and vitest.config.ts on the day these were written. The `.gitignore`
+// entry is a test that names the file without reading the repository's copy; the lookup is by name
+// alone, so it stands in for one that does.
 const testsNaming = {
   "start-desktop.sh": ["packages/sandbox/src/desktop-start.computer.test.ts"],
-  ".gitignore": ["packages/bench/src/results-dir.test.ts"],
+  ".gitignore": ["test/setup-worktree.test.ts"],
   "0022_project_name_source.sql": ["packages/db/src/schema.db.test.ts"],
   "package.json": ["packages/sandbox/src/git-local.test.ts"],
   "tsconfig.json": ["test/project-root.test.ts", "apps/api/src/compose.test.ts"],
@@ -177,13 +178,13 @@ describe("planChecks", () => {
   });
 
   it("runs the tests that name a changed file `related` cannot follow", () => {
-    expect(related(plan([".gitignore"]))).toContain("packages/bench/src/results-dir.test.ts");
+    expect(related(plan([".gitignore"]))).toContain("test/setup-worktree.test.ts");
     expect(related(plan(["packages/db/drizzle/0022_project_name_source.sql"]))).toContain(
       "packages/db/src/schema.db.test.ts",
     );
     // Deleted files count: the test that read one now fails to find it.
     expect(related(plan([{ path: ".gitignore", present: false }]))).toContain(
-      "packages/bench/src/results-dir.test.ts",
+      "test/setup-worktree.test.ts",
     );
   });
 
@@ -202,27 +203,20 @@ describe("planChecks", () => {
   });
 
   it("runs a test that reads another tree when anything in that tree changed", () => {
-    expect(related(plan(["harbor/README.md"]))).toContain(
-      "apps/napbench/src/harbor-agreement.test.ts",
+    expect(related(plan(["harbor/nap_harbor/result-example.json"]))).toContain(
+      "packages/runtime/src/harbor-task-args.test.ts",
     );
-    expect(
-      step(plan(["apps/napbench/fixtures/app-test/cart/app.js"]), "tests")?.commands[1],
-    ).toEqual([
-      "bunx",
-      "vitest",
-      "run",
-      "--project",
-      "computer",
-      "apps/napbench/scripts/app-test-command.computer.test.ts",
-    ]);
+    expect(related(plan(["harbor/nap_harbor/channel-example.jsonl"]))).toContain(
+      "packages/sandbox/src/exec-channel.test.ts",
+    );
     expect(related(plan(["packages/shared/src/a.ts"]))).not.toContain(
-      "apps/napbench/src/harbor-agreement.test.ts",
+      "packages/runtime/src/harbor-task-args.test.ts",
     );
   });
 
   it("runs a test that starts a script when anything that script reaches changed", () => {
     // Imported by the script, and depended on by what it imports.
-    expect(related(plan(["packages/bench/src/app-test.ts"]))).toContain(runner);
+    expect(related(plan(["packages/capture/src/a.ts"]))).toContain(runner);
     expect(related(plan(["packages/shared/src/a.ts"]))).toContain(runner);
     // apps/web is not among them.
     expect(related(plan(["apps/web/src/a.ts"]))).not.toContain(runner);
@@ -304,7 +298,7 @@ describe("planChecks", () => {
   });
 
   it("runs the Python gates and the cross-language test when harbor/ Python changes", () => {
-    const result = plan(["harbor/napbench_harbor/agent.py"]);
+    const result = plan(["harbor/nap_harbor/agent.py"]);
     expect(step(result, "python")?.commands).toEqual([
       ["bun", "run", "lint:py"],
       ["bun", "run", "test:py"],
@@ -322,7 +316,7 @@ describe("planChecks", () => {
       ],
     ]);
     expect(step(result, "tests")?.commands.flat()).toContain(
-      "apps/napbench/src/harbor-agreement.test.ts",
+      "packages/runtime/src/harbor-task-args.test.ts",
     );
     expect(step(plan(["harbor/README.md"]), "python")).toBeUndefined();
     expect(step(plan(["packages/shared/src/a.ts"]), "python")).toBeUndefined();
@@ -378,17 +372,14 @@ describe("planChecks on the real tree", { timeout: 30_000 }, () => {
 
   it("finds the tests that run a script in another process, with what the script imports", async () => {
     const { processRunners: found } = await readInputs(root, [], false);
-    expect(found).toMatchObject({
-      "apps/napbench/scripts/napbench-app-test.test.ts": expect.arrayContaining(["@nap/bench"]),
-      "apps/api/src/computer/image-spike-cli.test.ts": expect.arrayContaining(["@nap/agent"]),
-    });
-    // The change that slipped through before: an error message the script prints.
-    expect(related(await planFor(["packages/bench/src/app-test.ts"]))).toContain(
-      "apps/napbench/scripts/napbench-app-test.test.ts",
-    );
-    // Through package.json: the script imports @nap/bench, which depends on @nap/verify.
-    expect(related(await planFor(["packages/verify/src/command-output.ts"]))).toContain(
-      "apps/napbench/scripts/napbench-app-test.test.ts",
+    const imageSpike = "apps/api/src/computer/image-spike-cli.test.ts";
+    expect(found).toMatchObject({ [imageSpike]: expect.arrayContaining(["@nap/agent"]) });
+    // The change that slipped through before: something the script imports, in a package the
+    // test does not live in.
+    expect(related(await planFor(["packages/agent/src/claude-provider.ts"]))).toContain(imageSpike);
+    // Through package.json: the script imports @nap/agent, which depends on @nap/shared.
+    expect(related(await planFor(["packages/shared/src/ports/llm-provider.ts"]))).toContain(
+      imageSpike,
     );
   });
 

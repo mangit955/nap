@@ -294,21 +294,21 @@ export type SingleAgentRuntimeOptions = {
    *
    * **This is the authoritative one**, and the route's quota check is an advisory refusal in
    * front of it: a turn may wait before it runs, so capacity claimed at admission would be held
-   * for work that has not started. Absent means uncapped — the harness and the benchmark, which
-   * create one sandbox at a time and pay for it either way. Every deployment supplies one, and
+   * for work that has not started. Absent means uncapped — the harness, which creates one sandbox
+   * at a time and pays for it either way. Every deployment supplies one, and
    * `compose.test.ts` is what says so.
    */
   capacity?: SandboxCapacity;
   /**
    * Whether a completed turn's claim is arbitrated, or simply believed. Defaults to arbitrating.
    *
-   * **This exists for one caller and it is not a deployment.** NapBench measures a difference by
-   * running the same tasks with the loop and without it, and an arm that could only be built by
-   * checking out an older Nap would differ from the other arm in every commit between them
-   * rather than in the one thing being measured (docs/adr/0004, and the harness identity on the
-   * report). `trust` *is* v1's behaviour: the turn commits, and the job closes `unverified`,
-   * which is the same word a turn that changed nothing already closes with — no claim about the
-   * code was arbitrated, and it must not read as a pass.
+   * **This exists for measurement, not for a deployment.** A benchmark measures what the loop is
+   * worth by running the same tasks with it and without it, and an arm that could only be built
+   * by checking out an older Nap would differ from the other arm in every commit between them
+   * rather than in the one thing being measured (docs/adr/0004). The retired NapBench was its
+   * caller; nothing sets `trust` today. `trust` *is* v1's behaviour: the turn commits, and the job
+   * closes `unverified`, which is the same word a turn that changed nothing already closes with —
+   * no claim about the code was arbitrated, and it must not read as a pass.
    *
    * Two words rather than a boolean, so that neither value can be arrived at by a stray `false`
    * and so that reading a composition tells you which one it asked for.

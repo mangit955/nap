@@ -21,7 +21,7 @@ Rapid diagnosis used a temporary driver replacement and then a credential-free o
 
 ## Scope and gates
 
-The opt-in browser test is `apps/napbench/src/computer-local.integration.test.ts`. Its collection appears in `integration-collection.txt`; helper and driver regressions appear in `unit-collection.txt`. API scripts and napbench source enter their existing workspace tsconfigs. Biome, architecture, comments, hooks and test-project globs remain enabled. The occupied-port guard was observed rejecting a second launcher before allocating resources.
+The opt-in browser test is `apps/verify-nap/src/computer-local.integration.test.ts`. Its collection appears in `integration-collection.txt`; helper and driver regressions appear in `unit-collection.txt`. API scripts and napbench source enter their existing workspace tsconfigs. Biome, architecture, comments, hooks and test-project globs remain enabled. The occupied-port guard was observed rejecting a second launcher before allocating resources.
 
 Actual cloud proxy behavior, E2B SDK cancellation/output sizes, production memory headroom, live cross-worker cancellation, missing passive Devin reference states, and real-model capability trials remain outside this local proof. Existing unit and PostgreSQL tests cover additional owner, lease, recording failure and cancellation cases; do not infer that every failure case was driven through this native UI run.
 

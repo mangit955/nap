@@ -91,9 +91,9 @@ describe("a sandbox nothing references", () => {
   });
 
   it("is left alone when this database has never heard of its project", async () => {
-    // `bun run harness --real` and a funded NapBench run both create sandboxes on this same E2B
-    // account, tagged with project ids that live in a throwaway database or in none. A deployed
-    // reaper that destroyed everything it could not account for would kill them mid-run.
+    // `bun run harness --real` creates sandboxes on this same E2B account, tagged with project
+    // ids that live in a throwaway database or in none. A deployed reaper that destroyed
+    // everything it could not account for would kill them mid-run.
     const id = await running("11111111-2222-4333-8444-555555555555");
 
     const result = await reconcileCapacity({
