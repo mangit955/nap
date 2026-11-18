@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { FEATURED_REPLAY_PATH } from "../replay/featured.ts";
 import { Hero } from "./hero.tsx";
 
 describe("the front page's hero", () => {
@@ -15,6 +16,14 @@ describe("the front page's hero", () => {
     expect(screen.getByRole("link", { name: "Start building" })).toHaveAttribute(
       "href",
       "/sign-up",
+    );
+  });
+
+  it("offers a recorded session to anybody, one click from the front page", () => {
+    render(<Hero />);
+    expect(screen.getByRole("link", { name: /watch a real session/i })).toHaveAttribute(
+      "href",
+      FEATURED_REPLAY_PATH,
     );
   });
 
