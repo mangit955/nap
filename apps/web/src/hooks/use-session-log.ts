@@ -27,6 +27,7 @@ import { useMemo } from "react";
 import { jobView, type SessionJobView } from "../chat/job-summary.ts";
 import { changedPaths } from "../files/changed-paths.ts";
 import { type PreviewState, previewState } from "../preview/preview-state.ts";
+import type { LogKey } from "./remembered-logs.ts";
 import { type CreateSocket, type StreamStatus, useEventStream } from "./use-event-stream.ts";
 
 export type SessionLog = {
@@ -58,15 +59,15 @@ export type SessionLog = {
 export function useSessionLog(options: {
   sessionId: string | undefined;
   /** Whose log this is, so a revisit in this tab starts from it. See `useEventStream`. */
-  projectId?: string | undefined;
+  remember?: LogKey | undefined;
   baseUrl?: string;
   createSocket?: CreateSocket;
 }): SessionLog {
-  const { sessionId, projectId, baseUrl, createSocket } = options;
+  const { sessionId, remember, baseUrl, createSocket } = options;
 
   const { events, status, lastSeq, replayed, remembered } = useEventStream({
     sessionId,
-    projectId,
+    remember,
     ...(baseUrl === undefined ? {} : { baseUrl }),
     ...(createSocket === undefined ? {} : { createSocket }),
   });

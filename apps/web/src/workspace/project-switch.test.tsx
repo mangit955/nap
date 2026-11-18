@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handOffStartedPrompt } from "../chat/started-prompt.ts";
 import { PREVIEW_TITLE } from "../components/preview-pane.tsx";
 import { LISTING_DEBOUNCE_MS } from "../files/use-project-files.ts";
+import { recallLog } from "../hooks/remembered-logs.ts";
 import { LIVE_BATCH_MS } from "../hooks/use-event-stream.ts";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
@@ -96,6 +97,8 @@ let listings: string[];
 let posted: string[];
 /** When set, every project record waits for it — the record still on its way. */
 let recordHeld: Promise<void> | undefined;
+/** Projects deleted elsewhere: their record is a 404. */
+let gone: Set<string>;
 
 /** Holds a read for A when the test asks for it, and records that it did. */
 async function maybeHold(project: Project, what: string): Promise<void> {
@@ -137,7 +140,7 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
   const id = Object.keys(PROJECTS).find((key) => pathname === `/projects/${key}`) as
     | keyof typeof PROJECTS
     | undefined;
-  if (id === undefined) return json({ error: "not found" }, 404);
+  if (id === undefined || gone.has(id)) return json({ error: "not found" }, 404);
   await recordHeld;
   return json({
     projectId: id,
@@ -209,6 +212,7 @@ beforeEach(() => {
   listings = [];
   posted = [];
   recordHeld = undefined;
+  gone = new Set();
 });
 
 describe("switching projects in place", () => {
@@ -467,9 +471,6 @@ describe("switching projects in place", () => {
     expect(conversation.getByText("Alpha reply")).toBeVisible();
     expect(screen.queryByRole("status", { name: "Loading this conversation" })).toBeNull();
     expect(net.opened).toHaveLength(2);
-    // Only the transcript is drawn from memory: the preview A announced waits for the server.
-    for (const frame of screen.queryAllByTitle(PREVIEW_TITLE))
-      expect(frame).not.toHaveAttribute("src", expect.stringContaining("alpha"));
 
     await act(async () => {
       record.open();
@@ -504,6 +505,24 @@ describe("switching projects in place", () => {
     });
     await waitFor(() => expect(changes()).toBe(1));
     announced.mockRestore();
+  });
+
+  it("draws nothing kept for a project deleted elsewhere, and forgets it", async () => {
+    const view = render(workspace(PROJECT_A));
+    await replayAlpha();
+    expect(await screen.findByText("Alpha reply")).toBeVisible();
+    view.rerender(workspace(PROJECT_B));
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+
+    gone.add(PROJECT_A);
+    view.rerender(workspace(PROJECT_A));
+
+    // No session ever arrives for a project that is gone, so a kept transcript drawn now would
+    // stay on screen under the sentence saying it does not exist.
+    expect(await screen.findByText("this project no longer exists")).toBeVisible();
+    expect(within(screen.getByRole("main")).queryByText("Alpha reply")).toBeNull();
+    expect(recallLog({ ownerId: "owner", projectId: PROJECT_A })).toBeUndefined();
+    expect(net.opened).toHaveLength(2);
   });
 
   it("keeps the sidebar mounted across the switch", async () => {

@@ -9,6 +9,8 @@ import {
 } from "./remembered-logs.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
+const OWNER = "owner";
+const at = (projectId: string, ownerId = OWNER) => ({ ownerId, projectId });
 
 function log(seq: number): StoredEvent[] {
   return [
@@ -28,49 +30,68 @@ beforeEach(forgetAllLogs);
 describe("remembered logs", () => {
   it("gives back what was kept for a project, with its session", () => {
     const events = log(3);
-    rememberLog("project-a", SESSION, events);
+    rememberLog(at("project-a"), SESSION, events);
 
-    expect(recallLog("project-a")).toEqual({ sessionId: SESSION, events });
-    expect(recallLog("project-b")).toBeUndefined();
+    expect(recallLog(at("project-a"))).toEqual({ sessionId: SESSION, events });
+    expect(recallLog(at("project-b"))).toBeUndefined();
   });
 
   it("keeps the newest log for a project, not the first", () => {
-    rememberLog("project-a", SESSION, log(1));
-    rememberLog("project-a", SESSION, log(2));
+    rememberLog(at("project-a"), SESSION, log(1));
+    rememberLog(at("project-a"), SESSION, log(2));
 
-    expect(recallLog("project-a")?.events.at(-1)?.seq).toBe(2);
+    expect(recallLog(at("project-a"))?.events.at(-1)?.seq).toBe(2);
   });
 
   it("does not keep an empty log, and an empty one replaces a kept one", () => {
-    rememberLog("project-a", SESSION, []);
-    expect(recallLog("project-a")).toBeUndefined();
+    rememberLog(at("project-a"), SESSION, []);
+    expect(recallLog(at("project-a"))).toBeUndefined();
 
-    rememberLog("project-a", SESSION, log(1));
-    rememberLog("project-a", SESSION, []);
-    expect(recallLog("project-a")).toBeUndefined();
+    rememberLog(at("project-a"), SESSION, log(1));
+    rememberLog(at("project-a"), SESSION, []);
+    expect(recallLog(at("project-a"))).toBeUndefined();
   });
 
   it("drops the least recently used project past the bound", () => {
     for (let index = 0; index < REMEMBERED_PROJECTS; index += 1)
-      rememberLog(`project-${index}`, SESSION, log(1));
+      rememberLog(at(`project-${index}`), SESSION, log(1));
     // Using the oldest makes the second oldest the next to go.
-    recallLog("project-0");
-    rememberLog("project-new", SESSION, log(1));
+    recallLog(at("project-0"));
+    rememberLog(at("project-new"), SESSION, log(1));
 
-    expect(recallLog("project-0")).toBeDefined();
-    expect(recallLog("project-1")).toBeUndefined();
-    expect(recallLog("project-new")).toBeDefined();
+    expect(recallLog(at("project-0"))).toBeDefined();
+    expect(recallLog(at("project-1"))).toBeUndefined();
+    expect(recallLog(at("project-new"))).toBeDefined();
+  });
+
+  it("gives a log back only to the person it was kept for", () => {
+    rememberLog(at("project-a", "first"), SESSION, log(1));
+
+    expect(recallLog(at("project-a", "second"))).toBeUndefined();
+    expect(recallLog(at("project-a", "first"))).toBeDefined();
+  });
+
+  it("forgets a deleted project for everyone who kept it", () => {
+    rememberLog(at("project-a", "first"), SESSION, log(1));
+    rememberLog(at("project-a", "second"), SESSION, log(1));
+    rememberLog(at("project-b", "first"), SESSION, log(1));
+
+    forgetLog("project-a");
+
+    expect(recallLog(at("project-a", "first"))).toBeUndefined();
+    expect(recallLog(at("project-a", "second"))).toBeUndefined();
+    expect(recallLog(at("project-b", "first"))).toBeDefined();
   });
 
   it("forgets one project, or all of them", () => {
-    rememberLog("project-a", SESSION, log(1));
-    rememberLog("project-b", SESSION, log(1));
+    rememberLog(at("project-a"), SESSION, log(1));
+    rememberLog(at("project-b"), SESSION, log(1));
 
     forgetLog("project-a");
-    expect(recallLog("project-a")).toBeUndefined();
-    expect(recallLog("project-b")).toBeDefined();
+    expect(recallLog(at("project-a"))).toBeUndefined();
+    expect(recallLog(at("project-b"))).toBeDefined();
 
     forgetAllLogs();
-    expect(recallLog("project-b")).toBeUndefined();
+    expect(recallLog(at("project-b"))).toBeUndefined();
   });
 });

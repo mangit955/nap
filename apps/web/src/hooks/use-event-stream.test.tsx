@@ -783,14 +783,14 @@ describe("committing the log in batches", () => {
 });
 
 describe("coming back to a project this tab has seen", () => {
-  const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
+  const KEY = { ownerId: "owner", projectId: "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192" };
 
   function renderProject(net: ReturnType<typeof sockets>, sessionId: string | undefined) {
     return renderHook(
       ({ id }: { id: string | undefined }) =>
         useEventStream({
           sessionId: id,
-          projectId: PROJECT,
+          remember: KEY,
           baseUrl: URL_BASE,
           createSocket: net.createSocket,
         }),
@@ -869,7 +869,7 @@ describe("coming back to a project this tab has seen", () => {
     act(() => void vi.advanceTimersByTime(LIVE_BATCH_MS));
     second.unmount();
 
-    expect(recallLog(PROJECT)?.events.map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(recallLog(KEY)?.events.map((e) => e.seq)).toEqual([1, 2, 3]);
   });
 
   it("starts from nothing when the project's session is not the one the log was kept for", () => {
@@ -887,6 +887,38 @@ describe("coming back to a project this tab has seen", () => {
     expect(result.current.events.map((e) => e.payload)).toEqual([{ text: "other" }]);
   });
 
+  it("stops drawing and keeping when the key is taken away, without reconnecting", () => {
+    // What the shell does once the server says the project is gone: the socket, if any, is not
+    // this decision's to touch.
+    vi.useFakeTimers();
+    visitOnce();
+    const net = sockets();
+    const { result, rerender } = renderHook(
+      ({ keep }: { keep: boolean }) =>
+        useEventStream({
+          sessionId: SESSION,
+          remember: keep ? KEY : undefined,
+          baseUrl: URL_BASE,
+          createSocket: net.createSocket,
+        }),
+      { initialProps: { keep: true } },
+    );
+    expect(result.current.remembered).toBeDefined();
+
+    rerender({ keep: false });
+    expect(result.current.remembered).toBeUndefined();
+    expect(net.opened).toHaveLength(1);
+
+    forgetAllLogs();
+    act(() => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+      net.latest.deliver({ type: "event", event: event(3, "three") });
+    });
+    act(() => void vi.advanceTimersByTime(LIVE_BATCH_MS));
+    expect(recallLog(KEY)).toBeUndefined();
+  });
+
   it("keeps nothing for a stream that names no project", () => {
     const net = sockets();
     const first = render(net);
@@ -897,6 +929,6 @@ describe("coming back to a project this tab has seen", () => {
     });
     first.unmount();
 
-    expect(recallLog(PROJECT)).toBeUndefined();
+    expect(recallLog(KEY)).toBeUndefined();
   });
 });

@@ -14,6 +14,7 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
+import { rememberLog } from "./remembered-logs.ts";
 import { useSessionLog } from "./use-session-log.ts";
 
 const URL_BASE = "ws://api.test";
@@ -131,5 +132,37 @@ describe("what the log is asked", () => {
 
     // The deleted one is absent: there is no node left in the tree to mark.
     expect([...result.current.changed]).toEqual(["src/App.tsx"]);
+  });
+});
+
+describe("a log this tab kept from an earlier visit", () => {
+  const KEY = { ownerId: "owner", projectId: "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192" };
+
+  it("is drawn by nobody but the transcript: no answer here is folded from it", () => {
+    // The kept log may be minutes old. A preview folded from it would point at a sandbox swept
+    // since, and a job folded from it would show a turn that has finished.
+    rememberLog(KEY, SESSION_ID, [
+      ev("turn.started", { source: "user" }, 1),
+      ev("file.changed", { path: "src/App.tsx", changeType: "modified", diff: "" }, 2),
+      ev("preview.ready", { url: "https://5173-old.e2b.app", port: 5173 }, 3),
+    ]);
+    const net = sockets();
+    const { result } = renderHook(() =>
+      useSessionLog({
+        sessionId: SESSION_ID,
+        remember: KEY,
+        baseUrl: URL_BASE,
+        createSocket: net.createSocket,
+      }),
+    );
+    act(() => net.latest.open());
+
+    expect(result.current.remembered).toHaveLength(3);
+    expect(result.current.events).toEqual([]);
+    expect(result.current.preview).toEqual(
+      renderHook(() => useSessionLog({ sessionId: undefined })).result.current.preview,
+    );
+    expect([...result.current.changed]).toEqual([]);
+    expect(result.current.jobs.summary).toBeNull();
   });
 });

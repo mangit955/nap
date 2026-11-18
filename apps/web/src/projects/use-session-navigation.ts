@@ -15,6 +15,7 @@ import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
+import { forgetLog } from "../hooks/remembered-logs.ts";
 import { type PendingOp, withPending } from "./navigation-overlay.ts";
 import type { SearchSessions } from "./use-session-search.ts";
 
@@ -272,6 +273,8 @@ export function useSessionNavigation({
         },
       );
       if (!result.ok) return result.error;
+      // A deleted project's kept log must never be drawn again, whichever list deleted it.
+      if (op.kind === "remove") forgetLog(op.projectId);
       confirmed.current = withPending(confirmed.current, [op]);
       return undefined;
     },

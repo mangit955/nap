@@ -9,7 +9,6 @@ import { forgetSignedOut } from "../auth/forget-signed-out.ts";
 import { recentProjects } from "../dashboard/filters.ts";
 import { seenChange } from "../dashboard/session-rows.ts";
 import { Sidebar } from "../dashboard/sidebar.tsx";
-import { forgetLog } from "../hooks/remembered-logs.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 
 /**
@@ -74,9 +73,7 @@ export function SessionSidebar({
         onRename={(id, name) => void rename(id, name)}
         onDelete={(id) =>
           void remove(id).then((removed) => {
-            if (!removed) return;
-            forgetLog(id);
-            if (id === projectId) router.replace("/dashboard");
+            if (removed && id === projectId) router.replace("/dashboard");
           })
         }
         onClose={(id) => void close(id)}
