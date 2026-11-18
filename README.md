@@ -41,8 +41,9 @@ costs nothing.
   The repair budget has a hard limit.
 - **Works on your repositories.** Connect a GitHub repository and each job works on its own branch.
   Before a job whose checks pass becomes a draft pull request, a second model reviews it by running
-  commands, and a problem it proves sends the agent back. Review feedback you approve on the pull
-  request starts the next job.
+  commands, and a problem it proves sends the agent back. What the review of the published commit
+  noted without proving is in the description of the draft it opens. Review feedback you approve
+  on the pull request starts the next job.
 - **Tests the app like a user would.** On a model that can read images, the agent gets a desktop
   with Chrome on the project's dev server. "Test the app" states each expectation before acting,
   records a video, and offers a fix when something fails. It never starts the fix on its own.

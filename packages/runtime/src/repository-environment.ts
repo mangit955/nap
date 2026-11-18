@@ -74,9 +74,12 @@ export async function prepareRepositoryEnvironment(options: {
       "Repository setup must preserve tracked files and ignore generated output. Use a dependency command such as bun install --frozen-lockfile or npm ci, update .gitignore, and retry.",
     );
   if (source.devCommand !== null) {
+    // The redirections cover the whole backgrounded group, not just the server inside it. Placed on
+    // the inner command, they leave the subshell running `cd` holding the caller's output pipe for
+    // as long as the server lives, and the provider waits on that pipe until its deadline.
     const started = await sandbox.exec(
       sandboxId,
-      `cd ${TEMPLATE_WORKDIR} && nohup sh -c ${shellQuote(source.devCommand)} </dev/null >/tmp/nap-preview.log 2>&1 &`,
+      `(cd ${TEMPLATE_WORKDIR} && exec nohup sh -c ${shellQuote(source.devCommand)}) </dev/null >/tmp/nap-preview.log 2>&1 &`,
     );
     if (!started.ok || started.value.exitCode !== 0)
       return failed("Could not start the repository preview.");

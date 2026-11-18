@@ -120,7 +120,8 @@ export type PromptSource = z.infer<typeof PromptSourceSchema>;
  * `output` is what a failed check said, already budgeted by whoever ran it — this is a
  * transcript entry, not the place a cap is decided. `null` on a check that passed, was never
  * asked, or failed silently: a passing build's output is noise in a log somebody reads to find
- * out why something broke.
+ * out why something broke. The one exception is a passed `review`, whose output is the notes it
+ * left without blocking (docs/adr/0036), which the draft pull request then shows.
  */
 export const VerifiedCheckSchema = z.strictObject({
   /** The check's name as the project knows it — `typecheck`, `lint`, `build`, `test`, `preview`. */
@@ -446,6 +447,17 @@ export const NapEventSchema = z.discriminatedUnion("type", [
    * disagree. Short-circuiting means the checks after the first failure are `absent`.
    */
   event("verification.completed", { jobId: z.uuid(), checks: z.array(VerifiedCheckSchema) }),
+  /**
+   * What a review (ADR-0036) cost. It runs on the turn's model and credentials after that turn has
+   * completed, so its tokens are in no `turn.completed`, and without this event they would be
+   * billed to the person and appear nowhere in their session.
+   *
+   * Written whenever a review returned, before the `verification.completed` carrying its check,
+   * and also when the review is then dropped because the workspace could not be put back: the
+   * tokens were spent either way. A review that never ran (the branch could not be read) or whose
+   * reviewer threw reported no usage, so it writes nothing.
+   */
+  event("review.completed", { jobId: z.uuid(), usage: TokenUsageSchema }),
   /**
    * A commit that verification agreed with — a *checkpoint*, as against the commit every
    * completed turn makes. `HEAD == last checkpoint` is what "is this project in a valid state"

@@ -147,11 +147,11 @@ describe("reviewJob", () => {
         signal: undefined,
       });
     // One short of the bound, the review runs: the sandbox is not what stops it.
-    expect(await review([reviewed(1)])).not.toBeNull();
+    expect((await review([reviewed(1)])).verdict).not.toBeNull();
     expect(calls).toBe(1);
     expect(
       await review(Array.from({ length: MAX_REVIEW_ROUNDS }, (_, index) => reviewed(index + 1))),
-    ).toBeNull();
+    ).toEqual({ verdict: null, usage: null });
     expect(calls).toBe(1);
   });
 });

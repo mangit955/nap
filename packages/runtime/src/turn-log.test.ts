@@ -170,6 +170,11 @@ const ONE_OF_EACH: Record<NapEventType, StoredEvent> = {
     type: "verification.started",
     payload: { jobId: JOB },
   }),
+  "review.completed": stored({
+    ...base(25),
+    type: "review.completed",
+    payload: { jobId: JOB, usage: { inputTokens: 4_000, outputTokens: 300 } },
+  }),
   "verification.completed": stored({
     ...base(16),
     type: "verification.completed",

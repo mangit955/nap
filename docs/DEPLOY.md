@@ -441,6 +441,33 @@ script finds all three services live at it, reuses them, and deploys the web at 
 not use the manual release script for this change, since it deploys the worker first. See
 [ADR-0034](adr/0034-the-turn-budget-is-denominated-in-what-is-billed.md).
 
+## Review usage rollout
+
+The worker now writes a `review.completed` event after each review of an imported repository's job
+([ADR-0036](adr/0036-a-reviewer-checks-the-claim-and-only-what-it-ran-can-block.md) D5), carrying
+the review's token usage. Old strict readers reject an event type they do not know: an old API
+would fail to replay that session, an old reaper to sweep it, and an old worker to run its next
+turn. Browser tabs need nothing: a tab from before this change drops a frame it cannot parse and
+carries on, and the event draws nothing in the transcript anyway. There is no database migration
+and no new env key.
+
+So readers go first. Follow every step of the
+[usage cache split rollout](#usage-cache-split-rollout), with this change in its place:
+
+1. Merge with `[skip ci]` in the merge commit's message, to hold the worker-first automatic release.
+2. From Render, deploy that commit to `nap-api`, and wait for `/readyz` and for its old instances to
+   exit. Then the same for `nap-reaper`. Then `nap-worker`. Render starts the new worker before it
+   signals the old one, so for that moment an old worker can claim a session that already has a
+   `review.completed` row and fail that turn; a resend succeeds.
+3. Merge nothing else to `main` until this release has finished.
+4. Run the **CI** workflow on `main` with **Run workflow** while `main` is still that commit. It
+   finds the three services live at it, and deploys the web, whose `/docs` changed, at the same
+   SHA. Skipping this leaves the web on the old commit and CI never run on the new one.
+
+Until every reader is on the release, a session whose job was reviewed by a new worker cannot be
+opened from an old API instance. Once a `review.completed` row exists, do not roll a reader back past
+this change; roll forward instead.
+
 ## Viewer keep-warm rollout
 
 Migration `0023` adds a nullable `projects.viewed_at`. It is one `ALTER` on one table with no
