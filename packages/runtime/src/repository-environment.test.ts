@@ -180,7 +180,8 @@ it("starts the dev server without holding the start command open until the serve
   // command through bash, not `/bin/sh`: dash, CI's `/bin/sh`, hands the pipe over where bash does
   // not, so it passes the broken command. The dev command never exits on its own, and its own
   // command line carries a marker so the server itself can be found and stopped.
-  const marker = `${30_000 + Math.floor(Math.random() * 9_000)}.${Date.now() % 1_000_000}`;
+  // Minutes, not hours: long past the five-second wait, short if a killed run leaves it behind.
+  const marker = `${300 + Math.floor(Math.random() * 300)}.${Date.now() % 1_000_000}`;
   const server = `sleep ${marker}`;
   const sandbox = new InMemorySandboxManager({ defaultExec: () => ({ exitCode: 0 }) });
   const created = await sandbox.create("project");
@@ -216,7 +217,7 @@ it("starts the dev server without holding the start command open until the serve
 
     expect(answered).toBe(true);
     expect(serverRunning).toBe(true);
-    // Both paths were rewritten, so the server ran where the real one would and logged there.
+    // The log path was rewritten, so the server's output reached the work dir rather than the host.
     expect(existsSync(log)).toBe(true);
   } finally {
     shell.kill("SIGKILL");
