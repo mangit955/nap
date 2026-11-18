@@ -27,6 +27,12 @@ Without an account, you can [watch a recorded session](https://nap-tawny.vercel.
 play back in nap's own workspace, ending in the app it built; nothing runs while you watch, so it
 costs nothing.
 
+**On a real repository.** The live deployment took one task for a public GitHub repository and
+returned [a reviewed draft pull request](https://github.com/mangit955/tab-split/pull/1). It ran
+the project's checks, had a separate review pass check the change, then tested the running app in
+its own browser and recorded the test, for one to two cents of model spend. The
+[write-up](docs/napbench-production-loop.md) has the run, the two bugs it found, and its limits.
+
 ## What nap does
 
 - **Builds in an isolated workspace.** The agent reads and edits files in an E2B sandbox. A Vite

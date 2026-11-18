@@ -29,6 +29,8 @@ const K8S = join(ROOT, "infra", "k8s");
  */
 const RENDER_MAX_CONNECTIONS: Record<string, number> = {
   free: 100,
+  // Render's current name for the plan that was `basic-256mb`; render.com/pricing lists it at 100.
+  "0.1c-256mb": 100,
   "basic-256mb": 100,
   "basic-1gb": 100,
   "basic-4gb": 100,
@@ -174,7 +176,7 @@ describe("the connection budget", () => {
 
   it("catches a second worker on the Render plan, and says by how much", () => {
     // The rule seen failing: what scaling the worker without resizing anything would do to the
-    // free database. Raise the plan or shrink the pools first.
+    // database. Raise the plan or shrink the pools first.
     const { processes, maxConnections } = renderDeployment();
     const twoWorkers = processes.map((p) => (p.name === "nap-worker" ? { ...p, replicas: 2 } : p));
 
