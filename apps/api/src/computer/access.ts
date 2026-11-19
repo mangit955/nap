@@ -227,7 +227,8 @@ function guardFailure(c: AccessContext, code: ComputerInputRefusal["code"], appl
   if (code === "outdated")
     return c.json(
       {
-        error: "This computer predates safe input. Close and reopen the project to update it.",
+        error:
+          "This computer predates safe input. Put the project away and resume it to update it.",
         code: "desktop_outdated",
         applied,
       },

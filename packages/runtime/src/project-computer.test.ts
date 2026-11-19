@@ -116,7 +116,7 @@ const binding = {
 // A machine created before scoped input rejects the scoped act and cannot drain, so a
 // reservation committed against it could never clear. Its project must stay usable.
 it.each([
-  ["reports an older protocol", async () => "no" as const, /Close and reopen the project/],
+  ["reports an older protocol", async () => "no" as const, /Put the project away and resume it/],
   ["could not say", async () => "unknown" as const, /unavailable right now/],
   [
     "cannot be asked",
@@ -147,7 +147,7 @@ it.each([
   },
 );
 it.each([
-  // Only a definite older driver is something its owner can fix, by closing and reopening.
+  // Only a definite older driver is something its owner can fix, by putting the project away and resuming it.
   ["no", "outdated"],
   ["unknown", "unavailable"],
 ] as const)(

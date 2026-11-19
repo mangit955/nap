@@ -26,7 +26,7 @@ const pending: DesktopError = {
 };
 const outdated: DesktopError = {
   code: "unavailable",
-  message: "This computer predates safe input. Close and reopen the project to update it.",
+  message: "This computer predates safe input. Put the project away and resume it to update it.",
 };
 const unanswered: DesktopError = {
   code: "unavailable",
