@@ -135,7 +135,9 @@ describe("orphaning an abandoned request", () => {
     expect(failed?.type === "turn.failed" && failed.payload.reason).toBe("internal");
     expect(notice?.type === "system.notice" && notice.payload.level).toBe("warning");
     // Resume, not "reopen": opening a project starts nothing, and only Resume continues the job.
-    expect(notice?.type === "system.notice" && notice.payload.text).toMatch(/press resume/i);
+    expect(notice?.type === "system.notice" && notice.payload.text).toMatch(
+      /put the project away and press resume/i,
+    );
   });
 
   it("leaves the Job open, so nobody's work is closed while they are away", async () => {

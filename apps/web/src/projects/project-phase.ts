@@ -123,7 +123,9 @@ export function phaseOf({
  * after it is the same kind of news: opening a put-away project starts nothing, so sending one is
  * how it starts, and the turn restores the sandbox itself. Without that comparison the pane offered
  * Resume for the whole restore. Both timestamps are the server's own, so comparing them involves no
- * browser clock.
+ * browser clock. `putAwayAt` is the record's `updatedAt`, so a rename during a restore moves it past
+ * the message and shows the put-away screen again until `preview.ready` arrives — the same window
+ * the `preview.ready` comparison has always had.
  */
 function nothingIsServing(preview: PreviewState, putAwayAt: string | undefined): boolean {
   // The log said so outright; no record can be more current than an announcement.

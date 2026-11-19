@@ -1187,7 +1187,7 @@ function ScriptsDialog({
                   result.ok
                     ? {
                         error: false,
-                        text: "Saved. Put the project away and reopen it to apply these scripts.",
+                        text: "Saved. Put the project away and resume it to apply these scripts.",
                       }
                     : { error: true, text: result.error },
                 );

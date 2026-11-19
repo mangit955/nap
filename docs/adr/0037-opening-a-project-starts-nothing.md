@@ -44,7 +44,8 @@ phase.
   existed, navigating to a put-away project was enough to continue it. Now the person has to press
   Resume. ADR-0006's argument still holds: a person is there to watch either way, and nothing
   continues on its own. The janitor's notice, `/docs` (durable jobs) and `CONTEXT.md` (**Continue**)
-  now say Resume.
+  now say Resume. The notice says to put the project away first: the worker died, not the sandbox,
+  so the project is usually still running, and Resume is only offered on a put-away one.
 - **A message sent instead of Resume leaves an interrupted job behind.** A turn writes its own
   `job.started` and never continues an open job, so the interrupted one stays where it stopped, its
   last commit unverified. This already happened while the sandbox was still running, because `/open`

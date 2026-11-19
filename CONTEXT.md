@@ -149,10 +149,10 @@ whether the work is sound, a snapshot about where the work is kept. Every comple
 only a verified one checkpoints, which is what makes a failed verification unable to corrupt the
 last known-good state by construction rather than by care.
 
-**Continue** — what happens to an open job when somebody next presses Resume on its project, as distinct from
-**resume**, which already means bringing a put-away project's sandbox back up (`resumeSession`). A
-process restart leaves a job open rather than failing it; nothing continues a job while nobody is
-watching.
+**Continue** — what happens to an open job when somebody next presses Resume on its project, as
+distinct from **resume**, which already means bringing a put-away project's sandbox back up
+(`resumeSession`). A process restart leaves a job open rather than failing it; nothing continues a
+job while nobody is watching.
 
 **Turn request** — a durable, queued intent to execute, and one row in `turn_requests`. Created by
 an API pod at admission, claimed by exactly one worker, terminal exactly once — *queued*, then
@@ -186,7 +186,7 @@ window** — a *fence*, not a timeout: renewal is conditional, so the previous w
 aborted by then, and reclaiming earlier is what would put two writers on one session — then marks
 the request *orphaned* and closes its identifiable unfinished Turns, including repairs.
 **It never requeues and never closes the Job**: re-executing with nobody watching
-is what *Continue* forbids, so the work waits for a human to reopen the project.
+is what *Continue* forbids, so the work waits for a human to press Resume on the project.
 
 **Role** — which part of the deployment a process is: an **API pod** serves HTTP, WebSockets, auth
 and admission and executes nothing, a **worker** claims leases and executes turns and serves

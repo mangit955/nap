@@ -15,7 +15,7 @@
  * partial log rather than a turn that ran twice — and the request's own id is the turn id its events
  * were written under, which is how the janitor closes out a Turn it never ran. That trade is only
  * affordable because a partial log is a first-class input: `foldJobs` reads one and a human
- * reopening the project continues from it. See `docs/scaling-design.md` §6.
+ * pressing Resume on the project continues from it. See `docs/scaling-design.md` §6.
  *
  * **A lease is renewed, and losing it is fatal.** A worker can outlive its lease through a GC
  * pause, a Postgres blip or a partition, and would then keep appending to a session another worker
