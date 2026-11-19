@@ -14,10 +14,13 @@ Everything else came through the UI. The rows and the component drawing them are
 - `before-256.png`, `before-208.png`: `main` at `5398934f`. The branch's text paints over `#287`
   and `+87`, and at 208px the model runs off the card.
 - `after-256.png`, `after-208.png`, `after-416.png`: this change. Nothing overlaps at any width.
-  The branch appears once it has 3rem of room, and the tail of the name stays whole.
-- `option-*-320.png`, `option-*-416.png`: three ways to draw a `nap/<uuid>` branch, all with the
-  overflow fix. A is what ships (head and tail), B shows `nap/` and the first 8 characters, and
-  C leaves the branch out. The `feat/…` row is the same in all three.
+  A branch somebody named (`feat/…`) appears once it has 3rem of room, with the tail of its name
+  whole. The `nap/<uuid>` branch Nap made for a job is not drawn (option C below). It stays in
+  the row's tooltip and under Copy → Branch.
+- `option-*-320.png`, `option-*-416.png`: the three ways of drawing a `nap/<uuid>` branch that
+  were put to the owner, all with the overflow fix. A is head and tail, B is `nap/` and the first
+  8 characters, and C leaves the branch out. C was chosen. The `feat/…` row is the same in all
+  three.
 
 The guard is the last case in `apps/web/src/dashboard/sidebar-drag.integration.test.ts`. It
 measures each chip's painted text every 4px from 208 to 420px.

@@ -1,5 +1,6 @@
 "use client";
 
+import { isJobBranch } from "@nap/shared/github-protocol";
 import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
 import {
   AlarmClock,
@@ -126,6 +127,9 @@ export const SessionRow = memo(function SessionRow({
   const status = rowStatus(session, now);
   const woke = status?.kind === "woke";
   const source = sessionSource(session.repository);
+  // A branch Nap named from a job's id says nothing the row and its pull request don't. It stays
+  // in the row's tooltip and its menu's Copy, and only a branch somebody named is drawn.
+  const branch = session.branch && !isJobBranch(session.branch) ? session.branch : null;
   const quiet = recedes(status, isOpen);
   const working = status?.kind === "working" || status?.kind === "queued";
   const variant = shelf === "pinned" || shelf === "active" ? "card" : "slim";
@@ -323,19 +327,19 @@ export const SessionRow = memo(function SessionRow({
         {selectedNote}
       </span>
       <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-label">
-        {session.branch ? (
+        {branch ? (
           // The branch takes only the room the chips after it leave (`flex-1` grows from zero),
           // and nothing in it is wider than that room, so it never paints over them. Under 3rem
           // it would be an icon and a sliver of a letter, so it goes altogether. Inside, only the
-          // head shrinks: a tail that shrank too would be cut while the head still showed, and
-          // the tail is where generated names differ. `max-w-full` cuts it, with an ellipsis,
-          // only once it alone is wider than the room.
-          <span className="@container min-w-0 flex-1" title={session.branch}>
+          // head shrinks: a tail that shrank too would be cut while the head still showed, and the
+          // tail is what tells sibling branches apart (`…-retry`, `…-v2`). `max-w-full` cuts it,
+          // with an ellipsis, only once it alone is wider than the room.
+          <span className="@container min-w-0 flex-1" title={branch}>
             <span className="flex items-center gap-1.5 @max-[3rem]:hidden">
               <FolderGit2 aria-hidden className="size-3 shrink-0 text-muted/40" />
               <span className="flex min-w-0 text-muted/45">
-                <span className="truncate">{session.branch.slice(0, -12)}</span>
-                <span className="max-w-full shrink-0 truncate">{session.branch.slice(-12)}</span>
+                <span className="truncate">{branch.slice(0, -12)}</span>
+                <span className="max-w-full shrink-0 truncate">{branch.slice(-12)}</span>
               </span>
             </span>
           </span>

@@ -668,7 +668,7 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
         expect.arrayContaining(["#287 open", "+87 −5", "claude-sonnet-5.5"]),
       );
       // Shown or gone, never a sliver of a letter beside a lone icon.
-      const branch = painted.find((chip) => chip.text.startsWith("nap/"));
+      const branch = painted.find((chip) => chip.text.startsWith("feat/"));
       if (branch) expect(branch.right - branch.left, `branch at ${width}px`).toBeGreaterThan(20);
       for (const [index, chip] of painted.entries()) {
         expect(chip.right, `${chip.text} at ${width}px`).toBeLessThanOrEqual(
@@ -683,10 +683,12 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
       if (width === 208 || width === 256 || width === 420) await screenshot(`card-line-${width}`);
     }
     // And with room to spare, the branch is there, its distinguishing tail whole.
-    expect((await chips("Pricing page"))[0]?.text).toBe("nap/7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5");
+    expect((await chips("Pricing page"))[0]?.text).toBe(
+      "feat/pricing-table-with-annual-billing-toggle",
+    );
     expect(
       await page.evaluate<boolean>(
-        `(() => { const tail = [...${rowOf("Pricing page")}.querySelectorAll("[title^='nap/'] span")].at(-1); return tail.textContent === "90a1b2c3d4e5" && tail.scrollWidth <= tail.clientWidth; })()`,
+        `(() => { const tail = [...${rowOf("Pricing page")}.querySelectorAll("[title^='feat/'] span")].at(-1); return tail.textContent === "lling-toggle" && tail.scrollWidth <= tail.clientWidth; })()`,
       ),
       "the branch's last 12 characters, uncut at 420px",
     ).toBe(true);
