@@ -28,11 +28,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDatabase } from "@nap/db/client";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
+import { InProcessNotifyTransport } from "@nap/db/in-process-notify-transport";
 import { PostgresEventStore } from "@nap/db/postgres-event-store";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresProjectTitleStore } from "@nap/db/postgres-project-title-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
+import { PostgresSessionListChannel } from "@nap/db/postgres-session-list-channel";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
@@ -277,16 +279,19 @@ try {
     NAP_FREE_MAX_SANDBOXES_PER_USER: 4,
     NAP_MAX_SANDBOXES_TOTAL: 8,
   };
+  // One process serves the sockets and writes every row, so its notices need go nowhere else —
+  // as `bootNap` arranges it with no `LISTEN` connection.
+  const sessionList = new PostgresSessionListChannel(db, new InProcessNotifyTransport());
   const composed = composeNap({
     config,
     auth,
     logger: createLogger({ level: "warn" }),
-    sessions: new PostgresSessionStore(db),
-    projects: new PostgresProjectStore(db),
-    titles: new PostgresProjectTitleStore(db),
-    sessionStarts: new PostgresSessionStartStore(db, { claims: null }),
-    sessionNavigation: new PostgresSessionNavigationStore(db),
-    projectSandboxes: new PostgresProjectSandboxStore(db),
+    sessions: new PostgresSessionStore(db, { sessionList }),
+    projects: new PostgresProjectStore(db, { sessionList }),
+    titles: new PostgresProjectTitleStore(db, { sessionList }),
+    sessionStarts: new PostgresSessionStartStore(db, { claims: null, sessionList }),
+    sessionNavigation: new PostgresSessionNavigationStore(db, { sessionList }),
+    projectSandboxes: new PostgresProjectSandboxStore(db, { sessionList }),
     capacity: new PostgresSandboxCapacity(db, {
       perUser: config.NAP_MAX_SANDBOXES_PER_USER,
       total: config.NAP_MAX_SANDBOXES_TOTAL,
@@ -299,13 +304,14 @@ try {
         tier: "free",
       }),
     },
-    queue: new PostgresTurnQueue(db, { claims: null }),
+    queue: new PostgresTurnQueue(db, { claims: null, sessionList }),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     events: new PostgresEventStore(db),
     bus: new InProcessEventBus(),
     cancels: null,
     claims: null,
+    sessionList,
     sandbox,
     objects: new InMemoryObjectStore(),
     provider: verifyNapProvider({ stepDelayMs: STEP_DELAY_MS }),
@@ -314,7 +320,7 @@ try {
       ok: false,
       message: "Real API keys are disabled in the verify-nap fixture.",
     }),
-    createProject: (options) => createProjectSession(db, options),
+    createProject: (options) => createProjectSession(db, options, { sessionList }),
     upgradeWebSocket,
   });
   await own("worker and timers", async () => {

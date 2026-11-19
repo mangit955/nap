@@ -8,7 +8,13 @@ import { expect, it, vi } from "vitest";
 import { recallLog, rememberLog } from "../hooks/remembered-logs.ts";
 import { ev } from "../testing/events.ts";
 import { navigationServer } from "../testing/navigation-server.ts";
-import { TITLING_RECHECK_MS, useSessionNavigation } from "./use-session-navigation.ts";
+import type { SessionListNotice, SessionListNotices } from "./session-list-notices.ts";
+import {
+  SESSION_LIST_BACKSTOP_MS,
+  SESSION_LIST_POLL_MS,
+  TITLING_RECHECK_MS,
+  useSessionNavigation,
+} from "./use-session-navigation.ts";
 
 const row = (name: string, extra: Partial<SessionSummary> = {}): SessionSummary => ({
   projectId: crypto.randomUUID(),
@@ -473,9 +479,138 @@ it("reads the list again every few seconds while the server is writing a title",
       await act(() => vi.advanceTimersByTimeAsync(TITLING_RECHECK_MS));
       expect(reads).toBe(expected);
     }
-    // The fourth read said the title landed, so the rechecks stop (the ten-second poll is later).
+    // The fourth read said the title landed, so the rechecks stop (the slow poll is later).
     await act(() => vi.advanceTimersByTimeAsync(TITLING_RECHECK_MS + 1000));
     expect(reads).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+/** Notices the test sends by hand, standing in for the tab's `/ws/account` socket. */
+function manualNotices() {
+  let live = false;
+  const listeners = new Set<(notice: SessionListNotice) => void>();
+  const notices: SessionListNotices = {
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    live: () => live,
+  };
+  return {
+    notices,
+    listeners,
+    say: (notice: SessionListNotice) => {
+      if (notice === "live") live = true;
+      if (notice === "down") live = false;
+      for (const listener of [...listeners]) listener(notice);
+    },
+  };
+}
+
+/** Mounts the hook on fake timers, counting every read of the list. */
+async function counting(notices: SessionListNotices) {
+  vi.useFakeTimers();
+  const session = row("Counted");
+  let reads = 0;
+  const fetchJson = vi.fn(async () => {
+    reads++;
+    return Response.json({ sessions: [session], next: null });
+  });
+  const view = renderHook(() => useSessionNavigation({ fetchJson, notices }));
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  return { reads: () => reads, view };
+}
+
+it("reads the list when the server says it changed, and not on a timer while it can hear", async () => {
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+    expect(reads()).toBe(1);
+
+    // Live: whatever changed while nobody was listening is read once.
+    await act(async () => source.say("live"));
+    expect(reads()).toBe(2);
+    // A minute of nothing happening is a minute of no requests at all.
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(reads()).toBe(2);
+
+    await act(async () => source.say("changed"));
+    expect(reads()).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reads on the old timer while the server cannot be heard, and stops once it can", async () => {
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(2);
+
+    await act(async () => source.say("live"));
+    expect(reads()).toBe(3);
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS * 3));
+    expect(reads()).toBe(3);
+
+    await act(async () => source.say("down"));
+    expect(reads()).toBe(3);
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reads anyway when nothing has been heard for the backstop's length", async () => {
+  // A notice can be lost between a commit and its announcement; this is what bounds that.
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+    await act(async () => source.say("live"));
+    expect(reads()).toBe(2);
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_BACKSTOP_MS - SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(2);
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reads nothing on a notice while the tab is hidden, and reads when it is looked at", async () => {
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+    await act(async () => source.say("live"));
+    await act(async () => source.say("changed"));
+    expect(reads()).toBe(1);
+
+    hidden.mockReturnValue(false);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(reads()).toBe(2);
+  } finally {
+    hidden.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it("lets go of the tab's notices when the list is unmounted", async () => {
+  try {
+    const source = manualNotices();
+    const { view } = await counting(source.notices);
+    expect(source.listeners.size).toBe(1);
+
+    view.unmount();
+
+    expect(source.listeners.size).toBe(0);
   } finally {
     vi.useRealTimers();
   }

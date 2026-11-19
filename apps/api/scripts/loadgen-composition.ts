@@ -177,6 +177,7 @@ export async function bootLoadgenApi(options: BootOptions): Promise<BootedLoadge
     bus: new InProcessEventBus(),
     cancels: null,
     claims: null,
+    sessionList: null,
     // Slow *outside* shared, and that order is the point: the calibrated cold start belongs to
     // `create`, so a reattach through the store never pays one.
     sandbox: slowSandboxManager(

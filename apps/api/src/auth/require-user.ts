@@ -27,7 +27,7 @@
 import { addLogContext } from "@nap/shared/logging";
 import type { MiddlewareHandler } from "hono";
 import type { Authenticate, Caller } from "./auth.ts";
-import type { StreamTickets } from "./stream-ticket.ts";
+import { ACCOUNT_STREAM, type StreamTickets } from "./stream-ticket.ts";
 
 /**
  * What the middleware puts on the context for handlers below it.
@@ -66,7 +66,7 @@ export function isPublicPath(path: string): boolean {
 export function requireUser(
   authenticate: Authenticate | undefined,
   /**
-   * Accepted on `/ws` alone, in place of the cookie a browser cannot send there — see
+   * Accepted on `/ws` and `/ws/account` alone, in place of the cookie a browser cannot send there — see
    * `stream-ticket.ts`. A ticket that is present and does not verify is refused rather than
    * falling back to the cookie, which would hide a client bug and reward a forgery.
    */
@@ -84,10 +84,17 @@ export function requireUser(
     const url = new URL(c.req.url);
     if (isPublicPath(url.pathname)) return await next();
 
-    const ticket = url.pathname === "/ws" ? url.searchParams.get("ticket") : null;
+    // What a ticket must be bound to, on the two sockets that take one.
+    const scope =
+      url.pathname === "/ws"
+        ? (url.searchParams.get("sessionId") ?? "")
+        : url.pathname === "/ws/account"
+          ? ACCOUNT_STREAM
+          : null;
+    const ticket = scope === null ? null : url.searchParams.get("ticket");
     const caller: Caller | null | undefined =
-      ticket !== null && tickets !== undefined
-        ? tickets.verify(ticket, url.searchParams.get("sessionId") ?? "")
+      ticket !== null && scope !== null && tickets !== undefined
+        ? tickets.verify(ticket, scope)
         : await authenticate?.(c.req.raw.headers);
     if (caller === undefined || caller === null) {
       return c.json({ error: "not signed in" }, 401);

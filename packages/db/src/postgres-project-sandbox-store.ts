@@ -23,16 +23,28 @@ import {
   type ProjectSandboxStore,
   VIEWER_SIGNAL_INTERVAL_MS,
 } from "@nap/shared/ports/project-sandbox-store";
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { events, projects, sessions } from "./schema.ts";
 
 export class PostgresProjectSandboxStore implements ProjectSandboxStore {
   readonly #db: PostgresJsDatabase;
+  readonly #sessionList: SessionListAnnouncer | null;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
-  constructor(db: PostgresJsDatabase) {
+  constructor(
+    db: PostgresJsDatabase,
+    options: {
+      /**
+       * Told, after the commit, that the owner's session list changed. Absent, open tabs see the
+       * change at their slow poll; see `@nap/shared/ports/session-list-channel`.
+       */
+      sessionList?: SessionListAnnouncer | null;
+    } = {},
+  ) {
     this.#db = db;
+    this.#sessionList = options.sessionList ?? null;
   }
 
   async idleSince(cutoff: string): Promise<IdleProject[]> {
@@ -110,8 +122,12 @@ export class PostgresProjectSandboxStore implements ProjectSandboxStore {
       // Compare-and-clear: a project that names another machine now has moved on since the
       // caller read it, and that machine is not this caller's to forget. See the port.
       .where(and(eq(projects.id, projectId), eq(projects.sandboxId, sandboxId)))
-      .returning({ id: projects.id });
-    if (updated.length > 0) return true;
+      .returning({ id: projects.id, userId: projects.userId });
+    if (updated.length > 0) {
+      // The card's hover says whether a workspace is running.
+      this.#sessionList?.announce(...updated.map(({ userId }) => ({ userId })));
+      return true;
+    }
 
     // Thrown rather than returned, like `PostgresSessionStore.setSandboxId`: the caller has
     // just been handed this project by `idleSince`, so getting here means something deleted it

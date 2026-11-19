@@ -44,6 +44,27 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
 /**
+ * Server → client on `/ws/account`, the socket that tells a tab its owner's session list changed.
+ *
+ * Its own union rather than more members of `ServerFrameSchema`, so a session stream's client never
+ * has to know these exist and this one never has to know events do. It carries no rows: a tab
+ * answers `sessions.changed` by reading `GET /sessions`, which stays the one place a row is built
+ * (`@nap/shared/ports/session-list-channel`).
+ */
+export const SessionListFrameSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("ping") }),
+  /**
+   * Notices for this user now reach this socket. Anything that changed before it may not have been
+   * announced here, so a tab reads the list once on it — on every reconnect, too.
+   */
+  z.strictObject({ type: z.literal("ready") }),
+  /** Something this user's session list draws changed. Read the list again. */
+  z.strictObject({ type: z.literal("sessions.changed") }),
+  z.strictObject({ type: z.literal("error"), message: z.string().min(1) }),
+]);
+export type SessionListFrame = z.infer<typeof SessionListFrameSchema>;
+
+/**
  * Client → server. The client is a reader, so all it ever says is that it is still there, and
  * whether anybody is looking. Anything it might say later is additive.
  */

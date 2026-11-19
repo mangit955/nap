@@ -150,6 +150,7 @@ function apiPod(
     bus: new InMemoryEventBus(),
     cancels: null,
     claims: null,
+    sessionList: null,
     sandbox: new InMemorySandboxManager(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([]),

@@ -202,6 +202,7 @@ try {
     bus: new InProcessEventBus(),
     cancels: null,
     claims: null,
+    sessionList: null,
     sandbox,
     desktop,
     recordings: desktop,

@@ -26,6 +26,7 @@ import { PostgresNotifyTransport } from "@nap/db/postgres-notify-transport";
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
+import { PostgresSessionListChannel } from "@nap/db/postgres-session-list-channel";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
@@ -217,13 +218,16 @@ const calibrated = process.env.NAP_PROOF_CALIBRATED_LATENCY === "true";
 // rerun of the same shape sees the same dice.
 const random = seededRandom(tunable("NAP_PROOF_SEED", 1));
 
+// Wired as `bootNap` wires it, so a change written on one pod is announced to a tab on another.
+const sessionList = new PostgresSessionListChannel(db, transport);
+
 const { app, worker, reaper, janitor } = composeNap({
   config: CONFIG,
   role: which,
   logger,
-  sessions: new PostgresSessionStore(db),
-  projects: new PostgresProjectStore(db),
-  projectSandboxes: new PostgresProjectSandboxStore(db),
+  sessions: new PostgresSessionStore(db, { sessionList }),
+  projects: new PostgresProjectStore(db, { sessionList }),
+  projectSandboxes: new PostgresProjectSandboxStore(db, { sessionList }),
   capacity: new PostgresSandboxCapacity(db, {
     perUser: CONFIG.NAP_MAX_SANDBOXES_PER_USER,
     total: CONFIG.NAP_MAX_SANDBOXES_TOTAL,
@@ -232,13 +236,14 @@ const { app, worker, reaper, janitor } = composeNap({
     rate: new PostgresTurnRateLimiter(db, { limit: 1_000, windowMs: 3_600_000, tier: "paid" }),
     freeRate: new PostgresTurnRateLimiter(db, { limit: 1_000, windowMs: 3_600_000, tier: "free" }),
   },
-  queue: new PostgresTurnQueue(db, { claims }),
+  queue: new PostgresTurnQueue(db, { claims, sessionList }),
   snapshots: new PostgresSnapshotStore(db),
   userKeys: new PostgresUserKeyStore(db),
   events,
   bus,
   cancels: new PostgresCancelChannel(transport),
   claims,
+  sessionList,
   sandbox: calibrated ? slowSandboxManager(sandbox) : sandbox,
   objects: new InMemoryObjectStore(),
   provider: calibrated ? slowLLMProvider(model, { random }) : model,

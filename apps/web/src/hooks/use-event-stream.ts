@@ -44,8 +44,7 @@
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { ServerFrameSchema } from "@nap/shared/ws-protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { z } from "zod";
-import { credentialedFetch } from "../api/credentialed-fetch.ts";
+import { API_WS_URL, fetchSocketTicket, SOCKETS_NEED_TICKETS } from "../api/socket-ticket.ts";
 import { type LogKey, recallLog, rememberLog } from "./remembered-logs.ts";
 
 /**
@@ -92,7 +91,7 @@ export type EventStreamOptions = {
   createSocket?: CreateSocket;
   /**
    * A ticket for the socket to carry, asked for before every connection — or nothing, when the
-   * socket goes to the host the session cookie belongs to. See `DEFAULT_FETCH_TICKET`.
+   * socket goes to the host the session cookie belongs to. See `api/socket-ticket.ts`.
    */
   fetchTicket?: FetchTicket;
 };
@@ -122,33 +121,12 @@ export type EventStream = {
   remembered: readonly StoredEvent[] | undefined;
 };
 
-const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_WS_URL ?? "ws://localhost:3001";
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const DEFAULT_BASE_URL = API_WS_URL;
 
-const TicketSchema = z.object({ ticket: z.string().min(1) });
-
-/**
- * Asks the API for a stream ticket, but only where the socket needs one.
- *
- * In production the page reaches the API through its own origin, so the session cookie belongs to
- * the page's host — and Vercel does not forward WebSocket upgrades, so the socket goes to the
- * API's own host, where that cookie is never sent. The ticket is fetched over the proxied path,
- * where the cookie *is* sent, and lasts a minute. In development both are the same `localhost`
- * and the cookie reaches the socket by itself, so nothing is asked.
- *
- * Derived from the two URLs rather than configured, so the two cannot disagree.
- */
-const DEFAULT_FETCH_TICKET: FetchTicket | undefined =
-  new URL(API_URL).host === new URL(DEFAULT_BASE_URL).host
-    ? undefined
-    : async (sessionId) => {
-        const response = await credentialedFetch(
-          `${API_URL}/sessions/${encodeURIComponent(sessionId)}/stream-ticket`,
-          { method: "POST", cache: "no-store" },
-        );
-        if (!response.ok) return undefined;
-        return TicketSchema.parse(await response.json()).ticket;
-      };
+/** A ticket for one session's stream, asked for only where the socket needs one. */
+const DEFAULT_FETCH_TICKET: FetchTicket | undefined = SOCKETS_NEED_TICKETS
+  ? (sessionId) => fetchSocketTicket(`/sessions/${encodeURIComponent(sessionId)}/stream-ticket`)
+  : undefined;
 
 export function useEventStream(options: EventStreamOptions): EventStream {
   const { sessionId, remember, baseUrl = DEFAULT_BASE_URL } = options;

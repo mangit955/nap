@@ -20,6 +20,7 @@ import type {
   ProjectSummary,
   RunningSandboxes,
 } from "@nap/shared/ports/project-store";
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { projects, sessions } from "./schema.ts";
@@ -35,10 +36,21 @@ type Row = {
 
 export class PostgresProjectStore implements ProjectStore {
   readonly #db: PostgresJsDatabase;
+  readonly #sessionList: SessionListAnnouncer | null;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
-  constructor(db: PostgresJsDatabase) {
+  constructor(
+    db: PostgresJsDatabase,
+    options: {
+      /**
+       * Told, after the commit, that the owner's session list changed. Absent, open tabs see the
+       * change at their slow poll; see `@nap/shared/ports/session-list-channel`.
+       */
+      sessionList?: SessionListAnnouncer | null;
+    } = {},
+  ) {
     this.#db = db;
+    this.#sessionList = options.sessionList ?? null;
   }
 
   async list(userId: string): Promise<ProjectSummary[]> {
@@ -87,6 +99,7 @@ export class PostgresProjectStore implements ProjectStore {
       )
       .returning({ id: projects.id });
 
+    if (renamed.length > 0) this.#sessionList?.announce({ userId });
     return renamed.length > 0;
   }
 
@@ -96,6 +109,8 @@ export class PostgresProjectStore implements ProjectStore {
       .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
       .returning({ id: projects.id });
 
+    // By user: the project is gone, so there is nothing left to look its owner up from.
+    if (deleted.length > 0) this.#sessionList?.announce({ userId });
     return deleted.length > 0;
   }
 

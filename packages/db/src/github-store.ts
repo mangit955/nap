@@ -22,6 +22,7 @@ import type {
   ImportRepository,
   RepositoryJobUpdate,
 } from "@nap/shared/ports/github-store";
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import type { EnqueueTurnRequest } from "@nap/shared/ports/turn-queue";
 import {
   and,
@@ -60,16 +61,24 @@ export type PostgresGitHubStoreOptions = {
    */
   // Use a pooled database: a nested transaction only commits a savepoint.
   claims: ClaimAnnouncer | null;
+  /**
+   * Told, after the commit, about every write here that a session card draws: an imported project,
+   * a job's branch and pull request, a repository renamed on GitHub, review feedback waiting or
+   * taken up. Absent, open tabs see the change at their slow poll.
+   */
+  sessionList?: SessionListAnnouncer | null;
 };
 
 export class PostgresGitHubStore implements GitHubStore {
   readonly #claims: ClaimAnnouncer | null;
+  readonly #sessionList: SessionListAnnouncer | null;
 
   constructor(
     private readonly db: PostgresJsDatabase,
     options: PostgresGitHubStoreOptions,
   ) {
     this.#claims = options.claims;
+    this.#sessionList = options.sessionList ?? null;
   }
 
   async createState(state: GitHubConnectionState): Promise<void> {
@@ -165,6 +174,7 @@ export class PostgresGitHubStore implements GitHubStore {
     const imported = await this.#import(input);
     // After the commit. Only an import that opens the project wrote a request.
     if (imported !== null && input.open !== undefined) this.#claims?.announce();
+    if (imported !== null) this.#sessionList?.announce({ userId: input.userId });
     return imported;
   }
 
@@ -245,15 +255,20 @@ export class PostgresGitHubStore implements GitHubStore {
 
   async refreshRepository(installationId: number, repository: GitHubRepository): Promise<void> {
     const value = GitHubRepositorySchema.parse(repository);
-    await this.db
+    const rows = await this.db
       .update(projectRepositories)
       .set({ repository: value })
       .where(
         and(
           eq(projectRepositories.installationId, installationId),
           sql`${projectRepositories.repository}->>'id' = ${String(value.id)}`,
+          // Only a change: GitHub sends the repository with many events that rename nothing.
+          sql`${projectRepositories.repository} is distinct from ${JSON.stringify(value)}::jsonb`,
         ),
-      );
+      )
+      .returning({ projectId: projectRepositories.projectId });
+    if (rows.length > 0)
+      this.#sessionList?.announce(...rows.map(({ projectId }) => ({ projectId })));
   }
 
   async repositoriesForInstallation(installationId: number): Promise<ProjectRepository[]> {
@@ -281,7 +296,7 @@ export class PostgresGitHubStore implements GitHubStore {
 
   async createJob(job: RepositoryJob): Promise<RepositoryJob> {
     const value = RepositoryJobSchema.parse(job);
-    return this.db.transaction(async (tx) => {
+    const created = await this.db.transaction(async (tx) => {
       const [repository] = await tx
         .select({ projectId: projectRepositories.projectId })
         .from(projectRepositories)
@@ -313,6 +328,8 @@ export class PostgresGitHubStore implements GitHubStore {
       }
       return toJob(row);
     });
+    this.#sessionList?.announce({ projectId: value.projectId });
+    return created;
   }
 
   async job(jobId: string): Promise<RepositoryJob | null> {
@@ -341,6 +358,17 @@ export class PostgresGitHubStore implements GitHubStore {
       pullRequestMergedAt !== undefined && Number.isFinite(Date.parse(pullRequestMergedAt))
         ? new Date(pullRequestMergedAt).toISOString()
         : null;
+    // What the card draws of a job, as it was: the refresh sweep rewrites a job whose pull request
+    // has not moved, and a notice for every one of those would be a poll by another name.
+    const [before] = await this.db
+      .select({
+        projectId: repositoryJobs.projectId,
+        pullRequestNumber: repositoryJobs.pullRequestNumber,
+        pullRequestUrl: repositoryJobs.pullRequestUrl,
+        pullRequestState: repositoryJobs.pullRequestState,
+      })
+      .from(repositoryJobs)
+      .where(eq(repositoryJobs.jobId, jobId));
     await this.db
       .update(repositoryJobs)
       .set({
@@ -356,6 +384,15 @@ export class PostgresGitHubStore implements GitHubStore {
           : {}),
       })
       .where(eq(repositoryJobs.jobId, jobId));
+    if (
+      before !== undefined &&
+      ((update.pullRequestNumber !== undefined &&
+        update.pullRequestNumber !== before.pullRequestNumber) ||
+        (update.pullRequestUrl !== undefined && update.pullRequestUrl !== before.pullRequestUrl) ||
+        (update.pullRequestState !== undefined &&
+          update.pullRequestState !== before.pullRequestState))
+    )
+      this.#sessionList?.announce({ projectId: before.projectId });
   }
 
   async listJobsDueRefresh(limit: number, notUpdatedSince: Date): Promise<RepositoryJob[]> {
@@ -442,11 +479,12 @@ export class PostgresGitHubStore implements GitHubStore {
       .values({ ...value, createdAt: new Date(value.createdAt) })
       .onConflictDoNothing({ target: repositoryFeedback.id })
       .returning({ id: repositoryFeedback.id });
+    if (rows.length > 0) this.#sessionList?.announce({ projectId: value.projectId });
     return rows.length > 0;
   }
 
   async discardStaleFeedback(jobId: string, keepIds: string[]): Promise<void> {
-    await this.db
+    const discarded = await this.db
       .delete(repositoryFeedback)
       .where(
         and(
@@ -454,7 +492,11 @@ export class PostgresGitHubStore implements GitHubStore {
           isNull(repositoryFeedback.requestId),
           keepIds.length === 0 ? undefined : notInArray(repositoryFeedback.id, keepIds),
         ),
-      );
+      )
+      .returning({ projectId: repositoryFeedback.projectId });
+    // The card counts the feedback still waiting.
+    const [first] = discarded;
+    if (first !== undefined) this.#sessionList?.announce({ projectId: first.projectId });
   }
 
   async approveFeedback(
@@ -467,7 +509,10 @@ export class PostgresGitHubStore implements GitHubStore {
     const requestId = await this.#approve(projectId, userId, feedbackId, queueRequest);
     // After the commit, and for an approval that found its request already written as well: a
     // wake-up naming nothing new costs one claim query.
-    if (requestId !== null) this.#claims?.announce();
+    if (requestId !== null) {
+      this.#claims?.announce();
+      this.#sessionList?.announce({ userId });
+    }
     return requestId;
   }
 

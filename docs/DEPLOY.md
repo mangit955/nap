@@ -302,6 +302,15 @@ know when you do:
   completion refills immediately. During the existing worker-first rollout, old API/reaper
   writers do not announce yet, so new workers can start turns up to one fallback interval late.
   Keep the release script's deployment order for event compatibility. See `docs/adr/0027`.
+- **And so does the session list.** Every writer of something a session card draws (a turn
+  queued, started or finished, a rename, a pull request, a shelf change) sends the owner's user id
+  on `nap_session_list` after its commit; every API pod hears it and tells that user's
+  `/ws/account` sockets, and their tabs read `GET /sessions` again. A tab whose socket is down reads
+  every 10 s as it always did, and one whose socket is up reads at least every 5 minutes anyway, so
+  a dead listener costs the old load, never a stale list. Either deployment order is safe: an old
+  API has no `/ws/account`, so a new web app's tabs keep the ten-second read against it, and an old
+  web app never opens one. Those sockets count toward `nap_ws_connections` like any other, so a
+  workspace tab now holds two.
 
 ### What each process scales on
 

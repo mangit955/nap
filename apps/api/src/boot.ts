@@ -34,6 +34,7 @@ import {
 } from "@nap/db/client";
 import { PostgresGitHubStore } from "@nap/db/github-store";
 import { InProcessEventBus } from "@nap/db/in-process-event-bus";
+import { InProcessNotifyTransport } from "@nap/db/in-process-notify-transport";
 import { PostgresAdvisoryLock } from "@nap/db/postgres-advisory-lock";
 import { PostgresCancelChannel } from "@nap/db/postgres-cancel-channel";
 import { PostgresCapacityReconciler } from "@nap/db/postgres-capacity-reconciler";
@@ -45,6 +46,7 @@ import { PostgresProjectComputerAccess } from "@nap/db/postgres-project-computer
 import { PostgresProjectSandboxStore } from "@nap/db/postgres-project-sandbox-store";
 import { PostgresProjectStore } from "@nap/db/postgres-project-store";
 import { PostgresSandboxCapacity } from "@nap/db/postgres-sandbox-capacity";
+import { PostgresSessionListChannel } from "@nap/db/postgres-session-list-channel";
 import { PostgresSessionStore } from "@nap/db/postgres-session-store";
 import { PostgresSnapshotStore } from "@nap/db/postgres-snapshot-store";
 import { PostgresTurnQueue } from "@nap/db/postgres-turn-queue";
@@ -194,8 +196,20 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
    * a worker. On the bus's transport, so on the socket it already holds; and it is that bus's echo
    * heartbeat, over the same socket, that says whether it is still hearing. See `docs/adr/0027`.
    */
+  /**
+   * What tells an open tab that its owner's session list changed, so it need not read the list
+   * every few seconds in case it did. Announced by every writer of something a session card draws,
+   * after its commit, in every role; heard only by a process serving `/ws/account`. On the bus's
+   * transport, so on the socket it already holds — or, with no `LISTEN` connection at all, within
+   * this one process, which is then the only one there is.
+   */
+  const sessionList = new PostgresSessionListChannel(
+    db,
+    notifyTransport ?? new InProcessNotifyTransport(),
+  );
+
   /** One store answers the sidebar's reads and writes and the reaper's auto-settle alike. */
-  const navigation = new PostgresSessionNavigationStore(db);
+  const navigation = new PostgresSessionNavigationStore(db, { sessionList });
   const claims =
     notifyTransport === null || notifyBus === null
       ? null
@@ -283,15 +297,15 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
   const githubConfig = githubConfigFromEnv(env);
   const composed = composeNap({
     github: {
-      store: new PostgresGitHubStore(db, { claims }),
+      store: new PostgresGitHubStore(db, { claims, sessionList }),
       app: githubConfig === null ? null : new GitHubApp(githubConfig),
     },
     config: env,
     role,
     logger,
-    sessions: new PostgresSessionStore(db),
-    projects: new PostgresProjectStore(db),
-    projectSandboxes: new PostgresProjectSandboxStore(db),
+    sessions: new PostgresSessionStore(db, { sessionList }),
+    projects: new PostgresProjectStore(db, { sessionList }),
+    projectSandboxes: new PostgresProjectSandboxStore(db, { sessionList }),
     // The ceiling that bounds this deployment's E2B bill, held in rows rather than in this
     // process: the count and the creation it guards happen in one transaction, so a burst of
     // turns across every replica cannot all find themselves under the cap at once.
@@ -326,7 +340,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // unique index rather than by a `Map` each replica keeps its own copy of. Every API pod writes
     // to it at admission and every worker claims from it — it is the only thing the two halves of
     // the deployment share.
-    queue: new PostgresTurnQueue(db, { claims }),
+    queue: new PostgresTurnQueue(db, { claims, sessionList }),
     snapshots: new PostgresSnapshotStore(db),
     userKeys: new PostgresUserKeyStore(db),
     // One store and one bus for the process, shared by the runtime that publishes and the socket
@@ -338,6 +352,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // channel on it shares one socket. Only a worker ever listens; an API pod only announces.
     cancels: notifyTransport === null ? null : new PostgresCancelChannel(notifyTransport),
     claims,
+    sessionList,
     sandbox,
     desktop,
     recordings: desktop,
@@ -354,11 +369,11 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     // typo before it is stored.
     encryptionKey: encryptionKeyFrom(env.NAP_KEY_ENCRYPTION_SECRET),
     verifyKey: createKeyVerifier(),
-    sessionStarts: new PostgresSessionStartStore(db, { claims }),
+    sessionStarts: new PostgresSessionStartStore(db, { claims, sessionList }),
     sessionNavigation: navigation,
     autoSettle: navigation,
-    titles: new PostgresProjectTitleStore(db),
-    createProject: (options) => createProjectSession(db, options),
+    titles: new PostgresProjectTitleStore(db, { sessionList }),
+    createProject: (options) => createProjectSession(db, options, { sessionList }),
     upgradeWebSocket,
     // The file a worker pod's liveness probe reads. Built here rather than in the composition
     // because writing to a filesystem is a thing a *process* does, and skipped entirely when

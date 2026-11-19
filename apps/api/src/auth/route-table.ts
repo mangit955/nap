@@ -125,6 +125,14 @@ export const GUARDED_ROUTES: GuardedRoute[] = [
     body: {},
   },
   { method: "GET", path: "/models", examplePath: "/models" },
+  // The caller's own session list, and nobody else's: neither names a resource to be refused.
+  { method: "GET", path: "/ws/account", examplePath: "/ws/account" },
+  {
+    method: "POST",
+    path: "/account/stream-ticket",
+    examplePath: "/account/stream-ticket",
+    body: {},
+  },
   // Somebody else's API key is the single most sensitive thing this app stores, so these are
   // the three entries in this table it would be worst to be missing.
   { method: "GET", path: "/account/api-key", examplePath: "/account/api-key" },
@@ -331,6 +339,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       sessions,
       upgradeWebSocket: async () => new Response(null),
       tickets: createStreamTickets("route-table-secret-route-table-secret"),
+      sessionList: { subscribe: async () => () => {} },
     },
     computerAccess: {
       sessions,

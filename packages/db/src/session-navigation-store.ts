@@ -1,3 +1,4 @@
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import type {
   NavigationResult,
   SessionAutoSettler,
@@ -63,7 +64,20 @@ export function containsPattern(query: string): string {
 const NOW_ISO = sql`to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 export class PostgresSessionNavigationStore implements SessionNavigationStore, SessionAutoSettler {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  readonly #sessionList: SessionListAnnouncer | null;
+
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    options: {
+      /**
+       * Told, after the commit, that the owner's session list changed: a row moved shelf or place,
+       * or the reaper settled it. Absent, the owner's other tabs see it at their slow poll.
+       */
+      sessionList?: SessionListAnnouncer | null;
+    } = {},
+  ) {
+    this.#sessionList = options.sessionList ?? null;
+  }
 
   async list(userId: string, after?: string): Promise<SessionList> {
     const rows = await this.db.execute(sql`
@@ -131,6 +145,16 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
   }
 
   async change(
+    userId: string,
+    projectId: string,
+    input: NavigationChange,
+  ): Promise<NavigationResult> {
+    const result = await this.#change(userId, projectId, input);
+    if (result.kind === "saved") this.#sessionList?.announce({ userId });
+    return result;
+  }
+
+  async #change(
     userId: string,
     projectId: string,
     input: NavigationChange,
@@ -213,6 +237,15 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
   }
 
   async reorder(
+    userId: string,
+    input: SessionReorder,
+  ): Promise<{ kind: "saved" | "missing" | "conflict" }> {
+    const result = await this.#reorder(userId, input);
+    if (result.kind === "saved") this.#sessionList?.announce({ userId });
+    return result;
+  }
+
+  async #reorder(
     userId: string,
     input: SessionReorder,
   ): Promise<{ kind: "saved" | "missing" | "conflict" }> {
@@ -449,6 +482,9 @@ export class PostgresSessionNavigationStore implements SessionNavigationStore, S
       from due where p.id = due.id
       returning p.id
     `);
-    return rows.map((row) => z.object({ id: z.uuid() }).parse(row).id);
+    const settled = rows.map((row) => z.object({ id: z.uuid() }).parse(row).id);
+    if (settled.length > 0)
+      this.#sessionList?.announce(...settled.map((projectId) => ({ projectId })));
+    return settled;
   }
 }

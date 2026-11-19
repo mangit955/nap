@@ -119,6 +119,7 @@ const composed = composeNap({
   bus: new InProcessEventBus(),
   cancels: null,
   claims: null,
+  sessionList: null,
   sandbox,
   desktop: desktop.transport,
   computerAccess: { access: new PostgresProjectComputerAccess(db, { claims: null }), secret },

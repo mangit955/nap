@@ -13,6 +13,7 @@
  * the same thing by the same person would otherwise collide on the second one.
  */
 
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { projects, sessions } from "./schema.ts";
@@ -32,6 +33,8 @@ export type CreateProjectSessionOptions = {
 export async function createProjectSession(
   db: PostgresJsDatabase,
   options: CreateProjectSessionOptions,
+  /** Told once the project has committed, so its owner's other tabs draw it. */
+  { sessionList = null }: { sessionList?: SessionListAnnouncer | null } = {},
 ): Promise<CreatedSession> {
   const name = options.name?.trim() === "" ? undefined : options.name?.trim();
   /*
@@ -42,7 +45,7 @@ export async function createProjectSession(
    */
   const projectName = name ?? UNTITLED_PROJECT;
 
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const [project] = await tx
       .insert(projects)
       .values({
@@ -64,6 +67,8 @@ export async function createProjectSession(
 
     return { sessionId: session.id, projectId: project.id };
   });
+  sessionList?.announce({ userId: options.userId });
+  return created;
 }
 
 function slugify(name: string): string {

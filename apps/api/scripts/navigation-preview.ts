@@ -225,6 +225,7 @@ const composed = composeNap({
   bus: new InProcessEventBus(),
   cancels: null,
   claims: null,
+  sessionList: null,
   sandbox: fakeSandbox()
     .script(/symbolic-ref -q HEAD/, { exitCode: 0, stdout: "refs/heads/main\n" })
     .script(/symbolic-ref --short HEAD/, { exitCode: 0, stdout: "main\n" }),
