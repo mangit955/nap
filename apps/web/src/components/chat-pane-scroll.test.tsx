@@ -306,3 +306,109 @@ describe("a computer notice appearing at the end of the transcript", () => {
     expect(top()).toBe(400);
   });
 });
+
+/**
+ * Sending puts the message at the top of the view, and the reply fills in below it.
+ *
+ * jsdom lays nothing out, so the layout is stated: each prompt bubble sits at an offset in the
+ * scroller, the content ends at `end`, and the box is as tall as that plus whatever end space the
+ * pane asks for. The decision itself is pinned in `transcript-scroll.test.ts`; this pins that the
+ * pane feeds it — finds its bubbles, reads a send, sizes the end space.
+ */
+describe("a message sent from this tab", () => {
+  const event = (type: string, payload: unknown, seq: number, turnId = message.turnId) =>
+    ({ ...message, type, payload, seq, turnId }) as StoredEvent;
+  const NEXT = "8d2e3f4a-5b6c-4d7e-9f80-1a2b3c4d5e61";
+  const earlier = [
+    event("user.message", { text: "Build a notes app" }, 1),
+    event("agent.message", { text: "Built it." }, 2),
+  ];
+  const settled = [...earlier, event("system.notice", { level: "info", text: "Saved." }, 3)];
+
+  function laidOut() {
+    const view = render(<ChatPane events={earlier} />);
+    const timeline = screen.getByRole("region", { name: "Conversation" });
+    const layout = { prompts: [400, 1700], end: 1800 };
+    let top = 0;
+    const spacer = () => timeline.lastElementChild as HTMLElement;
+    const padding = () => Number.parseFloat(getComputedStyle(timeline).paddingBottom) || 0;
+    const space = () => Number.parseFloat(spacer().style.height) || 0;
+    Object.defineProperties(timeline, {
+      scrollHeight: { configurable: true, get: () => Math.max(600, layout.end + space()) },
+      clientHeight: { configurable: true, value: 600 },
+      scrollTop: {
+        configurable: true,
+        get: () => top,
+        set: (next: number) => {
+          top = next;
+        },
+      },
+    });
+    const at = (offset: number) => ({ top: offset - top }) as DOMRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      // The box itself stays put on the page; what is inside it moves as it scrolls.
+      if (this === timeline) return { top: 0 } as DOMRect;
+      if (this === spacer()) return at(layout.end - padding());
+      const prompts = [...timeline.querySelectorAll("[data-turn-prompt]")];
+      return at(layout.prompts[prompts.indexOf(this)] ?? 0);
+    });
+    // One more event, so the box has been measured once at its laid-out size.
+    view.rerender(<ChatPane events={settled} />);
+    return { ...view, layout, top: () => top, scrollTo: (next: number) => (top = next), space };
+  }
+
+  it("puts the message at the top of the view, with end space under it", () => {
+    const { rerender, top, space } = laidOut();
+    expect(top()).toBe(1200);
+
+    rerender(<ChatPane events={settled} pending="Add dark mode" running />);
+
+    expect(top()).toBe(1700 - 24);
+    expect(space()).toBe(1700 - 24 + 600 - 1800);
+  });
+
+  it("keeps it there while the reply streams in, and lets the reader scroll away", () => {
+    const { rerender, layout, top, scrollTo } = laidOut();
+    rerender(<ChatPane events={settled} pending="Add dark mode" running />);
+    const sent = [...settled, event("user.message", { text: "Add dark mode" }, 4, NEXT)];
+
+    layout.end = 2600;
+    rerender(<ChatPane events={sent} running />);
+    layout.end = 3200;
+    rerender(
+      <ChatPane events={[...sent, event("agent.message", { text: "Sure." }, 5, NEXT)]} running />,
+    );
+    expect(top()).toBe(1700 - 24);
+
+    scrollTo(900);
+    layout.end = 3400;
+    rerender(
+      <ChatPane
+        events={[
+          ...sent,
+          event("agent.message", { text: "Sure." }, 5, NEXT),
+          event("agent.message", { text: " Starting." }, 6, NEXT),
+        ]}
+        running
+      />,
+    );
+    expect(top()).toBe(900);
+  });
+
+  it("follows the end once the reply starts working", () => {
+    const { rerender, layout, top } = laidOut();
+    rerender(<ChatPane events={settled} pending="Add dark mode" running />);
+    const sent = [...settled, event("user.message", { text: "Add dark mode" }, 4, NEXT)];
+    layout.end = 3000;
+    rerender(<ChatPane events={sent} running />);
+    expect(top()).toBe(1700 - 24);
+
+    layout.end = 3100;
+    const call = { toolCallId: "c1", toolName: "read_file", input: { path: "app.tsx" } };
+    rerender(<ChatPane events={[...sent, event("tool.call", call, 5, NEXT)]} running />);
+
+    expect(top()).toBe(3100 - 600);
+  });
+});

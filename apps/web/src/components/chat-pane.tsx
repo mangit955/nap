@@ -23,11 +23,12 @@ import { ContextControl } from "../chat/context-control.tsx";
 import { type FirstPrompt, peekFirstPrompt } from "../chat/first-prompt.ts";
 import { modelInUse } from "../chat/model-picker.tsx";
 import { peekStartedPrompt, takeStartedPrompt } from "../chat/started-prompt.ts";
+import { latestResponseWorking } from "../chat/timeline.ts";
 import { buildTranscript } from "../chat/transcript.ts";
 import { TranscriptSkeleton } from "../chat/transcript-skeleton.tsx";
 import { useFirstPrompt } from "../chat/use-first-prompt.ts";
 import { useModels } from "../chat/use-models.ts";
-import { useStickToBottom } from "../chat/use-stick-to-bottom.ts";
+import { useTranscriptScroll } from "../chat/use-transcript-scroll.ts";
 import {
   type TurnActivity,
   type TurnSubmission,
@@ -200,9 +201,15 @@ export function ChatPane({
   // What "there is something new to see" means here. The event count alone would miss a turn
   // ending, and the running flag alone would miss every event inside it.
   const [noticeShown, setNoticeShown] = useState("");
-  const scroller = useStickToBottom<HTMLElement>(
-    `${events.length}:${pending}:${pendingSteer}:${running}:${composerHeight}:${noticeShown}`,
-  );
+  // A message sent from here goes to the top of the view, and the reply fills in below it, until
+  // the reply starts working. See `transcript-scroll.ts`. Until the log holds the new prompt, the
+  // newest response in the fold is the previous turn's, so it cannot answer for this one.
+  const { scroller, room } = useTranscriptScroll<HTMLElement>({
+    signal: `${events.length}:${pending}:${pendingSteer}:${running}:${composerHeight}:${noticeShown}`,
+    sending: pending !== undefined,
+    steering: pendingSteer !== undefined,
+    working: pending === undefined && latestResponseWorking(transcript),
+  });
 
   return (
     <Pane id="chat" title="Chat" chrome="none">
@@ -260,6 +267,8 @@ export function ChatPane({
                 <WorkingRow startedAt={startedAt} />
               </div>
             )}
+            {/* The end space that lets a just-sent prompt sit at the top. Sized by the hook. */}
+            <div ref={room} aria-hidden="true" />
           </section>
 
           <div ref={composerDock} className="chat-composer-dock absolute inset-x-0 bottom-0 z-10">
@@ -361,7 +370,7 @@ function earliest(...readings: (number | string | undefined)[]): string | undefi
 function PendingMessage({ text }: { text: string }) {
   return (
     <div className="mx-auto flex max-w-[46rem] justify-end px-5 pb-4">
-      <div className="chat-user-message whitespace-pre-wrap">
+      <div className="chat-user-message whitespace-pre-wrap" data-turn-prompt="">
         <span className="sr-only">You: </span>
         {text}
       </div>

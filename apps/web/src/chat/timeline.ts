@@ -129,6 +129,20 @@ function visible(entry: WorkEntry): boolean {
   return entry.kind !== "thinking" || entry.text.trim() !== "";
 }
 
+/**
+ * Whether the response to the newest prompt has started working: a tool call, a file change, or
+ * reasoning with something in it. Prose alone is not work — it is the reply, read downward from the
+ * prompt. The scroll position changes rule at this moment; see `transcript-scroll.ts`.
+ */
+export function latestResponseWorking(items: readonly TranscriptItem[]): boolean {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item === undefined || isPrompt(item)) return false;
+    if (isWorkEntry(item) && visible(item)) return true;
+  }
+  return false;
+}
+
 const groupIdOf = (entry: WorkEntry) => `group:${entry.key}`;
 
 type TurnFold = {
