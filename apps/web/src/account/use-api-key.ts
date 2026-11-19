@@ -13,15 +13,10 @@
  */
 
 import { KeyStatusSchema } from "@nap/shared/models-protocol";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
-import {
-  accountKey,
-  keyChanged,
-  listenForKeyChanges,
-  useAccountResource,
-} from "./account-cache.ts";
+import { accountKey, keyChanged, useAccountResource } from "./account-cache.ts";
 import type { KeyState } from "./api-key-form.tsx";
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -67,7 +62,6 @@ export function useApiKey(options: { baseUrl?: string; fetchJson?: FetchJson } =
   });
   const [error, setError] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
-  useEffect(listenForKeyChanges, []);
 
   const send = useCallback(
     async (init: RequestInit): Promise<boolean> => {

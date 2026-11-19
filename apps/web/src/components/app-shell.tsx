@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProjectRepository } from "@nap/shared/github-protocol";
+import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { TurnActivity } from "../chat/use-turn-submission.ts";
 import { foldAppTests } from "../computer/app-test-state.ts";
@@ -84,18 +85,23 @@ export function AppShell({
         ? activePreview.required
         : configuredPreviewRequired;
 
-  const { project, hint, status, putAwayAt, resume, resuming, resumeError, rename } = useProject(
-    projectId,
-    {
-      previewSeq,
-      previewRequired,
-      refreshKey: projectRefreshKey,
-      ...(fetchJson === undefined ? {} : { fetchJson }),
-    },
-  );
-  // The session the tab already knew of, until the record names one: the live connection and
-  // every per-session read start at the click rather than a round trip later. See `known-projects.ts`.
-  const sessionId = project?.sessionIds[0] ?? hint?.sessionIds[0];
+  const {
+    project,
+    sessionId,
+    name,
+    known,
+    status,
+    putAwayAt,
+    resume,
+    resuming,
+    resumeError,
+    rename,
+  } = useProject(projectId, {
+    previewSeq,
+    previewRequired,
+    refreshKey: projectRefreshKey,
+    ...(fetchJson === undefined ? {} : { fetchJson }),
+  });
 
   // Saving environment settings changes the next workspace, not the sandbox already running.
   useEffect(() => {
@@ -162,29 +168,8 @@ export function AppShell({
   }, [announced]);
 
   const previewUrl = phase.kind === "running" ? phase.url : undefined;
-  const githubRevision = useAfterReplay(
-    log.events.findLast(
-      (event) =>
-        event.type === "system.notice" ||
-        event.type === "preview.ready" ||
-        event.type === "preview.stopped" ||
-        event.type === "turn.completed" ||
-        event.type === "turn.failed" ||
-        event.type === "verification.completed",
-    )?.seq ?? 0,
-    log.replayed,
-    sessionId,
-  );
-  const projectRevision = useAfterReplay(
-    log.events.findLast(
-      (event) =>
-        event.type === "system.notice" ||
-        event.type === "preview.stopped" ||
-        event.type === "project.renamed",
-    )?.seq ?? 0,
-    log.replayed,
-    sessionId,
-  );
+  const githubRevision = useAfterReplay(log.events, changesGitHub, log.replayed, sessionId);
+  const projectRevision = useAfterReplay(log.events, changesRecord, log.replayed, sessionId);
   useEffect(() => {
     setProjectRefreshKey(projectRevision);
   }, [projectRevision]);
@@ -293,7 +278,7 @@ export function AppShell({
       chat={
         <>
           <WorkspaceHeader
-            projectName={headerNote(status, project?.name ?? hint?.name)}
+            projectName={headerNote(status, name)}
             {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
             job={log.jobs.summary}
             panelOpen={visiblePanel}
@@ -424,7 +409,7 @@ export function AppShell({
           pullRequests={
             // Read by project, so a project the tab already knows asks at the click: its answer
             // also says whether the preview is required, which the panes wait on.
-            status === "ready" || hint !== undefined ? (
+            known ? (
               <ProjectGitHubControl
                 key={projectId}
                 projectId={projectId}
@@ -451,6 +436,21 @@ export function AppShell({
     />
   );
 }
+
+/** Events after which the project's GitHub state is worth reading again. */
+const changesGitHub = (event: StoredEvent) =>
+  event.type === "system.notice" ||
+  event.type === "preview.ready" ||
+  event.type === "preview.stopped" ||
+  event.type === "turn.completed" ||
+  event.type === "turn.failed" ||
+  event.type === "verification.completed";
+
+/** Events after which the project's record — its sandbox, its name — is worth reading again. */
+const changesRecord = (event: StoredEvent) =>
+  event.type === "system.notice" ||
+  event.type === "preview.stopped" ||
+  event.type === "project.renamed";
 
 /**
  * What to call the project in the bar.

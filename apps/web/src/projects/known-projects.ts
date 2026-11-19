@@ -8,10 +8,10 @@
  * (`SessionSummarySchema` extends `ProjectSummarySchema`), and a project the browser has just
  * created was answered by `POST /projects`.
  *
- * **A hint, never the truth.** `useProject` offers it only while the server's own record is on
- * its way, and only the title and the session id are drawn from it: whether the project is running,
- * put away or gone is decided by the record, so a list read ten seconds ago can never show a
- * Resume button for a sandbox that is up. A session it named that turns out not to be the newest
+ * **A hint, never the truth.** `useProject` uses it only while the server's own record is on its
+ * way: for the name, for the session to connect to, and to let reads addressed by project (the
+ * GitHub state) go out at once. Whether the project is running, put away or gone is decided by the
+ * record, so a list read ten seconds ago can never show a Resume button for a sandbox that is up. A session it named that turns out not to be the newest
  * is replaced when the record arrives, the way any change of session is.
  *
  * In memory, in this tab: a reload starts empty, and sign-out empties it

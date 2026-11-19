@@ -20,7 +20,7 @@ import { PREVIEW_TITLE } from "../components/preview-pane.tsx";
 import { LISTING_DEBOUNCE_MS } from "../files/use-project-files.ts";
 import { recallLog } from "../hooks/remembered-logs.ts";
 import { LIVE_BATCH_MS } from "../hooks/use-event-stream.ts";
-import { rememberProjects } from "../projects/known-projects.ts";
+import { knownProject, rememberProjects } from "../projects/known-projects.ts";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 
@@ -652,6 +652,27 @@ describe("what a switch asks the server for", () => {
     expect(await screen.findByText("this project no longer exists")).toBeVisible();
     expect(within(screen.getByRole("main")).queryByText("Alpha board")).toBeNull();
     await waitFor(() => expect(net.opened.every((socket) => socket.closed)).toBe(true));
+    // Nor offered to the next open.
+    expect(knownProject(PROJECT_A)).toBeUndefined();
+  });
+
+  it("reads the record again for a notice stored between its read and the replay", async () => {
+    // The record goes out at the click and the socket subscribes a round trip later, so a notice
+    // stored in between is in the replay and not in the record. Seconds old, it is read again.
+    render(workspace(PROJECT_A));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await waitFor(() => expect(readsOf(`/projects/${PROJECT_A}`)).toBe(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({
+        type: "event",
+        event: ev("project.renamed", renamed("Alpha renamed"), 1, {
+          createdAt: new Date().toISOString(),
+        }),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+    await waitFor(() => expect(readsOf(`/projects/${PROJECT_A}`)).toBe(2));
   });
 
   it("reads nothing twice when the replay carries notices the first reads already reflect", async () => {

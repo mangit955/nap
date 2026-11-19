@@ -86,6 +86,8 @@ describe("one read for the whole tab", () => {
 
     up = true;
     const second = renderHook(() => useModels({ fetchJson }));
+    // Asking again is not done asking: a caller waiting on it must wait for this answer too.
+    expect(second.result.current.loading).toBe(true);
     await waitFor(() => expect(second.result.current.models).toEqual(LOCKED));
   });
 
@@ -100,6 +102,19 @@ describe("one read for the whole tab", () => {
     expect(next.result.current.loaded).toBe(false);
     await waitFor(() => expect(next.result.current.loaded).toBe(true));
     expect(api.reads("/account/api-key")).toBe(2);
+  });
+  it("reads again when the tab comes back into view, once however many read it", async () => {
+    // A key saved on another device, or a deploy that changed the allowlist, while this tab was
+    // in the background.
+    const api = account();
+    renderHook(() => useModels({ fetchJson: api.fetchJson }));
+    renderHook(() => useModels({ fetchJson: api.fetchJson }));
+    await waitFor(() => expect(api.reads("/models")).toBe(1));
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(api.reads("/models")).toBe(2));
   });
 });
 

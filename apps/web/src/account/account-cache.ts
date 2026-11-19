@@ -49,7 +49,7 @@ export type AccountResource<T> = {
 
 const EMPTY: Cached<never> = { value: undefined, loaded: false };
 
-export function accountResource<T>(): AccountResource<T> {
+function accountResource<T>(): AccountResource<T> {
   let held: Cached<T> = EMPTY;
   /** Nothing usable is held, so the next subscriber reads. */
   let stale = true;
@@ -70,6 +70,9 @@ export function accountResource<T>(): AccountResource<T> {
     const mine = ++generation;
     stale = false;
     reading = true;
+    // Asking again after a failure is not "done asking": a caller that waits on `loaded` — the
+    // welcome step, deciding whether to show the paste form — must wait for this answer too.
+    if (held.value === undefined && held.loaded) publish(EMPTY);
     void (async () => {
       let value: T | undefined;
       try {
@@ -84,11 +87,21 @@ export function accountResource<T>(): AccountResource<T> {
     })();
   };
 
+  // Coming back to the tab is when something may have changed elsewhere — a key saved on another
+  // device, a deploy that changed the allowlist — so anything held is read again then: once per
+  // return, rather than once per project opened as before this cache.
+  const revalidate = () => {
+    if (document.visibilityState === "visible" && lastLoad !== undefined && !reading)
+      read(lastLoad);
+  };
+
   return {
     subscribe(listener) {
+      if (listeners.size === 0) document.addEventListener("visibilitychange", revalidate);
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+        if (listeners.size === 0) document.removeEventListener("visibilitychange", revalidate);
       };
     },
     snapshot: () => held,
@@ -125,6 +138,7 @@ export function useAccountResource<T>(resource: AccountResource<T>, load: Load<T
   const latest = useRef(load);
   latest.current = load;
   useEffect(() => {
+    accountChannel();
     resource.ensure(latest.current);
   }, [resource]);
   return cached;
@@ -152,7 +166,7 @@ export function forgetAccount(): void {
 }
 
 let channel: BroadcastChannel | null | undefined;
-/** Opened on the first key read, so a tab that never shows the account never listens. */
+/** Opened by the first reader of either resource, so a tab that never shows the account never listens. */
 function accountChannel(): BroadcastChannel | null {
   if (channel === undefined) {
     channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("nap-account");
@@ -163,8 +177,4 @@ function accountChannel(): BroadcastChannel | null {
       };
   }
   return channel;
-}
-/** Listening starts with the first read of the key in this tab. */
-export function listenForKeyChanges(): void {
-  accountChannel();
 }
