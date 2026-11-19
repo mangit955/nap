@@ -4,7 +4,7 @@ import type {
   GitHubRepository,
   RepositoryJob,
 } from "@nap/shared/github-protocol";
-import { GitHubRepositorySchema, jobBranch } from "@nap/shared/github-protocol";
+import { GitHubRepositorySchema } from "@nap/shared/github-protocol";
 import { foldJobs } from "@nap/shared/job-state";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
@@ -251,7 +251,7 @@ export class GitHubIntegration implements RepositoryWorkspace {
         projectId: session.projectId,
         sessionId: session.sessionId,
         baseBranch: prior?.baseBranch ?? binding.baseBranch,
-        headBranch: prior?.headBranch ?? jobBranch(jobId),
+        headBranch: prior?.headBranch ?? `nap/${jobId}`,
         baseSha: prior?.baseSha ?? sha.value,
         headSha: null,
         pushedSha: prior?.pushedSha ?? null,

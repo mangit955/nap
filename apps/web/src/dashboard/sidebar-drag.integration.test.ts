@@ -620,7 +620,7 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
     expect(await page.evaluate<boolean>(`Boolean(${rowOf("Checkout flow")})`)).toBe(true);
   });
 
-  it("never paints a card's branch over its pull request, diff or model, at any sidebar width", async () => {
+  it("keeps a card's pull request, diff and model apart and on the line, at any sidebar width", async () => {
     // Where each chip on the third line actually paints: its text, cut by every box that clips
     // it. A box's own rect is no use here, because the overlap was text spilling out of one.
     const chips = (name: string) =>
@@ -664,12 +664,6 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
         page,
         `${rowOf("Pricing page")}.querySelector("a[data-session-link]").lastElementChild`,
       );
-      expect(painted.map((chip) => chip.text)).toEqual(
-        expect.arrayContaining(["#287 open", "+87 −5", "claude-sonnet-5.5"]),
-      );
-      // Shown or gone, never a sliver of a letter beside a lone icon.
-      const branch = painted.find((chip) => chip.text.startsWith("feat/"));
-      if (branch) expect(branch.right - branch.left, `branch at ${width}px`).toBeGreaterThan(20);
       for (const [index, chip] of painted.entries()) {
         expect(chip.right, `${chip.text} at ${width}px`).toBeLessThanOrEqual(
           line.x + line.width + 0.5,
@@ -680,17 +674,13 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
             `${chip.text} overlaps ${other.text} at ${width}px`,
           ).toBe(true);
       }
+      // Exactly these, in this order: the branch is not drawn on a card at all.
+      expect(painted.map((chip) => chip.text)).toEqual([
+        "#287 open",
+        "+87 \u22125",
+        "claude-sonnet-5.5",
+      ]);
       if (width === 208 || width === 256 || width === 420) await screenshot(`card-line-${width}`);
     }
-    // And with room to spare, the branch is there, its distinguishing tail whole.
-    expect((await chips("Pricing page"))[0]?.text).toBe(
-      "feat/pricing-table-with-annual-billing-toggle",
-    );
-    expect(
-      await page.evaluate<boolean>(
-        `(() => { const tail = [...${rowOf("Pricing page")}.querySelectorAll("[title^='feat/'] span")].at(-1); return tail.textContent === "lling-toggle" && tail.scrollWidth <= tail.clientWidth; })()`,
-      ),
-      "the branch's last 12 characters, uncut at 420px",
-    ).toBe(true);
   });
 });

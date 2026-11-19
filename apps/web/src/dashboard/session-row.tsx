@@ -1,6 +1,5 @@
 "use client";
 
-import { isJobBranch } from "@nap/shared/github-protocol";
 import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
 import {
   AlarmClock,
@@ -11,7 +10,6 @@ import {
   CircleDashed,
   Clock,
   Ellipsis,
-  FolderGit2,
   GitPullRequest,
   Pin,
   SquarePen,
@@ -47,7 +45,7 @@ import { SnoozeMenu } from "./snooze-menu.tsx";
  * One session in the sidebar, drawn as T3 Code draws a thread.
  *
  * A **card** (pinned and inbox rows) is three fixed lines: where the session came from and its
- * status, its title, and its branch and pull request. A **slim** row (the Snoozed and Settled
+ * status, its title, and its pull request and what the latest turn changed. A **slim** row (the Snoozed and Settled
  * shelves) is one line. Both are a link to the session, and the controls that act on it sit
  * *beside* the link rather than in it — a button inside a link is two controls fighting over
  * one press.
@@ -127,9 +125,6 @@ export const SessionRow = memo(function SessionRow({
   const status = rowStatus(session, now);
   const woke = status?.kind === "woke";
   const source = sessionSource(session.repository);
-  // A branch Nap named from a job's id says nothing the row and its pull request don't. It stays
-  // in the row's tooltip and its menu's Copy, and only a branch somebody named is drawn.
-  const branch = session.branch && !isJobBranch(session.branch) ? session.branch : null;
   const quiet = recedes(status, isOpen);
   const working = status?.kind === "working" || status?.kind === "queued";
   const variant = shelf === "pinned" || shelf === "active" ? "card" : "slim";
@@ -327,25 +322,10 @@ export const SessionRow = memo(function SessionRow({
         {selectedNote}
       </span>
       <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-label">
-        {branch ? (
-          // The branch takes only the room the chips after it leave (`flex-1` grows from zero),
-          // and nothing in it is wider than that room, so it never paints over them. Under 3rem
-          // it would be an icon and a sliver of a letter, so it goes altogether. Inside, only the
-          // head shrinks: a tail that shrank too would be cut while the head still showed, and the
-          // tail is what tells sibling branches apart (`…-retry`, `…-v2`). `max-w-full` cuts it,
-          // with an ellipsis, only once it alone is wider than the room.
-          <span className="@container min-w-0 flex-1" title={branch}>
-            <span className="flex items-center gap-1.5 @max-[3rem]:hidden">
-              <FolderGit2 aria-hidden className="size-3 shrink-0 text-muted/40" />
-              <span className="flex min-w-0 text-muted/45">
-                <span className="truncate">{branch.slice(0, -12)}</span>
-                <span className="max-w-full shrink-0 truncate">{branch.slice(-12)}</span>
-              </span>
-            </span>
-          </span>
-        ) : (
-          <span className="flex-1" />
-        )}
+        {/* No branch here. Every branch is `nap/<job id>`, which tells a reader nothing the row and
+            its pull request don't, and drawing it cost the chips their room. It is in the row's
+            tooltip and its menu's Copy. The spacer pushes the chips to the end of the line. */}
+        <span className="flex-1" />
         {session.pullRequest && (
           <span
             className={`inline-flex shrink-0 items-center gap-1 ${PR_COLOUR[session.pullRequest.state]}`}
@@ -505,8 +485,8 @@ function CardFacts({ session }: { session: SessionSummary }) {
         </span>
       )}
       {model && (
-        // The one chip that gives way when even an empty branch leaves too little room, as in a
-        // sidebar dragged to its narrowest: a cut model name still reads, a cut PR number does not.
+        // The one chip that gives way when the line is too short for them all, as in a sidebar
+        // dragged to its narrowest: a cut model name still reads, a cut PR number does not.
         <span className="max-w-24 truncate text-muted/70" title={session.model ?? ""}>
           {model}
         </span>

@@ -103,22 +103,6 @@ export const RepositoryJobSchema = z.object({
 });
 export type RepositoryJob = z.infer<typeof RepositoryJobSchema>;
 
-/**
- * The branch a job pushes to when it continues none: named from the job's id, so no two collide.
- * It tells a person nothing the session and its pull request don't, so the sidebar leaves it out,
- * and `isJobBranch` is how it knows. Both live here so the name and its recognition cannot drift.
- */
-export function jobBranch(jobId: string): string {
-  return `nap/${jobId}`;
-}
-
-const JOB_BRANCH = /^nap\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Whether `branch` is one `jobBranch` made, rather than one somebody named. */
-export function isJobBranch(branch: string): boolean {
-  return JOB_BRANCH.test(branch);
-}
-
 export const RepositoryFeedbackSchema = z.object({
   id: z.string(),
   projectId: z.uuid(),

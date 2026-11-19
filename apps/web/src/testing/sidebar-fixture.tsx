@@ -51,12 +51,12 @@ const server = navigationServer([
   row("Header polish", { position: 0 }),
   row("Checkout flow", { position: 1 }),
   row("Search results", { position: 2 }),
-  // Every chip a card's third line can hold, behind a long branch somebody named.
+  // Every chip a card's third line can hold, and a branch, which the card does not draw.
   row(
     "Pricing page",
     { position: 3 },
     {
-      branch: "feat/pricing-table-with-annual-billing-toggle",
+      branch: "nap/7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5",
       pullRequest: {
         number: 287,
         url: "https://github.com/example/storefront/pull/287",

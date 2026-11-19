@@ -225,7 +225,7 @@ it("draws no clock on a queued card, and times a working one from its claim", as
   }
 });
 
-it("shows a branch somebody named on the card, and leaves one Nap made from a job's id to the tooltip", () => {
+it("leaves the branch off the card, in its tooltip and its menu's Copy", () => {
   const generated = {
     ...row("Generated branch"),
     branch: "nap/7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5",
@@ -240,10 +240,12 @@ it("shows a branch somebody named on the card, and leaves one Nap made from a jo
       onApply={async () => true}
     />,
   );
-  const card = screen.getByRole("link", { name: /Generated branch/ });
-  expect(card).not.toHaveTextContent("7c1d2e3f");
-  expect(card).toHaveAttribute("title", expect.stringContaining(generated.branch));
-  expect(screen.getByRole("link", { name: /Named branch/ })).toHaveTextContent(
-    "feat/pricing-table",
-  );
+  for (const session of [generated, named]) {
+    const card = screen.getByRole("link", { name: new RegExp(session.name) });
+    expect(card).not.toHaveTextContent(session.branch);
+    expect(card).toHaveAttribute("title", expect.stringContaining(session.branch));
+  }
+  fireEvent.contextMenu(screen.getByRole("link", { name: /Generated branch/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Copy" }));
+  expect(screen.getByRole("menuitem", { name: "Branch" })).toBeInTheDocument();
 });
