@@ -24,9 +24,10 @@ import {
   ProjectSummarySchema,
   projectState,
 } from "@nap/shared/projects-protocol";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { forgetKnownProject, knownProject, rememberProjects } from "./known-projects.ts";
 import { readProject } from "./project-prefetch.ts";
 
 export type ProjectsStatus = "loading" | "ready" | "error";
@@ -48,6 +49,8 @@ const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:30
 // Broadcast successful edits without storing another copy or refetching both views.
 const renameListeners = new Set<(project: ProjectSummaryPayload) => void>();
 function publishRename(project: ProjectSummaryPayload) {
+  // The tab's copy too, so coming back to the project draws the new name and not the old one.
+  rememberProjects([project]);
   for (const listener of renameListeners) listener(project);
 }
 
@@ -205,6 +208,20 @@ async function reasonFrom(response: Response, whatFailed: string): Promise<strin
 
 export type OpenProject = {
   project: ProjectSummaryPayload | undefined;
+  /**
+   * The session to show and connect to: the record's newest, or — while the record is on its way
+   * — the one named by the record this tab already held (`known-projects.ts`), so the live
+   * connection and every per-session read start at the click rather than a round trip later.
+   */
+  sessionId: string | undefined;
+  /** What to call the project: the record's name, or the tab's copy of it while that loads. */
+  name: string | undefined;
+  /**
+   * Whether the project is known to exist: its record answered, or the tab held one while it
+   * loads. Enough for a read addressed by project to go out; never enough to decide its state —
+   * running, put away or gone is the record's alone.
+   */
+  known: boolean;
   status: "loading" | "ready" | "missing" | "error";
   /**
    * When the server last confirmed this project had no sandbox serving it — or `undefined` if
@@ -283,6 +300,7 @@ export function useProject(
 
   const [project, setProject] = useState<ProjectSummaryPayload | undefined>(undefined);
   const [status, setStatus] = useState<OpenProject["status"]>("loading");
+  const held = useMemo(() => knownProject(projectId), [projectId]);
   const loadedProject = useRef<string | undefined>(undefined);
   useEffect(() => {
     const renamed = (updated: ProjectSummaryPayload) => {
@@ -362,6 +380,8 @@ export function useProject(
         if (abandoned) return;
 
         if (response.status === 404) {
+          // Deleted elsewhere: the tab's copy must not offer it to the next open either.
+          forgetKnownProject(projectId);
           setStatus("missing");
           return;
         }
@@ -430,8 +450,15 @@ export function useProject(
     [baseUrl, projectId],
   );
 
+  // Offered only while the record is on its way: once it answers — a record, a 404, an error —
+  // what the tab held says nothing the answer does not say better.
+  const hint = status === "loading" ? held : undefined;
+
   return {
     project,
+    sessionId: project?.sessionIds[0] ?? hint?.sessionIds[0],
+    name: project?.name ?? hint?.name,
+    known: status === "ready" || hint !== undefined,
     status,
     rename,
     putAwayAt:

@@ -3,18 +3,20 @@
 /**
  * The key this person has saved, and the two ways to change it.
  *
- * A hook rather than a component so both places that need it — the welcome step and the
- * dashboard — share one idea of the state, and so neither has to know that "remove" and "save"
- * answer with the same body shape.
+ * A hook rather than a component so every place that needs it — the welcome step, the dashboard,
+ * the sidebar, the composer and settings — shares one idea of the state, and so none has to know
+ * that "remove" and "save" answer with the same body shape. The state itself is read once per tab
+ * and held in `account-cache.ts`; `error` and `busy` belong to the form that sent the request.
  *
  * `fetchJson` comes in through an argument the way `useModels` and `useProjectFiles` take
  * theirs, so every branch is drivable in a test without a network.
  */
 
 import { KeyStatusSchema } from "@nap/shared/models-protocol";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { accountKey, keyChanged, useAccountResource } from "./account-cache.ts";
 import type { KeyState } from "./api-key-form.tsx";
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -46,39 +48,20 @@ export function useApiKey(options: { baseUrl?: string; fetchJson?: FetchJson } =
 } {
   const { baseUrl = DEFAULT_BASE_URL } = options;
   const fetchJson = options.fetchJson ?? credentialedFetch;
-  const [state, setState] = useState<KeyState | undefined>(undefined);
-  const [loaded, setLoaded] = useState(false);
+  const { value: state, loaded } = useAccountResource(accountKey, async () => {
+    try {
+      const response = await fetchJson(`${baseUrl}/account/api-key`);
+      if (!response.ok) return undefined;
+      const parsed = KeyStatusSchema.safeParse(await response.json());
+      return parsed.success ? toState(parsed.data) : undefined;
+    } catch {
+      // Left undefined, which the welcome step reads as "do not decide yet". Guessing "no key"
+      // here would show the paste form to somebody who already has one saved.
+      return undefined;
+    }
+  });
   const [error, setError] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see the note in useProjectFiles
-  useEffect(() => {
-    let live = true;
-
-    void (async () => {
-      try {
-        const response = await fetchJson(`${baseUrl}/account/api-key`);
-        if (!response.ok) return;
-
-        const parsed = KeyStatusSchema.safeParse(await response.json());
-        if (live && parsed.success) setState(toState(parsed.data));
-      } catch {
-        // Left undefined, which the welcome step reads as "do not decide yet". Guessing "no
-        // key" here would show the paste form to somebody who already has one saved.
-      } finally {
-        // In a `finally` so it is true on every way out — the answer, a refusal, a parse that
-        // did not match, a server that was not there. A caller waiting on this needs to stop
-        // waiting even when there is nothing to show for it; see the note on `loaded` above.
-        if (live) setLoaded(true);
-      }
-    })();
-
-    return () => {
-      live = false;
-    };
-    // `fetchJson` is deliberately absent, for the reason `useProjectFiles` documents: an inline
-    // arrow is a new function every render, and depending on it would refetch forever.
-  }, [baseUrl]);
 
   const send = useCallback(
     async (init: RequestInit): Promise<boolean> => {
@@ -97,7 +80,9 @@ export function useApiKey(options: { baseUrl?: string; fetchJson?: FetchJson } =
         }
 
         const parsed = KeyStatusSchema.safeParse(body);
-        if (parsed.success) setState(toState(parsed.data));
+        // Through the tab's shared copy, so the composer, the sidebar and every other tab follow —
+        // and the models are read again, since what this caller may run depends on the key.
+        if (parsed.success) keyChanged(toState(parsed.data));
         return true;
       } catch {
         setError(UNREACHABLE);

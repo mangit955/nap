@@ -51,7 +51,22 @@ const server = navigationServer([
   row("Header polish", { position: 0 }),
   row("Checkout flow", { position: 1 }),
   row("Search results", { position: 2 }),
-  row("Pricing page", { position: 3 }),
+  // A pull request, a diff and a model on the card's third line, and a branch, which the card
+  // does not draw. No feedback count yet: that chip's room at 208px is #301.
+  row(
+    "Pricing page",
+    { position: 3 },
+    {
+      branch: "nap/7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5",
+      pullRequest: {
+        number: 287,
+        url: "https://github.com/example/storefront/pull/287",
+        state: "open",
+      },
+      diff: { added: 87, removed: 5 },
+      model: "anthropic/claude-sonnet-5.5",
+    },
+  ),
   // Settled after their last request, as a settled session always is.
   row("Shipped landing page", { doneAt: minutes(5) }, { requestedAt: minutes(90) }),
   row("Old onboarding", { doneAt: minutes(50) }, { requestedAt: minutes(120) }),
