@@ -30,8 +30,9 @@ const ALPHA_REQUEST = "9e3f4a51-6c7d-4e8f-8a1b-2c3d4e5f6a71";
 
 /** The address bar, which is where the workspace reads its project. See `open-project.ts`. */
 let currentPath = "/p";
+const routerReplace = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: routerReplace, refresh: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => currentPath,
 }));
 vi.mock("../auth/client.ts", () => ({
@@ -51,6 +52,7 @@ vi.mock("./session-sidebar.tsx", () => ({
 
 const { WorkspaceFrame } = await import("./workspace-frame.tsx");
 const { LiveWorkspace } = await import("./live-workspace.tsx");
+const { beginStart, forgetWorkspaceEntry, openProject } = await import("./workspace-entry.ts");
 
 /** A fetch the test lets through when it chooses, so "a late answer for A" is a thing it can do. */
 function gate(): { wait: Promise<void>; open: () => void } {
@@ -213,6 +215,9 @@ beforeEach(() => {
   posted = [];
   recordHeld = undefined;
   gone = new Set();
+  routerReplace.mockClear();
+  forgetWorkspaceEntry();
+  window.history.replaceState(null, "", "/");
 });
 
 describe("switching projects in place", () => {
@@ -535,5 +540,106 @@ describe("switching projects in place", () => {
 
     expect(screen.getByRole("navigation", { name: "Sessions" })).toHaveTextContent(PROJECT_B);
     expect(sidebarMounts).toBe(1);
+  });
+});
+
+/**
+ * The dashboard's way in: `/p/new`, a static page it prefetched, entered before the project's
+ * own page could have been fetched — or, for a new project, before the project exists.
+ */
+describe("entering from the dashboard", () => {
+  /** The tab on `/p/new`, as the dashboard's `router.push` leaves it. */
+  function entry() {
+    currentPath = "/p/new";
+    window.history.replaceState(null, "", "/p/new");
+    return (
+      <WorkspaceFrame>
+        <LiveWorkspace fetchJson={fetchJson} createSocket={net.createSocket} />
+      </WorkspaceFrame>
+    );
+  }
+  /** What Next does with a `replaceState`: the pathname hooks follow the address bar. */
+  function followAddress(view: ReturnType<typeof render>) {
+    currentPath = window.location.pathname;
+    view.rerender(
+      <WorkspaceFrame>
+        <LiveWorkspace fetchJson={fetchJson} createSocket={net.createSocket} />
+      </WorkspaceFrame>,
+    );
+  }
+  const conversation = () => within(screen.getByRole("region", { name: "Conversation" }));
+
+  it("draws the prompt of a project still being created, then becomes that project", async () => {
+    const start = beginStart(
+      { push: vi.fn() },
+      { ownerId: "owner", prompt: { text: "Alpha started" } },
+    );
+    const view = render(entry());
+
+    // On screen with nothing asked of the server: there is no project to ask about yet.
+    expect(await conversation().findByText("Alpha started")).toBeVisible();
+    expect(screen.getByText("Starting your project…")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(net.opened).toHaveLength(0);
+    expect(posted).toEqual([]);
+    expect(window.location.pathname).toBe("/p/new");
+
+    // The server made it: the dashboard hands over the admitted prompt and reports the project.
+    handOffStartedPrompt({
+      projectId: PROJECT_A,
+      sessionId: SESSION_ID,
+      requestId: ALPHA_REQUEST,
+      text: "Alpha started",
+    });
+    act(() => start.started(PROJECT_A));
+    await waitFor(() => expect(window.location.pathname).toBe(`/p/${PROJECT_A}`));
+    followAddress(view);
+
+    expect(conversation().getByText("Alpha started")).toBeVisible();
+    expect(await screen.findByText("Alpha board")).toBeVisible();
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({
+        type: "event",
+        event: ev("user.message", { text: "Alpha started" }, 1, { turnId: ALPHA_REQUEST }),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(conversation().getAllByText("Alpha started")).toHaveLength(1);
+    // The server admitted the first turn with the project; the workspace never sends it again.
+    expect(posted).toEqual([]);
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("opens an existing project at once, and shows its own address", async () => {
+    openProject({ push: vi.fn() }, PROJECT_A);
+    render(entry());
+
+    expect(await screen.findByText("Alpha board")).toBeVisible();
+    expect(window.location.pathname).toBe(`/p/${PROJECT_A}`);
+    await replayAlpha();
+    expect(await screen.findByText("Alpha reply")).toBeVisible();
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("goes back to the dashboard when the start is refused", async () => {
+    const start = beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "Too many" } });
+    render(entry());
+    expect(await conversation().findByText("Too many")).toBeVisible();
+
+    act(() => start.failed("You already have 4 projects running, which is the limit."));
+
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith("/dashboard"));
+    expect(window.location.pathname).toBe("/p/new");
+    expect(net.opened).toHaveLength(0);
+    expect(posted).toEqual([]);
+  });
+
+  it("sends a reload or a typed address, which carries no way in, to the dashboard", async () => {
+    render(entry());
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith("/dashboard"));
+    expect(screen.queryByRole("region", { name: "Conversation" })).toBeNull();
+    expect(net.opened).toHaveLength(0);
   });
 });

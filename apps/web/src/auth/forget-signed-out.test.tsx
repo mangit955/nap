@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetAllLogs, recallLog, rememberLog } from "../hooks/remembered-logs.ts";
 import type { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { ev, SESSION_ID } from "../testing/events.ts";
+import { beginStart, settledStart } from "../workspace/workspace-entry.ts";
 import { forgetSignedOut } from "./forget-signed-out.ts";
 
 const KEPT = { ownerId: "owner", projectId: "project-a" };
@@ -40,5 +41,15 @@ describe("forgetting the person who signed out", () => {
     const failing = { clearOwner: async () => Promise.reject(new Error("no IndexedDB")) };
     await forgetSignedOut("owner", failing as unknown as ComposerDraftStore);
     expect(recallLog(KEPT)).toBeUndefined();
+  });
+
+  it("drops a start's way into the workspace, which carries their prompt", async () => {
+    const start = beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "private" } });
+    start.failed("Refused");
+
+    await forgetSignedOut("owner", drafts().store);
+
+    // Nothing of it is left for whoever uses this tab next: not the prompt, not the refusal.
+    expect(await settledStart("owner")).toBeUndefined();
   });
 });

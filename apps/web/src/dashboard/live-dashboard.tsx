@@ -15,6 +15,7 @@ import {
   ThreadDetailsToggle,
   useThreadDetails,
 } from "../workspace/thread-details.tsx";
+import { openProject, prefetchWorkspace } from "../workspace/workspace-entry.ts";
 import { Dashboard } from "./dashboard.tsx";
 import { greetingName, recentProjects } from "./filters.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
@@ -78,6 +79,9 @@ function SignedInDashboard({
   const [draftSource, setDraftSource] = useState<DraftSource | null>(null);
   const [settingsRequest, setSettingsRequest] = useState(0);
   const details = useThreadDetails(`${user.id}:new-session`);
+  // Both ways out of here — a row, and a new project from the composer — enter the workspace at
+  // one static address, fetched now so that leaving costs no request. See `workspace-entry.ts`.
+  useEffect(() => prefetchWorkspace(router), [router]);
 
   return (
     <>
@@ -115,8 +119,9 @@ function SignedInDashboard({
             email={user.isAnonymous ? undefined : (user.email ?? undefined)}
             avatarUrl={user.image ?? undefined}
             onRename={(id, name) => void rename(id, name)}
-            // Client-side, so opening a project costs no new document and no auth round trip.
-            onSelectProject={(id) => router.push(`/p/${id}`)}
+            // Client-side, so opening a project costs no new document and no auth round trip —
+            // and through the prefetched entry page, so no page request either.
+            onSelectProject={(id) => openProject(router, id)}
             onDelete={(id) => void remove(id)}
             onClose={(id) => void close(id)}
             error={actionError ?? (status === "error" ? "Could not load sessions." : undefined)}

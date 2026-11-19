@@ -19,6 +19,7 @@ import {
 } from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import type { DraftSource } from "../workspace/thread-details.tsx";
+import { beginStart, type StartHandle, settledStart } from "../workspace/workspace-entry.ts";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
 export function NewSessionComposer({
@@ -70,6 +71,12 @@ export function NewSessionComposer({
       const params = new URLSearchParams(window.location.search);
       let id: string | null = null;
       try {
+        // A start this tab still has in flight decides what the saved draft becomes — cleared once
+        // it is created, given back if it is refused — so the draft is read after it, along with
+        // why it failed. The composer stays disabled until then, since it has no draft.
+        const failure = await settledStart(ownerId);
+        if (cancelled) return;
+        if (failure !== undefined) setError(failure);
         id = params.get("draft") ?? sessionStorage.getItem(pointer);
         const saved = id ? await store.current.load(ownerId, id) : null;
         if (cancelled) return;
@@ -246,10 +253,26 @@ export function NewSessionComposer({
     sending.current = true;
     setBusy(true);
     setError(undefined);
+    let entered: StartHandle | undefined;
     try {
       const pending = { ...value, pendingStart: parsed.data };
       setDraft(pending);
+      // Saved before anything else, because from here on the draft is what gives the prompt back:
+      // the workspace is entered next, this page goes, and a refusal finds the words in storage.
       await persist(pending);
+      // Into the workspace now, with the prompt on screen, rather than after the server answers
+      // and the project's page has been fetched. See `workspace-entry.ts`.
+      const sent = parsed.data.prompt;
+      entered = beginStart(router, {
+        ownerId,
+        prompt:
+          sent === undefined
+            ? undefined
+            : {
+                text: sent.message,
+                ...(sent.attachments === undefined ? {} : { attachments: sent.attachments }),
+              },
+      });
       const response = await fetchJson(`${GITHUB_API_URL}/sessions/start`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -288,15 +311,17 @@ export function NewSessionComposer({
           ...(prompt.attachments === undefined ? {} : { attachments: prompt.attachments }),
           ...(prompt.model === undefined ? {} : { model: prompt.model }),
         });
-      router.push(`/p/${result.projectId}`);
+      entered.started(result.projectId);
     } catch (error) {
-      setError(
+      const message =
         error instanceof Error
           ? error.message
-          : "Could not finish starting the session. Your draft is saved when storage is available. Retry with this draft to recover the same session.",
-      );
+          : "Could not finish starting the session. Your draft is saved when storage is available. Retry with this draft to recover the same session.";
+      setError(message);
       sending.current = false;
       setBusy(false);
+      // Back on the dashboard, a new composer shows this with the draft saved above.
+      entered?.failed(message);
     }
   };
   const source = draft?.source;

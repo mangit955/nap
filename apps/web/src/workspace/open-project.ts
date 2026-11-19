@@ -17,7 +17,8 @@ import { usePathname } from "next/navigation";
 /** The project a `/p/<id>` address names, or `undefined` for any other address. */
 export function projectIdOf(pathname: string | null): string | undefined {
   const match = /^\/p\/([^/]+)\/?$/.exec(pathname ?? "");
-  if (match?.[1] === undefined) return undefined;
+  // `/p/new` is the workspace before it knows its project; see `workspace-entry.ts`.
+  if (match?.[1] === undefined || match[1] === "new") return undefined;
   try {
     return decodeURIComponent(match[1]);
   } catch {
