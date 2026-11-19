@@ -38,7 +38,9 @@ function inputs(overrides: Partial<PhaseInputs> = {}): PhaseInputs {
 
 describe("before anything is known", () => {
   it("recognizes a ready repository without waiting for a preview", () => {
-    expect(phaseOf(inputs({ previewRequired: false, preview: { status: "starting" } }))).toEqual({
+    expect(
+      phaseOf(inputs({ previewRequired: false, preview: { status: "starting", since: NOON } })),
+    ).toEqual({
       kind: "no-preview",
     });
   });
@@ -104,10 +106,30 @@ describe("a start that is under way", () => {
     expect(phase.kind).toBe("put-away");
   });
 
-  it("is starting when the log says a turn is working on the first preview", () => {
-    expect(phaseOf(inputs({ record: "new", preview: { status: "starting" } })).kind).toBe(
-      "starting",
+  it("is starting once a message newer than the put-away record has been sent", () => {
+    // Sending is one of the two ways to start a put-away project, and the turn restores the
+    // sandbox itself. The record still says put away until something re-reads it, so without the
+    // comparison the pane would offer Resume for a start that is already under way.
+    const phase = phaseOf(
+      inputs({ putAwayAt: NOON, preview: { status: "starting", since: LATER } }),
     );
+
+    expect(phase.kind).toBe("starting");
+  });
+
+  it("stays put away when the log's last message is older than the record", () => {
+    // A turn from before the sandbox was reclaimed says nothing about now.
+    const phase = phaseOf(
+      inputs({ putAwayAt: NOON, preview: { status: "starting", since: EARLIER } }),
+    );
+
+    expect(phase.kind).toBe("put-away");
+  });
+
+  it("is starting when the log says a turn is working on the first preview", () => {
+    expect(
+      phaseOf(inputs({ record: "new", preview: { status: "starting", since: NOON } })).kind,
+    ).toBe("starting");
   });
 });
 

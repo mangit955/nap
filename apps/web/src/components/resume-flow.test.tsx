@@ -114,7 +114,7 @@ beforeEach(() => {
     });
 });
 
-describe("opening a put-away project", () => {
+describe("opening a project", () => {
   it("retains the exact preview iframe through compaction start and completion", async () => {
     // A project whose sandbox is serving: the record names it, so nothing here is put away.
     const running = async (url: string, init?: RequestInit) =>
@@ -445,6 +445,21 @@ describe("opening a put-away project", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(turns).toBe(1));
+
+    // The prompt lands in the log, after the record was read: the project is now starting, so the
+    // put-away screen and its Resume button give way to the start-up screen. Left up, Resume would
+    // offer a second start of a project the turn is already restoring.
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("user.message", { text: "Add a dark mode" }, 9, {
+          createdAt: "2026-08-09T12:31:00.000Z",
+        }),
+      });
+    });
+    expect(await screen.findByText(/starting the dev server/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^resume$/i })).not.toBeInTheDocument();
+    // Read after the screen has settled, so an open sent a tick after the turn is counted too.
     expect(opens).toBe(0);
   });
 

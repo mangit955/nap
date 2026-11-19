@@ -116,19 +116,23 @@ export function phaseOf({
  * sandbox the provider reclaimed on its own timer is announced by nobody, so the newest
  * `preview.ready` can be an address that stopped answering an hour ago.
  *
- * **The record only outranks announcements older than itself.** `putAwayAt` is a moment the server
- * had no sandbox; a `preview.ready` stamped after it describes a sandbox created since, and a page
- * that ignored that told everybody whose first turn had just started that their project was filed
- * away — while the header said `live` and the transcript showed the address. Both timestamps are
- * the server's own, so comparing them involves no browser clock.
+ * **The record only outranks the log where the log is older than it.** `putAwayAt` is a moment the
+ * server had no sandbox; a `preview.ready` stamped after it describes a sandbox created since, and a
+ * page that ignored that told everybody whose first turn had just started that their project was
+ * filed away — while the header said `live` and the transcript showed the address. A message sent
+ * after it is the same kind of news: opening a put-away project starts nothing, so sending one is
+ * how it starts, and the turn restores the sandbox itself. Without that comparison the pane offered
+ * Resume for the whole restore. Both timestamps are the server's own, so comparing them involves no
+ * browser clock.
  */
 function nothingIsServing(preview: PreviewState, putAwayAt: string | undefined): boolean {
   // The log said so outright; no record can be more current than an announcement.
   if (preview.status === "stopped") return true;
   if (putAwayAt === undefined) return false;
-  if (preview.status !== "ready") return true;
+  if (preview.status === "ready") return Date.parse(preview.createdAt) <= Date.parse(putAwayAt);
+  if (preview.status === "starting") return Date.parse(preview.since) <= Date.parse(putAwayAt);
 
-  return Date.parse(preview.createdAt) <= Date.parse(putAwayAt);
+  return true;
 }
 
 /** What the record says on its own, for the callers that hold one. `undefined` when none has arrived. */

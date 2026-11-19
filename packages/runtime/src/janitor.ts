@@ -42,13 +42,15 @@ import { EventSink } from "./event-sink.ts";
  * What the chat pane is told, in the two registers a person needs.
  *
  * `internal` rather than `cancelled`: nobody asked for this to stop. And the notice says where
- * the work went, because the honest answer — it is all still there and reopening picks it up —
- * is not one anybody would guess from a failed turn.
+ * the work went, because the honest answer — it is all still there and Resume picks it up — is
+ * not one anybody would guess from a failed turn. It names Resume rather than opening the project,
+ * because opening one starts nothing (ADR-0037), and a message sent instead starts new work and
+ * leaves this job where it stopped.
  */
 const INTERRUPTED_MESSAGE =
   "This turn was interrupted: the worker running it stopped responding, so it never finished.";
 const RESUME_NOTICE =
-  "Nothing was lost — the work so far is saved. Reopen the project to pick it up from where it stopped.";
+  "Nothing was lost — the work so far is saved. Press Resume on the project to pick it up from where it stopped.";
 /** A publish ran no turn, so there is nothing to reopen — what is left to do is publish again. */
 const PUBLISH_INTERRUPTED_NOTICE =
   "Publishing was interrupted. Your saved work is safe; retry publishing from this project.";

@@ -149,7 +149,7 @@ whether the work is sound, a snapshot about where the work is kept. Every comple
 only a verified one checkpoints, which is what makes a failed verification unable to corrupt the
 last known-good state by construction rather than by care.
 
-**Continue** — what happens to an open job when its project is next opened, as distinct from
+**Continue** — what happens to an open job when somebody next presses Resume on its project, as distinct from
 **resume**, which already means bringing a put-away project's sandbox back up (`resumeSession`). A
 process restart leaves a job open rather than failing it; nothing continues a job while nobody is
 watching.

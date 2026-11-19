@@ -49,6 +49,16 @@ describe("while a turn is running", () => {
     });
   });
 
+  it("says when the message that started it was sent", () => {
+    // What lets a put-away record tell a start it has not heard about from a stale one.
+    expect(
+      state(
+        ev("preview.stopped", {}),
+        ev("user.message", { text: "carry on" }, "2026-08-09T13:00:00.000Z"),
+      ),
+    ).toEqual({ status: "starting", since: "2026-08-09T13:00:00.000Z" });
+  });
+
   it("stays starting through the turn's other events", () => {
     expect(
       state(

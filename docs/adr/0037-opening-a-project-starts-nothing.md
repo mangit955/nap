@@ -41,15 +41,24 @@ phase.
 
 - **ADR-0006's "a person opening the project" now means pressing Resume.** A job left open by a
   process restart is continued by `resumeSession`, which only `/open` runs. While the auto-start
-  existed, navigating to the project was enough to continue it. Now the person has to press Resume.
-  ADR-0006's argument still holds: a person is there to watch either way, and nothing continues on
-  its own. The janitor's wording in `CONTEXT.md` ("waits for a human to reopen the project") reads
-  the same way.
+  existed, navigating to a put-away project was enough to continue it. Now the person has to press
+  Resume. ADR-0006's argument still holds: a person is there to watch either way, and nothing
+  continues on its own. The janitor's notice, `/docs` (durable jobs) and `CONTEXT.md` (**Continue**)
+  now say Resume.
+- **A message sent instead of Resume leaves an interrupted job behind.** A turn writes its own
+  `job.started` and never continues an open job, so the interrupted one stays where it stopped, its
+  last commit unverified. This already happened while the sandbox was still running, because `/open`
+  answers "already running" and continues nothing, and the Resume button only appears once the
+  project is put away. What this decision adds is the put-away case. Making a message continue an
+  open job first would close the gap; it changes what sending does, so it is left for its own
+  change.
 - **Seeing the running app takes one more action.** That is the cost the earlier commit was avoiding.
   It is accepted because the alternative spends the person's sandbox ceiling on every project they
   look at.
 - **The restore wait starts when somebody acts, not on arrival.** The same start-up screen and ghost
-  are shown once it does.
+  are shown once it does. After a message, the record still says put away until something re-reads
+  it, so the phase treats a message newer than the put-away time as a start (`nothingIsServing` in
+  `project-phase.ts`), the same way it already treated a newer `preview.ready`.
 
 ## Rejected
 
