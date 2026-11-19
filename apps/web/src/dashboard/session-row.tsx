@@ -324,13 +324,20 @@ export const SessionRow = memo(function SessionRow({
       </span>
       <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-label">
         {session.branch ? (
-          <>
-            <FolderGit2 aria-hidden className="size-3 shrink-0 text-muted/40" />
-            <span className="flex min-w-0 flex-1 text-muted/45" title={session.branch}>
-              <span className="truncate">{session.branch.slice(0, -12)}</span>
-              <span className="shrink-0">{session.branch.slice(-12)}</span>
+          // The branch takes only the room the chips after it leave (`flex-1` grows from zero)
+          // and clips to it, so it can never paint over them. Under 3rem it would be an icon and
+          // a sliver of a letter, so it goes altogether. Inside, only the head shrinks: the tail,
+          // where generated names differ, is cut only once it alone is wider than the room.
+          // Letting the tail shrink at all gave it a fraction of a pixel, and so an ellipsis.
+          <span className="@container min-w-0 flex-1" title={session.branch}>
+            <span className="flex items-center gap-1.5 overflow-hidden @max-[3rem]:hidden">
+              <FolderGit2 aria-hidden className="size-3 shrink-0 text-muted/40" />
+              <span className="flex min-w-0 text-muted/45">
+                <span className="truncate">{session.branch.slice(0, -12)}</span>
+                <span className="max-w-full shrink-0 truncate">{session.branch.slice(-12)}</span>
+              </span>
             </span>
-          </>
+          </span>
         ) : (
           <span className="flex-1" />
         )}
@@ -493,7 +500,9 @@ function CardFacts({ session }: { session: SessionSummary }) {
         </span>
       )}
       {model && (
-        <span className="max-w-24 shrink-0 truncate text-muted/70" title={session.model ?? ""}>
+        // The one chip that gives way when even an empty branch leaves too little room, as in a
+        // sidebar dragged to its narrowest: a cut model name still reads, a cut PR number does not.
+        <span className="max-w-24 truncate text-muted/70" title={session.model ?? ""}>
           {model}
         </span>
       )}

@@ -7,6 +7,9 @@
  * hook, an in-memory server), compiles the real stylesheet with Tailwind, serves both on a
  * loopback port and drives the page with real mouse events over the DevTools protocol.
  *
+ * The same page holds what else only pixels show about the sidebar: its menus reaching their
+ * submenus, and a card's third line keeping every chip clear of the others at every width.
+ *
  * Needs: a Chrome at `NAP_CHROME_PATH`, and `bun` on the PATH to bundle. No network, no
  * credentials, no money. It skips without the Chrome.
  *
@@ -615,5 +618,70 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
     await pause(350);
     expect(await writes(page)).toEqual([]);
     expect(await page.evaluate<boolean>(`Boolean(${rowOf("Checkout flow")})`)).toBe(true);
+  });
+
+  it("never paints a card's branch over its pull request, diff or model, at any sidebar width", async () => {
+    // Where each chip on the third line actually paints: its text, cut by every box that clips
+    // it. A box's own rect is no use here, because the overlap was text spilling out of one.
+    const chips = (name: string) =>
+      page.evaluate<{ text: string; left: number; right: number }[]>(`(() => {
+        const line = ${rowOf(name)}.querySelector("a[data-session-link]").lastElementChild;
+        return [...line.children].flatMap((chip) => {
+          let left = Infinity, right = -Infinity;
+          const walker = document.createTreeWalker(chip, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) {
+              let [l, r] = [rect.left, rect.right];
+              for (let box = node.parentElement; box !== line; box = box.parentElement) {
+                if (box.classList.contains("sr-only")) r = l;
+                if (getComputedStyle(box).overflowX === "visible") continue;
+                const clip = box.getBoundingClientRect();
+                [l, r] = [Math.max(l, clip.left), Math.min(r, clip.right)];
+              }
+              if (r - l > 0.5) [left, right] = [Math.min(left, l), Math.max(right, r)];
+            }
+          }
+          return left < right ? [{ text: chip.textContent, left, right }] : [];
+        });
+      })()`);
+    await page.send("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: HEIGHT,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    // Every 4px from the narrowest the resize handle allows (`dashboard.tsx`) to the widest.
+    for (let width = 208; width <= 420; width += 4) {
+      await page.evaluate(`document.querySelector("#root > div").style.width = "${width}px"`);
+      await page.evaluate(
+        "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      const painted = await chips("Pricing page");
+      const card = await rectOf(page, `${rowOf("Pricing page")}.querySelector("a")`);
+      expect(painted.map((chip) => chip.text)).toEqual(
+        expect.arrayContaining(["#287 open", "+87 −5", "claude-sonnet-5.5"]),
+      );
+      // Shown or gone, never a sliver of a letter beside a lone icon.
+      const branch = painted.find((chip) => chip.text.startsWith("nap/"));
+      if (branch) expect(branch.right - branch.left, `branch at ${width}px`).toBeGreaterThan(20);
+      for (const [index, chip] of painted.entries()) {
+        expect(chip.right, `${chip.text} at ${width}px`).toBeLessThanOrEqual(card.x + card.width);
+        for (const other of painted.slice(index + 1))
+          expect(
+            chip.right <= other.left + 0.5 || other.right <= chip.left + 0.5,
+            `${chip.text} overlaps ${other.text} at ${width}px`,
+          ).toBe(true);
+      }
+      if (width === 208 || width === 256 || width === 420) await screenshot(`card-line-${width}`);
+    }
+    // And with room to spare, the branch is there, its distinguishing tail whole.
+    expect((await chips("Pricing page"))[0]?.text).toBe("nap/7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5");
+    expect(
+      await page.evaluate<boolean>(
+        `(() => { const tail = [...${rowOf("Pricing page")}.querySelectorAll("[title^='nap/'] span")].at(-1); return tail.textContent === "90a1b2c3d4e5" && tail.scrollWidth <= tail.clientWidth; })()`,
+      ),
+    ).toBe(true);
   });
 });
