@@ -611,6 +611,8 @@ describe("what a switch asks the server for", () => {
     // Nothing that depends on the project's state is drawn from the list's copy of it.
     expect(screen.queryByRole("button", { name: /Rename this project/ })).toBeNull();
     expect(readsOf(`/projects/${PROJECT_B}`)).toBe(1);
+    // GitHub state is read by project, so it goes out beside the record rather than after it.
+    await waitFor(() => expect(readsOf(`/projects/${PROJECT_B}/github`)).toBe(1));
 
     await act(async () => {
       record.open();

@@ -422,7 +422,9 @@ export function AppShell({
             />
           }
           pullRequests={
-            status === "ready" ? (
+            // Read by project, so a project the tab already knows asks at the click: its answer
+            // also says whether the preview is required, which the panes wait on.
+            status === "ready" || hint !== undefined ? (
               <ProjectGitHubControl
                 key={projectId}
                 projectId={projectId}
