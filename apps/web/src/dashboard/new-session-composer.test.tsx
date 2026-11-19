@@ -1,19 +1,39 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
+import { StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { peekStartedPrompt } from "../chat/started-prompt.ts";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import * as draftNavigation from "../projects/use-draft-navigation.ts";
+import { forgetWorkspaceEntry, useWorkspaceEntry } from "../workspace/workspace-entry.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
 
 const push = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+const replace = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, replace }),
+  // Where `EntryProbe` stands: the workspace's way in, which is where a start sends the tab.
+  usePathname: () => "/p/new",
+}));
 afterEach(() => {
   vi.unstubAllGlobals();
   sessionStorage.clear();
   push.mockClear();
+  replace.mockClear();
+  forgetWorkspaceEntry();
   vi.restoreAllMocks();
 });
+
+/** What the workspace at `/p/new` is told: the project once the server named it. */
+function EntryProbe() {
+  const entry = useWorkspaceEntry();
+  return (
+    <output aria-label="Workspace entry">
+      {entry.projectId ?? (entry.starting ? `starting: ${entry.starting.text}` : "")}
+    </output>
+  );
+}
+const entered = () => screen.getByRole("status", { name: "Workspace entry" });
 
 async function seedDraft(source: ComposerDraft["source"] = null) {
   vi.stubGlobal("indexedDB", new IDBFactory());
@@ -66,10 +86,17 @@ it("keeps the operation identity through a lost response and a refused overlappi
   await screen.findByText("Rate limit");
   expect(box).toBeEnabled();
   first.unmount();
-  render(<NewSessionComposer {...props} />);
+  render(
+    <>
+      <NewSessionComposer {...props} />
+      <EntryProbe />
+    </>,
+  );
   await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(draft.text));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(push).toHaveBeenCalledOnce());
+  await waitFor(() => expect(entered()).toHaveTextContent(/^[0-9a-f-]{36}$/));
+  // Every attempt entered the workspace at once, and only through its static address.
+  expect(push.mock.calls).toEqual([["/p/new"], ["/p/new"], ["/p/new"]]);
   expect(fetchJson.mock.calls[2]?.[1]?.body).toBe(fetchJson.mock.calls[0]?.[1]?.body);
 });
 
@@ -504,12 +531,14 @@ it("starts a template with its task and model once, without browser first-prompt
       fetchJson={fetchJson}
     />,
   );
+  render(<EntryProbe />);
   const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
   await waitFor(() => expect(box).toBeEnabled());
   fireEvent.change(box, { target: { value: "Build a calendar" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(push).toHaveBeenCalledWith("/p/00000000-0000-4000-8000-000000000002"));
+  await waitFor(() => expect(entered()).toHaveTextContent("00000000-0000-4000-8000-000000000002"));
+  expect(push.mock.calls).toEqual([["/p/new"]]);
   expect(fetchJson).toHaveBeenCalledOnce();
   expect(JSON.parse(String(fetchJson.mock.calls[0]?.[1]?.body))).toMatchObject({
     source: { kind: "template" },
@@ -547,7 +576,10 @@ it("hands the workspace a started prompt's media and model, as it was sent", asy
   const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
   await waitFor(() => expect(box).toHaveValue("Fix the header"));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(push).toHaveBeenCalledOnce());
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(peekStartedPrompt("00000000-0000-4000-8000-000000000002")).toBeDefined(),
+  );
 
   const sent = JSON.parse(String(fetchJson.mock.calls[0]?.[1]?.body)) as {
     prompt: { message: string; model?: string; attachments?: unknown };
@@ -590,12 +622,14 @@ it("opens the project even when the browser will not hold the started prompt", a
       fetchJson={fetchJson}
     />,
   );
+  render(<EntryProbe />);
   const box = await screen.findByRole("textbox", { name: "Describe the app you want" });
   await waitFor(() => expect(box).toBeEnabled());
   fireEvent.change(box, { target: { value: "Build a calendar" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-  await waitFor(() => expect(push).toHaveBeenCalledWith("/p/00000000-0000-4000-8000-000000000002"));
+  await waitFor(() => expect(entered()).toHaveTextContent("00000000-0000-4000-8000-000000000002"));
+  expect(push.mock.calls).toEqual([["/p/new"]]);
   expect(sessionStorage.getItem("nap.started-prompt")).toBeNull();
 });
 
@@ -623,9 +657,14 @@ it("recovers a lost start response with the identical saved request after remoun
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await screen.findByText("Lost response");
   first.unmount();
-  render(<NewSessionComposer {...props} />);
+  render(
+    <>
+      <NewSessionComposer {...props} />
+      <EntryProbe />
+    </>,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "Retry pending start" }));
-  await waitFor(() => expect(push).toHaveBeenCalledOnce());
+  await waitFor(() => expect(entered()).toHaveTextContent("00000000-0000-4000-8000-000000000002"));
   expect(fetchJson.mock.calls).toHaveLength(2);
   expect(fetchJson.mock.calls[0]?.[1]?.body).toBe(fetchJson.mock.calls[1]?.[1]?.body);
 });
@@ -745,4 +784,185 @@ it("reports the repository to thread details and opens source settings when the 
     if (previous) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", previous);
     else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
   }
+});
+
+it("enters the workspace with the prompt on screen before the server has answered", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  let answer: (response: Response) => void = () => {};
+  const fetchJson = vi.fn(
+    (_url: string, _init?: RequestInit) =>
+      new Promise<Response>((resolve) => {
+        answer = resolve;
+      }),
+  );
+  render(
+    <>
+      <NewSessionComposer
+        ownerId="00000000-0000-4000-8000-000000000001"
+        models={[]}
+        modelsLoading={false}
+        onAddKey={vi.fn()}
+        fetchJson={fetchJson}
+      />
+      <EntryProbe />
+    </>,
+  );
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toBeEnabled());
+  fireEvent.change(box, { target: { value: "Build a calendar" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledOnce());
+  expect(push.mock.calls).toEqual([["/p/new"]]);
+  expect(entered()).toHaveTextContent("starting: Build a calendar");
+
+  answer(
+    Response.json({
+      projectId: "00000000-0000-4000-8000-000000000002",
+      sessionId: "00000000-0000-4000-8000-000000000003",
+      requestId: "00000000-0000-4000-8000-000000000004",
+    }),
+  );
+  await waitFor(() => expect(entered()).toHaveTextContent("00000000-0000-4000-8000-000000000002"));
+  expect(push.mock.calls).toEqual([["/p/new"]]);
+  expect(fetchJson).toHaveBeenCalledOnce();
+});
+
+it("sends a refused start back to the dashboard, where the composer shows why and holds the prompt", async () => {
+  const draft = await seedDraft();
+  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json(
+      { error: "You already have 4 projects running, which is the limit." },
+      { status: 409 },
+    ),
+  );
+  const props = {
+    ownerId: draft.ownerId,
+    models: [],
+    modelsLoading: false,
+    onAddKey: vi.fn(),
+    fetchJson,
+  };
+  const dashboard = render(
+    <>
+      <NewSessionComposer {...props} />
+      <EntryProbe />
+    </>,
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "Describe the app you want" })).toHaveValue(
+      draft.text,
+    ),
+  );
+  // The probe has already sent its empty `/p/new` away; only what follows the press counts.
+  replace.mockClear();
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledOnce());
+  await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+  expect(push.mock.calls).toEqual([["/p/new"]]);
+  // The page the workspace was entered from is gone by the time a refusal lands.
+  dashboard.unmount();
+
+  // Strict, as `next dev` renders it: the restore runs twice, and the first run is cancelled.
+  render(
+    <StrictMode>
+      <NewSessionComposer {...props} />
+    </StrictMode>,
+  );
+  expect(
+    await screen.findByText("You already have 4 projects running, which is the limit."),
+  ).toBeInTheDocument();
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toHaveValue(draft.text));
+  expect(box).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Retry pending start" })).toBeNull();
+  expect(fetchJson).toHaveBeenCalledOnce();
+});
+
+it("holds a composer opened during a start until the start is over, then starts it clean", async () => {
+  const draft = await seedDraft();
+  let answer: (response: Response) => void = () => {};
+  const fetchJson = vi.fn(
+    (_url: string, _init?: RequestInit) =>
+      new Promise<Response>((resolve) => {
+        answer = resolve;
+      }),
+  );
+  const props = {
+    ownerId: draft.ownerId,
+    models: [],
+    modelsLoading: false,
+    onAddKey: vi.fn(),
+    fetchJson,
+  };
+  const first = render(<NewSessionComposer {...props} />);
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "Describe the app you want" })).toHaveValue(
+      draft.text,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledOnce());
+  first.unmount();
+
+  // Back to the dashboard while the server is still creating the project.
+  render(<NewSessionComposer {...props} />);
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  expect(await screen.findByText("Still starting your last project…")).toBeInTheDocument();
+  expect(box).toBeDisabled();
+  expect(box).toHaveValue("");
+
+  answer(
+    Response.json({
+      projectId: "00000000-0000-4000-8000-000000000002",
+      sessionId: "00000000-0000-4000-8000-000000000003",
+      requestId: "00000000-0000-4000-8000-000000000004",
+    }),
+  );
+  await waitFor(() => expect(box).toBeEnabled());
+  expect(box).toHaveValue("");
+  expect(screen.queryByText("Still starting your last project…")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Retry pending start" })).toBeNull();
+});
+
+it("shows a refusal that lands while a strict composer waits on it", async () => {
+  const draft = await seedDraft();
+  let answer: (response: Response) => void = () => {};
+  const fetchJson = vi.fn(
+    (_url: string, _init?: RequestInit) =>
+      new Promise<Response>((resolve) => {
+        answer = resolve;
+      }),
+  );
+  const props = {
+    ownerId: draft.ownerId,
+    models: [],
+    modelsLoading: false,
+    onAddKey: vi.fn(),
+    fetchJson,
+  };
+  const first = render(<NewSessionComposer {...props} />);
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "Describe the app you want" })).toHaveValue(
+      draft.text,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledOnce());
+  first.unmount();
+
+  // Back on the dashboard mid-start, rendered as `next dev` renders it.
+  render(
+    <StrictMode>
+      <NewSessionComposer {...props} />
+    </StrictMode>,
+  );
+  expect(await screen.findByText("Still starting your last project…")).toBeInTheDocument();
+  answer(Response.json({ error: "Refused for the test." }, { status: 409 }));
+
+  expect(await screen.findByText("Refused for the test.")).toBeInTheDocument();
+  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
+  await waitFor(() => expect(box).toHaveValue(draft.text));
+  expect(box).toBeEnabled();
 });

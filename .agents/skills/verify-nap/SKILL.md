@@ -20,6 +20,8 @@ OpenRouter, R2 or GitHub, so a run costs nothing. Never add `--real` or any real
 bun run verify-nap:up            # web :3057, API :3058, previewed app :3059, Chrome DevTools :3060
 bun run verify-nap:up --port=4057      # a second run beside the first: all four ports move together
 bun run verify-nap:up --ttl-minutes=30 # stops itself after this long (default 120)
+bun run verify-nap:up --production     # next build + next start: for timing navigation, which
+                                       # Next prefetches only in a production build
 ```
 
 Run it in the background, because it stays up until you stop it or its `--ttl-minutes` pass. It is ready when it prints

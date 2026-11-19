@@ -1,6 +1,7 @@
 import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useWorkspaceEntry } from "../workspace/workspace-entry.ts";
 
 /**
  * What the dashboard does before it knows who is looking at it.
@@ -18,9 +19,17 @@ const useSession = vi.fn();
 const useProjects = vi.fn();
 const signOut = vi.fn();
 
+const prefetch = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace, refresh: vi.fn() }),
+  useRouter: () => ({ push, replace, refresh: vi.fn(), prefetch }),
+  // Read only by `EntryProbe`, which stands where the workspace's way in would.
+  usePathname: () => "/p/new",
 }));
+
+/** What the workspace at `/p/new` would be told to open. */
+function EntryProbe() {
+  return <output aria-label="Workspace entry">{useWorkspaceEntry().projectId}</output>;
+}
 
 vi.mock("../auth/client.ts", () => ({
   AFTER_SIGN_IN: "/dashboard",
@@ -222,9 +231,19 @@ it("opens a project from the sidebar client-side, on the first click", () => {
     isPending: false,
   });
   render(<LiveDashboard />);
+  // The workspace's static address, fetched ahead so that the click below costs no page request.
+  expect(prefetch).toHaveBeenCalledWith("/p/new");
 
   const link = screen.getByRole("link", { name: /Kanban board/ });
+  // Still a real link to the project, for a new tab, a copied address and a middle click.
+  expect(link).toHaveAttribute("href", "/p/5e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192");
   expect(fireEvent.click(link, { detail: 1 })).toBe(false);
 
-  expect(push).toHaveBeenCalledExactlyOnceWith("/p/5e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192");
+  // Not `/p/<id>`, a dynamic route Next would fetch from the server first: the prefetched entry,
+  // told which project to show.
+  expect(push).toHaveBeenCalledExactlyOnceWith("/p/new");
+  render(<EntryProbe />);
+  expect(screen.getByRole("status", { name: "Workspace entry" })).toHaveTextContent(
+    "5e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192",
+  );
 });

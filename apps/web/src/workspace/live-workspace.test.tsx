@@ -2,7 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { LiveWorkspace } from "./live-workspace.tsx";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/p/project" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/p/project",
+  useRouter: () => ({ replace: vi.fn() }),
+}));
 vi.mock("../auth/client.ts", () => ({
   authClient: { useSession: () => ({ data: { user: { id: "owner" } }, isPending: false }) },
 }));

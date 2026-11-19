@@ -19,6 +19,12 @@ import {
 } from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
 import type { DraftSource } from "../workspace/thread-details.tsx";
+import {
+  beginStart,
+  type StartHandle,
+  startInFlight,
+  takeStartFailure,
+} from "../workspace/workspace-entry.ts";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
 export function NewSessionComposer({
@@ -49,6 +55,8 @@ export function NewSessionComposer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const sending = useRef(false);
+  /** Back here while a start from this tab still waits on the server. */
+  const [waiting, setWaiting] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const settings = useRef<HTMLDetailsElement>(null);
   const store = useRef(new ComposerDraftStore());
@@ -70,6 +78,18 @@ export function NewSessionComposer({
       const params = new URLSearchParams(window.location.search);
       let id: string | null = null;
       try {
+        // A start this tab still has in flight decides what the saved draft becomes — cleared once
+        // it is created, given back if it is refused — so the draft is read after it, along with
+        // why it failed. The composer stays disabled until then, since it has no draft.
+        const inFlight = startInFlight(ownerId);
+        if (inFlight !== undefined) {
+          setWaiting(true);
+          await inFlight;
+          if (cancelled) return;
+          setWaiting(false);
+        }
+        const failure = takeStartFailure(ownerId);
+        if (failure !== undefined) setError(failure);
         id = params.get("draft") ?? sessionStorage.getItem(pointer);
         const saved = id ? await store.current.load(ownerId, id) : null;
         if (cancelled) return;
@@ -246,15 +266,28 @@ export function NewSessionComposer({
     sending.current = true;
     setBusy(true);
     setError(undefined);
+    let entered: StartHandle | undefined;
     try {
       const pending = { ...value, pendingStart: parsed.data };
       setDraft(pending);
+      // Saved before anything else, because from here on the draft is what gives the prompt back:
+      // the workspace is entered next, this page goes, and a refusal finds the words in storage.
       await persist(pending);
-      const response = await fetchJson(`${GITHUB_API_URL}/sessions/start`, {
+      // Asked first, so the request is on its way before the workspace's first render takes the
+      // main thread; awaited after.
+      const request = fetchJson(`${GITHUB_API_URL}/sessions/start`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data),
       });
+      // Into the workspace now, with the prompt on screen, rather than after the server answers
+      // and the project's page has been fetched. See `workspace-entry.ts`.
+      const sent = parsed.data.prompt;
+      entered = beginStart(router, {
+        ownerId,
+        prompt: sent === undefined ? undefined : { text: sent.message },
+      });
+      const response = await request;
       const body: unknown = await response.json();
       if (!response.ok) {
         if (response.status >= 400 && response.status < 500) {
@@ -288,15 +321,17 @@ export function NewSessionComposer({
           ...(prompt.attachments === undefined ? {} : { attachments: prompt.attachments }),
           ...(prompt.model === undefined ? {} : { model: prompt.model }),
         });
-      router.push(`/p/${result.projectId}`);
+      entered.started(result.projectId);
     } catch (error) {
-      setError(
+      const message =
         error instanceof Error
           ? error.message
-          : "Could not finish starting the session. Your draft is saved when storage is available. Retry with this draft to recover the same session.",
-      );
+          : "Could not finish starting the session. Your draft is saved when storage is available. Retry with this draft to recover the same session.";
+      setError(message);
       sending.current = false;
       setBusy(false);
+      // Back on the dashboard, a new composer shows this with the draft saved above.
+      entered?.failed(message);
     }
   };
   const source = draft?.source;
@@ -340,6 +375,13 @@ export function NewSessionComposer({
       canOpenWorkspace={!!source}
       source={
         <>
+          {/* A start from this tab still on its way, met again on the way back here: the composer
+              stays disabled until it is over, and this says why. */}
+          {waiting && (
+            <p role="status" className="composer-pending">
+              Still starting your last project…
+            </p>
+          )}
           {/* Only a request left stranded by a lost response or a reload needs this; one still in
               flight is already shown by the disabled composer, and announcing it too pushed the
               textarea down for the length of every start. */}

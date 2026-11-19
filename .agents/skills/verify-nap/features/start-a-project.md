@@ -6,7 +6,9 @@ and moves to the workspace, where the first turn runs, files appear, and the pre
 ## Sub-features
 
 - `start-send`: Send is disabled until the prompt has text; sending disables the composer.
-- `start-navigate`: the browser moves to `/p/<projectId>` for the new project.
+- `start-navigate`: the workspace opens at once at `/p/new`, showing the prompt and `Starting your
+  project…` where the composer goes, and the address becomes `/p/<projectId>` once the server has
+  created the project.
 - `start-title`: the session is named from the prompt at once, then renamed by the model's title
   (on the fakes, `Fixture title <nnn>`).
 - `start-first-turn`: the first turn runs and ends with an answer and a Changed files card.
@@ -28,8 +30,10 @@ Preconditions:
   `New session composer` contains the textbox `Describe the app you want` and the button `Send` [disabled].
 - **Type the prompt.** (The same works from `click --role button --name "New session"` on any page.) Run `fill --role textbox --name "Describe the app you want" --value "Build a recipe box"`.
   `Send` is enabled.
-- **Send.** Run `click --role button --name "Send"`, or `press --key Enter`. The composer goes
-  `[disabled]` while the session is created. Capture it with `shot --label "start: sending"`.
+- **Send.** Run `click --role button --name "Send"`, or `press --key Enter`. The tab enters the
+  workspace before the server answers; on the fakes the answer follows in well under a second, so a
+  `shot` taken next usually already shows the project's own address. To see the pending state, slow
+  the network (see Gotchas).
 - **Workspace opens.** Run `wait --role region --name "Chat" --timeout 120000`, then `url`. The URL
   is `/p/<new projectId>`, and the button `Rename this project. Currently called …` shows the title.
 - **First turn finishes.** Run `wait --text "Done. The newest message I read was" --timeout 60000`,
@@ -41,6 +45,13 @@ Preconditions:
   `Seeded notes app`.
 
 ## Gotchas
+
+- Seeing the workspace before the project exists needs a slower network than localhost: with
+  Chrome's network emulation at a few hundred ms (CDP `Network.emulateNetworkConditions`), the
+  region `Conversation` shows the prompt, the status `Starting your project…` sits where the
+  composer goes, and the URL is `/p/new` until `POST /sessions/start` answers. A refused start (the
+  four-running-projects limit) goes back to `/dashboard`, where the composer shows the alert and the
+  prompt.
 
 - The first time a run opens `/p/…`, Next compiles the route, which can take 20 s or more on top of
   the turn. Wait on `Chat` with a long timeout instead of sleeping.

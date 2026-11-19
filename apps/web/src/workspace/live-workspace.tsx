@@ -5,13 +5,17 @@ import { AppShell } from "../components/app-shell.tsx";
 import type { FetchJson } from "../files/use-project-files.ts";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useOpenProjectId } from "./open-project.ts";
+import { StartingWorkspace } from "./starting-workspace.tsx";
+import { useWorkspaceEntry } from "./workspace-entry.ts";
 
 /**
  * One project's workspace, inside the frame the `/p` layout draws.
  *
  * The project is the pathname's, not the route's params: a sidebar switch pushes a new address
  * without re-rendering the page, so params would still name the first project opened. See
- * `open-project.ts`.
+ * `open-project.ts`. On `/p/new`, the dashboard's way in, it is the one the dashboard recorded —
+ * or, for a project still being created, there is none yet and the prompt is drawn on its own.
+ * See `workspace-entry.ts`.
  *
  * **Keyed by project, and that key is the reset.** Switching projects is a client-side
  * navigation, so nothing about the browser forgets the last project: the shell's state, its
@@ -33,8 +37,11 @@ export function LiveWorkspace({
 }) {
   // The frame shows nothing below it until there is a session; this only reads whose it is.
   const { data } = authClient.useSession();
-  const projectId = useOpenProjectId();
-  if (!data || projectId === undefined) return null;
+  const entry = useWorkspaceEntry();
+  const projectId = useOpenProjectId() ?? entry.projectId;
+  if (!data) return null;
+  if (projectId === undefined)
+    return entry.starting === undefined ? null : <StartingWorkspace prompt={entry.starting} />;
   return (
     <AppShell
       key={projectId}

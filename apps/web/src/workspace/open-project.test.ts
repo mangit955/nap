@@ -16,6 +16,8 @@ describe("projectIdOf", () => {
     expect(projectIdOf("/p/")).toBeUndefined();
     expect(projectIdOf("/p/abc/settings")).toBeUndefined();
     expect(projectIdOf(null)).toBeUndefined();
+    // The workspace before it knows its project, not a project called "new".
+    expect(projectIdOf("/p/new")).toBeUndefined();
   });
 
   it("names no project for a malformed escape rather than throwing", () => {
