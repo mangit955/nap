@@ -324,13 +324,14 @@ export const SessionRow = memo(function SessionRow({
       </span>
       <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-label">
         {session.branch ? (
-          // The branch takes only the room the chips after it leave (`flex-1` grows from zero)
-          // and clips to it, so it can never paint over them. Under 3rem it would be an icon and
-          // a sliver of a letter, so it goes altogether. Inside, only the head shrinks: the tail,
-          // where generated names differ, is cut only once it alone is wider than the room.
-          // Letting the tail shrink at all gave it a fraction of a pixel, and so an ellipsis.
+          // The branch takes only the room the chips after it leave (`flex-1` grows from zero),
+          // and nothing in it is wider than that room, so it never paints over them. Under 3rem
+          // it would be an icon and a sliver of a letter, so it goes altogether. Inside, only the
+          // head shrinks: a tail that shrank too would be cut while the head still showed, and
+          // the tail is where generated names differ. `max-w-full` cuts it, with an ellipsis,
+          // only once it alone is wider than the room.
           <span className="@container min-w-0 flex-1" title={session.branch}>
-            <span className="flex items-center gap-1.5 overflow-hidden @max-[3rem]:hidden">
+            <span className="flex items-center gap-1.5 @max-[3rem]:hidden">
               <FolderGit2 aria-hidden className="size-3 shrink-0 text-muted/40" />
               <span className="flex min-w-0 text-muted/45">
                 <span className="truncate">{session.branch.slice(0, -12)}</span>

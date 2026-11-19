@@ -659,7 +659,11 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
         "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
       );
       const painted = await chips("Pricing page");
-      const card = await rectOf(page, `${rowOf("Pricing page")}.querySelector("a")`);
+      // The line's own box, inside the card's padding: what a chip may not cross.
+      const line = await rectOf(
+        page,
+        `${rowOf("Pricing page")}.querySelector("a[data-session-link]").lastElementChild`,
+      );
       expect(painted.map((chip) => chip.text)).toEqual(
         expect.arrayContaining(["#287 open", "+87 −5", "claude-sonnet-5.5"]),
       );
@@ -667,7 +671,9 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
       const branch = painted.find((chip) => chip.text.startsWith("nap/"));
       if (branch) expect(branch.right - branch.left, `branch at ${width}px`).toBeGreaterThan(20);
       for (const [index, chip] of painted.entries()) {
-        expect(chip.right, `${chip.text} at ${width}px`).toBeLessThanOrEqual(card.x + card.width);
+        expect(chip.right, `${chip.text} at ${width}px`).toBeLessThanOrEqual(
+          line.x + line.width + 0.5,
+        );
         for (const other of painted.slice(index + 1))
           expect(
             chip.right <= other.left + 0.5 || other.right <= chip.left + 0.5,
@@ -682,6 +688,7 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
       await page.evaluate<boolean>(
         `(() => { const tail = [...${rowOf("Pricing page")}.querySelectorAll("[title^='nap/'] span")].at(-1); return tail.textContent === "90a1b2c3d4e5" && tail.scrollWidth <= tail.clientWidth; })()`,
       ),
+      "the branch's last 12 characters, uncut at 420px",
     ).toBe(true);
   });
 });
