@@ -51,7 +51,8 @@ const server = navigationServer([
   row("Header polish", { position: 0 }),
   row("Checkout flow", { position: 1 }),
   row("Search results", { position: 2 }),
-  // Every chip a card's third line can hold, and a branch, which the card does not draw.
+  // A pull request, a diff and a model on the card's third line, and a branch, which the card
+  // does not draw. No feedback count yet: that chip's room at 208px is #301.
   row(
     "Pricing page",
     { position: 3 },

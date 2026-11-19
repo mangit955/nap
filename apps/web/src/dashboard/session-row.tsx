@@ -45,8 +45,8 @@ import { SnoozeMenu } from "./snooze-menu.tsx";
  * One session in the sidebar, drawn as T3 Code draws a thread.
  *
  * A **card** (pinned and inbox rows) is three fixed lines: where the session came from and its
- * status, its title, and its pull request and what the latest turn changed. A **slim** row (the Snoozed and Settled
- * shelves) is one line. Both are a link to the session, and the controls that act on it sit
+ * status, its title, and its pull request, diff and model. A **slim** row (the Snoozed and
+ * Settled shelves) is one line. Both are a link to the session, and the controls that act on it sit
  * *beside* the link rather than in it — a button inside a link is two controls fighting over
  * one press.
  *
