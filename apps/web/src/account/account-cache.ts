@@ -29,7 +29,7 @@ import type { KeyState } from "./api-key-form.tsx";
 
 export type Cached<T> = {
   value: T | undefined;
-  /** Whether a read has finished, however it finished — `value` alone cannot say "stop waiting". */
+  /** Whether a read has finished, however it finished: `value` alone cannot say "stop waiting". */
   loaded: boolean;
 };
 
@@ -40,7 +40,7 @@ export type AccountResource<T> = {
   snapshot: () => Cached<T>;
   /** Reads through `load` when nothing usable is held and nothing is on its way. */
   ensure: (load: Load<T>) => void;
-  /** Puts an answer the server already gave — a save's reply — in place of whatever was held. */
+  /** Puts an answer the server already gave (a save's reply) in place of whatever was held. */
   set: (value: T) => void;
   /** Reads again for everyone subscribed, keeping what is held until the answer is in. */
   refresh: () => void;
@@ -166,7 +166,7 @@ export function forgetAccount(): void {
 }
 
 let channel: BroadcastChannel | null | undefined;
-/** Opened by the first reader of either resource, so a tab that never shows the account never listens. */
+/** Opened by the first reader of either resource: a tab that never shows the account never listens. */
 function accountChannel(): BroadcastChannel | null {
   if (channel === undefined) {
     channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("nap-account");
