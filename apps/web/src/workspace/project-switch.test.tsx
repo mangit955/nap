@@ -14,7 +14,7 @@
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handOffStartedPrompt } from "../chat/started-prompt.ts";
 import { PREVIEW_TITLE } from "../components/preview-pane.tsx";
 import { LISTING_DEBOUNCE_MS } from "../files/use-project-files.ts";
@@ -548,6 +548,7 @@ describe("switching projects in place", () => {
  * own page could have been fetched — or, for a new project, before the project exists.
  */
 describe("entering from the dashboard", () => {
+  afterEach(() => vi.restoreAllMocks());
   /** The tab on `/p/new`, as the dashboard's `router.push` leaves it. */
   function entry() {
     currentPath = "/p/new";
@@ -634,6 +635,29 @@ describe("entering from the dashboard", () => {
     expect(window.location.pathname).toBe("/p/new");
     expect(net.opened).toHaveLength(0);
     expect(posted).toEqual([]);
+  });
+
+  it("never covers the prompt with the panel on a narrow screen", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query.includes("max-width: 980px"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: () => true,
+    }));
+    // Somebody once opened the panel while a project was starting; that layout is kept.
+    localStorage.setItem(
+      "nap.right-panel.v1:starting",
+      JSON.stringify({ version: 1, tabs: [{ kind: "preview" }], active: "preview", open: true }),
+    );
+    beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "On a phone" } });
+    render(entry());
+
+    expect(await conversation().findByText("On a phone")).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("region", { name: "Conversation" })).toBeVisible());
   });
 
   it("sends a reload or a typed address, which carries no way in, to the dashboard", async () => {

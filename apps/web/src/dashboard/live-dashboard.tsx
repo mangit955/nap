@@ -15,7 +15,7 @@ import {
   ThreadDetailsToggle,
   useThreadDetails,
 } from "../workspace/thread-details.tsx";
-import { openProject, prefetchWorkspace } from "../workspace/workspace-entry.ts";
+import { openProject, usePrefetchWorkspace } from "../workspace/workspace-entry.ts";
 import { Dashboard } from "./dashboard.tsx";
 import { greetingName, recentProjects } from "./filters.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
@@ -81,7 +81,7 @@ function SignedInDashboard({
   const details = useThreadDetails(`${user.id}:new-session`);
   // Both ways out of here — a row, and a new project from the composer — enter the workspace at
   // one static address, fetched now so that leaving costs no request. See `workspace-entry.ts`.
-  useEffect(() => prefetchWorkspace(router), [router]);
+  usePrefetchWorkspace(router);
 
   return (
     <>

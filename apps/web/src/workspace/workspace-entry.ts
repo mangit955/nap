@@ -21,17 +21,27 @@
  * recovers that (see `NewSessionComposer`).
  */
 
-import type { MediaAttachment } from "@nap/shared/media";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
 
 /** The workspace before it knows its project. Never a project id: those are UUIDs. */
-export const WORKSPACE_ENTRY = "/p/new";
+const WORKSPACE_ENTRY = "/p/new";
+
+/**
+ * How often, at most, the dashboard asks for the entry page again while somebody is using it.
+ * Next keeps a prefetched page for five minutes (`staleTimes.static`) and fetches it again on the
+ * press after that; asking again on activity keeps it fresh for whoever is about to press.
+ */
+export const PREFETCH_EVERY_MS = 60_000;
 
 type Navigator = { push: (href: string) => void };
 
-/** What a start shows while the server is still creating its project. */
-export type StartingPrompt = { text: string; attachments?: MediaAttachment[] | undefined };
+/**
+ * What a start shows while the server is still creating its project: the words only. Its media
+ * arrives with the workspace a moment later, and holding a video's frames here would keep them in
+ * memory after the start for no picture.
+ */
+export type StartingPrompt = { text: string };
 
 type Start = {
   kind: "start";
@@ -53,9 +63,26 @@ function set(next: Entry | undefined) {
   for (const listener of listeners) listener();
 }
 
-/** Warms the entry page, so the press that uses it costs no request. A no-op outside production. */
-export function prefetchWorkspace(router: { prefetch: (href: string) => void }): void {
-  router.prefetch(WORKSPACE_ENTRY);
+/**
+ * Keeps the entry page prefetched while this page is open: once on mount, then again on activity
+ * at most every `PREFETCH_EVERY_MS`. A no-op outside a production build, where Next never prefetches.
+ */
+export function usePrefetchWorkspace(router: { prefetch: (href: string) => void }): void {
+  useEffect(() => {
+    let last = Date.now();
+    router.prefetch(WORKSPACE_ENTRY);
+    const refresh = () => {
+      if (Date.now() - last < PREFETCH_EVERY_MS) return;
+      last = Date.now();
+      router.prefetch(WORKSPACE_ENTRY);
+    };
+    document.addEventListener("pointerover", refresh);
+    document.addEventListener("focusin", refresh);
+    return () => {
+      document.removeEventListener("pointerover", refresh);
+      document.removeEventListener("focusin", refresh);
+    };
+  }, [router]);
 }
 
 /** Opens a project that exists, from anywhere outside `/p`. */
@@ -96,23 +123,31 @@ export function beginStart(
   };
 }
 
+function startOf(ownerId: string): Start | undefined {
+  return entry?.kind === "start" && entry.ownerId === ownerId ? entry : undefined;
+}
+
 /**
- * Waits for this person's start in flight, if any, and returns why it failed, once.
+ * This person's start still waiting on the server, if any — resolved once it is over.
  *
- * The dashboard composer calls this before restoring its draft: until the start is over, the
+ * The dashboard composer waits on this before restoring its draft: until the start is over, the
  * saved draft is still on its way to being cleared (started) or given back (failed).
  */
-export async function settledStart(ownerId: string): Promise<string | undefined> {
-  const start = entry;
-  if (start?.kind !== "start" || start.ownerId !== ownerId) return undefined;
-  await start.settled;
-  const current = entry;
-  if (current?.kind !== "start" || current.ownerId !== ownerId) return undefined;
-  if (current.outcome.state === "failed") {
-    set(undefined);
-    return current.outcome.error;
-  }
-  return undefined;
+export function startInFlight(ownerId: string): Promise<void> | undefined {
+  const start = startOf(ownerId);
+  return start?.outcome.state === "pending" ? start.settled : undefined;
+}
+
+/**
+ * Why this person's last start failed, handed out once. Synchronous, so a caller can check that
+ * it still wants the answer first: React runs a development effect twice, and a run that took the
+ * reason and was then cancelled would leave nothing for the run that draws it.
+ */
+export function takeStartFailure(ownerId: string): string | undefined {
+  const start = startOf(ownerId);
+  if (start?.outcome.state !== "failed") return undefined;
+  set(undefined);
+  return start.outcome.error;
 }
 
 /** Forgets any way in; for sign-out and tests. */
@@ -153,7 +188,7 @@ export function useWorkspaceEntry(): { projectId?: string; starting?: StartingPr
     (current === undefined || (current.kind === "start" && current.outcome.state === "failed"));
 
   useEffect(() => {
-    if (target === undefined || window.location.pathname !== WORKSPACE_ENTRY) return;
+    if (target === undefined) return;
     // The record stays: Next moves `usePathname` to the new address on its own schedule, and until
     // it does this page is still `/p/new` — where a forgotten record would read as a reload and
     // send the tab back to the dashboard. It is read nowhere else, and the next way in replaces it.

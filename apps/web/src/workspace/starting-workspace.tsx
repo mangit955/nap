@@ -26,7 +26,9 @@ export function StartingWorkspace({ prompt }: { prompt: StartingPrompt | null })
   // Its own scope: the project's layout is keyed by an id that does not exist yet.
   const panels = usePanelLayout("starting");
   const [maximized, setMaximized] = useState(false);
-  const panelOpen = panels.layout.open;
+  // Never over the prompt on a narrow screen, where the panel covers the conversation: the prompt
+  // is the one thing this page has to show, and the layout saved here is shared by every start.
+  const panelOpen = panels.layout.open && !narrow;
   const chatHidden = panelOpen && (maximized || narrow);
   return (
     <WorkspacePanes

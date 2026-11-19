@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetAllLogs, recallLog, rememberLog } from "../hooks/remembered-logs.ts";
 import type { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { ev, SESSION_ID } from "../testing/events.ts";
-import { beginStart, settledStart } from "../workspace/workspace-entry.ts";
+import { beginStart, takeStartFailure } from "../workspace/workspace-entry.ts";
 import { forgetSignedOut } from "./forget-signed-out.ts";
 
 const KEPT = { ownerId: "owner", projectId: "project-a" };
@@ -50,6 +50,6 @@ describe("forgetting the person who signed out", () => {
     await forgetSignedOut("owner", drafts().store);
 
     // Nothing of it is left for whoever uses this tab next: not the prompt, not the refusal.
-    expect(await settledStart("owner")).toBeUndefined();
+    expect(takeStartFailure("owner")).toBeUndefined();
   });
 });

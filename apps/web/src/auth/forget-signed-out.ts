@@ -2,9 +2,9 @@
  * Everything this tab kept for the person who just signed out, dropped before the page moves on.
  *
  * One function for every sign-out button, because each thing kept here outlives the session that
- * made it: composer drafts in IndexedDB and `sessionStorage`, a start's prompt still on its way into the
- * workspace (`workspace/workspace-entry.ts`), and the event logs of projects
- * visited in this tab (`hooks/remembered-logs.ts`), which hold whole conversations. A second
+ * made it: composer drafts in IndexedDB and `sessionStorage`, a start's prompt still on its way
+ * into the workspace (`workspace/workspace-entry.ts`), and the event logs of projects visited in
+ * this tab (`hooks/remembered-logs.ts`), which hold whole conversations. A second
  * sign-out path that clears its own list by hand is how one of them gets missed, so
  * `forget-signed-out-callers.test.ts` fails any file that signs out without calling this.
  */
