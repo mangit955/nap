@@ -23,7 +23,7 @@
  * separately. It stays sized for the newest anchored prompt for as long as the pane is mounted, so
  * a turn that folds shorter when it ends keeps its prompt where the reader left it.
  *
- * The anchor lets go in three ways, all taken from T3 Code's timeline:
+ * The anchor lets go in four ways:
  *
  *   - **The reader scrolls.** From then on the box is theirs, and following picks up again only
  *     if they return to the end. A scroll is told from the page moving under the reader by asking
@@ -36,9 +36,14 @@
  *   - **The reply starts working.** Prose reads downward from the prompt, but tool calls are a
  *     live row at the end, and a reader held at the prompt would watch a turn they cannot see.
  *     From the first call on, the box follows the end. Thanks to the end space, the end and the
- *     prompt are the same place until the work outgrows the view.
+ *     prompt are the same place until the work outgrows the view. This is T3 Code's rule, read
+ *     from its shipped timeline.
  *   - **A message is sent into the running turn.** It is drawn at the end, and the reader who sent
  *     it has to see it land.
+ *   - **The prompt's bubble goes away with nothing logged in its place.** A send refused after its
+ *     bubble was drawn, or a command such as `/compact` that the log never records as a message.
+ *     The anchor is held by the prompt's position among the drawn prompts, so holding on would
+ *     land on the prompt before it, and the next prompt to arrive from anywhere would take it.
  *
  * Messages from anywhere else do not anchor: another tab's prompt appearing is not something this
  * reader asked to look at, and following already brings it into view for a reader at the end.
@@ -139,9 +144,7 @@ export function planScroll(memory: ScrollMemory, now: ScrollReading): ScrollPlan
     toBottom = true;
   }
 
-  // The prompt the anchor was kept for is gone without the log's copy taking its place: the send
-  // was refused after its bubble was drawn, or it was a command such as `/compact` that the log
-  // never records as a message. Holding on by position would land on the prompt before it.
+  // The prompt the anchor was kept for is gone, with nothing logged in its place. See the header.
   if (room !== undefined && room >= count) {
     room = undefined;
     if (hold.mode === "anchored") hold = { mode: "follow" };
