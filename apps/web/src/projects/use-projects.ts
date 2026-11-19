@@ -24,9 +24,10 @@ import {
   ProjectSummarySchema,
   projectState,
 } from "@nap/shared/projects-protocol";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { knownProject } from "./known-projects.ts";
 import { readProject } from "./project-prefetch.ts";
 
 export type ProjectsStatus = "loading" | "ready" | "error";
@@ -205,6 +206,12 @@ async function reasonFrom(response: Response, whatFailed: string): Promise<strin
 
 export type OpenProject = {
   project: ProjectSummaryPayload | undefined;
+  /**
+   * The record this tab already held for the project — from the session list, or from creating
+   * it — offered only while the server's own is on its way (`known-projects.ts`). Good for the
+   * title and for which session to connect to; nothing that decides the project's state reads it.
+   */
+  hint: ProjectSummaryPayload | undefined;
   status: "loading" | "ready" | "missing" | "error";
   /**
    * When the server last confirmed this project had no sandbox serving it — or `undefined` if
@@ -283,6 +290,7 @@ export function useProject(
 
   const [project, setProject] = useState<ProjectSummaryPayload | undefined>(undefined);
   const [status, setStatus] = useState<OpenProject["status"]>("loading");
+  const known = useMemo(() => knownProject(projectId), [projectId]);
   const loadedProject = useRef<string | undefined>(undefined);
   useEffect(() => {
     const renamed = (updated: ProjectSummaryPayload) => {
@@ -432,6 +440,7 @@ export function useProject(
 
   return {
     project,
+    hint: status === "loading" ? known : undefined,
     status,
     rename,
     putAwayAt:

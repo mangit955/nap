@@ -12,6 +12,7 @@ import { type RecordingView, RecordingViewer } from "../computer/recording-viewe
 import { thumbnailUrl } from "../dashboard/thumbnail-url.ts";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import { ProjectGitHubControl } from "../github/project-github.tsx";
+import { useAfterReplay } from "../hooks/after-replay.ts";
 import { forgetLog } from "../hooks/remembered-logs.ts";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
@@ -83,7 +84,7 @@ export function AppShell({
         ? activePreview.required
         : configuredPreviewRequired;
 
-  const { project, status, putAwayAt, resume, resuming, resumeError, rename } = useProject(
+  const { project, hint, status, putAwayAt, resume, resuming, resumeError, rename } = useProject(
     projectId,
     {
       previewSeq,
@@ -92,7 +93,9 @@ export function AppShell({
       ...(fetchJson === undefined ? {} : { fetchJson }),
     },
   );
-  const sessionId = project?.sessionIds[0];
+  // The session the tab already knew of, until the record names one: the live connection and
+  // every per-session read start at the click rather than a round trip later. See `known-projects.ts`.
+  const sessionId = project?.sessionIds[0] ?? hint?.sessionIds[0];
 
   // Saving environment settings changes the next workspace, not the sandbox already running.
   useEffect(() => {
@@ -159,7 +162,7 @@ export function AppShell({
   }, [announced]);
 
   const previewUrl = phase.kind === "running" ? phase.url : undefined;
-  const githubRevision =
+  const githubRevision = useAfterReplay(
     log.events.findLast(
       (event) =>
         event.type === "system.notice" ||
@@ -168,14 +171,20 @@ export function AppShell({
         event.type === "turn.completed" ||
         event.type === "turn.failed" ||
         event.type === "verification.completed",
-    )?.seq ?? 0;
-  const projectRevision =
+    )?.seq ?? 0,
+    log.replayed,
+    sessionId,
+  );
+  const projectRevision = useAfterReplay(
     log.events.findLast(
       (event) =>
         event.type === "system.notice" ||
         event.type === "preview.stopped" ||
         event.type === "project.renamed",
-    )?.seq ?? 0;
+    )?.seq ?? 0,
+    log.replayed,
+    sessionId,
+  );
   useEffect(() => {
     setProjectRefreshKey(projectRevision);
   }, [projectRevision]);
@@ -284,7 +293,7 @@ export function AppShell({
       chat={
         <>
           <WorkspaceHeader
-            projectName={headerNote(status, project?.name)}
+            projectName={headerNote(status, project?.name ?? hint?.name)}
             {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
             job={log.jobs.summary}
             panelOpen={visiblePanel}
@@ -451,7 +460,8 @@ export function AppShell({
 function headerNote(status: OpenProject["status"], name: string | undefined): string {
   switch (status) {
     case "loading":
-      return "opening…";
+      // A name the tab already knew is drawn at once; the record confirms it a round trip later.
+      return name ?? "opening…";
     case "missing":
       return "this project no longer exists";
     case "error":

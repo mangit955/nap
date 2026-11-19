@@ -20,6 +20,7 @@ import { PREVIEW_TITLE } from "../components/preview-pane.tsx";
 import { LISTING_DEBOUNCE_MS } from "../files/use-project-files.ts";
 import { recallLog } from "../hooks/remembered-logs.ts";
 import { LIVE_BATCH_MS } from "../hooks/use-event-stream.ts";
+import { rememberProjects } from "../projects/known-projects.ts";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 
@@ -99,6 +100,18 @@ let posted: string[];
 let recordHeld: Promise<void> | undefined;
 /** Projects deleted elsewhere: their record is a 404. */
 let gone: Set<string>;
+/** Every read, as method and path, in the order it was asked. */
+let reads: string[];
+
+const MODELS = {
+  // Two, because a picker with nothing to choose between is not drawn.
+  models: [
+    { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
+    { id: "anthropic/claude-opus-5", label: "Opus", free: false, available: true },
+  ],
+  fallback: "openai/gpt-5.6-luna",
+  key: { configured: false },
+};
 
 /** Holds a read for A when the test asks for it, and records that it did. */
 async function maybeHold(project: Project, what: string): Promise<void> {
@@ -116,6 +129,9 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
     return json({ opened: true }, 202);
   }
   const { pathname, searchParams } = new URL(url);
+  reads.push(pathname);
+  if (pathname === "/models") return json(MODELS);
+  if (pathname === "/account/api-key") return json({ configured: false });
 
   const bySession = Object.values(PROJECTS).find((project) =>
     pathname.startsWith(`/sessions/${project.sessionId}/`),
@@ -137,19 +153,13 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<Response> => 
     });
   }
 
+  if (pathname.endsWith("/github")) return json({ error: "not found" }, 404);
   const id = Object.keys(PROJECTS).find((key) => pathname === `/projects/${key}`) as
     | keyof typeof PROJECTS
     | undefined;
   if (id === undefined || gone.has(id)) return json({ error: "not found" }, 404);
   await recordHeld;
-  return json({
-    projectId: id,
-    name: PROJECTS[id].name,
-    status: "ready",
-    sandboxId: `sbx_${id.slice(0, 4)}`,
-    updatedAt: "2026-08-09T12:30:00.000Z",
-    sessionIds: [PROJECTS[id].sessionId],
-  });
+  return json(recordOf(id));
 };
 
 function workspace(projectId: string) {
@@ -213,7 +223,32 @@ beforeEach(() => {
   posted = [];
   recordHeld = undefined;
   gone = new Set();
+  reads = [];
 });
+
+/** The record the API answers for a project, which the sidebar's list also carries. */
+function recordOf(
+  projectId: keyof typeof PROJECTS,
+  sessionId: string = PROJECTS[projectId].sessionId,
+) {
+  return {
+    projectId,
+    name: PROJECTS[projectId].name,
+    status: "ready" as const,
+    sandboxId: `sbx_${projectId.slice(0, 4)}`,
+    updatedAt: "2026-08-09T12:30:00.000Z",
+    sessionIds: [sessionId],
+  };
+}
+
+const renamed = (name: string) => ({
+  name,
+  source: "model" as const,
+  model: "openai/gpt-5.6-luna",
+  usage: { inputTokens: 1, outputTokens: 1 },
+});
+
+const readsOf = (path: string) => reads.filter((read) => read === path).length;
 
 describe("switching projects in place", () => {
   it("shows the next project with nothing left of the last one", async () => {
@@ -535,5 +570,123 @@ describe("switching projects in place", () => {
 
     expect(screen.getByRole("navigation", { name: "Sessions" })).toHaveTextContent(PROJECT_B);
     expect(sidebarMounts).toBe(1);
+  });
+});
+
+describe("what a switch asks the server for", () => {
+  it("asks for the account's models and key once per tab, not once per project", async () => {
+    const view = render(workspace(PROJECT_A));
+    await replayAlpha();
+    expect(await screen.findByRole("button", { name: "Model" })).toBeVisible();
+
+    view.rerender(workspace(PROJECT_B));
+    // Drawn from what the tab already holds: the picker is there before anything answers.
+    expect(screen.getByRole("button", { name: "Model" })).toBeVisible();
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "ready" });
+    });
+    view.rerender(workspace(PROJECT_A));
+    await waitFor(() => expect(net.opened).toHaveLength(3));
+
+    expect(readsOf("/models")).toBe(1);
+    expect(readsOf("/account/api-key")).toBe(1);
+  });
+
+  it("connects to a project the tab already knows without waiting for its record", async () => {
+    rememberProjects([recordOf(PROJECT_B)]);
+    const view = render(workspace(PROJECT_A));
+    await replayAlpha();
+
+    const record = gate();
+    recordHeld = record.wait;
+    view.rerender(workspace(PROJECT_B));
+
+    // B's record is still on its way, and B's socket is already asked for — the stream ticket in
+    // production goes out in the same step — and its title already drawn.
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+    expect(net.latest.url).toContain(OTHER_SESSION_ID);
+    expect(within(screen.getByRole("main")).getByText("Beta notes")).toBeVisible();
+    // Nothing that depends on the project's state is drawn from the list's copy of it.
+    expect(screen.queryByRole("button", { name: /Rename this project/ })).toBeNull();
+    expect(readsOf(`/projects/${PROJECT_B}`)).toBe(1);
+
+    await act(async () => {
+      record.open();
+    });
+    expect(
+      await screen.findByRole("button", { name: /Rename this project.*Beta notes/ }),
+    ).toBeVisible();
+    // The record named the same session, so the connection made early is the one kept.
+    expect(net.opened).toHaveLength(2);
+    expect(net.latest.closed).toBe(false);
+  });
+
+  it("moves to the record's session when the tab's copy named an older one", async () => {
+    rememberProjects([recordOf(PROJECT_B, SESSION_ID)]);
+    const record = gate();
+    recordHeld = record.wait;
+    render(workspace(PROJECT_B));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    const early = net.latest;
+    expect(early.url).toContain(SESSION_ID);
+
+    await act(async () => {
+      record.open();
+    });
+    await waitFor(() => expect(net.opened).toHaveLength(2));
+    expect(early.closed).toBe(true);
+    expect(net.latest.url).toContain(OTHER_SESSION_ID);
+  });
+
+  it("lets go of the tab's copy once the server says the project is gone", async () => {
+    // Deleted in another tab after this tab's list was read: the list's copy names a session, so
+    // a connection opens before the record answers — and must close once it says 404.
+    rememberProjects([recordOf(PROJECT_A)]);
+    gone.add(PROJECT_A);
+    render(workspace(PROJECT_A));
+
+    expect(await screen.findByText("this project no longer exists")).toBeVisible();
+    expect(within(screen.getByRole("main")).queryByText("Alpha board")).toBeNull();
+    await waitFor(() => expect(net.opened.every((socket) => socket.closed)).toBe(true));
+  });
+
+  it("reads nothing twice when the replay carries notices the first reads already reflect", async () => {
+    render(workspace(PROJECT_A));
+    await waitFor(() => expect(net.opened).toHaveLength(1));
+    await act(async () => {
+      net.latest.open();
+      net.latest.deliver({ type: "event", event: ev("user.message", { text: "Alpha prompt" }, 1) });
+      net.latest.deliver({
+        type: "event",
+        event: ev("project.renamed", renamed("Alpha board"), 2),
+      });
+      net.latest.deliver({
+        type: "event",
+        event: ev(
+          "turn.completed",
+          { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 10, commitSha: null },
+          3,
+        ),
+      });
+      net.latest.deliver({ type: "ready" });
+    });
+    expect(await screen.findByText("Alpha prompt")).toBeVisible();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, LISTING_DEBOUNCE_MS + 50));
+    });
+    expect(readsOf(`/projects/${PROJECT_A}`)).toBe(1);
+    expect(readsOf(`/projects/${PROJECT_A}/github`)).toBe(1);
+    expect(readsOf(`/sessions/${SESSION_ID}/files`)).toBe(1);
+
+    // A notice that arrives after the replay is news, and the record is read again for it.
+    await act(async () => {
+      net.latest.deliver({
+        type: "event",
+        event: ev("project.renamed", renamed("Alpha renamed"), 4),
+      });
+    });
+    await waitFor(() => expect(readsOf(`/projects/${PROJECT_A}`)).toBe(2));
   });
 });

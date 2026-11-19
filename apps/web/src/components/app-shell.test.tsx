@@ -348,6 +348,9 @@ describe("AppShell", () => {
       />,
     );
     try {
+      // The session first: until the record names it, the panel layout is keyed "pending", and
+      // its arrival restores the narrow layout from scratch.
+      await waitFor(() => expect(net.opened).toHaveLength(1));
       await screen.findByRole("button", { name: "Model" });
       fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
         target: { value: "Keep this draft" },

@@ -16,6 +16,7 @@ import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import { forgetLog } from "../hooks/remembered-logs.ts";
+import { forgetKnownProject, knownProjectsEpoch, rememberProjects } from "./known-projects.ts";
 import { type PendingOp, withPending } from "./navigation-overlay.ts";
 import type { SearchSessions } from "./use-session-search.ts";
 
@@ -79,6 +80,7 @@ export function useSessionNavigation({
 
   const reload = useCallback(async () => {
     const version = ++generation.current;
+    const since = knownProjectsEpoch();
     const nextRows: SessionSummary[] = [];
     let cursor: string | null = null;
     const seen = new Set<string>();
@@ -105,6 +107,9 @@ export function useSessionNavigation({
       if (cursor) seen.add(cursor);
     } while (cursor);
     confirmed.current = nextRows;
+    // Every row is a project record, so opening one can draw its title and connect to its session
+    // without waiting for the project's own read. See `known-projects.ts`.
+    rememberProjects(nextRows, since);
     publish();
     setStatus("ready");
   }, [fetchJson, baseUrl, publish]);
@@ -274,7 +279,10 @@ export function useSessionNavigation({
       );
       if (!result.ok) return result.error;
       // A deleted project's kept log must never be drawn again, whichever list deleted it.
-      if (op.kind === "remove") forgetLog(op.projectId);
+      if (op.kind === "remove") {
+        forgetLog(op.projectId);
+        forgetKnownProject(op.projectId);
+      }
       confirmed.current = withPending(confirmed.current, [op]);
       return undefined;
     },
