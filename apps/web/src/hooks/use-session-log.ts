@@ -27,6 +27,7 @@ import { useMemo } from "react";
 import { jobView, type SessionJobView } from "../chat/job-summary.ts";
 import { changedPaths } from "../files/changed-paths.ts";
 import { type PreviewState, previewState } from "../preview/preview-state.ts";
+import type { LogKey } from "./remembered-logs.ts";
 import { type CreateSocket, type StreamStatus, useEventStream } from "./use-event-stream.ts";
 
 export type SessionLog = {
@@ -36,6 +37,11 @@ export type SessionLog = {
   lastSeq: number;
   /** Whether the server has said it sent everything it had. See `useEventStream`. */
   replayed: boolean;
+  /**
+   * The log as this tab last saw it, for the transcript to draw until `replayed`. None of the
+   * answers below are folded from it. See `useEventStream`. Absent from a log built from fixtures.
+   */
+  remembered?: readonly StoredEvent[] | undefined;
   /** What is serving the project, as the log last described it. */
   preview: PreviewState;
   /** Project-relative paths this session has written. */
@@ -52,13 +58,16 @@ export type SessionLog = {
 
 export function useSessionLog(options: {
   sessionId: string | undefined;
+  /** Whose log this is, so a revisit in this tab starts from it. See `useEventStream`. */
+  remember?: LogKey | undefined;
   baseUrl?: string;
   createSocket?: CreateSocket;
 }): SessionLog {
-  const { sessionId, baseUrl, createSocket } = options;
+  const { sessionId, remember, baseUrl, createSocket } = options;
 
-  const { events, status, lastSeq, replayed } = useEventStream({
+  const { events, status, lastSeq, replayed, remembered } = useEventStream({
     sessionId,
+    remember,
     ...(baseUrl === undefined ? {} : { baseUrl }),
     ...(createSocket === undefined ? {} : { createSocket }),
   });
@@ -69,5 +78,5 @@ export function useSessionLog(options: {
   const changed = useMemo(() => changedPaths(events), [events]);
   const jobs = useMemo(() => jobView(events), [events]);
 
-  return { events, status, lastSeq, replayed, preview, changed, jobs };
+  return { events, status, lastSeq, replayed, remembered, preview, changed, jobs };
 }

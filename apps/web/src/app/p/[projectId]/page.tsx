@@ -3,13 +3,12 @@ import { LiveWorkspace } from "../../../workspace/live-workspace.tsx";
 /**
  * One project's workspace.
  *
- * `params` is a promise in this version of Next and has to be awaited — see
- * `node_modules/next/dist/docs/01-app/01-getting-started/03-layouts-and-pages.md`. The id is
- * handed to the shell as a prop; which session inside the project the panes talk to is
- * resolved from the server, not from the URL.
+ * The route's `params` are deliberately not read: the sidebar switches projects with
+ * `history.pushState`, which changes the address without rendering this page again, so its
+ * params would go on naming the project the tab first opened. The workspace reads the project
+ * from the pathname instead — see `workspace/open-project.ts`. Which session inside the project
+ * the panes talk to is resolved from the server, not from the URL.
  */
-export default async function Page({ params }: { params: Promise<{ projectId: string }> }) {
-  const { projectId } = await params;
-
-  return <LiveWorkspace projectId={projectId} />;
+export default function Page() {
+  return <LiveWorkspace />;
 }

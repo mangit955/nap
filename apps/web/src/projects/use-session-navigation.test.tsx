@@ -5,6 +5,8 @@ import {
 } from "@nap/shared/session-navigation";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+import { recallLog, rememberLog } from "../hooks/remembered-logs.ts";
+import { ev } from "../testing/events.ts";
 import { navigationServer } from "../testing/navigation-server.ts";
 import { TITLING_RECHECK_MS, useSessionNavigation } from "./use-session-navigation.ts";
 
@@ -195,6 +197,11 @@ it("renames, puts away and deletes at once, and puts a refused delete back", asy
     await result.current.close(a.projectId);
   });
   expect(find(a.projectId)?.sandboxId).toBeNull();
+  // A transcript this tab kept for b goes only once b is really gone.
+  const kept = { ownerId: "owner", projectId: b.projectId };
+  rememberLog(kept, "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f", [
+    ev("agent.message", { text: "kept" }, 1),
+  ]);
   server.refuseNext(503, "Could not delete the project.");
   let deleted: boolean | undefined;
   await act(async () => {
@@ -202,12 +209,14 @@ it("renames, puts away and deletes at once, and puts a refused delete back", asy
   });
   expect(deleted).toBe(false);
   expect(find(b.projectId)?.name).toBe("Keep me");
+  expect(recallLog(kept)).toBeDefined();
   expect(result.current.actionError).toBe("“Keep me”: Could not delete the project.");
   await act(async () => {
     deleted = await result.current.remove(b.projectId);
   });
   expect(deleted).toBe(true);
   expect(find(b.projectId)).toBeUndefined();
+  expect(recallLog(kept)).toBeUndefined();
 });
 
 it("keeps quiet about a refused read, which nobody asked for", async () => {

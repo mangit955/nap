@@ -1,12 +1,13 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect } from "react";
 import { authClient } from "../auth/client.ts";
 import { TranscriptBlocks } from "../chat/transcript-skeleton.tsx";
 import { Dashboard } from "../dashboard/dashboard.tsx";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { prefetchProject } from "../projects/project-prefetch.ts";
+import { useOpenProjectId } from "./open-project.ts";
 import { SessionSidebar } from "./session-sidebar.tsx";
 
 /**
@@ -16,8 +17,9 @@ import { SessionSidebar } from "./session-sidebar.tsx";
  * Rendered by the `/p` layout rather than by the page, because Next remounts a page whose
  * dynamic segment changed — so a sidebar inside it would be rebuilt, and its list fetched again,
  * on every switch between projects, and the row a double-click's first click opened would be
- * gone before its second. A layout above the segment is kept. The project comes from the URL,
- * since a layout is not handed the params of the segments below it.
+ * gone before its second. A layout above the segment is kept. The project comes from the
+ * pathname, since a layout is not handed the params of the segments below it, and a sidebar
+ * switch changes no params at all — see `open-project.ts`.
  */
 export function WorkspaceFrame({
   children,
@@ -29,8 +31,7 @@ export function WorkspaceFrame({
 }) {
   const { data, isPending } = authClient.useSession();
   const router = useRouter();
-  const params = useParams<{ projectId?: string }>();
-  const projectId = typeof params.projectId === "string" ? params.projectId : undefined;
+  const projectId = useOpenProjectId();
   useEffect(() => {
     if (!isPending && !data) router.replace("/sign-in");
   }, [isPending, data, router]);

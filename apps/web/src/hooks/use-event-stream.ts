@@ -28,15 +28,25 @@
  * *accepted* is still decided frame by frame, on `seq`, exactly as before: batching changes when
  * an event is drawn, never whether or in what order.
  *
+ * **A project this tab has seen resumes where it left off.** Given whose project it is, the hook keeps
+ * the log it commits in `remembered-logs.ts`, and the next mount for that project starts from it:
+ * the socket asks only for what came after the kept `seq`, and the kept events wait in the replay
+ * buffer with whatever the server adds, to be committed with `ready` as one batch. So `events` and
+ * `replayed` read exactly as they do after a full replay — nothing for a while, then the whole
+ * log at once — and every reader that counts "new since the replay" stays right without knowing
+ * a cache exists. Meanwhile the kept events are offered separately, as `remembered`, for a
+ * transcript to draw.
+ *
  * The socket is created through an injected factory so the reconnect curve can be tested in
  * milliseconds against a fake, with no network anywhere near the suite.
  */
 
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { ServerFrameSchema } from "@nap/shared/ws-protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
+import { type LogKey, recallLog, rememberLog } from "./remembered-logs.ts";
 
 /**
  * What the hook needs from a socket. A real `WebSocket` satisfies this structurally, so the
@@ -68,6 +78,16 @@ export type StreamStatus = "idle" | "connecting" | "open" | "reconnecting";
 export type EventStreamOptions = {
   /** No session means no connection — what the shell renders before one exists. */
   sessionId: string | undefined;
+  /**
+   * The signed-in person and the project the session belongs to. Given, the log is kept for this
+   * tab's next visit and the last one's is drawn and resumed from — see `remembered-logs.ts`. Known
+   * before the session is, which is what lets a revisit draw before the record names its session.
+   *
+   * Read when a subscription starts and when a batch is committed, never as a reason to
+   * resubscribe: taking it away — the project turned out not to exist — stops the keeping and
+   * the drawing without touching a socket that may still be live.
+   */
+  remember?: LogKey | undefined;
   baseUrl?: string;
   createSocket?: CreateSocket;
   /**
@@ -92,6 +112,14 @@ export type EventStream = {
    * things on screen. Retained across socket retries; reset when the session changes.
    */
   replayed: boolean;
+  /**
+   * What this tab last saw of the project's log, to draw until the server's replay is in — or
+   * `undefined` when there is none, or once anything has been committed to `events`.
+   *
+   * Not part of `events` on purpose: it may be minutes old, and nothing but a picture of the
+   * conversation should act on it. See the module comment.
+   */
+  remembered: readonly StoredEvent[] | undefined;
 };
 
 const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_WS_URL ?? "ws://localhost:3001";
@@ -123,7 +151,7 @@ const DEFAULT_FETCH_TICKET: FetchTicket | undefined =
       };
 
 export function useEventStream(options: EventStreamOptions): EventStream {
-  const { sessionId, baseUrl = DEFAULT_BASE_URL } = options;
+  const { sessionId, remember, baseUrl = DEFAULT_BASE_URL } = options;
   const createSocket = options.createSocket ?? ((url: string) => new WebSocket(url));
 
   const [events, setEvents] = useState<StoredEvent[]>([]);
@@ -132,6 +160,19 @@ export function useEventStream(options: EventStreamOptions): EventStream {
   );
   const [lastSeq, setLastSeq] = useState(0);
   const [replayed, setReplayed] = useState(false);
+  // Read once per project rather than per render: the kept log is replaced as this mount commits,
+  // and what is worth drawing meanwhile is what was kept when the visit began.
+  const ownerId = remember?.ownerId;
+  const projectId = remember?.projectId;
+  const recalled = useMemo(
+    () =>
+      ownerId === undefined || projectId === undefined
+        ? undefined
+        : recallLog({ ownerId, projectId }),
+    [ownerId, projectId],
+  );
+  const rememberRef = useRef(remember);
+  rememberRef.current = remember;
 
   // Read inside callbacks that were created on an earlier render: the reconnect needs the
   // sequence number as it is *now*, not as it was when the effect ran.
@@ -147,8 +188,12 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       return;
     }
 
-    // A different session is a different transcript, not a continuation of this one.
-    lastSeqRef.current = 0;
+    // A different session is a different transcript, not a continuation of this one. A log kept
+    // for this project and this session is the same transcript, so it is where this one resumes.
+    const startedFor = rememberRef.current;
+    const kept = startedFor === undefined ? undefined : recallLog(startedFor);
+    const resumeFrom = kept?.sessionId === sessionId ? kept.events : [];
+    lastSeqRef.current = resumeFrom.at(-1)?.seq ?? 0;
     setEvents([]);
     setLastSeq(0);
     setReplayed(false);
@@ -169,8 +214,12 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     document.addEventListener("visibilitychange", sayViewing);
 
     // Accepted, in order, and not yet committed. Local to this effect, so a session switch or an
-    // unmount drops it along with the socket — nothing of one session can land in the next.
-    let accepted: StoredEvent[] = [];
+    // unmount drops it along with the socket — nothing of one session can land in the next. A kept
+    // log starts here, as if the server had just replayed it, so it is committed with `ready`.
+    let accepted: StoredEvent[] = [...resumeFrom];
+    // Everything committed to `events` by this effect, which also reset it: the same array, kept
+    // here so it can be handed to the next visit without reading state.
+    let committed: StoredEvent[] = [];
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
     // Whether the current connection is still replaying. Each connection replays what it missed
     // and then says `ready`, a reconnect included, so this is per socket rather than per session.
@@ -182,8 +231,11 @@ export function useEventStream(options: EventStreamOptions): EventStream {
       if (accepted.length === 0) return;
       const batch = accepted;
       accepted = [];
-      setEvents((previous) => previous.concat(batch));
+      committed = committed.concat(batch);
+      setEvents(committed);
       setLastSeq(batch[batch.length - 1]?.seq ?? 0);
+      const keep = rememberRef.current;
+      if (keep !== undefined) rememberLog(keep, sessionId, committed);
     };
 
     const connect = (): void => {
@@ -289,7 +341,15 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     };
   }, [sessionId, baseUrl]);
 
-  return { events, status, lastSeq, replayed };
+  const remembered =
+    !replayed &&
+    events.length === 0 &&
+    recalled !== undefined &&
+    (sessionId === undefined || sessionId === recalled.sessionId)
+      ? recalled.events
+      : undefined;
+
+  return { events, status, lastSeq, replayed, remembered };
 }
 
 /** Whatever arrived, or `undefined` if it was not a frame this client understands. */

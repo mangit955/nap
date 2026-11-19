@@ -5,10 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
+import { forgetSignedOut } from "../auth/forget-signed-out.ts";
 import { recentProjects } from "../dashboard/filters.ts";
 import { seenChange } from "../dashboard/session-rows.ts";
 import { Sidebar } from "../dashboard/sidebar.tsx";
-import { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 
 /**
@@ -55,10 +55,14 @@ export function SessionSidebar({
         recents={recentProjects(projects, projects.length)}
         activeProjectId={projectId}
         onNewProject={() => router.push("/dashboard")}
-        // Client-side, so switching projects keeps this page: no new document, no auth refetch,
-        // no sidebar reload. The workspace under it is keyed by project and starts over.
+        // By the history API, not the router, so a switch asks the server for nothing: the router
+        // would fetch `/p/<id>` again on every click, since Next keeps a dynamic page for 0
+        // seconds, and that page holds nothing but the id. Next 16 folds a `pushState` into its
+        // router — back, forward and `usePathname` follow it — and the workspace reads the project
+        // from the pathname (`open-project.ts`), keyed so it starts over. The row is still a link,
+        // so a modified click opens a new tab and a deep link loads as before.
         onSelectProject={(id) => {
-          if (id !== projectId) router.push(`/p/${id}`);
+          if (id !== projectId) window.history.pushState(null, "", `/p/${encodeURIComponent(id)}`);
           onNavigate?.();
         }}
         onApiKey={() => setSettings(true)}
@@ -78,10 +82,7 @@ export function SessionSidebar({
           void authClient
             .signOut()
             .then(async () => {
-              if (data?.user.id) {
-                await new ComposerDraftStore().clearOwner(data.user.id).catch(() => {});
-                sessionStorage.removeItem(`nap.composer.${data.user.id}`);
-              }
+              await forgetSignedOut(data?.user.id);
               router.replace("/");
             })
             .catch(() => setSigningOut(false));

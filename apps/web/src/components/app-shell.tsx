@@ -12,6 +12,7 @@ import { type RecordingView, RecordingViewer } from "../computer/recording-viewe
 import { thumbnailUrl } from "../dashboard/thumbnail-url.ts";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import { ProjectGitHubControl } from "../github/project-github.tsx";
+import { forgetLog } from "../hooks/remembered-logs.ts";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
 import { phaseOf, recordState } from "../projects/project-phase.ts";
@@ -144,8 +145,16 @@ export function AppShell({
     void resume();
   }, [status, putAwayAt, projectId, resume]);
 
+  // What this tab last saw of the project is drawn while its log replays, but only for the person
+  // who saw it, and never for a project the server says is gone: there it would stay on screen
+  // under "this project no longer exists", since no session ever arrives to replace it.
+  const missing = status === "missing";
+  useEffect(() => {
+    if (missing) forgetLog(projectId);
+  }, [missing, projectId]);
   const log = useSessionLog({
     sessionId,
+    remember: ownerId === undefined || missing ? undefined : { ownerId, projectId },
     ...(createSocket === undefined ? {} : { createSocket }),
   });
 
