@@ -10,6 +10,12 @@ const config: NextConfig = {
   // can disagree, and a slower build for no new signal. (Next 16 no longer takes an
   // `eslint` key at all — Biome is the linter here regardless.)
   typescript: { ignoreBuildErrors: true },
+  // React Compiler memoizes components and their JSX so a streamed event does not re-render
+  // every part of the workspace whose inputs did not change. It runs on the browser bundle only,
+  // through `babel-plugin-react-compiler`. A function that breaks the Rules of React is left
+  // uncompiled rather than failing the build. The web tests run compiled code too
+  // (`vitest.config.ts`, `src/testing/react-compiler.test.tsx`).
+  reactCompiler: true,
 };
 
 export default config;

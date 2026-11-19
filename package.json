@@ -37,14 +37,17 @@
     "prepare": "lefthook install"
   },
   "devDependencies": {
+    "@babel/core": "7.29.0",
     "@biomejs/biome": "2.5.7",
     "@nap/agent": "workspace:*",
     "@nap/context": "workspace:*",
     "@nap/sandbox": "workspace:*",
     "@nap/shared": "workspace:*",
     "@nap/verify": "workspace:*",
+    "@rolldown/plugin-babel": "0.3.1",
     "@types/node": "26.1.2",
     "@vitejs/plugin-react": "6.0.5",
+    "babel-plugin-react-compiler": "1.0.0",
     "lefthook": "2.1.10",
     "turbo": "2.10.8",
     "typescript": "7.0.2",
