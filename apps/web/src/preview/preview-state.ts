@@ -25,7 +25,11 @@ const PREVIEW_FAILURES: readonly FailureReason[] = ["sandbox_unavailable", "inte
 
 export type PreviewState =
   | { status: "idle" }
-  | { status: "starting" }
+  /**
+   * `since` is when the message that asked for it was sent, by the server's clock: a put-away
+   * record read before then has not heard about this start and must not hide it.
+   */
+  | { status: "starting"; since: string }
   /** A turn was stopped before it had a sandbox, so nothing is coming up and nothing is serving. */
   | { status: "cancelled" }
   /**
@@ -78,7 +82,7 @@ export function previewState(events: readonly StoredEvent[]): PreviewState {
       case "user.message":
         // A new turn supersedes an old failure: the user has asked again, and the pane should
         // say it is working on it rather than keep showing what went wrong last time.
-        if (state.status !== "ready") state = { status: "starting" };
+        if (state.status !== "ready") state = { status: "starting", since: event.createdAt };
         break;
 
       case "turn.failed":

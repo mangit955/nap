@@ -182,7 +182,7 @@ export function ProjectGitHubControl({
           ? { ...current, repository: { ...current.repository, environment } }
           : current,
       );
-      setNotice("Environment saved. Put the project away and reopen it to apply these settings.");
+      setNotice("Environment saved. Put the project away and resume it to apply these settings.");
       await reload();
     } else setError(result.error);
     setBusy(false);

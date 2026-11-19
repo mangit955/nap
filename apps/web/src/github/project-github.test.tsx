@@ -92,7 +92,7 @@ describe("project GitHub controls", () => {
     fireEvent.change(screen.getByLabelText("Preview port"), { target: { value: "5173" } });
     fireEvent.click(screen.getByRole("button", { name: "Save environment" }));
     expect(await screen.findByRole("status", { name: "GitHub action" })).toHaveTextContent(
-      "Put the project away and reopen it to apply",
+      "Put the project away and resume it to apply",
     );
     expect(persisted).toEqual({
       setupCommand: "bun install --frozen-lockfile",

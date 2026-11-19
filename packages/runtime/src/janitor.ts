@@ -10,8 +10,8 @@
  *
  * **It does not requeue, and that is the point.** Automatic re-execution is the autonomous loop
  * that spends tokens with nobody watching, which `CONTEXT.md`'s *Continue* semantics forbid. The
- * Job is left open; a human reopening the project is the signal that somebody is there to watch,
- * and `continuationFor` decides what happens then.
+ * Job is left open; a human pressing Resume on the project is the signal that somebody is there to
+ * watch, and `continuationFor` decides what happens then.
  *
  * **The grace window is a fence, not a timeout.** Renewal is conditional, so a worker that lost
  * its lease has aborted by expiry plus one renewal interval; reclaiming only at expiry plus the
@@ -42,13 +42,17 @@ import { EventSink } from "./event-sink.ts";
  * What the chat pane is told, in the two registers a person needs.
  *
  * `internal` rather than `cancelled`: nobody asked for this to stop. And the notice says where
- * the work went, because the honest answer — it is all still there and reopening picks it up —
- * is not one anybody would guess from a failed turn.
+ * the work went, because the honest answer — it is all still there and Resume picks it up — is
+ * not one anybody would guess from a failed turn. It names Resume rather than opening the project,
+ * because opening one starts nothing (ADR-0037), and a message sent instead starts new work and
+ * leaves this job where it stopped. It says to put the project away first because the worker died,
+ * not the sandbox: the project is usually still running, Resume is only offered on a put-away one,
+ * and opening a running one continues nothing.
  */
 const INTERRUPTED_MESSAGE =
   "This turn was interrupted: the worker running it stopped responding, so it never finished.";
 const RESUME_NOTICE =
-  "Nothing was lost — the work so far is saved. Reopen the project to pick it up from where it stopped.";
+  "Nothing was lost — the work so far is saved. To pick it up from where it stopped, put the project away and press Resume.";
 /** A publish ran no turn, so there is nothing to reopen — what is left to do is publish again. */
 const PUBLISH_INTERRUPTED_NOTICE =
   "Publishing was interrupted. Your saved work is safe; retry publishing from this project.";

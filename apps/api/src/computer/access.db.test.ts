@@ -352,7 +352,7 @@ it("refuses owner input to a machine whose driver predates scoped input, leaving
     expect(response.status).toBe(503);
     // Waiting never fixes an old driver, so the owner is told what does.
     expect(await response.json()).toEqual({
-      error: "This computer predates safe input. Close and reopen the project to update it.",
+      error: "This computer predates safe input. Put the project away and resume it to update it.",
       code: "desktop_outdated",
       applied: 0,
     });

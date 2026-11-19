@@ -119,31 +119,9 @@ export function AppShell({
     runningPreviewPort,
   ]);
 
-  /**
-   * Which project this page has already asked to start, so it never asks twice.
-   *
-   * A refused resume — the sandbox quota answers 409 — deliberately leaves the record saying
-   * the project is put away, so without this a re-render would fire the request again, and
-   * again. One attempt per project; if it fails, the pane's own Resume button is the retry.
-   */
-  const started = useRef<string | undefined>(undefined);
-
-  /**
-   * Opening a project starts it. Nobody navigates to their own app to be asked whether they
-   * meant it — the button that used to be the only way in is now the fallback for a start that
-   * was refused.
-   *
-   * Only for a project the server says is put away. One that has never run reports no
-   * `putAwayAt` at all, and starting a sandbox for it would spend a minute of somebody's quota
-   * on an empty template; its first prompt is what brings it up.
-   */
-  useEffect(() => {
-    if (status !== "ready" || putAwayAt === undefined) return;
-    if (started.current === projectId) return;
-
-    started.current = projectId;
-    void resume();
-  }, [status, putAwayAt, projectId, resume]);
+  // Opening a put-away project starts nothing: the panes show its last snapshot and its chat, and
+  // a message or the Resume button is what brings it up. A start on arrival took one of the
+  // person's sandbox slots for every project they merely looked at (ADR-0037).
 
   // What this tab last saw of the project is drawn while its log replays, but only for the person
   // who saw it, and never for a project the server says is gone: there it would stay on screen
@@ -170,7 +148,6 @@ export function AppShell({
     preview: log.preview,
     replayed: log.replayed,
     resuming,
-    resumeError,
     previewRequired,
   });
 

@@ -170,6 +170,13 @@ export function Sandbox() {
         ports because they fail independently, and teardown ordering is only expressible if they do.
       </P>
 
+      <P>
+        Opening a put-away project starts nothing. The preview shows the last snapshot, marked as
+        not live, beside the chat. The next message restores the sandbox as part of its turn, and
+        Resume restores it without one. Looking through your projects therefore takes none of your
+        sandbox slots and does not move them up your list.
+      </P>
+
       <Facts
         items={[
           {

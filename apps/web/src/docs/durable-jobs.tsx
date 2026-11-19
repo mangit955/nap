@@ -46,9 +46,11 @@ export function DurableJobs() {
       <Sub>Continuing, which is not resuming</Sub>
 
       <P>
-        A process restart leaves a job <em>open</em> rather than failing it. When the project is
-        next opened, the open job is continued — and nothing continues a job while nobody is
-        watching, which is deliberate: an unattended sandbox is a sandbox being paid for.
+        A process restart leaves a job <em>open</em> rather than failing it. When somebody next
+        presses Resume on the project, the open job is continued — and nothing continues a job while
+        nobody is watching, which is deliberate: an unattended sandbox is a sandbox being paid for.
+        Opening the project alone starts nothing, and a message sent instead starts new work,
+        leaving the interrupted job where it stopped.
       </P>
 
       <P>

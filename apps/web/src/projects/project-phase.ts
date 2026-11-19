@@ -10,8 +10,8 @@
  * They used to be reconciled in five places — a boolean in the shell, an override in the preview
  * pane, another in the file tree, a comparison in `preview-state.ts`, and a wait in
  * `use-projects.ts` — with the rule written out in four separate doc comments, each reading as
- * authoritative. Two bugs lived in the gaps: the put-away screen flashing on every open, and a
- * running project announcing that nothing was running for the two seconds before its log arrived.
+ * authoritative. Bugs lived in the gaps, such as a running project announcing that nothing was
+ * running for the two seconds before its log arrived.
  *
  * **The precedence below is the interface.** A caller needs to know the order to predict what it
  * will get, so the order is stated once, here, and every clause says which fact it defends.
@@ -25,7 +25,7 @@ export type ProjectPhase =
   | { kind: "opening" }
   /** Nothing is running here and nothing is on its way. The pane invites a prompt. */
   | { kind: "idle" }
-  /** A sandbox is coming up, or is about to be asked for. */
+  /** A sandbox is coming up. */
   | { kind: "starting" }
   /**
    * Something is serving the project. `seq` travels with the address because a reload keys on it:
@@ -47,6 +47,8 @@ export type PhaseInputs = {
   /**
    * The instant the server last had no sandbox, or `undefined` once this page has started the
    * project. An instant rather than a flag so it can be compared against an announcement.
+   * Opening a project does not start it, so a put-away project keeps this until somebody sends
+   * a message or presses Resume.
    */
   putAwayAt: string | undefined;
   /** What the log says. */
@@ -55,8 +57,6 @@ export type PhaseInputs = {
   replayed: boolean;
   /** A start this page asked for is in flight, or waiting to be announced. */
   resuming: boolean;
-  /** Why the last start was refused, if it was. */
-  resumeError: string | undefined;
   previewRequired?: boolean;
 };
 
@@ -67,7 +67,6 @@ export function phaseOf({
   preview,
   replayed,
   resuming,
-  resumeError,
   previewRequired = true,
 }: PhaseInputs): ProjectPhase {
   // Nothing is known. Deriving a state from an empty log here is how the pane came to announce
@@ -81,14 +80,6 @@ export function phaseOf({
   if (status === "missing") return { kind: "idle" };
 
   if (resuming) return { kind: "starting" };
-
-  // The gap between the record arriving and the effect that acts on it. The record says the
-  // project is not running and nothing has refused to start it, so a start is about to be asked
-  // for — and without this the pane draws the whole put-away screen, button included, offering to
-  // do the thing that is already being done. The `resumeError` qualifier is what stops it claiming
-  // forever to be starting a project that nothing is starting: a refusal leaves the record saying
-  // exactly the same thing.
-  if (putAwayAt !== undefined && resumeError === undefined) return { kind: "starting" };
 
   if (!previewRequired && record === "running") return { kind: "no-preview" };
   // A repository with no dev server never announces a preview, so a failed or stopped first start
@@ -125,19 +116,25 @@ export function phaseOf({
  * sandbox the provider reclaimed on its own timer is announced by nobody, so the newest
  * `preview.ready` can be an address that stopped answering an hour ago.
  *
- * **The record only outranks announcements older than itself.** `putAwayAt` is a moment the server
- * had no sandbox; a `preview.ready` stamped after it describes a sandbox created since, and a page
- * that ignored that told everybody whose first turn had just started that their project was filed
- * away — while the header said `live` and the transcript showed the address. Both timestamps are
- * the server's own, so comparing them involves no browser clock.
+ * **The record only outranks the log where the log is older than it.** `putAwayAt` is a moment the
+ * server had no sandbox; a `preview.ready` stamped after it describes a sandbox created since, and a
+ * page that ignored that told everybody whose first turn had just started that their project was
+ * filed away — while the header said `live` and the transcript showed the address. A message sent
+ * after it is the same kind of news: opening a put-away project starts nothing, so sending one is
+ * how it starts, and the turn restores the sandbox itself. Without that comparison the pane offered
+ * Resume for the whole restore. Both timestamps are the server's own, so comparing them involves no
+ * browser clock. `putAwayAt` is the record's `updatedAt`, so a rename during a restore moves it past
+ * the message and shows the put-away screen again until `preview.ready` arrives — the same window
+ * the `preview.ready` comparison has always had.
  */
 function nothingIsServing(preview: PreviewState, putAwayAt: string | undefined): boolean {
   // The log said so outright; no record can be more current than an announcement.
   if (preview.status === "stopped") return true;
   if (putAwayAt === undefined) return false;
-  if (preview.status !== "ready") return true;
+  if (preview.status === "ready") return Date.parse(preview.createdAt) <= Date.parse(putAwayAt);
+  if (preview.status === "starting") return Date.parse(preview.since) <= Date.parse(putAwayAt);
 
-  return Date.parse(preview.createdAt) <= Date.parse(putAwayAt);
+  return true;
 }
 
 /** What the record says on its own, for the callers that hold one. `undefined` when none has arrived. */

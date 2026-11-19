@@ -72,7 +72,7 @@ export function EnvironmentSettings({
         }}
       >
         <p className="text-xs leading-relaxed text-muted">
-          Changes apply on the next workspace start. Put the project away and reopen it after
+          Changes apply on the next workspace start. Put the project away and resume it after
           saving. You can correct a failed setup here without importing again.
         </p>
         <label className="block text-xs">

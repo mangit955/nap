@@ -19,7 +19,8 @@ const UNAVAILABLE = "Nap's computer is unavailable. Reconnect to take control.";
 const INPUT_FAILED = "Input may have been partly applied. Take control again before continuing.";
 // Nothing was sent: the machine's input driver is too old to take any. Only a fresh machine fixes
 // it, so this is the one refusal that names what to do rather than saying to try again.
-const OUTDATED = "This computer predates safe input. Close and reopen the project to update it.";
+const OUTDATED =
+  "This computer predates safe input. Put the project away and resume it to update it.";
 const RefusalCodeSchema = z.object({ code: z.literal("desktop_outdated") });
 const RecoveryPendingCodeSchema = z.object({ code: z.literal("recovery_pending") });
 type View = {

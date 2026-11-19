@@ -5,11 +5,10 @@ import { type PhaseInputs, phaseOf } from "./project-phase.ts";
 /**
  * The four states a person can see, and which one wins when two sources disagree.
  *
- * Most of these are frames a component test cannot reach: rendering flushes effects inside the
- * same `act`, so the gap between a paint and the effect that starts a project never occurs there.
- * It occurs in a browser on every single open, and both bugs this file pins were found that way —
- * the put-away screen flashing on the way in, and a running project announcing that nothing was
- * running for the two seconds before its log arrived.
+ * Most of these are frames a component test cannot reach, because rendering flushes effects inside
+ * the same `act`. They occur in a browser, and the bug this file was written for was found that
+ * way: a running project announcing that nothing was running for the two seconds before its log
+ * arrived.
  */
 
 const NOON = "2026-08-09T12:00:00.000Z";
@@ -33,14 +32,15 @@ function inputs(overrides: Partial<PhaseInputs> = {}): PhaseInputs {
     preview: ready(NOON),
     replayed: true,
     resuming: false,
-    resumeError: undefined,
     ...overrides,
   };
 }
 
 describe("before anything is known", () => {
   it("recognizes a ready repository without waiting for a preview", () => {
-    expect(phaseOf(inputs({ previewRequired: false, preview: { status: "starting" } }))).toEqual({
+    expect(
+      phaseOf(inputs({ previewRequired: false, preview: { status: "starting", since: NOON } })),
+    ).toEqual({
       kind: "no-preview",
     });
   });
@@ -98,34 +98,38 @@ describe("a start that is under way", () => {
     );
   });
 
-  it("is starting in the gap between the record and the request", () => {
-    // The clause that fixes the flash: the record says the project is not running, nothing has
-    // refused to start it, and the effect that will start it has not run yet. Without this the
-    // pane draws the whole put-away screen — button and all — offering to do the thing that is
-    // already being done.
+  it("is put away, not starting, when the project is opened and nothing has been asked for", () => {
+    // Opening a project starts nothing. A put-away record with no request in flight is the
+    // put-away screen and its Resume button, not a wait for a start nobody asked for.
     const phase = phaseOf(inputs({ putAwayAt: NOON, preview: { status: "stopped" } }));
+
+    expect(phase.kind).toBe("put-away");
+  });
+
+  it("is starting once a message newer than the put-away record has been sent", () => {
+    // Sending is one of the two ways to start a put-away project, and the turn restores the
+    // sandbox itself. The record still says put away until something re-reads it, so without the
+    // comparison the pane would offer Resume for a start that is already under way.
+    const phase = phaseOf(
+      inputs({ putAwayAt: NOON, preview: { status: "starting", since: LATER } }),
+    );
 
     expect(phase.kind).toBe("starting");
   });
 
-  it("stops claiming to be starting once a start has been refused", () => {
-    // Otherwise the pane claims forever to be starting a project that nothing is starting, and
-    // hides the one screen carrying the button that could fix it.
+  it("stays put away when the log's last message is older than the record", () => {
+    // A turn from before the sandbox was reclaimed says nothing about now.
     const phase = phaseOf(
-      inputs({
-        putAwayAt: NOON,
-        preview: { status: "stopped" },
-        resumeError: "You already have 2 projects running.",
-      }),
+      inputs({ putAwayAt: NOON, preview: { status: "starting", since: EARLIER } }),
     );
 
     expect(phase.kind).toBe("put-away");
   });
 
   it("is starting when the log says a turn is working on the first preview", () => {
-    expect(phaseOf(inputs({ record: "new", preview: { status: "starting" } })).kind).toBe(
-      "starting",
-    );
+    expect(
+      phaseOf(inputs({ record: "new", preview: { status: "starting", since: NOON } })).kind,
+    ).toBe("starting");
   });
 });
 
@@ -133,7 +137,7 @@ describe("the record against the log", () => {
   it("keeps trusting the record about an announcement older than it", () => {
     // Nothing announces a sandbox the provider reclaimed on its own timer, so the newest event in
     // the log can be an address that stopped answering an hour ago.
-    const phase = phaseOf(inputs({ putAwayAt: NOON, preview: ready(EARLIER), resumeError: "no" }));
+    const phase = phaseOf(inputs({ putAwayAt: NOON, preview: ready(EARLIER) }));
 
     expect(phase.kind).toBe("put-away");
   });
@@ -141,7 +145,7 @@ describe("the record against the log", () => {
   it("believes an announcement made after the record was read", () => {
     // A project's first turn creates a sandbox seconds after the workspace opened, and the record
     // read at mount said there was none. It was right then and is wrong now.
-    const phase = phaseOf(inputs({ putAwayAt: NOON, preview: ready(LATER), resumeError: "no" }));
+    const phase = phaseOf(inputs({ putAwayAt: NOON, preview: ready(LATER) }));
 
     expect(phase).toMatchObject({ kind: "running", url: "https://5173-abc.e2b.app", seq: 7 });
   });
@@ -153,9 +157,7 @@ describe("the record against the log", () => {
   });
 
   it("is put away when the record says so and nothing has ever been announced", () => {
-    const phase = phaseOf(
-      inputs({ putAwayAt: NOON, preview: { status: "idle" }, resumeError: "no" }),
-    );
+    const phase = phaseOf(inputs({ putAwayAt: NOON, preview: { status: "idle" } }));
 
     expect(phase.kind).toBe("put-away");
   });

@@ -281,7 +281,7 @@ function Empty({
         : putAway === true
           ? // Its files exist; there is just nothing running to read them from. Inviting a
             // first prompt here would tell somebody with a finished app that it was empty.
-            "This project is put away. Resume it to browse its files."
+            "This project is put away. Send a message or press Resume to browse its files."
           : "The files the agent writes appear here.";
 
   return <p className="p-4 text-muted text-sm leading-relaxed">{message}</p>;
