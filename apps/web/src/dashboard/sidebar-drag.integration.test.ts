@@ -7,6 +7,9 @@
  * hook, an in-memory server), compiles the real stylesheet with Tailwind, serves both on a
  * loopback port and drives the page with real mouse events over the DevTools protocol.
  *
+ * The same page holds what else only pixels show about the sidebar: its menus reaching their
+ * submenus, and a card's third line keeping every chip clear of the others at every width.
+ *
  * Needs: a Chrome at `NAP_CHROME_PATH`, and `bun` on the PATH to bundle. No network, no
  * credentials, no money. It skips without the Chrome.
  *
@@ -615,5 +618,69 @@ describe.skipIf(CHROME === undefined)("dragging between the sidebar's shelves, i
     await pause(350);
     expect(await writes(page)).toEqual([]);
     expect(await page.evaluate<boolean>(`Boolean(${rowOf("Checkout flow")})`)).toBe(true);
+  });
+
+  it("keeps a card's pull request, diff and model apart and on the line, at any sidebar width", async () => {
+    // Where each chip on the third line actually paints: its text, cut by every box that clips
+    // it. A box's own rect is no use here, because the overlap was text spilling out of one.
+    const chips = (name: string) =>
+      page.evaluate<{ text: string; left: number; right: number }[]>(`(() => {
+        const line = ${rowOf(name)}.querySelector("a[data-session-link]").lastElementChild;
+        return [...line.children].flatMap((chip) => {
+          let left = Infinity, right = -Infinity;
+          const walker = document.createTreeWalker(chip, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) {
+              let [l, r] = [rect.left, rect.right];
+              for (let box = node.parentElement; box !== line; box = box.parentElement) {
+                if (box.classList.contains("sr-only")) r = l;
+                if (getComputedStyle(box).overflowX === "visible") continue;
+                const clip = box.getBoundingClientRect();
+                [l, r] = [Math.max(l, clip.left), Math.min(r, clip.right)];
+              }
+              if (r - l > 0.5) [left, right] = [Math.min(left, l), Math.max(right, r)];
+            }
+          }
+          return left < right ? [{ text: chip.textContent, left, right }] : [];
+        });
+      })()`);
+    await page.send("Emulation.setDeviceMetricsOverride", {
+      width: 900,
+      height: HEIGHT,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    // Every 4px from the narrowest the resize handle allows (`dashboard.tsx`) to the widest.
+    for (let width = 208; width <= 420; width += 4) {
+      await page.evaluate(`document.querySelector("#root > div").style.width = "${width}px"`);
+      await page.evaluate(
+        "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      const painted = await chips("Pricing page");
+      // The line's own box, inside the card's padding: what a chip may not cross.
+      const line = await rectOf(
+        page,
+        `${rowOf("Pricing page")}.querySelector("a[data-session-link]").lastElementChild`,
+      );
+      for (const [index, chip] of painted.entries()) {
+        expect(chip.right, `${chip.text} at ${width}px`).toBeLessThanOrEqual(
+          line.x + line.width + 0.5,
+        );
+        for (const other of painted.slice(index + 1))
+          expect(
+            chip.right <= other.left + 0.5 || other.right <= chip.left + 0.5,
+            `${chip.text} overlaps ${other.text} at ${width}px`,
+          ).toBe(true);
+      }
+      // Exactly these, in this order: the branch is not drawn on a card at all.
+      expect(painted.map((chip) => chip.text)).toEqual([
+        "#287 open",
+        "+87 \u22125",
+        "claude-sonnet-5.5",
+      ]);
+      if (width === 208 || width === 256 || width === 420) await screenshot(`card-line-${width}`);
+    }
   });
 });

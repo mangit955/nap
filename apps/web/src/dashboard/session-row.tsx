@@ -10,7 +10,6 @@ import {
   CircleDashed,
   Clock,
   Ellipsis,
-  FolderGit2,
   GitPullRequest,
   Pin,
   SquarePen,
@@ -46,8 +45,8 @@ import { SnoozeMenu } from "./snooze-menu.tsx";
  * One session in the sidebar, drawn as T3 Code draws a thread.
  *
  * A **card** (pinned and inbox rows) is three fixed lines: where the session came from and its
- * status, its title, and its branch and pull request. A **slim** row (the Snoozed and Settled
- * shelves) is one line. Both are a link to the session, and the controls that act on it sit
+ * status, its title, and its pull request, diff and model. A **slim** row (the Snoozed and
+ * Settled shelves) is one line. Both are a link to the session, and the controls that act on it sit
  * *beside* the link rather than in it — a button inside a link is two controls fighting over
  * one press.
  *
@@ -323,17 +322,10 @@ export const SessionRow = memo(function SessionRow({
         {selectedNote}
       </span>
       <span className="mt-0.5 flex h-4 min-w-0 items-center gap-1.5 text-xs text-sidebar-label">
-        {session.branch ? (
-          <>
-            <FolderGit2 aria-hidden className="size-3 shrink-0 text-muted/40" />
-            <span className="flex min-w-0 flex-1 text-muted/45" title={session.branch}>
-              <span className="truncate">{session.branch.slice(0, -12)}</span>
-              <span className="shrink-0">{session.branch.slice(-12)}</span>
-            </span>
-          </>
-        ) : (
-          <span className="flex-1" />
-        )}
+        {/* No branch here. Every branch is `nap/<job id>`, which tells a reader nothing the row and
+            its pull request don't, and drawing it cost the chips their room. It is in the row's
+            tooltip and its menu's Copy. The spacer pushes the chips to the end of the line. */}
+        <span className="flex-1" />
         {session.pullRequest && (
           <span
             className={`inline-flex shrink-0 items-center gap-1 ${PR_COLOUR[session.pullRequest.state]}`}
@@ -493,7 +485,9 @@ function CardFacts({ session }: { session: SessionSummary }) {
         </span>
       )}
       {model && (
-        <span className="max-w-24 shrink-0 truncate text-muted/70" title={session.model ?? ""}>
+        // The one chip that gives way when the line is too short for them all, as in a sidebar
+        // dragged to its narrowest: a cut model name still reads, a cut PR number does not.
+        <span className="max-w-24 truncate text-muted/70" title={session.model ?? ""}>
           {model}
         </span>
       )}
