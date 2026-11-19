@@ -39,4 +39,14 @@ export type SessionListAnnouncer = {
 export interface SessionListChannel extends SessionListAnnouncer {
   /** Resolves once notices are genuinely being heard, not merely requested. */
   listen(handler: SessionListHandler): Promise<StopListening>;
+
+  /**
+   * Whether notices are reaching this process right now, as far as it can tell. A `LISTEN` that
+   * answered once can stop delivering, and nothing on the channel says so; a tab told it is live by
+   * a process that has gone deaf would wait out its slow backstop for every change. So a process
+   * that reads `false` here refuses and closes its `/ws/account` sockets, and their tabs read on
+   * their short timer until it hears again — as a worker that cannot hear claims polls fast
+   * (`docs/adr/0027` D4).
+   */
+  hearing(): boolean;
 }

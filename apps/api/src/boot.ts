@@ -196,24 +196,27 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
    * a worker. On the bus's transport, so on the socket it already holds; and it is that bus's echo
    * heartbeat, over the same socket, that says whether it is still hearing. See `docs/adr/0027`.
    */
-  /**
-   * What tells an open tab that its owner's session list changed, so it need not read the list
-   * every few seconds in case it did. Announced by every writer of something a session card draws,
-   * after its commit, in every role; heard only by a process serving `/ws/account`. On the bus's
-   * transport, so on the socket it already holds — or, with no `LISTEN` connection at all, within
-   * this one process, which is then the only one there is.
-   */
-  const sessionList = new PostgresSessionListChannel(
-    db,
-    notifyTransport ?? new InProcessNotifyTransport(),
-  );
-
-  /** One store answers the sidebar's reads and writes and the reaper's auto-settle alike. */
-  const navigation = new PostgresSessionNavigationStore(db, { sessionList });
   const claims =
     notifyTransport === null || notifyBus === null
       ? null
       : new PostgresClaimChannel(notifyTransport, { hearing: () => notifyBus.listening });
+
+  /**
+   * What tells an open tab that its owner's session list changed, so it need not read the list
+   * every few seconds in case it did. Announced by every writer of something a session card draws,
+   * after its commit, in every role; heard only by a process serving `/ws/account`. On the bus's
+   * transport and its echo, as `claims` is — or, with no `LISTEN` connection at all, within this
+   * one process, which is then the only one there is.
+   */
+  const sessionList =
+    notifyTransport === null || notifyBus === null
+      ? new PostgresSessionListChannel(db, new InProcessNotifyTransport())
+      : new PostgresSessionListChannel(db, notifyTransport, {
+          hearing: () => notifyBus.listening,
+        });
+
+  /** One store answers the sidebar's reads and writes and the reaper's auto-settle alike. */
+  const navigation = new PostgresSessionNavigationStore(db, { sessionList });
 
   const sandbox = new E2BSandboxManager({
     template: NAP_TEMPLATE,
@@ -357,7 +360,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     desktop,
     recordings: desktop,
     computerAccess: {
-      access: new PostgresProjectComputerAccess(db, { claims: claims }),
+      access: new PostgresProjectComputerAccess(db, { claims, sessionList }),
       secret: env.BETTER_AUTH_SECRET,
     },
     objects,

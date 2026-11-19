@@ -8,11 +8,19 @@ const BOB = "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a";
 /** A channel whose notices the test sends by hand, counting how often it was listened to. */
 function channel() {
   let handler: SessionListHandler | undefined;
+  let deaf = false;
   const listen = vi.fn(async (next: SessionListHandler) => {
     handler = next;
     return async () => {};
   });
-  return { listen, notice: (userId: string) => handler?.(userId) };
+  return {
+    listen,
+    hearing: () => !deaf,
+    deafen: (value: boolean) => {
+      deaf = value;
+    },
+    notice: (userId: string) => handler?.(userId),
+  };
 }
 
 describe("createSessionListHub", () => {
@@ -60,7 +68,7 @@ describe("createSessionListHub", () => {
       .fn<typeof source.listen>()
       .mockRejectedValueOnce(new Error("listener down"))
       .mockImplementation(source.listen);
-    const hub = createSessionListHub({ listen: failing });
+    const hub = createSessionListHub({ listen: failing, hearing: () => true });
     let heard = 0;
 
     await expect(hub.subscribe(ALICE, () => heard++)).rejects.toThrow("listener down");
@@ -71,5 +79,19 @@ describe("createSessionListHub", () => {
     source.notice(ALICE);
     expect(heard).toBe(1);
     expect(failing).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a socket while the pod cannot hear notices, and says so to the ones it has", async () => {
+    const source = channel();
+    const hub = createSessionListHub(source);
+    await hub.subscribe(ALICE, () => {});
+    expect(hub.hearing()).toBe(true);
+
+    source.deafen(true);
+
+    expect(hub.hearing()).toBe(false);
+    await expect(hub.subscribe(BOB, () => {})).rejects.toThrow("not reaching this pod");
+    source.deafen(false);
+    await expect(hub.subscribe(BOB, () => {})).resolves.toBeTypeOf("function");
   });
 });

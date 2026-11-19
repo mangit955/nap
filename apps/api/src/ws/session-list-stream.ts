@@ -44,6 +44,13 @@ export function openSessionListStream(options: {
 
   const timer = setInterval(() => {
     if (closed) return;
+    // A pod whose listener has gone deaf has stopped hearing what this socket promised to pass on.
+    // Closing sends the tab back to its short timer, and its reconnect is refused until it hears.
+    if (unsubscribe !== undefined && !hub.hearing()) {
+      shutdown();
+      socket.close(SESSION_LIST_UNAVAILABLE, "session list notices unavailable");
+      return;
+    }
     silentIntervals += 1;
     if (silentIntervals * heartbeat.intervalMs >= heartbeat.timeoutMs) {
       shutdown();

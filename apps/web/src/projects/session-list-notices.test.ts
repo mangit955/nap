@@ -4,6 +4,8 @@ import {
   createSessionListNotices,
   NOTICE_BACKOFF,
   NOTICE_COALESCE_MS,
+  NOTICE_LINGER_MS,
+  NOTICE_SILENCE_MS,
   type SessionListNotice,
 } from "./session-list-notices.ts";
 
@@ -15,20 +17,22 @@ function deliver(socket: FakeSocket, frame: object) {
   socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(frame) }));
 }
 
-function setup(fetchTicket?: () => Promise<string | undefined>) {
+function setup(fetchTicket?: () => Promise<string | undefined>, random = () => 1) {
   vi.useFakeTimers();
   const net = sockets();
   const notices = createSessionListNotices({
     createSocket: net.createSocket,
     fetchTicket,
     baseUrl: "wss://api.example.com",
+    // The top of the jitter's range, so a reconnect waits exactly the backoff.
+    random,
   });
   const heard: SessionListNotice[] = [];
   return { net, notices, heard, listener: (notice: SessionListNotice) => heard.push(notice) };
 }
 
 describe("createSessionListNotices", () => {
-  it("opens one socket for every list in the tab, and closes it with the last", async () => {
+  it("opens one socket for every list in the tab, and closes it a little after the last", async () => {
     const { net, notices } = setup();
 
     const first = notices.subscribe(() => {});
@@ -38,9 +42,63 @@ describe("createSessionListNotices", () => {
     expect(net.latest.url).toBe("wss://api.example.com/ws/account");
 
     first();
-    expect(net.latest.closed).toBe(false);
     second();
+    expect(net.latest.closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(NOTICE_LINGER_MS);
     expect(net.latest.closed).toBe(true);
+  });
+
+  it("keeps the socket across a move from one list to the next", async () => {
+    // The dashboard's list and a project's sidebar are never mounted at once.
+    const { net, notices } = setup();
+    const dashboard = notices.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    deliver(net.latest, { type: "ready" });
+
+    dashboard();
+    await vi.advanceTimersByTimeAsync(NOTICE_LINGER_MS / 2);
+    const sidebar = notices.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(NOTICE_LINGER_MS);
+
+    expect(net.opened).toHaveLength(1);
+    expect(net.latest.closed).toBe(false);
+    expect(notices.live()).toBe(true);
+    sidebar();
+  });
+
+  it("takes a socket that has said nothing for too long for dead, and reconnects", async () => {
+    // A laptop that slept leaves a socket that never closes and never delivers.
+    const { net, notices, heard, listener } = setup();
+    const stop = notices.subscribe(listener);
+    await vi.advanceTimersByTimeAsync(0);
+    deliver(net.latest, { type: "ready" });
+
+    await vi.advanceTimersByTimeAsync(NOTICE_SILENCE_MS / 2);
+    deliver(net.latest, { type: "ping" });
+    await vi.advanceTimersByTimeAsync(NOTICE_SILENCE_MS / 2);
+    expect(notices.live()).toBe(true);
+
+    // Checked every fifth of the limit, so it is noticed within that much after the limit.
+    await vi.advanceTimersByTimeAsync(NOTICE_SILENCE_MS / 2 + NOTICE_SILENCE_MS / 5);
+    expect(notices.live()).toBe(false);
+    expect(heard).toEqual(["live", "down"]);
+    expect(net.opened[0]?.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(NOTICE_BACKOFF.initialMs);
+    expect(net.opened).toHaveLength(2);
+    stop();
+  });
+
+  it("spreads reconnects over the second half of the backoff", async () => {
+    const { net, notices } = setup(undefined, () => 0);
+    const stop = notices.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+
+    net.latest.drop();
+    await vi.advanceTimersByTimeAsync(NOTICE_BACKOFF.initialMs / 2 - 1);
+    expect(net.opened).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(net.opened).toHaveLength(2);
+    stop();
   });
 
   it("carries a ticket, asked for before every connection, where one is needed", async () => {
@@ -141,8 +199,11 @@ describe("createSessionListNotices", () => {
     net.latest.drop();
 
     stop();
+    await vi.advanceTimersByTimeAsync(NOTICE_LINGER_MS);
+    const opened = net.opened.length;
+    expect(net.latest.closed).toBe(true);
     await vi.advanceTimersByTimeAsync(NOTICE_BACKOFF.maxMs);
 
-    expect(net.opened).toHaveLength(1);
+    expect(net.opened).toHaveLength(opened);
   });
 });

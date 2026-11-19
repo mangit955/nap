@@ -712,12 +712,16 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   }
 
   async markOrphanAnnounced(requestId: string): Promise<void> {
-    await this.#db
+    const marked = await this.#db
       .update(turnRequests)
       .set({ finishedAt: sql`now()` })
       // Conditional on the state, so this can never be mistaken for a settlement: only the
       // janitor's own rows are terminal with a null `finished_at`.
-      .where(and(eq(turnRequests.id, requestId), eq(turnRequests.state, "orphaned")));
+      .where(and(eq(turnRequests.id, requestId), eq(turnRequests.state, "orphaned")))
+      .returning({ userId: turnRequests.userId });
+    // The janitor has appended the turn's `turn.failed` by now, which the card's time and order
+    // are read from; the reclaim's own notice came before it.
+    if (marked.length > 0) this.#sessionList?.announce(...marked.map(({ userId }) => ({ userId })));
   }
 }
 

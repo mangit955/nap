@@ -74,6 +74,8 @@ export function useSessionNavigation({
   const generation = useRef(0);
   /** When the list was last asked for, which the slow backstop below is measured from. */
   const readAt = useRef(0);
+  /** Whether the last read failed, which is retried on the short timer however live the tab is. */
+  const readFailed = useRef(false);
 
   const publish = useCallback(() => {
     setProjects(
@@ -100,6 +102,7 @@ export function useSessionNavigation({
         );
       if (generation.current !== version) return;
       if (!result.ok) {
+        readFailed.current = true;
         setStatus("error");
         setError(result.error);
         return;
@@ -107,12 +110,14 @@ export function useSessionNavigation({
       nextRows.push(...result.value.sessions);
       cursor = result.value.next;
       if (cursor && seen.has(cursor)) {
+        readFailed.current = true;
         setStatus("error");
         setError("The session list could not finish loading. Try again.");
         return;
       }
       if (cursor) seen.add(cursor);
     } while (cursor);
+    readFailed.current = false;
     confirmed.current = nextRows;
     // Every row is a project record, so opening one can draw its title and connect to its session
     // without waiting for the project's own read. See `known-projects.ts`.
@@ -143,7 +148,12 @@ export function useSessionNavigation({
       if (!document.hidden && pending.current.length === 0) void reload();
     };
     const timer = setInterval(() => {
-      if (!source.live() || Date.now() - readAt.current >= SESSION_LIST_BACKSTOP_MS) refresh();
+      if (
+        !source.live() ||
+        readFailed.current ||
+        Date.now() - readAt.current >= SESSION_LIST_BACKSTOP_MS
+      )
+        refresh();
     }, SESSION_LIST_POLL_MS);
     // `down` needs nothing: the timer above takes over until the next `live`.
     const unsubscribe = source.subscribe((notice) => {

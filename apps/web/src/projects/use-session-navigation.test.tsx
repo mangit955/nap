@@ -615,3 +615,34 @@ it("lets go of the tab's notices when the list is unmounted", async () => {
     vi.useRealTimers();
   }
 });
+
+it("retries a read that failed on the short timer, live or not", async () => {
+  // The read on `ready` after an API deploy can meet a 502; it must not wait out the backstop.
+  vi.useFakeTimers();
+  try {
+    const source = manualNotices();
+    const session = row("Retried");
+    let reads = 0;
+    const fetchJson = vi.fn(async () => {
+      reads++;
+      return reads === 2
+        ? Response.json({ error: "Bad gateway" }, { status: 502 })
+        : Response.json({ sessions: [session], next: null });
+    });
+    const { result } = renderHook(() =>
+      useSessionNavigation({ fetchJson, notices: source.notices }),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(async () => source.say("live"));
+    expect(reads).toBe(2);
+    expect(result.current.status).toBe("error");
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads).toBe(3);
+    expect(result.current.status).toBe("ready");
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS * 3));
+    expect(reads).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -9,7 +9,8 @@
  *
  * **One socket per tab, however many lists are mounted.** The sidebar, the dashboard and the
  * archive page each read the list; they share this, which opens on the first subscriber and closes
- * with the last, so a signed-out page holds no socket for the person who just left.
+ * a few seconds after the last, so a signed-out page soon holds no socket for the person who just
+ * left.
  *
  * **It says when it can be trusted.** `live` is announced once the server is hearing notices for
  * this user (its `ready` frame), on every reconnect too, and a list reads on it to catch whatever
@@ -45,23 +46,46 @@ export const NOTICE_BACKOFF = { initialMs: 1000, maxMs: 60_000, factor: 2 } as c
  */
 export const NOTICE_COALESCE_MS = 100;
 
+/**
+ * How long a socket may say nothing before it is taken for dead. The server pings every thirty
+ * seconds; a laptop that slept, or a network that changed under it, leaves a socket that never
+ * closes and never delivers, and `live` would otherwise stay true over it.
+ */
+export const NOTICE_SILENCE_MS = 75_000;
+
+/**
+ * How long the socket outlives the last list. The dashboard and a project's sidebar are never
+ * mounted together, so moving between them would otherwise cost a ticket, an upgrade and a read
+ * every time.
+ */
+export const NOTICE_LINGER_MS = 5_000;
+
 export function createSessionListNotices({
   createSocket = (url) => new WebSocket(url),
   fetchTicket = SOCKETS_NEED_TICKETS
     ? () => fetchSocketTicket("/account/stream-ticket")
     : undefined,
   baseUrl = API_WS_URL,
+  random = Math.random,
 }: {
   createSocket?: CreateSocket;
   /** Absent, the socket carries no ticket and the cookie authenticates it. */
   fetchTicket?: (() => Promise<string | undefined>) | undefined;
   baseUrl?: string;
+  /**
+   * Spreads reconnects: every tab on a pod that is drained reconnects at once otherwise, and each
+   * reads the list on `ready`.
+   */
+  random?: () => number;
 } = {}): SessionListNotices {
   const listeners = new Set<SessionListNoticeListener>();
   let socket: StreamSocket | undefined;
   let isLive = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let coalesceTimer: ReturnType<typeof setTimeout> | undefined;
+  let silenceTimer: ReturnType<typeof setInterval> | undefined;
+  let stopTimer: ReturnType<typeof setTimeout> | undefined;
+  let running = false;
   let delayMs: number = NOTICE_BACKOFF.initialMs;
   /** Moves on every stop, so a ticket or a socket from before it is ignored. */
   let generation = 0;
@@ -75,9 +99,31 @@ export function createSessionListNotices({
     const query = ticket === undefined ? "" : `?ticket=${encodeURIComponent(ticket)}`;
     const current = createSocket(`${baseUrl}/ws/account${query}`);
     socket = current;
+    let heardAt = Date.now();
+
+    /** The connection is over, however that was learned. Once per socket. */
+    const dropped = (): void => {
+      if (socket !== current) return;
+      socket = undefined;
+      clearInterval(silenceTimer);
+      silenceTimer = undefined;
+      const wasLive = isLive;
+      isLive = false;
+      if (wasLive) emit("down");
+      retryTimer = setTimeout(() => connect(version), delayMs * (0.5 + random() / 2));
+      delayMs = Math.min(delayMs * NOTICE_BACKOFF.factor, NOTICE_BACKOFF.maxMs);
+    };
+
+    clearInterval(silenceTimer);
+    silenceTimer = setInterval(() => {
+      if (Date.now() - heardAt < NOTICE_SILENCE_MS) return;
+      dropped();
+      current.close();
+    }, NOTICE_SILENCE_MS / 5);
 
     current.addEventListener("message", (raw) => {
       if (socket !== current) return;
+      heardAt = Date.now();
       const frame = readFrame(raw);
       if (frame === undefined) return;
       if (frame.type === "ping") {
@@ -100,15 +146,7 @@ export function createSessionListNotices({
       }
     });
 
-    current.addEventListener("close", () => {
-      if (socket !== current) return;
-      socket = undefined;
-      const wasLive = isLive;
-      isLive = false;
-      if (wasLive) emit("down");
-      retryTimer = setTimeout(() => connect(version), delayMs);
-      delayMs = Math.min(delayMs * NOTICE_BACKOFF.factor, NOTICE_BACKOFF.maxMs);
-    });
+    current.addEventListener("close", dropped);
     // A socket that errors also closes; recovery is the close handler's.
     current.addEventListener("error", () => {});
   };
@@ -128,11 +166,15 @@ export function createSessionListNotices({
   };
 
   const stop = (): void => {
+    running = false;
+    stopTimer = undefined;
     generation += 1;
-    if (retryTimer !== undefined) clearTimeout(retryTimer);
-    if (coalesceTimer !== undefined) clearTimeout(coalesceTimer);
+    clearTimeout(retryTimer);
+    clearTimeout(coalesceTimer);
+    clearInterval(silenceTimer);
     retryTimer = undefined;
     coalesceTimer = undefined;
+    silenceTimer = undefined;
     isLive = false;
     delayMs = NOTICE_BACKOFF.initialMs;
     const current = socket;
@@ -143,10 +185,15 @@ export function createSessionListNotices({
   return {
     subscribe(listener) {
       listeners.add(listener);
-      if (listeners.size === 1) connect(generation);
+      clearTimeout(stopTimer);
+      stopTimer = undefined;
+      if (!running) {
+        running = true;
+        connect(generation);
+      }
       return () => {
         if (!listeners.delete(listener)) return;
-        if (listeners.size === 0) stop();
+        if (listeners.size === 0) stopTimer = setTimeout(stop, NOTICE_LINGER_MS);
       };
     },
     live: () => isLive,

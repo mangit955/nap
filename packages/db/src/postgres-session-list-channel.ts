@@ -33,13 +33,32 @@ export const SESSION_LIST_CHANNEL = "nap_session_list";
 /** A user id is a uuid; anything else on the channel is from somebody else's mistake. */
 const PayloadSchema = z.uuid();
 
+export type PostgresSessionListChannelOptions = {
+  /**
+   * Whether the listening socket is still delivering: the event bus's `listening` in a deployment,
+   * which reads its echo over the same socket, as `PostgresClaimChannel` is handed. Absent means
+   * "assume so", which is right for a transport inside one process.
+   */
+  hearing?: () => boolean;
+};
+
 export class PostgresSessionListChannel implements SessionListChannel {
   readonly #db: PostgresJsDatabase;
   readonly #transport: NotifyTransport;
+  readonly #hearing: () => boolean;
 
-  constructor(db: PostgresJsDatabase, transport: NotifyTransport) {
+  constructor(
+    db: PostgresJsDatabase,
+    transport: NotifyTransport,
+    options: PostgresSessionListChannelOptions = {},
+  ) {
     this.#db = db;
     this.#transport = transport;
+    this.#hearing = options.hearing ?? (() => true);
+  }
+
+  hearing(): boolean {
+    return this.#hearing();
   }
 
   announce(...owners: SessionListOwner[]): void {

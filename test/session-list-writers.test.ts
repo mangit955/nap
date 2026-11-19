@@ -38,9 +38,7 @@ const ANNOUNCES = /sessionList\??\.announce\(/;
 /** Writers of those tables that change nothing a card draws, each with the reason. */
 const QUIET: Record<string, string> = {
   "packages/db/src/postgres-event-store.ts":
-    "moves a session's sequence counter; the events a card reads are appended before the request settles, and the settle announces",
-  "packages/db/src/postgres-project-computer-access.ts":
-    "rotates the project's computer-control revision, which no card draws",
+    "moves a session's sequence counter; the events a card reads are appended before the request settles, or before the janitor marks a reclaimed one finished, and each of those announces",
 };
 
 type Source = { path: string; contents: string };

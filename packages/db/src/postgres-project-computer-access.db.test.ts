@@ -15,15 +15,21 @@ let db: PostgresJsDatabase;
 let access: PostgresProjectComputerAccess;
 let queue: PostgresTurnQueue;
 const announce = vi.fn();
+/** Whose session list an abandon said changed. */
+const listed = vi.fn();
 beforeAll(() => {
   client = postgres(inject("postgresUrl"), { max: 8, connection: { lock_timeout: 2000 } });
   inputClient = postgres(inject("postgresUrl"), { max: 2, connection: { lock_timeout: 2000 } });
   db = drizzle(client);
-  access = new PostgresProjectComputerAccess(drizzle(inputClient), { claims: { announce } });
+  access = new PostgresProjectComputerAccess(drizzle(inputClient), {
+    claims: { announce },
+    sessionList: { announce: listed },
+  });
   queue = new PostgresTurnQueue(db, { claims: null });
 });
 beforeEach(async () => {
   announce.mockClear();
+  listed.mockClear();
   await db.delete(projectComputerOperations);
   await db.delete(turnRequests);
 });
@@ -315,6 +321,8 @@ it("abandons exactly the stranded scope, forgets its machine, and lets the proje
     value: { released: true },
   });
   expect(announce).toHaveBeenCalledTimes(1);
+  // The owner's cards stop drawing a running workspace.
+  expect(listed.mock.calls).toEqual([[{ userId: f.userId }]]);
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: null, status: "idle" });
   expect(after!.computerRevision).not.toBe(before!.computerRevision);
@@ -335,6 +343,8 @@ it("abandons the scope but keeps a machine the project recorded since, and says 
     value: { released: false },
   });
   expect(announce).toHaveBeenCalledTimes(1);
+  // The machine was kept, so nothing a card draws changed.
+  expect(listed).not.toHaveBeenCalled();
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: "replacement" });
   expect(after!.computerRevision).not.toBe(before!.computerRevision);

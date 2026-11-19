@@ -136,7 +136,9 @@ describe("PostgresTurnQueue", () => {
     const queue = new PostgresTurnQueue(db, { claims: null, sessionList });
 
     let claimed = await queue.claim("worker-1");
-    // Others' rows in the shared container may come first; give them back untouched.
+    // Rows another file left queued in the shared container may come first, and are left leased
+    // to `worker-1`. Harmless only because db files run one at a time and the queue's own test
+    // files empty `turn_requests` before they start.
     while (claimed !== null && claimed.id !== request.id) claimed = await queue.claim("worker-1");
 
     expect(claimed?.id).toBe(request.id);
@@ -186,9 +188,16 @@ describe("PostgresTurnQueue", () => {
     await lease(request.id, "worker-that-died", "-1 hour");
     const { sessionList, calls } = recording();
 
-    await new PostgresTurnQueue(db, { claims: null, sessionList }).orphanExpired();
-
+    const queue = new PostgresTurnQueue(db, { claims: null, sessionList });
+    await queue.orphanExpired();
     expect(calls.flat()).toContainEqual({ sessionId });
+
+    // Again once the janitor has appended the turn's `turn.failed` and marked it finished, which
+    // is when the card's time moves.
+    calls.length = 0;
+    await queue.markOrphanAnnounced(request.id);
+    await queue.markOrphanAnnounced(request.id);
+    expect(calls).toEqual([[{ userId: owner }], [{ userId: owner }]]);
   });
 
   it("announces a steer queued as a turn, and not one joining a running turn", async () => {

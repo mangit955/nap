@@ -115,6 +115,19 @@ describe("PostgresSessionListChannel over two processes", () => {
     expect(heard).toEqual([]);
   });
 
+  it("says whether it is hearing as it was told, and assumes so when nobody said", async () => {
+    let listening = true;
+    const target = replica();
+    const told = new PostgresSessionListChannel(drizzle(target.notifier), target.transport, {
+      hearing: () => listening,
+    });
+
+    expect(target.channel.hearing()).toBe(true);
+    expect(told.hearing()).toBe(true);
+    listening = false;
+    expect(told.hearing()).toBe(false);
+  });
+
   it("ignores a payload that is not a user id", async () => {
     const api = replica();
     let heard = 0;

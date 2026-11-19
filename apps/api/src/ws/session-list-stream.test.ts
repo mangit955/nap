@@ -25,8 +25,10 @@ function socket() {
 function hub({ held = false, fails = false } = {}) {
   const listeners = new Map<string, Set<() => void>>();
   let answer: () => void = () => {};
+  let hearing = true;
   const released: string[] = [];
   const value: SessionListHub = {
+    hearing: () => hearing,
     subscribe: async (userId, onChange) => {
       if (held) await new Promise<void>((resolve) => (answer = resolve));
       if (fails) throw new Error("listener down");
@@ -42,6 +44,9 @@ function hub({ held = false, fails = false } = {}) {
   return {
     value,
     released,
+    deafen: () => {
+      hearing = false;
+    },
     answer: () => answer(),
     notice: (userId: string) => {
       for (const onChange of listeners.get(userId) ?? []) onChange();
@@ -139,5 +144,24 @@ describe("openSessionListStream", () => {
     expect(ws.sent.at(-1)).toMatchObject({ type: "error" });
     expect(ws.closed).toEqual([]);
     stream.onClose();
+  });
+
+  it("closes at its next heartbeat once the pod has stopped hearing, so the tab polls", async () => {
+    vi.useFakeTimers();
+    const source = hub();
+    const ws = socket();
+    const stream = openSessionListStream({
+      hub: source.value,
+      userId: ALICE,
+      socket: ws,
+      heartbeat: { intervalMs: 1000, timeoutMs: 30_000 },
+    });
+    await stream.ready;
+
+    source.deafen();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(ws.closed).toEqual([SESSION_LIST_UNAVAILABLE]);
+    expect(source.released).toEqual([ALICE]);
   });
 });

@@ -339,7 +339,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       sessions,
       upgradeWebSocket: async () => new Response(null),
       tickets: createStreamTickets("route-table-secret-route-table-secret"),
-      sessionList: { subscribe: async () => () => {} },
+      sessionList: { subscribe: async () => () => {}, hearing: () => true },
     },
     computerAccess: {
       sessions,

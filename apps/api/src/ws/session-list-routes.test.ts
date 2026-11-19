@@ -34,6 +34,7 @@ function setup({
       subscribed.push(userId);
       return () => {};
     },
+    hearing: () => true,
   };
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),

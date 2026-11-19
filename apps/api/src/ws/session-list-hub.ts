@@ -6,6 +6,10 @@
  * map lookup. That is the whole of how a change written on a worker reaches a tab whose socket is
  * on a different pod: no routing, no stickiness, the same shape as the event bus (`docs/adr/0010`).
  *
+ * **It refuses a socket while the channel cannot hear**, and says so to the ones it has (see
+ * `SessionListChannel.hearing`): a tab told it is live by a pod that has gone deaf would otherwise
+ * wait out its five-minute backstop for every change.
+ *
  * **It listens on first use, not at boot.** Only a process that serves sockets ever subscribes, so
  * a worker or a reaper composed with the same channel never `LISTEN`s to it. A listen that fails is
  * forgotten, so the next socket tries again, and the sockets that asked are told it failed: they
@@ -20,9 +24,13 @@ export type SessionListHub = {
    * rejects when they cannot be. Unsubscribing is idempotent.
    */
   subscribe(userId: string, onChange: () => void): Promise<() => void>;
+  /** Whether notices are reaching this pod right now; a socket closes when they stop. */
+  hearing(): boolean;
 };
 
-export function createSessionListHub(channel: Pick<SessionListChannel, "listen">): SessionListHub {
+export function createSessionListHub(
+  channel: Pick<SessionListChannel, "listen" | "hearing">,
+): SessionListHub {
   const subscribers = new Map<string, Set<() => void>>();
   let listening: Promise<unknown> | null = null;
 
@@ -39,7 +47,9 @@ export function createSessionListHub(channel: Pick<SessionListChannel, "listen">
   };
 
   return {
+    hearing: () => channel.hearing(),
     async subscribe(userId, onChange) {
+      if (!channel.hearing()) throw new Error("session list notices are not reaching this pod");
       const own = subscribers.get(userId) ?? new Set<() => void>();
       own.add(onChange);
       subscribers.set(userId, own);
