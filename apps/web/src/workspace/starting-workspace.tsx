@@ -28,21 +28,31 @@ export function StartingWorkspace({ prompt }: { prompt: StartingPrompt | null })
   const [maximized, setMaximized] = useState(false);
   // Never over the prompt on a narrow screen, where the panel covers the conversation: the prompt
   // is the one thing this page has to show, and the layout saved here is shared by every start.
-  const panelOpen = panels.layout.open && !narrow;
+  // There it opens only when asked, and the asking is not saved for the next start.
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  const panelOpen = narrow ? narrowOpen : panels.layout.open;
+  const controller = narrow
+    ? {
+        ...panels,
+        layout: { ...panels.layout, open: narrowOpen },
+        toggle: () => setNarrowOpen((open) => !open),
+        hide: () => setNarrowOpen(false),
+      }
+    : panels;
   const chatHidden = panelOpen && (maximized || narrow);
   return (
     <WorkspacePanes
       panelOpen={panelOpen}
       maximized={maximized}
       chatHidden={chatHidden}
-      onDismissPanel={panels.hide}
+      onDismissPanel={controller.hide}
       chat={
         <>
           <WorkspaceHeader
             projectName="opening…"
             job={null}
             panelOpen={panelOpen}
-            onTogglePanel={panels.toggle}
+            onTogglePanel={controller.toggle}
           />
           <ChatPane
             events={[]}
@@ -64,7 +74,7 @@ export function StartingWorkspace({ prompt }: { prompt: StartingPrompt | null })
         <Workbench
           chatHidden={chatHidden}
           narrow={narrow}
-          controller={panels}
+          controller={controller}
           maximized={maximized}
           onMaximize={() => setMaximized((value) => !value)}
           preview={

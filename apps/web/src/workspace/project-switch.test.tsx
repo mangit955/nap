@@ -658,6 +658,24 @@ describe("entering from the dashboard", () => {
 
     expect(await conversation().findByText("On a phone")).toBeVisible();
     await waitFor(() => expect(screen.getByRole("region", { name: "Conversation" })).toBeVisible());
+    expect(screen.queryByRole("dialog", { name: "Right panel" })).toBeNull();
+
+    // Asked for, it opens; the asking is this start's alone.
+    fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
+    expect(await screen.findByRole("dialog", { name: "Right panel" })).toBeVisible();
+    expect(localStorage.getItem("nap.right-panel.v1:starting")).toContain('"open":true');
+  });
+
+  it("leaves an address the person has already moved to alone when the project arrives", async () => {
+    const start = beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "Moved on" } });
+    render(entry());
+    expect(await conversation().findByText("Moved on")).toBeVisible();
+
+    // A sidebar switch to B, pushed but not yet committed: the hook still says `/p/new`.
+    window.history.pushState(null, "", `/p/${PROJECT_B}`);
+    act(() => start.started(PROJECT_A));
+
+    expect(window.location.pathname).toBe(`/p/${PROJECT_B}`);
   });
 
   it("sends a reload or a typed address, which carries no way in, to the dashboard", async () => {

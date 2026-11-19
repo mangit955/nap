@@ -375,14 +375,16 @@ export function NewSessionComposer({
       canOpenWorkspace={!!source}
       source={
         <>
-          {/* Only a request left stranded by a lost response or a reload needs this; one still in
-              flight is already shown by the disabled composer, and announcing it too pushed the
-              textarea down for the length of every start. */}
+          {/* A start from this tab still on its way, met again on the way back here: the composer
+              stays disabled until it is over, and this says why. */}
           {waiting && (
             <p role="status" className="composer-pending">
               Still starting your last project…
             </p>
           )}
+          {/* Only a request left stranded by a lost response or a reload needs this; one still in
+              flight is already shown by the disabled composer, and announcing it too pushed the
+              textarea down for the length of every start. */}
           {draft?.pendingStart && !busy && (
             <p role="status" className="composer-pending">
               A start request is pending.{" "}

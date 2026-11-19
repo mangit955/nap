@@ -76,11 +76,11 @@ export function usePrefetchWorkspace(router: { prefetch: (href: string) => void 
       last = Date.now();
       router.prefetch(WORKSPACE_ENTRY);
     };
-    document.addEventListener("pointerover", refresh);
-    document.addEventListener("focusin", refresh);
+    // Typing counts: a prompt written for minutes in a box that already has focus moves no pointer.
+    const events = ["pointerover", "focusin", "keydown"] as const;
+    for (const name of events) document.addEventListener(name, refresh);
     return () => {
-      document.removeEventListener("pointerover", refresh);
-      document.removeEventListener("focusin", refresh);
+      for (const name of events) document.removeEventListener(name, refresh);
     };
   }, [router]);
 }
@@ -139,9 +139,11 @@ export function startInFlight(ownerId: string): Promise<void> | undefined {
 }
 
 /**
- * Why this person's last start failed, handed out once. Synchronous, so a caller can check that
- * it still wants the answer first: React runs a development effect twice, and a run that took the
- * reason and was then cancelled would leave nothing for the run that draws it.
+ * Why this person's last start failed, handed out once. Synchronous, so a caller that awaited
+ * `startInFlight` can check it was not cancelled before taking it: React runs a development effect
+ * twice, and a run cancelled after taking the reason would leave nothing for the run that draws
+ * it. A reason already recorded when the effect first runs is taken at once, which StrictMode's
+ * second run survives because its state is kept across the rehearsal.
  */
 export function takeStartFailure(ownerId: string): string | undefined {
   const start = startOf(ownerId);
@@ -188,7 +190,10 @@ export function useWorkspaceEntry(): { projectId?: string; starting?: StartingPr
     (current === undefined || (current.kind === "start" && current.outcome.state === "failed"));
 
   useEffect(() => {
-    if (target === undefined) return;
+    // The address bar, not `usePathname`: Next commits a Back or a sidebar switch in a transition,
+    // so for a render the hook can still say `/p/new` while the entry is already somebody else's,
+    // and writing the project over that entry would put it where the person did not go.
+    if (target === undefined || window.location.pathname !== WORKSPACE_ENTRY) return;
     // The record stays: Next moves `usePathname` to the new address on its own schedule, and until
     // it does this page is still `/p/new` — where a forgotten record would read as a reload and
     // send the tab back to the dashboard. It is read nowhere else, and the next way in replaces it.

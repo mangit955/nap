@@ -107,5 +107,10 @@ describe("keeping the entry page prefetched", () => {
     vi.advanceTimersByTime(PREFETCH_EVERY_MS);
     document.body.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
     expect(prefetch).toHaveBeenCalledTimes(3);
+
+    // Typing into a box that already has focus.
+    vi.advanceTimersByTime(PREFETCH_EVERY_MS);
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "a" }));
+    expect(prefetch).toHaveBeenCalledTimes(4);
   });
 });
