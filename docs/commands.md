@@ -49,7 +49,9 @@ bun run computer:reliability       # "Test the app" against three correct apps, 
 bun run ws:smoke          # drives /ws over a real Bun socket — fakes, free, no database
 bun run verify-nap:up     # the real web app, API, Postgres and queue on a scripted model, an in-memory
                           # sandbox and a headless Chrome, for driving a UI change like a user — free;
-                          # needs Docker and Chrome. --port=<base> runs a second beside it
+                          # needs Docker and Chrome. --port=<base> runs a second beside it;
+                          # --production serves a `next build` instead of `next dev` (minutes slower
+                          # to start; the only way to time navigation, which prefetches only in production)
 bun run verify-nap <cmd>  # drives that Chrome by role and accessible name, and saves screenshots as
                           # evidence: doctor, signin, click, fill, wait, shot, stop… See .agents/skills/verify-nap
 NAP_COMPUTER_LOCAL_MANIFEST=<run-dir>/run.json NAP_CHROME_PATH=<chrome> NAP_INTEGRATION=1 \

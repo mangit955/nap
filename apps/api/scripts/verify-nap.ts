@@ -10,7 +10,7 @@
  * (`apps/verify-nap/scripts/verify-nap.ts`) connects to for every action, so one browser and its
  * sign-in persist across driver commands.
  *
- * Run: bun apps/api/scripts/verify-nap.ts [--port=3057]
+ * Run: bun apps/api/scripts/verify-nap.ts [--port=3057] [--production]
  *   web on the port, the API on port+1, the previewed app on port+2, Chrome's DevTools on port+3.
  * Ready when it prints `verify-nap ready` and `<run>/run.json` exists. Stop it with SIGTERM to the pid
  * in run.json (or `bun run verify-nap stop`): it removes everything it started — the web copy, the
@@ -70,6 +70,12 @@ const ttlArgument = process.argv.find((arg) => arg.startsWith("--ttl-minutes="))
 const ttlMinutes = Number(ttlArgument?.slice("--ttl-minutes=".length) ?? 120);
 if (!Number.isInteger(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 24 * 60)
   throw new Error(`--ttl-minutes must be an integer from 1 to 1440, got ${ttlArgument}`);
+/**
+ * `next build` then `next start` instead of `next dev`. Slower to come up, and a code change needs a
+ * new run, but it is the only way to see navigation as a visitor does: Next prefetches routes only in
+ * a production build, and `next dev` compiles and adds requests a deployed app never makes.
+ */
+const production = process.argv.includes("--production");
 const ports = { web: base, api: base + 1, preview: base + 2, cdp: base + 3 };
 const WEB = `http://127.0.0.1:${ports.web}`;
 const API = `http://127.0.0.1:${ports.api}`;
@@ -343,13 +349,28 @@ try {
 
   const webLog = await open(join(runDirectory, "web.log"), "a");
   await own("web log", () => webLog.close());
+  const next = join(repositoryRoot, "apps/web/node_modules/next/dist/bin/next");
+  const webEnv = {
+    ...process.env,
+    NEXT_PUBLIC_API_URL: API,
+    NEXT_PUBLIC_API_WS_URL: `ws://127.0.0.1:${ports.api}`,
+  };
+  if (production) {
+    const build = Bun.spawn(["node", next, "build", copied.value.directory, "--webpack"], {
+      cwd: copied.value.directory,
+      env: { ...webEnv, NODE_ENV: "production" },
+      stdout: webLog.fd,
+      stderr: webLog.fd,
+    });
+    if ((await build.exited) !== 0) throw new Error("next build failed; see web.log.");
+  }
   const web = Bun.spawn(
     [
       "node",
-      join(repositoryRoot, "apps/web/node_modules/next/dist/bin/next"),
-      "dev",
-      copied.value.directory,
-      "--webpack",
+      next,
+      ...(production
+        ? ["start", copied.value.directory]
+        : ["dev", copied.value.directory, "--webpack"]),
       "--port",
       String(ports.web),
       "--hostname",
@@ -357,17 +378,13 @@ try {
     ],
     {
       cwd: copied.value.directory,
-      env: {
-        ...process.env,
-        NEXT_PUBLIC_API_URL: API,
-        NEXT_PUBLIC_API_WS_URL: `ws://127.0.0.1:${ports.api}`,
-      },
+      env: production ? { ...webEnv, NODE_ENV: "production" } : webEnv,
       stdout: webLog.fd,
       stderr: webLog.fd,
     },
   );
-  await own("Next dev server", () => kill(web));
-  started.processes.push({ name: "Next dev server", pid: web.pid, marker: copied.value.directory });
+  await own("Next server", () => kill(web));
+  started.processes.push({ name: "Next server", pid: web.pid, marker: copied.value.directory });
   record();
 
   const profile = join(runDirectory, "chrome-profile");
