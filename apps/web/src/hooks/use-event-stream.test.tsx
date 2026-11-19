@@ -522,6 +522,34 @@ describe("knowing the log has all arrived", () => {
     expect(result.current.replayed).toBe(true);
   });
 
+  it("never says a new session was replayed on the strength of the last one", () => {
+    // The reset runs in an effect, so the first render with the new session comes before it. A
+    // reader that took that render's `replayed` as "this session's log is in" would read the last
+    // session's log as the new one's history.
+    const net = sockets();
+    const seen: { id: string | undefined; replayed: boolean }[] = [];
+    const { rerender } = renderHook(
+      ({ id }: { id: string | undefined }) => {
+        const stream = useEventStream({
+          sessionId: id,
+          baseUrl: URL_BASE,
+          createSocket: net.createSocket,
+        });
+        seen.push({ id, replayed: stream.replayed });
+        return stream;
+      },
+      { initialProps: { id: SESSION as string | undefined } },
+    );
+    act(() => net.latest.open());
+    act(() => net.latest.deliver({ type: "ready" }));
+    expect(seen.at(-1)).toEqual({ id: SESSION, replayed: true });
+
+    const next = "8f7e6d5c-4b3a-4291-8776-5544332211ff";
+    rerender({ id: next });
+
+    expect(seen.filter((render) => render.id === next && render.replayed)).toEqual([]);
+  });
+
   it("forgets it when the session changes", () => {
     // A different session is a different transcript, and its log has not been delivered at all.
     const net = sockets();

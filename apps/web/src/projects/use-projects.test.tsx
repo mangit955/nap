@@ -1,6 +1,7 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { knownProject } from "./known-projects.ts";
 import { useProject, useProjects } from "./use-projects.ts";
 
 /**
@@ -96,6 +97,8 @@ describe("renaming a project shown in the sidebar and workspace", () => {
       });
       expect(list.result.current.projects[0]?.name).toBe("Renamed app");
       expect(current.result.current.project?.name).toBe("Renamed app");
+      // And the tab's copy, so coming back draws the new name rather than the old one first.
+      expect(knownProject(PROJECT)?.name).toBe("Renamed app");
       expect(api.calls.filter((call) => call.startsWith("GET"))).toHaveLength(2);
     },
   );

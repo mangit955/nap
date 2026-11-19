@@ -27,6 +27,10 @@ vi.mock("../auth/client.ts", () => ({
 }));
 
 const { SessionSidebar } = await import("./session-sidebar.tsx");
+// The rows' drag layer is a lazy import that swaps their shell, and so remounts them, if it lands
+// after they are drawn (`session-list.tsx`). Loaded up front, so a row a test has found is never
+// replaced under it by an import that happened to resolve a microtask later.
+await (await import("../dashboard/session-list.tsx")).preloadDrag();
 const OTHER_PROJECT = "4e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 
 beforeAll(() => {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProjectRepository } from "@nap/shared/github-protocol";
+import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { TurnActivity } from "../chat/use-turn-submission.ts";
 import { foldAppTests } from "../computer/app-test-state.ts";
@@ -12,6 +13,7 @@ import { type RecordingView, RecordingViewer } from "../computer/recording-viewe
 import { thumbnailUrl } from "../dashboard/thumbnail-url.ts";
 import { type FetchJson, useProjectFiles } from "../files/use-project-files.ts";
 import { ProjectGitHubControl } from "../github/project-github.tsx";
+import { useAfterReplay } from "../hooks/after-replay.ts";
 import { forgetLog } from "../hooks/remembered-logs.ts";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
@@ -83,16 +85,23 @@ export function AppShell({
         ? activePreview.required
         : configuredPreviewRequired;
 
-  const { project, status, putAwayAt, resume, resuming, resumeError, rename } = useProject(
-    projectId,
-    {
-      previewSeq,
-      previewRequired,
-      refreshKey: projectRefreshKey,
-      ...(fetchJson === undefined ? {} : { fetchJson }),
-    },
-  );
-  const sessionId = project?.sessionIds[0];
+  const {
+    project,
+    sessionId,
+    name,
+    known,
+    status,
+    putAwayAt,
+    resume,
+    resuming,
+    resumeError,
+    rename,
+  } = useProject(projectId, {
+    previewSeq,
+    previewRequired,
+    refreshKey: projectRefreshKey,
+    ...(fetchJson === undefined ? {} : { fetchJson }),
+  });
 
   // Saving environment settings changes the next workspace, not the sandbox already running.
   useEffect(() => {
@@ -159,23 +168,8 @@ export function AppShell({
   }, [announced]);
 
   const previewUrl = phase.kind === "running" ? phase.url : undefined;
-  const githubRevision =
-    log.events.findLast(
-      (event) =>
-        event.type === "system.notice" ||
-        event.type === "preview.ready" ||
-        event.type === "preview.stopped" ||
-        event.type === "turn.completed" ||
-        event.type === "turn.failed" ||
-        event.type === "verification.completed",
-    )?.seq ?? 0;
-  const projectRevision =
-    log.events.findLast(
-      (event) =>
-        event.type === "system.notice" ||
-        event.type === "preview.stopped" ||
-        event.type === "project.renamed",
-    )?.seq ?? 0;
+  const githubRevision = useAfterReplay(log.events, changesGitHub, log.replayed, sessionId);
+  const projectRevision = useAfterReplay(log.events, changesRecord, log.replayed, sessionId);
   useEffect(() => {
     setProjectRefreshKey(projectRevision);
   }, [projectRevision]);
@@ -284,7 +278,7 @@ export function AppShell({
       chat={
         <>
           <WorkspaceHeader
-            projectName={headerNote(status, project?.name)}
+            projectName={headerNote(status, name)}
             {...(status === "ready" && project !== undefined ? { onRename: rename } : {})}
             job={log.jobs.summary}
             panelOpen={visiblePanel}
@@ -413,7 +407,9 @@ export function AppShell({
             />
           }
           pullRequests={
-            status === "ready" ? (
+            // Read by project, so a project the tab already knows asks at the click: its answer
+            // also says whether the preview is required, which the panes wait on.
+            known ? (
               <ProjectGitHubControl
                 key={projectId}
                 projectId={projectId}
@@ -441,6 +437,21 @@ export function AppShell({
   );
 }
 
+/** Events after which the project's GitHub state is worth reading again. */
+const changesGitHub = (event: StoredEvent) =>
+  event.type === "system.notice" ||
+  event.type === "preview.ready" ||
+  event.type === "preview.stopped" ||
+  event.type === "turn.completed" ||
+  event.type === "turn.failed" ||
+  event.type === "verification.completed";
+
+/** Events after which the project's record — its sandbox, its name — is worth reading again. */
+const changesRecord = (event: StoredEvent) =>
+  event.type === "system.notice" ||
+  event.type === "preview.stopped" ||
+  event.type === "project.renamed";
+
 /**
  * What to call the project in the bar.
  *
@@ -451,7 +462,8 @@ export function AppShell({
 function headerNote(status: OpenProject["status"], name: string | undefined): string {
   switch (status) {
     case "loading":
-      return "opening…";
+      // A name the tab already knew is drawn at once; the record confirms it a round trip later.
+      return name ?? "opening…";
     case "missing":
       return "this project no longer exists";
     case "error":

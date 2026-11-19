@@ -159,7 +159,11 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     sessionId === undefined ? "idle" : "connecting",
   );
   const [lastSeq, setLastSeq] = useState(0);
-  const [replayed, setReplayed] = useState(false);
+  // The session whose replay finished, rather than a flag: the reset below runs in an effect, so
+  // the first render with a new session would otherwise still say the *last* one was replayed —
+  // and anything that takes "replayed" as "this log is complete" would take the old log for it.
+  const [replayedFor, setReplayedFor] = useState<string | undefined>(undefined);
+  const replayed = sessionId !== undefined && replayedFor === sessionId;
   // Read once per project rather than per render: the kept log is replaced as this mount commits,
   // and what is worth drawing meanwhile is what was kept when the visit began.
   const ownerId = remember?.ownerId;
@@ -196,7 +200,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
     lastSeqRef.current = resumeFrom.at(-1)?.seq ?? 0;
     setEvents([]);
     setLastSeq(0);
-    setReplayed(false);
+    setReplayedFor(undefined);
 
     let socket: StreamSocket | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -293,7 +297,7 @@ export function useEventStream(options: EventStreamOptions): EventStream {
         if (frame.type === "ready") {
           replaying = false;
           flush();
-          setReplayed(true);
+          setReplayedFor(sessionId);
           return;
         }
         // An `error` frame is the server rejecting something this client sent — a pong, or a

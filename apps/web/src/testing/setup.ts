@@ -9,7 +9,9 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { forgetAccount } from "../account/account-cache.ts";
 import { forgetAllLogs } from "../hooks/remembered-logs.ts";
+import { forgetKnownProjects } from "../projects/known-projects.ts";
 
 // Without this, a component from one test is still mounted during the next, so
 // `getByRole` finds two matches and fails in a way that points at the wrong test.
@@ -18,6 +20,9 @@ afterEach(cleanup);
 // The tab's remembered logs are module state, and a file's tests share one module: without this,
 // a workspace test opening a project another test already opened would draw that test's log.
 afterEach(forgetAllLogs);
+// The same for the account's models and key, and the project records a session list put in.
+afterEach(forgetAccount);
+afterEach(forgetKnownProjects);
 
 /*
  * Four browser APIs jsdom does not implement, which the rim light on the landing page uses.
