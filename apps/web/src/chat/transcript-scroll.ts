@@ -139,7 +139,15 @@ export function planScroll(memory: ScrollMemory, now: ScrollReading): ScrollPlan
     toBottom = true;
   }
 
-  const anchorTop = room === undefined ? undefined : now.promptTops[Math.min(room, count - 1)];
+  // The prompt the anchor was kept for is gone without the log's copy taking its place: the send
+  // was refused after its bubble was drawn, or it was a command such as `/compact` that the log
+  // never records as a message. Holding on by position would land on the prompt before it.
+  if (room !== undefined && room >= count) {
+    room = undefined;
+    if (hold.mode === "anchored") hold = { mode: "follow" };
+  }
+
+  const anchorTop = room === undefined ? undefined : now.promptTops[room];
 
   // A pass that has only just anchored has nothing of its own to compare against: the box is
   // wherever following left it.

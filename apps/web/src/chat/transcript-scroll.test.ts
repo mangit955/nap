@@ -142,7 +142,7 @@ describe("a message sent from this tab", () => {
     expect(box.scrollTop).toBe(2000 - ANCHOR_MARGIN);
   });
 
-  it("goes nowhere when the send is refused", () => {
+  it("goes nowhere when a queued send is refused, and does not wait on to anchor someone else's prompt", () => {
     const box = opened();
     box.scrollTo(400);
     box.pass({ sending: true });
@@ -150,6 +150,36 @@ describe("a message sent from this tab", () => {
 
     expect(box.scrollTop).toBe(400);
     expect(box.space).toBe(0);
+
+    box.scrollTo(box.bottom);
+    box.pass({ prompts: [100, 900, 2000], contentEnd: 2100 });
+    expect(box.scrollTop).toBe(2100 - VIEW);
+    expect(box.space).toBe(0);
+  });
+
+  it("lets go when the sent bubble goes away with nothing logged in its place", () => {
+    // A refusal after the bubble was drawn, or `/compact`, which the log never records as a message.
+    // Held by position, the anchor would slide onto the prompt before it.
+    const box = opened().pass({ sending: true, prompts: [100, 900, 2000], contentEnd: 2100 });
+
+    box.pass({ sending: false, prompts: [100, 900], contentEnd: 2000 });
+
+    expect(box.scrollTop).toBe(2000 - VIEW);
+    expect(box.space).toBe(0);
+
+    // Nor is the next prompt to fill that place taken for it: this one came from another tab.
+    box.pass({ prompts: [100, 900, 2100], contentEnd: 2200 });
+    expect(box.scrollTop).toBe(2200 - VIEW);
+    expect(box.space).toBe(0);
+  });
+
+  it("anchors a message sent while the reader was scrolled up", () => {
+    const box = opened();
+    box.scrollTo(300);
+
+    box.pass({ sending: true, prompts: [100, 900, 2000], contentEnd: 2100 });
+
+    expect(box.scrollTop).toBe(2000 - ANCHOR_MARGIN);
   });
 
   it("anchors a request queued behind a compaction when its prompt is finally drawn", () => {

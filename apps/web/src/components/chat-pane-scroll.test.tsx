@@ -325,8 +325,8 @@ describe("a message sent from this tab", () => {
   ];
   const settled = [...earlier, event("system.notice", { level: "info", text: "Saved." }, 3)];
 
-  function laidOut() {
-    const view = render(<ChatPane events={earlier} />);
+  function laidOut(before: StoredEvent[] = settled) {
+    const view = render(<ChatPane events={before.slice(0, -1)} />);
     const timeline = screen.getByRole("region", { name: "Conversation" });
     const layout = { prompts: [400, 1700], end: 1800 };
     let top = 0;
@@ -355,18 +355,62 @@ describe("a message sent from this tab", () => {
       return at(layout.prompts[prompts.indexOf(this)] ?? 0);
     });
     // One more event, so the box has been measured once at its laid-out size.
-    view.rerender(<ChatPane events={settled} />);
+    view.rerender(<ChatPane events={before} />);
     return { ...view, layout, top: () => top, scrollTo: (next: number) => (top = next), space };
   }
 
   it("puts the message at the top of the view, with end space under it", () => {
-    const { rerender, top, space } = laidOut();
+    const { rerender, layout, top, space } = laidOut();
     expect(top()).toBe(1200);
 
     rerender(<ChatPane events={settled} pending="Add dark mode" running />);
 
     expect(top()).toBe(1700 - 24);
     expect(space()).toBe(1700 - 24 + 600 - 1800);
+
+    // Measured from where the content ends, not from a box height that already holds the space.
+    layout.end = 2000;
+    const logged = event("user.message", { text: "Add dark mode" }, 4, NEXT);
+    rerender(<ChatPane events={[...settled, logged]} running />);
+    expect(space()).toBe(1700 - 24 + 600 - 2000);
+    expect(top()).toBe(1700 - 24);
+  });
+
+  it("holds on while the previous turn's work is still the newest in the log", () => {
+    // Until the log has the new prompt, the work it finds is the turn before's.
+    const call = { toolCallId: "c0", toolName: "read_file", input: { path: "notes.tsx" } };
+    const worked = [
+      event("user.message", { text: "Build a notes app" }, 1),
+      event("tool.call", call, 2),
+      event("agent.message", { text: "Built it." }, 3),
+      event("system.notice", { level: "info", text: "Saved." }, 4),
+    ];
+    const { rerender, layout, top } = laidOut(worked);
+    rerender(<ChatPane events={worked} pending="Add dark mode" running />);
+    layout.end = 2600;
+    rerender(
+      <ChatPane
+        events={[...worked, event("turn.started", { source: "user" }, 5, NEXT)]}
+        pending="Add dark mode"
+        running
+      />,
+    );
+
+    expect(top()).toBe(1700 - 24);
+  });
+
+  it("brings a message sent into the running turn into view", () => {
+    const { rerender, layout, top } = laidOut();
+    rerender(<ChatPane events={settled} pending="Add dark mode" running />);
+    const sent = [...settled, event("user.message", { text: "Add dark mode" }, 4, NEXT)];
+    layout.end = 3000;
+    rerender(<ChatPane events={sent} running />);
+    expect(top()).toBe(1700 - 24);
+
+    layout.end = 3100;
+    rerender(<ChatPane events={sent} pendingSteer="Use the system setting" running />);
+
+    expect(top()).toBe(3100 - 600);
   });
 
   it("keeps it there while the reply streams in, and lets the reader scroll away", () => {
