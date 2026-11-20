@@ -2,7 +2,6 @@
 
 import type { MediaAttachment } from "@nap/shared/media";
 
-import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import {
   type ReactNode,
@@ -21,7 +20,13 @@ import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript, type RetryHandler } from "../chat/chat-transcript.tsx";
 import { ContextControl } from "../chat/context-control.tsx";
 import { type FirstPrompt, peekFirstPrompt } from "../chat/first-prompt.ts";
-import { modelInUse } from "../chat/model-picker.tsx";
+import {
+  imagesFor,
+  type ModelOption,
+  modelInUse,
+  modelOptions,
+  sendableModel,
+} from "../chat/model-options.ts";
 import { peekStartedPrompt, takeStartedPrompt } from "../chat/started-prompt.ts";
 import { latestResponseWorking } from "../chat/timeline.ts";
 import { buildTranscript } from "../chat/transcript.ts";
@@ -129,7 +134,7 @@ export function ChatPane({
   /** The project's files, for the composer's `@` menu. */
   files?: readonly string[] | undefined;
   /** What this deployment will run a turn on, and which of them is chosen. */
-  models?: readonly ModelChoice[] | undefined;
+  models?: readonly ModelOption[] | undefined;
   /**
    * Shown after the transcript, where a paused project explains itself. Handed a callback to
    * call whenever what it shows changes: it updates on its own schedule, and a reader at the
@@ -254,7 +259,7 @@ export function ChatPane({
                     events={events}
                     running={running}
                     testPhase={testPhase}
-                    model={model}
+                    images={imagesFor(models ?? [], model)}
                     onTest={onTestApp}
                   />
                 )}
@@ -491,14 +496,17 @@ export function LiveChatPane({
   useEffect(() => {
     reportActivity({ sessionId, running, idleThroughSeq });
   }, [sessionId, running, idleThroughSeq]);
-  const { models } = useModels(injected);
+  const { models: list } = useModels(injected);
+  const options = modelOptions(list);
   // Somebody who meets a locked model, or a turn refused for want of a key, should be able to
   // fix it here rather than being sent to the dashboard and back.
   const key = useApiKey(injected);
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
-  const [model, setModel] = useState<string | undefined>(() => handedOver?.model);
+  const [chosen, setModel] = useState<string | undefined>(() => handedOver?.model);
+  // What goes on the wire: the choice as a line, never a stale id a draft held.
+  const model = sendableModel(options, chosen);
   const [firstPrompt, setFirstPrompt] = useState<FirstPrompt>();
   /**
    * The front page's prompt, shown from the first frame, before there is a session to send it to.
@@ -579,10 +587,10 @@ export function LiveChatPane({
             void submit(APPROVAL_MESSAGE, model, undefined, { intent: "approve", planTurnId }),
           propose: (message) => void submit(message, model, undefined, PROPOSE),
         }}
-        onTestApp={(jobId) => void startTest(jobId, model ?? models?.fallback)}
+        onTestApp={(jobId) => void startTest(jobId, model ?? list?.fallback ?? undefined)}
         files={files ?? []}
-        models={models?.models ?? []}
-        model={model ?? models?.fallback}
+        models={options}
+        model={model ?? list?.fallback ?? undefined}
         onModelChange={setModel}
         onAddKey={() => setKeyPanelOpen(true)}
         computerNotice={(onChange) => (

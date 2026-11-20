@@ -25,6 +25,7 @@
 
 import { z } from "zod";
 import type { PlanIntent } from "../agent-plan.ts";
+import type { Effort } from "../model-lines.ts";
 
 /**
  * What admission writes down. Everything a turn request would carry except attachments: images
@@ -47,6 +48,8 @@ export type SteerRequest = {
   plan?: PlanIntent | undefined;
   /** What the turn it falls back to would run on. A steer that joins runs on the request's model. */
   model: string;
+  /** Likewise its effort. */
+  effort?: Effort | undefined;
   billsToUser: boolean;
 };
 

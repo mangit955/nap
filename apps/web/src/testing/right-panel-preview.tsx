@@ -5,6 +5,7 @@ import type { ProjectGitHub, PullRequestInspection } from "@nap/shared/github-pr
 import { AppShell } from "../components/app-shell.tsx";
 import { ev, PROJECT_ID, SESSION_ID } from "./events.ts";
 import { FakeSocket } from "./fake-socket.ts";
+import { modelList } from "./model-list.ts";
 
 const patch =
   'diff --git a/src/workspace.tsx b/src/workspace.tsx\n--- a/src/workspace.tsx\n+++ b/src/workspace.tsx\n@@ -1,5 +1,9 @@\n import { useState } from "react";\n \n export function Workspace() {\n-  return <Preview />;\n+  const [activeTab, setActiveTab] = useState("browser");\n+  return (\n+    <RightPanel activeTab={activeTab}\n+      onSelect={setActiveTab} />\n+  );\n }\n';
@@ -135,11 +136,12 @@ const fetchJson = async (url: string) => {
       truncated: false,
     });
   if (path.endsWith("/models"))
-    return Response.json({
-      models: [{ id: "fixture/free", label: "Scripted model", free: true, available: true }],
-      fallback: "fixture/free",
-      key: { configured: false },
-    });
+    return Response.json(
+      modelList({
+        key: null,
+        free: { id: "fixture/free", label: "Scripted model", images: false },
+      }),
+    );
   if (path.endsWith(`/projects/${PROJECT_ID}`))
     return Response.json({
       projectId: PROJECT_ID,

@@ -9,6 +9,7 @@
 import { checkedOutBranch, discardUncommitted, workspaceState } from "@nap/sandbox/git";
 import type { NapEvent, VerifiedCheck } from "@nap/shared/events";
 import { getLogger } from "@nap/shared/logging";
+import type { Effort } from "@nap/shared/model-lines";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import {
   MAX_REVIEW_ROUNDS,
@@ -32,6 +33,7 @@ export type JobReviewRequest = {
   history: readonly NapEvent[];
   objective: string;
   model: string | undefined;
+  effort: Effort | undefined;
   credentials: ModelCredentials | undefined;
   signal: AbortSignal | undefined;
 };
@@ -89,6 +91,7 @@ async function reviewAndPutBack(request: JobReviewRequest): Promise<JobReview> {
       objective: request.objective,
       changedFiles: changedFilesOf(history, jobId),
       model: request.model,
+      effort: request.effort,
       credentials: request.credentials,
       signal: request.signal,
     });

@@ -170,9 +170,9 @@ one. Run it again with `bun run computer:reliability`.
 
 ## A free image model
 
-`nvidia/nemotron-3.5-super-vl:free` is on the image-model allowlist, so a turn on it is offered the
-`computer` tool and image attachments. It takes effect only where a deployment also puts the model
-in `NAP_ALLOWED_MODELS`. It read a marker from a screenshot placed inside a tool result through
+`nvidia/nemotron-3.5-super-vl:free` is on the image-model list, so a turn on it is offered the
+`computer` tool and image attachments. It takes effect only where a deployment names it as its
+free tier's `NAP_FREE_MODEL`; every model line takes images on its own (`ModelLine.images`). It read a marker from a screenshot placed inside a tool result through
 OpenRouter's Messages route, which is the shape the computer tool sends.
 `inclusionai/ling-3.2-flash:free` and `particle-ai/particle-1:free` passed the same check and were
 not added.

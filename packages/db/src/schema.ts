@@ -5,6 +5,7 @@ import type {
   RepositoryJob,
 } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
+import { EFFORTS, type Effort } from "@nap/shared/model-lines";
 import type { SessionNavigation } from "@nap/shared/session-navigation";
 import type { NameSource } from "@nap/shared/session-title";
 /**
@@ -35,6 +36,7 @@ import { STEER_STATES } from "@nap/shared/ports/steer-queue";
 import { TURN_REQUEST_KINDS, TURN_REQUEST_STATES } from "@nap/shared/ports/turn-queue";
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -485,6 +487,11 @@ export const turnRequestState = pgEnum("turn_request_state", TURN_REQUEST_STATES
 /** What the request asks for: a turn on a prompt, or bringing a put-away project back up. */
 export const turnRequestKind = pgEnum("turn_request_kind", TURN_REQUEST_KINDS);
 
+/** An effort column holds a level the provider takes, or nothing. */
+function effortIn(column: AnyPgColumn) {
+  return sql`${column} is null or ${column} in (${sql.raw(EFFORTS.map((level) => `'${level}'`).join(", "))})`;
+}
+
 /**
  * The queue of turn requests, and the leases that make one per session exclusive.
  *
@@ -538,6 +545,11 @@ export const turnRequests = pgTable(
     /** Resolved at admission: which models somebody may name is a fact about who is asking. */
     model: text("model").notNull(),
     /**
+     * How hard the model thinks, resolved at admission beside it. Null on a row queued before
+     * effort was chosen per turn, which runs at the deployment's configured effort.
+     */
+    effort: text("effort").$type<Effort>(),
+    /**
      * Whether the asker's own account pays.
      *
      * **Never a key.** The worker re-opens the caller's stored credential by `user_id`, so
@@ -578,6 +590,9 @@ export const turnRequests = pgTable(
     index("turn_requests_unannounced_orphans")
       .on(t.leaseExpiresAt)
       .where(sql`${t.state} = 'orphaned' and ${t.finishedAt} is null`),
+    // A worker hands this straight to the provider, so a value the provider would refuse fails
+    // here, at the insert, rather than as a 400 on the turn's first model call.
+    check("turn_requests_effort", effortIn(t.effort)),
   ],
 );
 
@@ -613,6 +628,7 @@ export const turnSteers = pgTable(
     plan: jsonb("plan").$type<PlanIntent>(),
     /** What that turn would run on, and who pays: resolved at admission like a turn's. */
     model: text("model").notNull(),
+    effort: text("effort").$type<Effort>(),
     billsToUser: boolean("bills_to_user").notNull().default(false),
     state: steerState("state").notNull().default("pending"),
     createdAt,
@@ -628,6 +644,7 @@ export const turnSteers = pgTable(
     // Both foreign keys cascade, so deleting a session or a person looks their steers up by these.
     index("turn_steers_session").on(t.sessionId),
     index("turn_steers_user").on(t.userId),
+    check("turn_steers_effort", effortIn(t.effort)),
   ],
 );
 

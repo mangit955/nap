@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mediaBrowser } from "../testing/media-browser.ts";
+import { modelOption } from "../testing/model-options.ts";
 import { DashboardHero } from "./dashboard-hero.tsx";
 
 /**
@@ -60,8 +61,13 @@ afterEach(() => {
 
 describe("the dashboard hero", () => {
   const models = [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
+    modelOption({ id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true }),
+    modelOption({
+      id: "anthropic/claude-opus-5",
+      label: "Claude Opus 5",
+      free: false,
+      available: true,
+    }),
   ];
 
   it("retains references across a text-only model choice and blocks sending until compatible", async () => {

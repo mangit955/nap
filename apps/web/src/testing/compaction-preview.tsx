@@ -50,10 +50,25 @@ export function CompactionPreview() {
       >
         <ChatPane
           models={[
-            { id: "fixture/free", label: "Scripted model", available: true, free: true },
+            {
+              id: "fixture/free",
+              label: "Scripted model",
+              vendor: null,
+              version: "fixture/free",
+              isNew: false,
+              images: false,
+              efforts: [],
+              available: true,
+              free: true,
+            },
             {
               id: "fixture/unavailable",
               label: "Unavailable fixture model",
+              vendor: "openai",
+              version: null,
+              isNew: false,
+              images: false,
+              efforts: [],
               available: false,
               free: false,
             },

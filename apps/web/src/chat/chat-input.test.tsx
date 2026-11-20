@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import * as draftNavigation from "../projects/use-draft-navigation.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
+import { modelOption } from "../testing/model-options.ts";
 import { ChatInput } from "./chat-input.tsx";
 
 function show(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
@@ -60,13 +61,15 @@ describe("reference inputs", () => {
     browser.restore();
   });
   const models = [
-    { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
-    {
+    modelOption({ id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true }),
+    modelOption({
       id: "nvidia/nemotron-3-ultra-550b-a55b:free",
       label: "Nemotron",
       free: true,
       available: true,
-    },
+      images: false,
+      vendor: null,
+    }),
   ];
 
   it.each(["picker", "paste", "drop"])(
@@ -346,9 +349,21 @@ describe("the @ and / menus", () => {
 
 describe("the model picker", () => {
   const models = [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
-    { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true, available: true },
+    modelOption({ id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true }),
+    modelOption({
+      id: "anthropic/claude-opus-5",
+      label: "Claude Opus 5",
+      free: false,
+      available: true,
+    }),
+    modelOption({
+      id: "openai/gpt-oss-20b:free",
+      label: "Gpt Oss 20b",
+      free: true,
+      available: true,
+      images: false,
+      vendor: null,
+    }),
   ];
 
   it("names the model turns will run on", () => {

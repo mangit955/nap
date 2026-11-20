@@ -1,3 +1,9 @@
+import {
+  type AnthropicClient,
+  type AnthropicMessage,
+  ClaudeProvider,
+} from "@nap/agent/claude-provider";
+import { ModelBaseUrlSchema } from "@nap/agent/model-endpoint";
 import { ScriptedLLMProvider } from "@nap/agent/testing/scripted-llm-provider";
 import { GatedPageCapture } from "@nap/capture/testing/gated-page-capture";
 import { enqueueRequest } from "@nap/db/testing/enqueue-request";
@@ -29,7 +35,7 @@ import type { TurnRateLimiter } from "@nap/shared/ports/turn-rate-limit";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { WSContext, type WSEvents } from "hono/ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encryptionKeyFrom } from "./account/secret-box.ts";
+import { encryptionKeyFrom, seal } from "./account/secret-box.ts";
 import { composeNap, type NapDeps } from "./compose.ts";
 import { GitHubApp } from "./github/app.ts";
 import { createLogger } from "./logger.ts";
@@ -47,9 +53,7 @@ import { createLogger } from "./logger.ts";
 
 const CONFIG: NapDeps["config"] = {
   NAP_WEB_ORIGIN: "http://localhost:3000",
-  NAP_MODEL: "openai/gpt-5.6-luna",
   NAP_FREE_MODEL: "openai/gpt-5.6-luna",
-  NAP_ALLOWED_MODELS: ["openai/gpt-5.6-luna"],
   NAP_MAX_STEPS: 4,
   NAP_CONTEXT_BUDGET_TOKENS: 10_000,
   NAP_MAX_SANDBOXES_PER_USER: 2,
@@ -713,7 +717,7 @@ describe("composeNap", () => {
       userId: FAKE_OWNER,
       kind: "turn",
       message: "add a dark mode toggle",
-      model: CONFIG.NAP_MODEL,
+      model: CONFIG.NAP_FREE_MODEL ?? "",
       billsToUser: false,
     });
     await queue.claim("a-worker-on-another-pod");
@@ -752,6 +756,92 @@ describe("composeNap", () => {
     await expect.poll(() => queue.inFlight, { timeout: 10_000 }).toBe(0);
     const logged = (await events.readFrom(SESSION, 0)).map((event) => event.type);
     expect(logged).toContain("turn.completed");
+  });
+
+  it("carries the person's line and effort from the turn request to the model's request body", async () => {
+    // Every link between the route and the vendor — route, queue row, worker, runtime, agent,
+    // provider — has to pass effort on; dropping it anywhere still type-checks, and the turn
+    // quietly runs at the default. Only the body that would go to OpenRouter shows it arrived.
+    const queue = new InMemoryTurnQueue();
+    const sessions = new InMemorySessionStore([{ sessionId: SESSION, projectId: PROJECT }]);
+    const userKeys = new InMemoryUserKeyStore();
+    const key = encryptionKeyFrom(SECRET);
+    await userKeys.put({
+      userId: FAKE_OWNER,
+      platform: "openrouter",
+      ...seal("sk-or-theirs", key),
+      hint: "sk-or-…heirs",
+    });
+    const bodies: Parameters<AnthropicClient["messages"]["stream"]>[0][] = [];
+    const recording: AnthropicClient = {
+      messages: {
+        stream(body) {
+          bodies.push(body);
+          return {
+            on: () => {},
+            finalMessage: async () =>
+              ({
+                content: [{ type: "text", text: "Done.", citations: null }],
+                stop_reason: "end_turn",
+                usage: { input_tokens: 10, output_tokens: 2 },
+              }) as AnthropicMessage,
+          };
+        },
+      },
+    };
+    const shared = {
+      queue,
+      sessions,
+      userKeys,
+      encryptionKey: key,
+      projects: projectHolding(SESSION),
+      sandbox: turnableSandbox(),
+    };
+    const { app } = compose({ ...shared, role: "api" });
+    compose({
+      ...shared,
+      role: "worker",
+      provider: new ClaudeProvider({ client: recording, createClient: () => recording }),
+    });
+
+    const accepted = await app.request(`/sessions/${SESSION}/turns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "add a dark mode toggle", model: "opus", effort: "max" }),
+    });
+    expect(accepted.status).toBe(202);
+    await expect.poll(() => queue.inFlight, { timeout: 10_000 }).toBe(0);
+
+    const step = bodies.find((body) => body.tools !== undefined && body.tools.length > 0);
+    // The committed snapshot's Opus, which is what a composition with no catalog fetch runs.
+    expect(step?.model).toBe("anthropic/claude-opus-5.5");
+    expect(step?.output_config).toEqual({ effort: "max" });
+  });
+
+  it("refreshes the model catalog only where turns are admitted", async () => {
+    const fetchCatalog = vi.fn(async () => ({ data: [] }));
+    compose({ role: "worker", fetchCatalog });
+    const reaper = compose({ role: "reaper", fetchCatalog });
+    stopping.push(reaper.catalog);
+    await vi.waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(0));
+    const api = compose({ role: "api", fetchCatalog });
+    stopping.push(api.catalog);
+    await vi.waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(1));
+  });
+
+  it("never asks OpenRouter for the catalog when the deployment names its own model host", async () => {
+    const fetchCatalog = vi.fn(async () => ({ data: [] }));
+    const api = compose({
+      role: "api",
+      fetchCatalog,
+      config: {
+        ...CONFIG,
+        NAP_MODEL_BASE_URL: ModelBaseUrlSchema.parse("http://localhost:11434"),
+      },
+    });
+    stopping.push(api.catalog);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchCatalog).not.toHaveBeenCalled();
   });
 
   it("fails, rather than runs, a queued turn nobody pays for when no free model is named", async () => {

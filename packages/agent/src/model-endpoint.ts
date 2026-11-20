@@ -3,7 +3,7 @@
  *
  * Every route this project reaches speaks Anthropic's Messages API, so two independent choices
  * describe the deployment's own client completely. The platform (`NAP_PLATFORM`) decides which key
- * is sent and how `NAP_MODEL` is spelled: `openrouter` namespaces it by vendor, `anthropic` leaves
+ * is sent and how the deployment's model (`NAP_FREE_MODEL`) is spelled: `openrouter` namespaces it by vendor, `anthropic` leaves
  * it bare. The base URL (`NAP_MODEL_BASE_URL`) decides the host. Absent, each platform keeps the
  * host it always had, so a deployment that sets nothing behaves exactly as before. Set, it moves
  * only the host. That is how the same code reaches a local Ollama (the `anthropic` platform,

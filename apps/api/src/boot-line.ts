@@ -25,7 +25,8 @@ export type Announcing = {
     | "NAP_PLATFORM"
     | "NAP_MODEL_BASE_URL"
     | "NAP_EVENT_BUS"
-    | "NAP_MODEL"
+    | "NAP_FREE_MODEL"
+    | "NAP_MODEL_PINS"
     | "NAP_EFFORT"
   > &
     PoolSettings;
@@ -53,8 +54,12 @@ export function announce(nap: Announcing, message: string, extra: Record<string,
       // Whether this process can share a session with another one. `in-process` and two replicas
       // is a chat that stops moving, and that is worth being able to read off a boot line.
       eventBus: env.NAP_EVENT_BUS,
-      model: env.NAP_MODEL,
-      effort: env.NAP_EFFORT,
+      // What this deployment pays for: nobody, unless a free model is named. Every other turn runs
+      // a line on the asker's own key, at the effort they chose.
+      freeModel: env.NAP_FREE_MODEL ?? null,
+      freeEffort: env.NAP_EFFORT,
+      // A pinned line does not follow the catalog, which is worth seeing beside a moved one.
+      ...(Object.keys(env.NAP_MODEL_PINS).length === 0 ? {} : { modelPins: env.NAP_MODEL_PINS }),
       // What this process adds to the database's connection count, which is summed across every
       // process and replica against `max_connections` (`docs/DEPLOY.md`).
       databasePool: databasePoolSize(nap.role, env),

@@ -5,6 +5,7 @@ import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
+import { modelList } from "../testing/model-list.ts";
 import { AppShell } from "./app-shell.tsx";
 
 /**
@@ -329,14 +330,7 @@ describe("AppShell", () => {
       removeListener() {},
       dispatchEvent: () => false,
     }));
-    const models = {
-      models: [
-        { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
-        { id: "anthropic/claude-opus-5", label: "Opus", free: false, available: true },
-      ],
-      fallback: "openai/gpt-5.6-luna",
-      key: { configured: false },
-    };
+    const models = modelList();
     const net = sockets();
     const view = render(
       <AppShell

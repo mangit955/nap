@@ -2,11 +2,11 @@
 
 import { RepositoryImportSchema } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
-import type { ModelChoice } from "@nap/shared/models-protocol";
 import { SessionStartedSchema, SessionStartSchema } from "@nap/shared/session-start-protocol";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
+import { type ModelOption, sendableModel } from "../chat/model-options.ts";
 import { handOffStartedPrompt } from "../chat/started-prompt.ts";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
@@ -38,7 +38,7 @@ export function NewSessionComposer({
   settingsRequest = 0,
 }: {
   ownerId: string;
-  models: readonly ModelChoice[];
+  models: readonly ModelOption[];
   modelsLoading: boolean;
   fallback?: string | undefined;
   onAddKey: () => void;
@@ -256,7 +256,13 @@ export function NewSessionComposer({
       value.pendingStart ?? {
         operationId: value.operationId,
         source: value.source ? { ...value.source, kind: "github" } : { kind: "template" },
-        ...(message.trim() ? { prompt: { message, model: value.model, attachments } } : {}),
+        ...(message.trim()
+          ? {
+              // A draft saved before there were lines may hold an exact version: sent as its
+              // line, and dropped when this deployment offers nothing it could mean.
+              prompt: { message, model: sendableModel(models, value.model), attachments },
+            }
+          : {}),
       },
     );
     if (!parsed.success) {

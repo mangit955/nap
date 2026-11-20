@@ -94,9 +94,7 @@ afterAll(async () => {
 
 const CONFIG: NapDeps["config"] = {
   NAP_WEB_ORIGIN: "http://localhost:3000",
-  NAP_MODEL: "openai/gpt-5.6-luna",
   NAP_FREE_MODEL: "openai/gpt-5.6-luna",
-  NAP_ALLOWED_MODELS: ["openai/gpt-5.6-luna"],
   NAP_MAX_STEPS: 4,
   NAP_CONTEXT_BUDGET_TOKENS: 10_000,
   NAP_MAX_SANDBOXES_PER_USER: 4,
@@ -234,7 +232,7 @@ describe("an API pod and a worker pod over one database", () => {
       userId,
       kind: "turn",
       message: "add a dark mode toggle",
-      model: CONFIG.NAP_MODEL,
+      model: CONFIG.NAP_FREE_MODEL ?? "",
       billsToUser: false,
     });
     await elsewhere.claim("a-worker-on-another-pod");
@@ -525,7 +523,7 @@ describe("a worker and a real channel over one database", () => {
       userId,
       kind: "turn",
       message: "add a dark mode toggle",
-      model: CONFIG.NAP_MODEL,
+      model: CONFIG.NAP_FREE_MODEL ?? "",
       billsToUser: false,
     });
     return id;

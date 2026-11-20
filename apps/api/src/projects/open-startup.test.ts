@@ -30,6 +30,7 @@ import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
+import type { ModelPolicy } from "../turns/model-access.ts";
 import { TurnRegistry } from "../turns/registry.ts";
 
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
@@ -158,7 +159,7 @@ async function system(options: { restored?: boolean; repositoryPort?: number | n
     await lane.stop();
     expect(outsideLease).toEqual([]);
   });
-  const models = { allowedModels: [MODEL], freeModel: MODEL, defaultModel: MODEL };
+  const policy: ModelPolicy = { versionOf: () => null, freeModel: MODEL, freeEffort: "medium" };
   const app = createApp({
     logger: createLogger({ level: "silent" }, { write: () => {} }),
     authenticate: async () => ({ userId: FAKE_OWNER, isAnonymous: false }),
@@ -173,9 +174,9 @@ async function system(options: { restored?: boolean; repositoryPort?: number | n
       isBusy: (ids) => queue.anyLeased(ids),
       events: { events, bus },
       queue,
-      models,
+      models: { policy },
     },
-    turns: { queue, registry: new TurnRegistry(), projects, sessions, ...models },
+    turns: { queue, registry: new TurnRegistry(), projects, sessions, models: policy },
   });
   const post = (path: string, body?: unknown) =>
     app.request(path, {

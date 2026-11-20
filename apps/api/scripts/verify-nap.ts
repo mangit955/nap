@@ -268,9 +268,7 @@ try {
   const config = {
     ...loadgenConfig(2),
     NAP_WEB_ORIGIN: WEB,
-    NAP_MODEL: MODEL,
     NAP_FREE_MODEL: MODEL,
-    NAP_ALLOWED_MODELS: [MODEL],
     NAP_WORKER_CONCURRENCY: 2,
     NAP_DRAIN_TIMEOUT_SECONDS: 5,
     // Room to start several projects in one run beside the seeded one. The route reads these and

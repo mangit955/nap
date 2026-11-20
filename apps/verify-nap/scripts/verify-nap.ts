@@ -173,7 +173,7 @@ async function capture(
 }
 
 /**
- * Signs in over HTTP and asks the API which models a turn may use. The point of the fixture is
+ * Signs in over HTTP and asks the API which models a turn may run on. The point of the fixture is
  * that nothing spends money, so this asks the running composition rather than trusting what the
  * fixture wrote about itself.
  */
@@ -195,7 +195,14 @@ async function offeredModels(run: RunFile): Promise<string[]> {
   });
   if (!listed.ok) throw new Error(`/models answered ${listed.status}`);
   const body = ModelListSchema.parse(await listed.json());
-  return [...body.models.map((model) => model.id), body.fallback];
+  // What this caller could actually run: the free model, and any line their key reaches, by the
+  // version it would run. A line that is listed but locked costs nothing.
+  return [
+    ...(body.free === null ? [] : [body.free.id]),
+    ...body.lines.flatMap((line) =>
+      line.available && line.version !== null ? [line.version] : [],
+    ),
+  ];
 }
 
 async function doctor(run: RunFile): Promise<boolean> {

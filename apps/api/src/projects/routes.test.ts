@@ -12,6 +12,7 @@ import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
+import type { ModelPolicy } from "../turns/model-access.ts";
 import type { SandboxLimits } from "../turns/sandbox-quota.ts";
 import type { ProjectRouteDeps } from "./routes.ts";
 import type { SessionTitles, TitleOutcome } from "./session-titler.ts";
@@ -20,8 +21,17 @@ const PROJECT = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const SESSION = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const UNKNOWN = "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e";
 const SHA = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80912";
-const PAID_MODEL = "openai/gpt-5.6-luna";
+/** Sol's version here; no other line has one, Opus included. */
+const PAID_MODEL = "openai/gpt-6.2-sol";
 const FREE_MODEL = "openai/gpt-oss-20b:free";
+
+function policy(freeModel: string | undefined): ModelPolicy {
+  return {
+    versionOf: (line) => (line === "sol" ? PAID_MODEL : null),
+    freeModel,
+    freeEffort: "medium",
+  };
+}
 
 const silent = () => createLogger({ level: "silent" }, { write: () => {} });
 
@@ -77,11 +87,7 @@ beforeEach(async () => {
   queue = new InMemoryTurnQueue();
   // Required rather than optional, because a queued resume carries a concrete model: the row is
   // written before anything can default one, and the default that would be applied is paid.
-  models = {
-    allowedModels: [PAID_MODEL, FREE_MODEL],
-    freeModel: FREE_MODEL,
-    defaultModel: PAID_MODEL,
-  };
+  models = { policy: policy(FREE_MODEL) };
   limits = undefined;
   freeLimits = undefined;
   events = new InMemoryEventStore();
@@ -333,9 +339,7 @@ describe("POST /projects/:projectId/open", () => {
     // this, a user with their own key has their repairs billed to the deployment.
     models = {
       keys: async () => ({ platform: "openrouter", apiKey: "sk-or-theirs" }),
-      allowedModels: [PAID_MODEL, FREE_MODEL],
-      freeModel: FREE_MODEL,
-      defaultModel: PAID_MODEL,
+      policy: policy(FREE_MODEL),
     };
 
     await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
@@ -343,7 +347,7 @@ describe("POST /projects/:projectId/open", () => {
     // `billsToUser` rather than the key itself: the worker re-opens it by user id, so plaintext
     // credentials never reach the queue, a query log or a backup.
     expect(queue.enqueued).toEqual([
-      expect.objectContaining({ model: PAID_MODEL, billsToUser: true }),
+      expect.objectContaining({ model: PAID_MODEL, effort: "medium", billsToUser: true }),
     ]);
   });
 
@@ -355,20 +359,18 @@ describe("POST /projects/:projectId/open", () => {
     ]);
   });
 
-  it("refuses a caller whose key cannot reach any model here, rather than queueing one", async () => {
-    // An Anthropic key against an allowlist with no Claude model on it. Rare, but the resolver
-    // can say no with nothing requested, and a queued row needs a model that will actually run.
+  it("refuses a caller whose default line has no working version, rather than queueing one", async () => {
+    // An Anthropic key defaults to Opus; with no Opus version in the catalog the resolver says no
+    // with nothing requested, and a queued row needs a model that will actually run.
     models = {
       keys: async () => ({ platform: "anthropic", apiKey: "sk-ant-theirs" }),
-      allowedModels: [PAID_MODEL, FREE_MODEL],
-      freeModel: FREE_MODEL,
-      defaultModel: PAID_MODEL,
+      policy: policy(FREE_MODEL),
     };
 
     const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ code: "model_not_allowed" });
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ code: "model_unavailable" });
     expect(queue.enqueued).toEqual([]);
   });
 
@@ -400,11 +402,7 @@ describe("POST /projects/:projectId/open", () => {
 
   it("refuses a caller with no key when the deployment pays for nobody", async () => {
     // Opening restores a sandbox, which this deployment would be paying for by the second.
-    models = {
-      allowedModels: [PAID_MODEL, FREE_MODEL],
-      freeModel: undefined,
-      defaultModel: PAID_MODEL,
-    };
+    models = { policy: policy(undefined) };
 
     const res = await app().request(`/projects/${PROJECT}/open`, { method: "POST" });
 

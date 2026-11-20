@@ -23,6 +23,7 @@
 import type { SubagentOutcome, SubagentProfile } from "@nap/shared/agent-plan";
 import { estimateContextTokens } from "@nap/shared/compaction";
 import type { NapEvent, NapEventOf, ToolName } from "@nap/shared/events";
+import type { Effort } from "@nap/shared/model-lines";
 import type { AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { DistributiveOmit } from "@nap/shared/ports/event-store";
 import type {
@@ -60,6 +61,11 @@ export type SubagentPoolOptions = {
   provider: LLMProvider;
   /** The model each profile runs on. */
   modelFor: (profile: SubagentProfile) => string | undefined;
+  /**
+   * The effort each profile runs at: the person's own when it runs on their turn's model, so a
+   * helper thinks as hard as the turn they asked for. Absent means the provider's default.
+   */
+  effortFor?: ((profile: SubagentProfile) => Effort | undefined) | undefined;
   credentials: AgentTurnRequest["credentials"];
   prompts: Record<SubagentProfile, string>;
   rootRules?: boolean;
@@ -183,6 +189,7 @@ export class SubagentPool implements SubagentRunner {
     };
 
     const model = options.modelFor(request.profile);
+    const effort = options.effortFor?.(request.profile);
     const toolsetOptions = {
       promptSource: "user" as const,
       family: modelFamily(model),
@@ -210,7 +217,7 @@ export class SubagentPool implements SubagentRunner {
         request,
         signal,
         allowance,
-        { tools, offered, ledger, emit, model, recordUsage },
+        { tools, offered, ledger, emit, model, effort, recordUsage },
         finish,
         () => {
           toolCalls += 1;
@@ -238,16 +245,18 @@ export class SubagentPool implements SubagentRunner {
       ledger: FileLedger;
       emit: ToolContext["emit"];
       model: string | undefined;
+      effort: Effort | undefined;
       recordUsage: (usage: TokenUsage, weights: BilledWeights) => void;
     },
     finish: (outcome: SubagentOutcome, report: string) => ToolOutcome,
     counted: () => void,
     usage: TokenUsage,
   ): Promise<ToolOutcome> {
-    const { tools, offered, ledger, emit, model, recordUsage } = access;
+    const { tools, offered, ledger, emit, model, effort, recordUsage } = access;
     const options = this.#options;
     const turn = options.provider.startTurn({
       model,
+      effort,
       credentials: options.credentials,
     });
     // The helper's own model's, which may be cheaper than the lead's: its spend is charged, and

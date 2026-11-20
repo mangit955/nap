@@ -187,6 +187,7 @@ class Turn {
     this.#offered = toolNamesFor(toolset);
     this.#turn = options.provider.startTurn({
       model: request.model,
+      effort: request.effort,
       credentials: request.credentials,
     });
     this.#turns.push(this.#turn);
@@ -200,13 +201,18 @@ class Turn {
     // A cheaper helper model is the deployment's to choose and the deployment's to pay for;
     // on a person's own key the turn's model is the only one known to be reachable.
     const deploymentPays = request.credentials === undefined;
+    const helperModel = (profile: SubagentProfile) =>
+      deploymentPays ? options.subagentModels?.[profile] : undefined;
     this.#helpers =
       prompts === undefined || !this.#offered.has("run_subagent")
         ? undefined
         : new SubagentPool({
             provider: options.provider,
-            modelFor: (profile) =>
-              (deploymentPays ? options.subagentModels?.[profile] : undefined) ?? this.#model,
+            modelFor: (profile) => helperModel(profile) ?? this.#model,
+            // The deployment's own helper model runs at the deployment's effort; a helper on the
+            // turn's model runs at the effort the person chose for the turn.
+            effortFor: (profile) =>
+              helperModel(profile) === undefined ? request.effort : undefined,
             credentials: request.credentials,
             prompts,
             rootRules: request.context.rootRules === true,

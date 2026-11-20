@@ -4,7 +4,11 @@ import { judge, NapReviewer, showsOnly } from "./reviewer.ts";
 import { ScriptedLLMProvider, type ScriptedTurn } from "./testing/scripted-llm-provider.ts";
 import { PROJECT_ROOT } from "./tools/definitions.ts";
 
-async function review(turns: ScriptedTurn[], maxSteps?: number) {
+async function review(
+  turns: ScriptedTurn[],
+  maxSteps?: number,
+  turn: { model?: string; effort?: "low" | "max" } = {},
+) {
   const sandbox = new InMemorySandboxManager({
     defaultExec: () => ({
       exitCode: 1,
@@ -26,12 +30,25 @@ async function review(turns: ScriptedTurn[], maxSteps?: number) {
     sandboxId: created.value.id,
     objective: "Make parse return 3.",
     changedFiles: ["a.py"],
+    ...turn,
   });
   return { result, sandbox, sandboxId: created.value.id, provider };
 }
 
 const RUN = { id: "c1", name: "run_command", input: { command: "pytest -q" } };
 const report = (body: unknown) => ({ text: `\`\`\`json\n${JSON.stringify(body)}\n\`\`\`` });
+
+it("reviews on the turn's model at the turn's effort", async () => {
+  // A review on the person's model is on their bill, so it thinks as hard as they asked.
+  const { provider } = await review([[report({ problems: [], notes: [] })]], undefined, {
+    model: "anthropic/claude-opus-5.5",
+    effort: "low",
+  });
+  expect(provider.turnOptions[0]).toMatchObject({
+    model: "anthropic/claude-opus-5.5",
+    effort: "low",
+  });
+});
 
 describe("NapReviewer", () => {
   it("blocks on a problem shown by a command it ran, quoting what that command printed", async () => {

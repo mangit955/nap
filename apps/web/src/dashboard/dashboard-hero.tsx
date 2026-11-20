@@ -1,12 +1,12 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
-import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
-import type { ModelChoice } from "@nap/shared/models-protocol";
+import { MODEL_MEDIA_UNSUPPORTED } from "@nap/shared/model-capabilities";
 import { type ReactNode, useEffect, useRef } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ComposerAddMenu } from "../chat/composer-add-menu.tsx";
 import { AttachmentTray, DictationButton } from "../chat/composer-controls.tsx";
+import { imagesFor, type ModelOption } from "../chat/model-options.ts";
 import { ModelPicker } from "../chat/model-picker.tsx";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 
@@ -39,7 +39,7 @@ export function DashboardHero({
   canOpenWorkspace?: boolean;
   busy?: boolean;
   error?: string | undefined;
-  models?: readonly ModelChoice[];
+  models?: readonly ModelOption[];
   modelsLoading?: boolean;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
@@ -50,7 +50,7 @@ export function DashboardHero({
   const box = useRef<HTMLTextAreaElement>(null);
   const localMedia = useMediaAttachments();
   const media = mediaState ?? localMedia;
-  const images = modelSupportsImages(model);
+  const images = imagesFor(models, model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
   const disabled = busy || media.processing;
