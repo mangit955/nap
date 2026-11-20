@@ -37,6 +37,7 @@ import {
 import { createProjectSession } from "./session-bootstrap.ts";
 import { PostgresSessionNavigationStore } from "./session-navigation-store.ts";
 import { PostgresSessionStartStore } from "./session-start-store.ts";
+import { countingTransactions } from "./testing/counting-transactions.ts";
 
 let writer: postgres.Sql;
 let observer: postgres.Sql;
@@ -48,7 +49,9 @@ beforeAll(async () => {
   writer = postgres(inject("postgresUrl"), { max: 4 });
   observer = postgres(inject("postgresUrl"), { max: 1 });
   await observer`select 1`;
-  db = countingTransactions(drizzle(writer));
+  const counted = countingTransactions(drizzle(writer));
+  db = counted.db;
+  open = counted.open;
   const [user] = await db
     .insert(users)
     .values({ email: `${randomUUID()}@example.com`, name: "Lister" })
@@ -64,38 +67,14 @@ afterAll(async () => {
   await observer.end();
 });
 
-/** Transactions open on `db` right now. */
-let open = 0;
+/** Transactions open on `db` right now; set once `db` is. */
+let open: () => number = () => 0;
 /** Announcements made while one was: each is a notice that could beat its own commit. */
 const insideTransaction: SessionListOwner[][] = [];
 
 afterEach(() => {
   expect(insideTransaction.splice(0)).toEqual([]);
 });
-
-/**
- * `base`, counting its open transactions. The count drops only once `transaction` has returned,
- * which is after the commit, so a store that announces from inside its callback is caught however
- * fast the commit that follows it is.
- */
-function countingTransactions(base: PostgresJsDatabase): PostgresJsDatabase {
-  return new Proxy(base, {
-    get(target, property) {
-      if (property === "transaction") {
-        return async (...args: Parameters<PostgresJsDatabase["transaction"]>) => {
-          open += 1;
-          try {
-            return await target.transaction(...args);
-          } finally {
-            open -= 1;
-          }
-        };
-      }
-      const value: unknown = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-}
 
 /**
  * An announcer that records whom each call named, and, if asked, a read another connection makes
@@ -109,7 +88,7 @@ function recording(read?: () => Promise<string | undefined>) {
     sessionList: {
       announce: (...owners: SessionListOwner[]) => {
         calls.push(owners);
-        if (open > 0) insideTransaction.push(owners);
+        if (open() > 0) insideTransaction.push(owners);
         if (read) seen.push(read().then((value) => value ?? "invisible"));
       },
     },

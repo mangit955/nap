@@ -42,8 +42,9 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
     readonly options: {
       claims: ClaimAnnouncer | null;
       /**
-       * Told when an abandon has put the machine away, which the owner's cards draw as a workspace
-       * no longer running. Absent, their tabs see it at their slow poll.
+       * Told after an abandon commits: it may have put the machine away, which the owner's cards
+       * draw as a workspace no longer running, and it always moves the time an idle card shows.
+       * Absent, their tabs see it at their slow poll.
        */
       sessionList?: SessionListAnnouncer | null;
     },
@@ -280,8 +281,8 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
       },
     );
     if (result.ok) this.options.claims?.announce();
-    if (result.ok && result.value.released)
-      this.options.sessionList?.announce({ userId: request.userId });
+    // Released or not, the abandon moved the project's `updatedAt`, which an idle card draws.
+    if (result.ok) this.options.sessionList?.announce({ userId: request.userId });
     return result;
   }
 
