@@ -29,6 +29,8 @@ bun run test:integration  # needs something external; run at milestone boundarie
 bun scripts/setup-worktree.ts     # sets up a git worktree: bun install, then symlinks the main
                           # checkout's env files in; writes .t3/setup-{running,done,failed}. T3 Code
                           # runs it on worktree creation (t3.json). Free; safe to rerun anywhere
+bun scripts/model-catalog-snapshot.ts  # rewrites the catalog snapshot the API starts from, from
+                                  # OpenRouter's public catalog — free, no key. Commit the result
 bun run harness "<prompt>"        # one turn, printing the event stream — fakes, free, no network
 bun run harness --plan "<prompt>" # the same turn in plan mode, ending on a proposed plan — fakes, free
                           # add --approve to approve it and run the turn that builds it (ADR-0025)

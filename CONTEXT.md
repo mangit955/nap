@@ -331,6 +331,14 @@ commands. It spends the turn's budget, ends with the turn, and leaves only its s
 changes and its report in the log. Offered to imported repositories. Called a subagent in the code
 (`run_subagent`), which is the same thing.
 
+**Model line** — a family a vendor keeps shipping versions of (Sol, Opus, Muse Ember), and what a
+person picks in the composer. A turn runs the line's **version**: the newest exact model id
+OpenRouter lists for it that passes the shape check (`@nap/shared/model-lines`), unless the
+deployment pins one. The line is the choice; the version is a fact about the catalog this hour, and
+it is the version that is queued, billed and logged. Not to be confused with the free tier's model,
+which a deployment names exactly and which belongs to no line. **Effort** is chosen beside it, per
+turn.
+
 **Background shell** — a command started to keep running, read and typed into and stopped by id
 over later calls. Its state lives in files inside the sandbox, so it outlives the turn and the worker
 that started it, and dies with the sandbox.

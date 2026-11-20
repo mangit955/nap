@@ -133,15 +133,18 @@ function provider(client: AnthropicClient) {
 }
 
 describe("ClaudeProvider", () => {
-  it("uses bounded tool-free summary output without thinking, and reports truncation", async () => {
+  it("asks for a summary at low effort with room to think, and reports truncation", async () => {
+    // Not with thinking off: the newest Sol, Opus, Sonnet and Muse versions answer that with
+    // `400 Reasoning is mandatory`. The turn's own effort does not apply to a summary.
     const client = stubClient([message({ stop_reason: "max_tokens" })]);
-    const turn = provider(client).startTurn();
+    const turn = provider(client).startTurn({ effort: "max" });
     const result = await turn.complete(request({ purpose: "compaction", maxOutputTokens: 512 }));
     expect(client.calls[0]?.body).toMatchObject({
+      // The ceiling is the request's own, so the turn budget prices exactly what can be spent.
       max_tokens: 512,
-      thinking: { type: "disabled" },
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
     });
-    expect(client.calls[0]?.body).not.toHaveProperty("output_config");
     expect(result).toMatchObject({ type: "message", truncated: true });
     expect(turn.usage()).toEqual(result.usage);
   });
@@ -599,8 +602,22 @@ describe("ClaudeProvider", () => {
 
     it("strips the vendor namespace for a turn on an Anthropic key", async () => {
       // The codebase spells every model the OpenRouter way. Sent unchanged to Anthropic's own
-      // API, `anthropic/claude-opus-5` is a 404 — three layers away from the key that caused it.
-      expect(toModelId("anthropic/claude-opus-5", "anthropic")).toBe("claude-opus-5");
+      // API, `anthropic/claude-opus-5.5` is a 404 — three layers away from the key that caused it.
+      expect(toModelId("anthropic/claude-opus-5.5", "anthropic")).toBe("claude-opus-5-5");
+    });
+
+    it("sends the effort a turn chose, and the configured one when it chose none", async () => {
+      const client = stubClient([message(), message()]);
+      const configured = new ClaudeProvider({ client, sleep: noSleep, effort: "medium" });
+
+      await configured.startTurn({ effort: "xhigh" }).complete(request());
+      await configured.startTurn().complete(request());
+
+      const bodies = client.calls.map((call) => call.body as Anthropic.MessageStreamParams);
+      expect(bodies.map((body) => body.output_config)).toEqual([
+        { effort: "xhigh" },
+        { effort: "medium" },
+      ]);
     });
 
     it("leaves the namespace on for a turn on an OpenRouter key, and for no credentials", () => {

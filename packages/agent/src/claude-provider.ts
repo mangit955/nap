@@ -429,6 +429,26 @@ function toApiMessage(message: LLMMessage): ApiMessage {
   return { role: message.role, content };
 }
 
+/** The thinking and effort each kind of request is sent with. */
+function thinkingFor(
+  request: LLMRequest,
+  config: ModelConfig,
+): Pick<Anthropic.MessageStreamParams, "thinking" | "output_config"> {
+  // Off: a five-word title should not pay for reasoning, and titles are written only on the
+  // lines whose versions may not insist on it (`ModelLine.reasoningMayBeRequired`).
+  if (request.purpose === "title") return { thinking: { type: "disabled" } };
+  // Adaptive at `low`, not off: the newest versions of most lines refuse thinking off outright —
+  // `400 Reasoning is mandatory` from Sol 6.2, Opus 5.5, Sonnet 5.5, Fable 5.2 and both Muse lines, measured
+  // 2026-11-19 — so every long turn on them would fail at its first summary. The room the reasoning
+  // needs is in the request's own ceiling (`summaryRequest`), where the turn budget can price it.
+  if (request.purpose === "compaction")
+    return { thinking: { type: "adaptive" }, output_config: { effort: "low" } };
+  return {
+    output_config: { effort: config.effort },
+    thinking: { type: "adaptive", display: "summarized" },
+  };
+}
+
 /** Builds the request body. Exported because it is cheap to test and easy to get wrong. */
 export function toRequestParams(
   request: LLMRequest,
@@ -437,12 +457,7 @@ export function toRequestParams(
   return {
     model: config.model,
     max_tokens: Math.min(request.maxOutputTokens ?? config.maxTokens, config.maxTokens),
-    ...(request.purpose !== undefined
-      ? { thinking: { type: "disabled" as const } }
-      : {
-          output_config: { effort: config.effort },
-          thinking: { type: "adaptive" as const, display: "summarized" as const },
-        }),
+    ...thinkingFor(request, config),
     system: [{ type: "text", text: request.systemPrompt, cache_control: CACHE_BREAKPOINT }],
     messages: withConversationBreakpoint(request.messages.map(toApiMessage)),
     tools: request.tools.map((tool) => ({
@@ -523,8 +538,8 @@ export class ClaudeProvider implements LLMProvider {
   }
 
   startTurn(options: LLMTurnOptions = {}): LLMTurn {
-    // The model and the credential are the only two things a caller may vary, and both are
-    // facts about *who asked* rather than preferences. Effort, thinking, retries and the cache
+    // The model, the effort and the credential are all a caller may vary: the first two are the
+    // person's choice for this turn, the third is who pays for it. Thinking, retries and the cache
     // breakpoints stay this provider's, because they are policy tuned to the deployment — and
     // a caller that could set `maxTokens` on this route could reserve the whole balance, since
     // OpenRouter admits a request against the ceiling.
@@ -543,7 +558,7 @@ export class ClaudeProvider implements LLMProvider {
     return new ClaudeTurn(
       this.#clientFor(options.credentials),
       { sleep: this.#sleep, idleTimeoutMs: this.#idleTimeoutMs },
-      { ...this.#config, model },
+      { ...this.#config, model, effort: options.effort ?? this.#config.effort },
       weights,
     );
   }

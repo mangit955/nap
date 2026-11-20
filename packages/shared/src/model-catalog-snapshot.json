@@ -1,0 +1,920 @@
+{
+  "data": [
+    {
+      "id": "anthropic/claude-fable-5",
+      "created": 1781007515,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.00001",
+        "completion": "0.00005",
+        "input_cache_read": "0.000001",
+        "input_cache_write": "0.0000125"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "anthropic/claude-fable-5.1",
+      "created": 1788285838,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.00001",
+        "completion": "0.00005",
+        "input_cache_read": "0.00000025",
+        "input_cache_write": "0.0000125"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "anthropic/claude-fable-5.2",
+      "created": 1794253781,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000008",
+        "completion": "0.00004",
+        "input_cache_read": "0.0000002",
+        "input_cache_write": "0.00001"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "anthropic/claude-haiku-4.5",
+      "created": 1760547638,
+      "context_length": 200000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000005",
+        "input_cache_read": "0.0000001",
+        "input_cache_write": "0.00000125"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 64000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false
+      }
+    },
+    {
+      "id": "anthropic/claude-haiku-5.5",
+      "created": 1791397883,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000005",
+        "input_cache_read": "0.00000001",
+        "input_cache_write": "0.000000125"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-4.1",
+      "created": 1754411591,
+      "context_length": 200000,
+      "architecture": {
+        "input_modalities": ["image", "text", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000015",
+        "completion": "0.000075",
+        "input_cache_read": "0.0000015",
+        "input_cache_write": "0.00001875"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 32000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-4.5",
+      "created": 1764010580,
+      "context_length": 200000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025",
+        "input_cache_read": "0.0000005",
+        "input_cache_write": "0.00000625"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 64000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-4.6",
+      "created": 1770219050,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025",
+        "input_cache_read": "0.0000005",
+        "input_cache_write": "0.00000625"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-4.7",
+      "created": 1776351100,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025",
+        "input_cache_read": "0.0000005",
+        "input_cache_write": "0.00000625"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-4.8",
+      "created": 1779905091,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025",
+        "input_cache_read": "0.0000005",
+        "input_cache_write": "0.00000625"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-5",
+      "created": 1784912544,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025",
+        "input_cache_read": "0.0000005",
+        "input_cache_write": "0.00000625"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-5.5",
+      "created": 1790094732,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.00002",
+        "input_cache_read": "0.0000002",
+        "input_cache_write": "0.000005"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-4.5",
+      "created": 1759161676,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000015",
+        "input_cache_read": "0.0000003",
+        "input_cache_write": "0.00000375"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 64000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-4.6",
+      "created": 1771342990,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000015",
+        "input_cache_read": "0.0000003",
+        "input_cache_write": "0.00000375"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-5",
+      "created": 1782843083,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000002",
+        "input_cache_write": "0.0000025"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-5.5",
+      "created": 1790618686,
+      "context_length": 1000000,
+      "architecture": {
+        "input_modalities": ["text", "image", "file"]
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000001",
+        "input_cache_write": "0.0000025"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "meta/muse-ember",
+      "created": 1794247648,
+      "context_length": 1048576,
+      "architecture": {
+        "input_modalities": ["text", "image", "video", "file", "audio"]
+      },
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000005",
+        "input_cache_read": "0.000000004",
+        "input_cache_write": "0.000000125"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 943718
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "minimal"]
+      }
+    },
+    {
+      "id": "meta/muse-wonder",
+      "created": 1791807945,
+      "context_length": 1048576,
+      "architecture": {
+        "input_modalities": ["text", "image", "video", "file", "audio"]
+      },
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.00002",
+        "input_cache_read": "0.0000002"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 943718
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "minimal"]
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-luna",
+      "created": 1783590864,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.0000012",
+        "input_cache_read": "0.00000002",
+        "input_cache_write": "0.00000025"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-sol",
+      "created": 1783590850,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.00002",
+        "input_cache_read": "0.0000004",
+        "input_cache_write": "0.000005"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "openai/gpt-6-astra",
+      "created": 1788552838,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.00001",
+        "completion": "0.00005",
+        "input_cache_read": "0.000001",
+        "input_cache_write": "0.0000125"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "openai/gpt-6-luna",
+      "created": 1790100786,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000005",
+        "input_cache_read": "0.00000001",
+        "input_cache_write": "0.000000125"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "openai/gpt-6-sol",
+      "created": 1790100775,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000002",
+        "input_cache_write": "0.0000025"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": false,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low", "none"]
+      }
+    },
+    {
+      "id": "openai/gpt-6.1-sol",
+      "created": 1790702882,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000001",
+        "input_cache_write": "0.0000025"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "openai/gpt-6.2-astra",
+      "created": 1794938423,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.000008",
+        "completion": "0.00004",
+        "input_cache_read": "0.0000004",
+        "input_cache_write": "0.00001"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    },
+    {
+      "id": "openai/gpt-6.2-sol",
+      "created": 1794938371,
+      "context_length": 1050000,
+      "architecture": {
+        "input_modalities": ["file", "image", "text"]
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001",
+        "input_cache_read": "0.0000001",
+        "input_cache_write": "0.0000025"
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "top_provider": {
+        "max_completion_tokens": 128000
+      },
+      "expiration_date": null,
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": ["max", "xhigh", "high", "medium", "low"]
+      }
+    }
+  ]
+}
