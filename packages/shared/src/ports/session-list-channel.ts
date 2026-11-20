@@ -37,8 +37,12 @@ export type SessionListAnnouncer = {
 };
 
 export interface SessionListChannel extends SessionListAnnouncer {
-  /** Resolves once notices are genuinely being heard, not merely requested. */
-  listen(handler: SessionListHandler): Promise<StopListening>;
+  /**
+   * Resolves once notices are genuinely being heard, not merely requested. `onMissed` is called
+   * when the listener has come back from a drop, during which any user's notice may have been
+   * lost: its listener answers as though every user's list had changed.
+   */
+  listen(handler: SessionListHandler, onMissed?: () => void): Promise<StopListening>;
 
   /**
    * Whether notices are reaching this process right now, as far as it can tell. A `LISTEN` that

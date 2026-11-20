@@ -38,8 +38,17 @@ export function createSessionListHub(
     for (const onChange of [...(subscribers.get(userId) ?? [])]) onChange();
   };
 
+  /**
+   * The listener came back from a drop shorter than the event bus's echo notices, and whatever was
+   * announced meanwhile is gone: every socket here reads its list once, rather than wait out the
+   * backstop for a change it was never told about.
+   */
+  const deliverToAll = (): void => {
+    for (const own of [...subscribers.values()]) for (const onChange of [...own]) onChange();
+  };
+
   const listen = (): Promise<unknown> => {
-    listening ??= channel.listen(deliver).catch((error: unknown) => {
+    listening ??= channel.listen(deliver, deliverToAll).catch((error: unknown) => {
       listening = null;
       throw error;
     });

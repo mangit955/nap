@@ -74,17 +74,21 @@ describe("openSessionListStream", () => {
   });
 
   it("says nothing, and holds nothing, once the socket has closed", async () => {
+    // Fake timers so the heartbeat is countable: a closed flag would hide a timer left running.
+    vi.useFakeTimers();
     const source = hub();
     const ws = socket();
     const stream = openSessionListStream({ hub: source.value, userId: ALICE, socket: ws });
     await stream.ready;
 
+    expect(vi.getTimerCount()).toBe(1);
     stream.onClose();
     stream.onClose();
     source.notice(ALICE);
 
     expect(ws.sent).toEqual([{ type: "ready" }]);
     expect(source.released).toEqual([ALICE]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("gives back a subscription that arrives after the socket has gone", async () => {

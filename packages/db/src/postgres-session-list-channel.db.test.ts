@@ -128,6 +128,22 @@ describe("PostgresSessionListChannel over two processes", () => {
     expect(told.hearing()).toBe(false);
   });
 
+  it("says notices were missed when its listener comes back from a drop", async () => {
+    // A drop shorter than the event bus's echo notices is otherwise invisible: postgres.js listens
+    // again by itself, and whatever was announced in between is simply gone.
+    const api = replica();
+    let missed = 0;
+    await api.channel.listen(
+      () => {},
+      () => missed++,
+    );
+    expect(missed).toBe(0);
+
+    await setup`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${api.name}`;
+
+    await expect.poll(() => missed, { timeout: 15_000, interval: 50 }).toBe(1);
+  });
+
   it("ignores a payload that is not a user id", async () => {
     const api = replica();
     let heard = 0;

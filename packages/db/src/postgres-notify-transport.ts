@@ -44,7 +44,11 @@ export class PostgresNotifyTransport implements NotifyTransport {
     await this.#notifier`select pg_notify(${channel}, ${payload})`;
   }
 
-  async listen(channel: string, handler: NotificationHandler): Promise<Unlisten> {
+  async listen(
+    channel: string,
+    handler: NotificationHandler,
+    onResumed?: () => void,
+  ): Promise<Unlisten> {
     // postgres.js calls `onlisten` when the LISTEN first answers and again after every reconnect.
     let answered = false;
     const subscription = await this.#listener.listen(channel, handler, () => {
@@ -53,6 +57,7 @@ export class PostgresNotifyTransport implements NotifyTransport {
           { channel },
           "the listener reconnected; notifications sent while it was down were missed",
         );
+        onResumed?.();
       }
       answered = true;
     });

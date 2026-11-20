@@ -309,7 +309,9 @@ know when you do:
   every 10 s as it always did, and one whose socket is up reads at least every 5 minutes anyway. A
   pod whose listener stops delivering (the event bus's echo, as for claims) closes its
   `/ws/account` sockets at their next heartbeat and refuses new ones, so its tabs go back to the
-  10 s read: a deaf listener costs the old load and up to one heartbeat of staleness. Either deployment order is safe: an old
+  10 s read: a deaf listener costs the old load and up to one heartbeat of staleness. A drop too
+  short for the echo to notice is caught by the reconnect itself: every account socket on that pod
+  is told its list changed, once. Either deployment order is safe: an old
   API has no `/ws/account`, so a new web app's tabs keep the ten-second read against it, and an old
   web app never opens one. Those sockets count toward `nap_ws_connections` like any other, so a
   workspace tab now holds two.

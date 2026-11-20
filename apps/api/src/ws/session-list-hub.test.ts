@@ -8,9 +8,11 @@ const BOB = "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a";
 /** A channel whose notices the test sends by hand, counting how often it was listened to. */
 function channel() {
   let handler: SessionListHandler | undefined;
+  let missed: (() => void) | undefined;
   let deaf = false;
-  const listen = vi.fn(async (next: SessionListHandler) => {
+  const listen = vi.fn(async (next: SessionListHandler, onMissed?: () => void) => {
     handler = next;
+    missed = onMissed;
     return async () => {};
   });
   return {
@@ -20,6 +22,7 @@ function channel() {
       deaf = value;
     },
     notice: (userId: string) => handler?.(userId),
+    resume: () => missed?.(),
   };
 }
 
@@ -93,5 +96,18 @@ describe("createSessionListHub", () => {
     await expect(hub.subscribe(BOB, () => {})).rejects.toThrow("not reaching this pod");
     source.deafen(false);
     await expect(hub.subscribe(BOB, () => {})).resolves.toBeTypeOf("function");
+  });
+
+  it("tells every socket here once when the listener comes back from a drop", async () => {
+    // Whatever was announced while it was down is gone, and nobody knows whose it was.
+    const source = channel();
+    const hub = createSessionListHub(source);
+    const heard: string[] = [];
+    await hub.subscribe(ALICE, () => heard.push("alice"));
+    await hub.subscribe(BOB, () => heard.push("bob"));
+
+    source.resume();
+
+    expect(heard.sort()).toEqual(["alice", "bob"]);
   });
 });

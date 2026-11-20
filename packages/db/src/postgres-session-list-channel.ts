@@ -71,11 +71,15 @@ export class PostgresSessionListChannel implements SessionListChannel {
     });
   }
 
-  async listen(handler: SessionListHandler): Promise<StopListening> {
-    return await this.#transport.listen(SESSION_LIST_CHANNEL, (payload) => {
-      const userId = PayloadSchema.safeParse(payload);
-      if (userId.success) handler(userId.data);
-    });
+  async listen(handler: SessionListHandler, onMissed?: () => void): Promise<StopListening> {
+    return await this.#transport.listen(
+      SESSION_LIST_CHANNEL,
+      (payload) => {
+        const userId = PayloadSchema.safeParse(payload);
+        if (userId.success) handler(userId.data);
+      },
+      onMissed,
+    );
   }
 
   async #announce(owners: readonly SessionListOwner[]): Promise<void> {

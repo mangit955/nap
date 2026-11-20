@@ -7,10 +7,11 @@
  * tests notice; the change shows up minutes late, every time. This file is what notices.
  * `test/session-list-writers.test.ts` is its tripwire for a writer that does not exist yet.
  *
- * **After the commit**, checked from outside for the writes a tab most often waits on: the
- * announcer reads the row on a connection of its own the moment it is called, as the tab's
- * `GET /sessions` would. A notice sent before the commit would be answered with the old row, and
- * the tab would then sit on it until the next notice.
+ * **After the commit**, for every writer: the database each store is handed counts the
+ * transactions open on it, and an announcement made while one is open fails the test after it
+ * (`afterEach`). A notice sent before the commit would be answered with the old row, and the tab
+ * would then sit on it until the next notice. The writes a tab most often waits on are also read
+ * from another connection at the moment of the call, as the tab's `GET /sessions` would read them.
  */
 
 import { randomUUID } from "node:crypto";
@@ -19,7 +20,7 @@ import type { SessionListOwner } from "@nap/shared/ports/session-list-channel";
 import { eq, inArray } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from "vitest";
 import { PostgresGitHubStore } from "./github-store.ts";
 import { PostgresProjectSandboxStore } from "./postgres-project-sandbox-store.ts";
 import { PostgresProjectStore } from "./postgres-project-store.ts";
@@ -47,7 +48,7 @@ beforeAll(async () => {
   writer = postgres(inject("postgresUrl"), { max: 4 });
   observer = postgres(inject("postgresUrl"), { max: 1 });
   await observer`select 1`;
-  db = drizzle(writer);
+  db = countingTransactions(drizzle(writer));
   const [user] = await db
     .insert(users)
     .values({ email: `${randomUUID()}@example.com`, name: "Lister" })
@@ -63,6 +64,39 @@ afterAll(async () => {
   await observer.end();
 });
 
+/** Transactions open on `db` right now. */
+let open = 0;
+/** Announcements made while one was: each is a notice that could beat its own commit. */
+const insideTransaction: SessionListOwner[][] = [];
+
+afterEach(() => {
+  expect(insideTransaction.splice(0)).toEqual([]);
+});
+
+/**
+ * `base`, counting its open transactions. The count drops only once `transaction` has returned,
+ * which is after the commit, so a store that announces from inside its callback is caught however
+ * fast the commit that follows it is.
+ */
+function countingTransactions(base: PostgresJsDatabase): PostgresJsDatabase {
+  return new Proxy(base, {
+    get(target, property) {
+      if (property === "transaction") {
+        return async (...args: Parameters<PostgresJsDatabase["transaction"]>) => {
+          open += 1;
+          try {
+            return await target.transaction(...args);
+          } finally {
+            open -= 1;
+          }
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 /**
  * An announcer that records whom each call named, and, if asked, a read another connection makes
  * at the moment of the call — started inside `announce`, so it goes out before the writer's next
@@ -75,6 +109,7 @@ function recording(read?: () => Promise<string | undefined>) {
     sessionList: {
       announce: (...owners: SessionListOwner[]) => {
         calls.push(owners);
+        if (open > 0) insideTransaction.push(owners);
         if (read) seen.push(read().then((value) => value ?? "invisible"));
       },
     },

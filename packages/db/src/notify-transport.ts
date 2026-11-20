@@ -27,6 +27,12 @@ export interface NotifyTransport {
    */
   notify(channel: string, payload: string): Promise<void>;
 
-  /** Resolves once the channel is genuinely being listened to, not merely requested. */
-  listen(channel: string, handler: NotificationHandler): Promise<Unlisten>;
+  /**
+   * Resolves once the channel is genuinely being listened to, not merely requested.
+   *
+   * `onResumed` is called when the listener comes back after a reconnect, which means notifications
+   * sent while it was down were missed: for a listener with no catch-up read of its own, the cue to
+   * act as though every one of them had arrived. A transport that cannot drop never calls it.
+   */
+  listen(channel: string, handler: NotificationHandler, onResumed?: () => void): Promise<Unlisten>;
 }
