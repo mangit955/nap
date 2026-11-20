@@ -12,6 +12,7 @@ import type { SessionListNotice, SessionListNotices } from "./session-list-notic
 import {
   SESSION_LIST_BACKSTOP_MS,
   SESSION_LIST_POLL_MS,
+  SESSION_LIST_READ_STALL_MS,
   TITLING_RECHECK_MS,
   useSessionNavigation,
 } from "./use-session-navigation.ts";
@@ -671,4 +672,55 @@ it("draws a read that was under way when notices kept coming, and reads once mor
   );
   await waitFor(() => expect(result.current.projects[0]?.name).toBe("Busier"));
   expect(fetchJson).toHaveBeenCalledTimes(2);
+});
+
+it("does not let a read that never answers hold later ones behind it", async () => {
+  const source = manualNotices();
+  const session = row("Stalled");
+  let calls = 0;
+  // The first request never answers; every later one does.
+  const fetchJson = vi.fn(async () => {
+    calls++;
+    if (calls === 1) return await new Promise<Response>(() => {});
+    return Response.json({ sessions: [{ ...session, name: `Read ${calls}` }], next: null });
+  });
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson, notices: source.notices }));
+  await waitFor(() => expect(calls).toBe(1));
+
+  // A newer read (a write settling, say) succeeds past it: the stalled one is no longer on its way.
+  await act(async () => result.current.reload());
+  expect(result.current.projects[0]?.name).toBe("Read 2");
+  await act(async () => source.say("changed"));
+  await waitFor(() => expect(result.current.projects[0]?.name).toBe("Read 3"));
+});
+
+it("starts another read beside one that has been on its way too long", async () => {
+  vi.useFakeTimers();
+  try {
+    const source = manualNotices();
+    let calls = 0;
+    const fetchJson = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return await new Promise<Response>(() => {});
+      return Response.json({ sessions: [row("Late")], next: null });
+    });
+    const { result } = renderHook(() =>
+      useSessionNavigation({ fetchJson, notices: source.notices }),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    // Live, so only notices start reads here: no ten-second timer.
+    await act(async () => source.say("live"));
+    await act(async () => source.say("changed"));
+    expect(calls).toBe(1);
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_READ_STALL_MS));
+    await act(async () => source.say("changed"));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    // The notice starts a read beside the stalled one; when it lands, the notices that waited
+    // behind the stalled one are answered by one more.
+    expect(calls).toBe(3);
+    expect(result.current.status).toBe("ready");
+  } finally {
+    vi.useRealTimers();
+  }
 });

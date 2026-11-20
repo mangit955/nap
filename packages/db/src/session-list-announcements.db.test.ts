@@ -493,8 +493,20 @@ describe("PostgresGitHubStore", () => {
       await webhook`begin`;
       await webhook`update repository_jobs set pull_request_state = 'closed' where job_id = ${job.jobId}`;
       const refresh = store.updateJob(job.jobId, { pullRequestState: "merged" });
-      // Long enough for the refresh to be waiting on the webhook's row lock.
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Until the refresh is waiting on the webhook's row lock, which every version of it does
+      // before it writes, so its read of the job has happened by the time the webhook commits.
+      await expect
+        .poll(
+          async () =>
+            (
+              await observer<{ n: number }[]>`
+                select count(*)::int as n from pg_locks
+                where not granted and locktype in ('transactionid', 'tuple')
+              `
+            )[0]?.n ?? 0,
+          { timeout: 5_000, interval: 10 },
+        )
+        .toBeGreaterThan(0);
       await webhook`commit`;
       await refresh;
     } finally {

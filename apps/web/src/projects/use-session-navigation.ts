@@ -146,14 +146,23 @@ export function useSessionNavigation({
     // A read on its way already answers whatever changed before it started; a change after that
     // is read once more when it lands. Starting a fresh read on every notice instead would discard
     // the one in flight, and a steady stream of notices could then discard every read before any
-    // arrived.
+    // arrived. "On its way" ends when anything newer has been read since (the generation moved),
+    // or after `SESSION_LIST_READ_STALL_MS`: a request that never answers must not hold every
+    // later one behind it.
     let disposed = false;
-    let reading = false;
+    let readVersion = -1;
+    let readStartedAt = 0;
     let again = false;
+    const reading = () =>
+      readVersion === generation.current && Date.now() - readStartedAt < SESSION_LIST_READ_STALL_MS;
     const read = () => {
-      reading = true;
+      // `reload` takes the next generation as its first step.
+      const version = generation.current + 1;
+      readVersion = version;
+      readStartedAt = Date.now();
       void reload().finally(() => {
-        reading = false;
+        if (readVersion !== version) return;
+        readVersion = -1;
         if (again && !disposed) {
           again = false;
           refresh();
@@ -162,7 +171,7 @@ export function useSessionNavigation({
     };
     const refresh = () => {
       if (document.hidden || pending.current.length > 0) return;
-      if (reading) again = true;
+      if (reading()) again = true;
       else read();
     };
     read();
@@ -465,6 +474,12 @@ export function useSessionNavigation({
 
 /** How soon the list is read again while a model is writing a session's title. */
 export const TITLING_RECHECK_MS = 2000;
+
+/**
+ * How long a read may be on its way before a notice starts another beside it rather than waiting:
+ * a request that never answers must not hold every later read behind it.
+ */
+export const SESSION_LIST_READ_STALL_MS = 30_000;
 
 /** How often the list is read while the server's notices cannot be heard. */
 export const SESSION_LIST_POLL_MS = 10_000;
