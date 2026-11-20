@@ -75,6 +75,12 @@ export const TREE_READERS = [
   { test: "packages/sandbox/src/exec-channel.test.ts", reads: /^harbor\/nap_harbor\// },
   // Checks that the video the docs page points at is in apps/web/public.
   { test: "apps/web/src/docs/docs-page.test.tsx", reads: /^apps\/web\/public\// },
+  // Checks that the tests and the web build pin the same React Compiler release, and that no
+  // browser code lives under app/ (which the tests leave uncompiled). It reads all of web's src.
+  {
+    test: "apps/web/src/testing/react-compiler.test.tsx",
+    reads: /^(?:apps\/web\/)?package\.json$|^apps\/web\/src\//,
+  },
   // Hashes DESKTOP_SOURCES (packages/sandbox/src/desktop-template.ts) and fails on any edit to one
   // until DESKTOP_BUILD is bumped. A superset of that list, held to it by test/check-changed.test.ts;
   // importing the list itself would load the E2B SDK on every run.

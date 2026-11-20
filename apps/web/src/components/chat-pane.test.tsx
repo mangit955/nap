@@ -319,6 +319,40 @@ describe("ChatPane", () => {
     }
   });
 
+  it("counts a later follow-up in the same pane from its own send, not the first one's", () => {
+    // The pane stays mounted across turns. React Compiler caches a clock read made during render
+    // unless told not to, which drew the second wait from the first one's start: "10m 7s".
+    vi.useFakeTimers({ now: Date.parse(prompt.createdAt) + 60_000 });
+    try {
+      const ended: StoredEvent = {
+        ...message,
+        type: "turn.completed",
+        seq: 4,
+        payload: { usage: { inputTokens: 1, outputTokens: 1 }, durationMs: 1, commitSha: null },
+      } satisfies NapEvent;
+      const events = [prompt, started, ended];
+      const status = () => screen.getByRole("status", { name: "Agent is working" });
+      const idle = <ChatPane events={events} running={false} activity={{ startedAt: undefined }} />;
+      const view = render(idle);
+      view.rerender(
+        <ChatPane events={events} pending="one" running activity={{ startedAt: undefined }} />,
+      );
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(status()).toHaveTextContent("Working for 5s");
+
+      view.rerender(idle);
+      act(() => vi.advanceTimersByTime(600_000));
+      view.rerender(
+        <ChatPane events={events} pending="two" running activity={{ startedAt: undefined }} />,
+      );
+      act(() => vi.advanceTimersByTime(2_000));
+
+      expect(status()).toHaveTextContent("Working for 2s");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps counting through a compaction for the prompt queued behind it", () => {
     // The user sent this prompt to wait for the compaction, so its end is the same wait going on.
     const sent = Date.parse(prompt.createdAt);

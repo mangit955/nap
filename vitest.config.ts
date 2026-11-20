@@ -1,4 +1,5 @@
-import react from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 // A commit hook runs the suite with git's own variables exported — `GIT_DIR` and `GIT_INDEX_FILE`
@@ -112,7 +113,21 @@ export default defineConfig({
       {
         // React component tests. `.tsx` is what routes a test here, and it needs both a
         // JSX transform and a DOM — neither of which the `unit` project has.
-        plugins: [react()],
+        //
+        // React Compiler runs here as it does in `next build`, so these tests exercise the
+        // components that ship: compiled code differs from its source wherever a component
+        // breaks the Rules of React. Next compiles only the browser bundle, so `app/`, where every
+        // file is a server page or layout, is left alone as it is in production. Passing
+        // `exclude` replaces the plugin's default, so node_modules is listed again: Next never
+        // compiles a dependency. `apps/web/src/testing/react-compiler.test.tsx` fails if the
+        // compiler or the `app/` exclusion goes.
+        plugins: [
+          react(),
+          babel({
+            presets: [reactCompilerPreset()],
+            exclude: [/[/\\]node_modules[/\\]/, /\/apps\/web\/src\/app\//],
+          }),
+        ],
         test: {
           name: "web",
           include: ["{packages,apps}/*/src/**/*.test.tsx"],

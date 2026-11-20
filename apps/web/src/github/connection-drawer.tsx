@@ -292,11 +292,13 @@ function Repositories({
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   const [attempt, setAttempt] = useState(0);
-  // Re-render now and then so "Last fetched" does not say "just now" for the rest of the visit.
-  const [, setTick] = useState(0);
+  // The clock "Last fetched" is measured against, moved now and then so it does not say "just now"
+  // for the rest of the visit. It is state the render reads, not a counter that only forces a
+  // render: React Compiler reuses the label until something it reads changes.
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const timer = setInterval(() => setTick((value) => value + 1), 30_000);
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -395,7 +397,7 @@ function Repositories({
             </Card>
             {fetchedAt !== undefined && (
               <p className="mt-2 text-xs text-muted">
-                Last fetched: {relativeTime(new Date(fetchedAt).toISOString())}
+                Last fetched: {relativeTime(new Date(fetchedAt).toISOString(), now)}
               </p>
             )}
           </>
