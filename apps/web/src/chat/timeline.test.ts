@@ -1,7 +1,12 @@
 import type { NapEvent, NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
-import { buildTimeline, LIVE_ACTIVITY_ROW_ID, type TimelineRow } from "./timeline.ts";
+import {
+  buildTimeline,
+  LIVE_ACTIVITY_ROW_ID,
+  latestResponseWorking,
+  type TimelineRow,
+} from "./timeline.ts";
 import { buildTranscript } from "./transcript.ts";
 
 /**
@@ -692,5 +697,36 @@ describe("steers", () => {
     ]);
 
     expect(shape(timeline)).toEqual(["user", "fold", "turn-start", "steer", "agent", "turn-end"]);
+  });
+});
+
+/**
+ * When the scroll stops holding a just-sent prompt at the top and follows the end instead. Prose
+ * is read downward from the prompt; work is a live row at the end.
+ */
+describe("whether the newest response has started working", () => {
+  const working = (events: StoredEvent[]) => latestResponseWorking(buildTranscript(events));
+
+  it("is not while the reply is only prose", () => {
+    reset();
+    expect(working([prompt(), started(), say("Here is the plan.")])).toBe(false);
+  });
+
+  it("is once a tool is called", () => {
+    reset();
+    expect(working([prompt(), started(), say("Looking."), ...read("app.tsx")])).toBe(true);
+  });
+
+  it("is once the model reasons out loud, but not over empty reasoning", () => {
+    reset();
+    expect(working([prompt(), started(), think("")])).toBe(false);
+    reset();
+    expect(working([prompt(), started(), think("Which file holds the theme?")])).toBe(true);
+  });
+
+  it("reads only the newest response, not the work of the one before", () => {
+    reset();
+    const before = [prompt(), started(), ...read("app.tsx"), say("Done.")];
+    expect(working([...before, prompt("now dark mode", NEXT_TURN)])).toBe(false);
   });
 });

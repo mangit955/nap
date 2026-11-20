@@ -347,7 +347,7 @@ function Item({
       // read. Making both bubbles gives a paragraph of explanation the shape of a text message.
       return item.from === "user" ? (
         <div className="flex justify-end pt-1">
-          <div className="chat-user-message">
+          <div className="chat-user-message" data-turn-prompt="">
             {item.attachments?.map((attachment) => (
               <div key={attachment.name} className="mb-3">
                 <div className={attachment.kind === "video" ? "grid grid-cols-3 gap-2" : "flex"}>
