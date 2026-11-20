@@ -29,6 +29,11 @@ export type SessionListNoticeListener = (notice: SessionListNotice) => void;
 export type SessionListNotices = {
   /** Starts listening on the first subscriber and stops with the last. Idempotent unsubscribe. */
   subscribe(listener: SessionListNoticeListener): () => void;
+  /**
+   * Closes the socket now, lingering or not, and forgets every list on it. The socket belongs to
+   * whoever opened it: after a sign-out, the next person's lists must not inherit it.
+   */
+  close(): void;
   /** Whether notices are reaching this tab right now. */
   live(): boolean;
 };
@@ -196,6 +201,11 @@ export function createSessionListNotices({
         if (listeners.size === 0) stopTimer = setTimeout(stop, NOTICE_LINGER_MS);
       };
     },
+    close() {
+      listeners.clear();
+      clearTimeout(stopTimer);
+      if (running) stop();
+    },
     live: () => isLive,
   };
 }
@@ -216,4 +226,10 @@ let shared: SessionListNotices | undefined;
 export function sessionListNotices(): SessionListNotices {
   shared ??= createSessionListNotices();
   return shared;
+}
+
+/** Closes the tab's own on sign-out (`auth/forget-signed-out.ts`); the next list opens another. */
+export function forgetSessionListNotices(): void {
+  shared?.close();
+  shared = undefined;
 }

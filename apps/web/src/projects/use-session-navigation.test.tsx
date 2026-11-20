@@ -496,6 +496,7 @@ function manualNotices() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    close: () => listeners.clear(),
     live: () => live,
   };
   return {

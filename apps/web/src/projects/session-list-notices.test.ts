@@ -206,4 +206,19 @@ describe("createSessionListNotices", () => {
 
     expect(net.opened).toHaveLength(opened);
   });
+
+  it("closes at once when told to, lingering or not, and forgets its lists", async () => {
+    const { net, notices, heard, listener } = setup();
+    notices.subscribe(listener);
+    await vi.advanceTimersByTimeAsync(0);
+    deliver(net.latest, { type: "ready" });
+
+    notices.close();
+
+    expect(net.latest.closed).toBe(true);
+    expect(notices.live()).toBe(false);
+    await vi.advanceTimersByTimeAsync(NOTICE_BACKOFF.maxMs);
+    expect(net.opened).toHaveLength(1);
+    expect(heard).toEqual(["live"]);
+  });
 });
