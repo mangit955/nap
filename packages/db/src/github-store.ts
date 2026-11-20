@@ -358,32 +358,38 @@ export class PostgresGitHubStore implements GitHubStore {
       pullRequestMergedAt !== undefined && Number.isFinite(Date.parse(pullRequestMergedAt))
         ? new Date(pullRequestMergedAt).toISOString()
         : null;
-    // What the card draws of a job, as it was: the refresh sweep rewrites a job whose pull request
-    // has not moved, and a notice for every one of those would be a poll by another name.
-    const [before] = await this.db
-      .select({
-        projectId: repositoryJobs.projectId,
-        pullRequestNumber: repositoryJobs.pullRequestNumber,
-        pullRequestUrl: repositoryJobs.pullRequestUrl,
-        pullRequestState: repositoryJobs.pullRequestState,
-      })
-      .from(repositoryJobs)
-      .where(eq(repositoryJobs.jobId, jobId));
-    await this.db
-      .update(repositoryJobs)
-      .set({
-        ...update,
-        updatedAt: update.updatedAt === undefined ? new Date() : new Date(update.updatedAt),
-        // Written on the change to merged and never again: `set` reads the row as it was.
-        ...(update.pullRequestState === "merged"
-          ? {
-              pullRequestMergedAt: sql`case when ${repositoryJobs.pullRequestState} = 'merged'
-                then ${repositoryJobs.pullRequestMergedAt}
-                else coalesce(${reported}::timestamptz, now()) end`,
-            }
-          : {}),
-      })
-      .where(eq(repositoryJobs.jobId, jobId));
+    // What the card draws of a job, as it was just before this write: the refresh sweep rewrites a
+    // job whose pull request has not moved, and a notice for every one of those would be a poll by
+    // another name. Read under the row's lock, in the write's own transaction, so a webhook that
+    // committed between a plain read and the write cannot make a real change look like none.
+    const before = await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({
+          projectId: repositoryJobs.projectId,
+          pullRequestNumber: repositoryJobs.pullRequestNumber,
+          pullRequestUrl: repositoryJobs.pullRequestUrl,
+          pullRequestState: repositoryJobs.pullRequestState,
+        })
+        .from(repositoryJobs)
+        .where(eq(repositoryJobs.jobId, jobId))
+        .for("update");
+      await tx
+        .update(repositoryJobs)
+        .set({
+          ...update,
+          updatedAt: update.updatedAt === undefined ? new Date() : new Date(update.updatedAt),
+          // Written on the change to merged and never again: `set` reads the row as it was.
+          ...(update.pullRequestState === "merged"
+            ? {
+                pullRequestMergedAt: sql`case when ${repositoryJobs.pullRequestState} = 'merged'
+                  then ${repositoryJobs.pullRequestMergedAt}
+                  else coalesce(${reported}::timestamptz, now()) end`,
+              }
+            : {}),
+        })
+        .where(eq(repositoryJobs.jobId, jobId));
+      return row;
+    });
     if (
       before !== undefined &&
       ((update.pullRequestNumber !== undefined &&

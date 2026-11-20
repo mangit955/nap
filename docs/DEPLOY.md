@@ -313,7 +313,9 @@ know when you do:
   short for the echo to notice is caught by the reconnect itself: every account socket on that pod
   is told its list changed, once. Either deployment order is safe: an old
   API has no `/ws/account`, so a new web app's tabs keep the ten-second read against it, and an old
-  web app never opens one. Those sockets count toward `nap_ws_connections` like any other, so a
+  web app never opens one. While the reaper is still the old image (it rolls after the API), what it
+  writes (auto-settle, a reclaimed turn) is announced by nobody, and tabs see it at their 5-minute
+  read; that ends when the reaper rolls. Those sockets count toward `nap_ws_connections` like any other, so a
   workspace tab now holds two.
 
 ### What each process scales on

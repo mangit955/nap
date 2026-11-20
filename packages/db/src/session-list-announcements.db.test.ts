@@ -483,5 +483,23 @@ describe("PostgresGitHubStore", () => {
     await store.discardStaleFeedback(job.jobId, []);
     await store.discardStaleFeedback(job.jobId, []);
     expect(calls).toEqual([[{ projectId }]]);
+
+    // A webhook closes the pull request while a refresh that read it merged is writing "merged"
+    // back. The refresh does change the row — closed to merged — and must say so, though the job
+    // it read before the webhook committed looked unchanged.
+    calls.length = 0;
+    const webhook = await writer.reserve();
+    try {
+      await webhook`begin`;
+      await webhook`update repository_jobs set pull_request_state = 'closed' where job_id = ${job.jobId}`;
+      const refresh = store.updateJob(job.jobId, { pullRequestState: "merged" });
+      // Long enough for the refresh to be waiting on the webhook's row lock.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await webhook`commit`;
+      await refresh;
+    } finally {
+      webhook.release();
+    }
+    expect(calls).toEqual([[{ projectId }]]);
   });
 });

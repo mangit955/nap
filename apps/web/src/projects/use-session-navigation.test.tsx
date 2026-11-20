@@ -647,3 +647,28 @@ it("retries a read that failed on the short timer, live or not", async () => {
     vi.useRealTimers();
   }
 });
+
+it("draws a read that was under way when notices kept coming, and reads once more after it", async () => {
+  // A list slower to read than notices are to arrive must still show something: each notice used
+  // to discard the read in flight, and a steady stream of them discarded every one.
+  const source = manualNotices();
+  const session = row("Busy");
+  const answers: ((response: Response) => void)[] = [];
+  const fetchJson = vi.fn(() => new Promise<Response>((resolve) => answers.push(resolve)));
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson, notices: source.notices }));
+  await waitFor(() => expect(answers).toHaveLength(1));
+
+  for (let i = 0; i < 10; i++) await act(async () => source.say("changed"));
+  expect(fetchJson).toHaveBeenCalledTimes(1);
+
+  await act(async () => answers[0]?.(Response.json({ sessions: [session], next: null })));
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+  expect(result.current.projects.map((item) => item.name)).toEqual(["Busy"]);
+  // The notices that came during it are answered by one more read, not ten.
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledTimes(2));
+  await act(async () =>
+    answers[1]?.(Response.json({ sessions: [{ ...session, name: "Busier" }], next: null })),
+  );
+  await waitFor(() => expect(result.current.projects[0]?.name).toBe("Busier"));
+  expect(fetchJson).toHaveBeenCalledTimes(2);
+});

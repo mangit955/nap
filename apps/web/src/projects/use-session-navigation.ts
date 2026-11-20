@@ -143,10 +143,29 @@ export function useSessionNavigation({
   // and while the server is writing nothing, neither is anybody's tab.
   useEffect(() => {
     const source = notices ?? sessionListNotices();
-    void reload();
-    const refresh = () => {
-      if (!document.hidden && pending.current.length === 0) void reload();
+    // A read on its way already answers whatever changed before it started; a change after that
+    // is read once more when it lands. Starting a fresh read on every notice instead would discard
+    // the one in flight, and a steady stream of notices could then discard every read before any
+    // arrived.
+    let disposed = false;
+    let reading = false;
+    let again = false;
+    const read = () => {
+      reading = true;
+      void reload().finally(() => {
+        reading = false;
+        if (again && !disposed) {
+          again = false;
+          refresh();
+        }
+      });
     };
+    const refresh = () => {
+      if (document.hidden || pending.current.length > 0) return;
+      if (reading) again = true;
+      else read();
+    };
+    read();
     const timer = setInterval(() => {
       if (
         !source.live() ||
@@ -165,6 +184,7 @@ export function useSessionNavigation({
       typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("nap-sessions");
     if (channel) channel.onmessage = refresh;
     return () => {
+      disposed = true;
       generation.current++;
       clearInterval(timer);
       unsubscribe();
