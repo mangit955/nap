@@ -5,6 +5,7 @@ import {
   type TitleMode,
   type TitleRefusal,
 } from "@nap/shared/ports/project-title-store";
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { z } from "zod";
@@ -23,7 +24,20 @@ const Message = z.object({ text: z.string(), seq: z.number().int() });
 const Refusal = z.object({ in_flight: z.boolean(), cooling: z.boolean() });
 
 export class PostgresProjectTitleStore implements ProjectTitleStore {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  readonly #sessionList: SessionListAnnouncer | null;
+
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    options: {
+      /**
+       * Told, after each write, that the owner's session list changed: a title being written dims
+       * the row's name, and the title replaces it. Absent, open tabs see it at their slow poll.
+       */
+      sessionList?: SessionListAnnouncer | null;
+    } = {},
+  ) {
+    this.#sessionList = options.sessionList ?? null;
+  }
 
   async claim(
     projectId: string,
@@ -46,6 +60,7 @@ export class PostgresProjectTitleStore implements ProjectTitleStore {
     `);
     if (claimed === undefined) return this.#refusal(projectId, userId, mode);
     const { generation, name } = Claimed.parse(claimed);
+    this.#sessionList?.announce({ userId });
 
     const [context] = await this.db.execute(sql`
       select
@@ -113,13 +128,16 @@ export class PostgresProjectTitleStore implements ProjectTitleStore {
         ${mode === "automatic" ? sql`and name_source <> 'user'` : sql``}
       returning id
     `);
+    if (rows.length > 0) this.#sessionList?.announce({ projectId });
     return rows.length > 0;
   }
 
   async release(projectId: string, generation: string): Promise<void> {
-    await this.db.execute(sql`
+    const rows = await this.db.execute(sql`
       update projects set title_generation = null
       where id = ${projectId} and title_generation = ${generation}
+      returning id
     `);
+    if (rows.length > 0) this.#sessionList?.announce({ projectId });
   }
 }

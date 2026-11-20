@@ -11,6 +11,7 @@ import {
   type ComputerScopeIdentity,
   type ProjectComputerAccess,
 } from "@nap/shared/ports/project-computer-access";
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import type { Result } from "@nap/shared/result";
 import { and, eq, ne, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -38,7 +39,15 @@ const denied = (code: ComputerAdmissionError["code"]): Result<never, ComputerAdm
 export class PostgresProjectComputerAccess implements ProjectComputerAccess {
   constructor(
     readonly db: PostgresJsDatabase,
-    readonly options: { claims: ClaimAnnouncer | null },
+    readonly options: {
+      claims: ClaimAnnouncer | null;
+      /**
+       * Told after an abandon commits: it may have put the machine away, which the owner's cards
+       * draw as a workspace no longer running, and it always moves the time an idle card shows.
+       * Absent, their tabs see it at their slow poll.
+       */
+      sessionList?: SessionListAnnouncer | null;
+    },
   ) {}
 
   async occupied(projectId: string): Promise<boolean> {
@@ -272,6 +281,8 @@ export class PostgresProjectComputerAccess implements ProjectComputerAccess {
       },
     );
     if (result.ok) this.options.claims?.announce();
+    // Released or not, the abandon moved the project's `updatedAt`, which an idle card draws.
+    if (result.ok) this.options.sessionList?.announce({ userId: request.userId });
     return result;
   }
 

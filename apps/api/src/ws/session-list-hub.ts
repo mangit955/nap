@@ -1,0 +1,78 @@
+/**
+ * Which of this pod's sockets want to hear that whose session list changed.
+ *
+ * Every API pod hears every notice on the channel (`@nap/db/postgres-session-list-channel`) and
+ * hands it to the sockets it holds for that user; a notice for somebody with no socket here costs a
+ * map lookup. That is the whole of how a change written on a worker reaches a tab whose socket is
+ * on a different pod: no routing, no stickiness, the same shape as the event bus (`docs/adr/0010`).
+ *
+ * **It refuses a socket while the channel cannot hear**, and says so to the ones it has (see
+ * `SessionListChannel.hearing`): a tab told it is live by a pod that has gone deaf would otherwise
+ * wait out its five-minute backstop for every change.
+ *
+ * **It listens on first use, not at boot.** Only a process that serves sockets ever subscribes, so
+ * a worker or a reaper composed with the same channel never `LISTEN`s to it. A listen that fails is
+ * forgotten, so the next socket tries again, and the sockets that asked are told it failed: they
+ * close, and their tabs fall back to polling until a reconnect finds the listener working.
+ */
+
+import type { SessionListChannel } from "@nap/shared/ports/session-list-channel";
+
+export type SessionListHub = {
+  /**
+   * Calls `onChange` for every notice naming `userId`. Resolves once notices are being heard, and
+   * rejects when they cannot be. Unsubscribing is idempotent.
+   */
+  subscribe(userId: string, onChange: () => void): Promise<() => void>;
+  /** Whether notices are reaching this pod right now; a socket closes when they stop. */
+  hearing(): boolean;
+};
+
+export function createSessionListHub(
+  channel: Pick<SessionListChannel, "listen" | "hearing">,
+): SessionListHub {
+  const subscribers = new Map<string, Set<() => void>>();
+  let listening: Promise<unknown> | null = null;
+
+  const deliver = (userId: string): void => {
+    for (const onChange of [...(subscribers.get(userId) ?? [])]) onChange();
+  };
+
+  /**
+   * The listener came back from a drop shorter than the event bus's echo notices, and whatever was
+   * announced meanwhile is gone: every socket here reads its list once, rather than wait out the
+   * backstop for a change it was never told about.
+   */
+  const deliverToAll = (): void => {
+    for (const own of [...subscribers.values()]) for (const onChange of [...own]) onChange();
+  };
+
+  const listen = (): Promise<unknown> => {
+    listening ??= channel.listen(deliver, deliverToAll).catch((error: unknown) => {
+      listening = null;
+      throw error;
+    });
+    return listening;
+  };
+
+  return {
+    hearing: () => channel.hearing(),
+    async subscribe(userId, onChange) {
+      if (!channel.hearing()) throw new Error("session list notices are not reaching this pod");
+      const own = subscribers.get(userId) ?? new Set<() => void>();
+      own.add(onChange);
+      subscribers.set(userId, own);
+      const unsubscribe = () => {
+        own.delete(onChange);
+        if (own.size === 0 && subscribers.get(userId) === own) subscribers.delete(userId);
+      };
+      try {
+        await listen();
+      } catch (error) {
+        unsubscribe();
+        throw error;
+      }
+      return unsubscribe;
+    },
+  };
+}

@@ -177,6 +177,7 @@ function pod(
     bus: new InMemoryEventBus(),
     cancels: null,
     claims: null,
+    sessionList: null,
     sandbox: turnableSandbox(),
     objects: new InMemoryObjectStore(),
     provider: new ScriptedLLMProvider([[{ text: "Added the toggle." }]]),

@@ -8,10 +8,11 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { forgetAccount } from "../account/account-cache.ts";
 import { forgetAllLogs } from "../hooks/remembered-logs.ts";
 import { forgetKnownProjects } from "../projects/known-projects.ts";
+import { FakeSocket } from "./fake-socket.ts";
 
 // Without this, a component from one test is still mounted during the next, so
 // `getByRole` finds two matches and fails in a way that points at the wrong test.
@@ -23,6 +24,16 @@ afterEach(forgetAllLogs);
 // The same for the account's models and key, and the project records a session list put in.
 afterEach(forgetAccount);
 afterEach(forgetKnownProjects);
+
+// jsdom has a real `WebSocket`, and a component that opens one by itself — the tab's session list
+// notices, which every sidebar subscribes to — would otherwise dial whatever is listening on the
+// API's development port. Each test starts with one that never connects; a test that drives a
+// socket injects its own, or stubs this again.
+beforeEach(() => {
+  vi.stubGlobal("WebSocket", function inert(url: string) {
+    return new FakeSocket(url);
+  });
+});
 
 /*
  * Four browser APIs jsdom does not implement, which the rim light on the landing page uses.

@@ -11,6 +11,7 @@
  * interface here would mean every caller holding a fake had to implement all of it.
  */
 
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import type { SessionRecord, SessionStore } from "@nap/shared/ports/session-store";
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -18,10 +19,21 @@ import { projects, sessions } from "./schema.ts";
 
 export class PostgresSessionStore implements SessionStore {
   readonly #db: PostgresJsDatabase;
+  readonly #sessionList: SessionListAnnouncer | null;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
-  constructor(db: PostgresJsDatabase) {
+  constructor(
+    db: PostgresJsDatabase,
+    options: {
+      /**
+       * Told, after the commit, that the owner's session list changed. Absent, open tabs see the
+       * change at their slow poll; see `@nap/shared/ports/session-list-channel`.
+       */
+      sessionList?: SessionListAnnouncer | null;
+    } = {},
+  ) {
     this.#db = db;
+    this.#sessionList = options.sessionList ?? null;
   }
 
   async get(sessionId: string): Promise<SessionRecord | null> {
@@ -71,5 +83,7 @@ export class PostgresSessionStore implements SessionStore {
     // makes the same promise, and a silent no-op would leave the next turn starting over
     // with an empty template and calling it success.
     if (updated.length === 0) throw new Error(`unknown session ${sessionId}`);
+    // The card's hover says whether a workspace is running.
+    this.#sessionList?.announce({ sessionId });
   }
 }

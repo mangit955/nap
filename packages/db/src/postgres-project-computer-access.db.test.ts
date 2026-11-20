@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, expect, inject, it, vi } from "vitest"
 import { PostgresProjectComputerAccess } from "./postgres-project-computer-access.ts";
 import { PostgresTurnQueue } from "./postgres-turn-queue.ts";
 import { projectComputerOperations, projects, sessions, turnRequests, users } from "./schema.ts";
+import { countingTransactions } from "./testing/counting-transactions.ts";
 import { enqueueRequest } from "./testing/enqueue-request.ts";
 
 let client: postgres.Sql;
@@ -15,15 +16,27 @@ let db: PostgresJsDatabase;
 let access: PostgresProjectComputerAccess;
 let queue: PostgresTurnQueue;
 const announce = vi.fn();
+/** Transactions open on the database `access` writes through. */
+let open: () => number = () => 0;
+/** Whose session list an abandon said changed, and whether it said so before its commit. */
+const listed = vi.fn((..._owners: unknown[]) => {
+  if (open() > 0) throw new Error("announced inside a transaction");
+});
 beforeAll(() => {
   client = postgres(inject("postgresUrl"), { max: 8, connection: { lock_timeout: 2000 } });
   inputClient = postgres(inject("postgresUrl"), { max: 2, connection: { lock_timeout: 2000 } });
   db = drizzle(client);
-  access = new PostgresProjectComputerAccess(drizzle(inputClient), { claims: { announce } });
+  const counted = countingTransactions(drizzle(inputClient));
+  open = counted.open;
+  access = new PostgresProjectComputerAccess(counted.db, {
+    claims: { announce },
+    sessionList: { announce: listed },
+  });
   queue = new PostgresTurnQueue(db, { claims: null });
 });
 beforeEach(async () => {
   announce.mockClear();
+  listed.mockClear();
   await db.delete(projectComputerOperations);
   await db.delete(turnRequests);
 });
@@ -315,6 +328,8 @@ it("abandons exactly the stranded scope, forgets its machine, and lets the proje
     value: { released: true },
   });
   expect(announce).toHaveBeenCalledTimes(1);
+  // The owner's cards stop drawing a running workspace.
+  expect(listed.mock.calls).toEqual([[{ userId: f.userId }]]);
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: null, status: "idle" });
   expect(after!.computerRevision).not.toBe(before!.computerRevision);
@@ -335,6 +350,8 @@ it("abandons the scope but keeps a machine the project recorded since, and says 
     value: { released: false },
   });
   expect(announce).toHaveBeenCalledTimes(1);
+  // The machine was kept, but the abandon moved `updatedAt`, which an idle card shows.
+  expect(listed.mock.calls).toEqual([[{ userId: f.userId }]]);
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: "replacement" });
   expect(after!.computerRevision).not.toBe(before!.computerRevision);

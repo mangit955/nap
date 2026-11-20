@@ -221,6 +221,7 @@ it("imports through the queue, publishes a verified dedicated branch, and retrie
     bus: new InMemoryEventBus(),
     cancels: null,
     claims: null,
+    sessionList: null,
     objects: new InMemoryObjectStore(),
     encryptionKey: encryptionKeyFrom(Buffer.alloc(32, 7).toString("base64")),
     verifyKey: async () => ({ ok: true }),

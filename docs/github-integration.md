@@ -43,8 +43,9 @@ their existing lifecycle behavior. A completed turn does not automatically mark 
 Activity comes from queued/leased requests and terminal events; sandbox presence is displayed
 separately. Read markers acknowledge only observed activity. Summaries include repository, branch,
 PR state and pending feedback without opening transcripts or calling GitHub for each row. The list
-loads pages of 100 sessions, refreshes every ten seconds while visible, and refreshes on focus and
-same-browser navigation updates. Follow-up drafts show a local Draft marker.
+loads pages of 100 sessions and reads them again when the API says the list changed (over
+`/ws/account`), on focus, and on same-browser navigation updates; a tab that cannot hear the API
+reads every ten seconds instead. Follow-up drafts show a local Draft marker.
 
 The session list keeps scrolling with its scrollbar hidden; the account footer stays outside it.
 Sidebar width/collapse preferences are saved locally. Small screens use the existing modal drawer.

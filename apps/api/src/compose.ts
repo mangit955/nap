@@ -61,6 +61,7 @@ import type { SandboxCapacity } from "@nap/shared/ports/sandbox-capacity";
 import type { SandboxInventory } from "@nap/shared/ports/sandbox-inventory";
 import type { SandboxManager } from "@nap/shared/ports/sandbox-manager";
 import type { SandboxRecordings } from "@nap/shared/ports/sandbox-recordings";
+import type { SessionListChannel } from "@nap/shared/ports/session-list-channel";
 import type { SessionStore } from "@nap/shared/ports/session-store";
 import type { SnapshotStore } from "@nap/shared/ports/snapshot-store";
 import type { SteerQueue } from "@nap/shared/ports/steer-queue";
@@ -86,6 +87,7 @@ import type { CreatedProject } from "./projects/routes.ts";
 import { SessionTitler } from "./projects/session-titler.ts";
 import { resolveTitleAccess } from "./turns/model-access.ts";
 import { TurnRegistry } from "./turns/registry.ts";
+import { createSessionListHub } from "./ws/session-list-hub.ts";
 
 /**
  * The settings the composition reads, and nothing else.
@@ -249,6 +251,13 @@ export type NapDeps = {
    * database ten times a second for ever.
    */
   claims: ClaimChannel | null;
+  /**
+   * What tells an open tab its owner's session list changed. Only the listening half is used here,
+   * behind `/ws/account`; the writers are handed the announcing half when boot builds them. Null
+   * leaves that route out, and tabs read their list on a timer as they always did. Required for the
+   * reason `claims` is: forgetting it would be silent.
+   */
+  sessionList: SessionListChannel | null;
   sandbox: SandboxManager;
   objects: ObjectStore;
   /** Model policy is the provider's; which provider it is, is the caller's. */
@@ -626,6 +635,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       ...(deps.auth === undefined ? {} : { tickets: deps.auth.streamTickets }),
       // The same store the reaper's sweep reads, so a viewer on this pod is seen from that one.
       viewers: deps.projectSandboxes,
+      ...(deps.sessionList === null ? {} : { sessionList: createSessionListHub(deps.sessionList) }),
     },
     files: { sessions: deps.sessions, sandbox: deps.sandbox },
     account: {

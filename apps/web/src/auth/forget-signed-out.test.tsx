@@ -3,7 +3,9 @@ import { accountKey } from "../account/account-cache.ts";
 import { forgetAllLogs, recallLog, rememberLog } from "../hooks/remembered-logs.ts";
 import type { ComposerDraftStore } from "../projects/composer-draft.ts";
 import { knownProject, rememberProjects } from "../projects/known-projects.ts";
+import { sessionListNotices } from "../projects/session-list-notices.ts";
 import { ev, SESSION_ID } from "../testing/events.ts";
+import { sockets } from "../testing/fake-socket.ts";
 import { beginStart, takeStartFailure } from "../workspace/workspace-entry.ts";
 import { forgetSignedOut } from "./forget-signed-out.ts";
 
@@ -20,6 +22,24 @@ beforeEach(() => {
 });
 
 describe("forgetting the person who signed out", () => {
+  it("closes the session list's socket at once, though it was lingering for the next list", async () => {
+    // The next person to sign in here must not inherit a socket bound to the last one.
+    const net = sockets();
+    net.countGlobalToo(vi.stubGlobal);
+    const before = sessionListNotices();
+    const stop = before.subscribe(() => {});
+    await Promise.resolve();
+    expect(net.opened).toHaveLength(1);
+    stop();
+    expect(net.latest.closed).toBe(false);
+
+    await forgetSignedOut("owner", drafts().store);
+
+    expect(net.latest.closed).toBe(true);
+    expect(sessionListNotices()).not.toBe(before);
+    vi.unstubAllGlobals();
+  });
+
   it("drops the account's key and models and the project records this tab held", async () => {
     accountKey.set({ configured: true, platform: "openrouter", hint: "sk-or-…4f2a" });
     rememberProjects([

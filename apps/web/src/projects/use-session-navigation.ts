@@ -18,6 +18,7 @@ import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import { forgetLog } from "../hooks/remembered-logs.ts";
 import { forgetKnownProject, knownProjectsEpoch, rememberProjects } from "./known-projects.ts";
 import { type PendingOp, withPending } from "./navigation-overlay.ts";
+import { type SessionListNotices, sessionListNotices } from "./session-list-notices.ts";
 import type { SearchSessions } from "./use-session-search.ts";
 
 /** One thing to do to the session list. A move between shelves is several, applied together. */
@@ -55,9 +56,12 @@ type Group = { failed: boolean; quiet: boolean };
 export function useSessionNavigation({
   fetchJson = credentialedFetch,
   baseUrl = GITHUB_API_URL,
+  notices,
 }: {
   fetchJson?: FetchJson;
   baseUrl?: string;
+  /** What says the list changed. The tab's own socket unless a test hands in another. */
+  notices?: SessionListNotices;
 } = {}) {
   const [projects, setProjects] = useState<SessionSummary[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -68,6 +72,10 @@ export function useSessionNavigation({
   const queue = useRef<Promise<void>>(Promise.resolve());
   /** Moves on every reload and every settled write, so a reply from before either is dropped. */
   const generation = useRef(0);
+  /** When the list was last asked for, which the slow backstop below is measured from. */
+  const readAt = useRef(0);
+  /** Whether the last read failed, which is retried on the short timer however live the tab is. */
+  const readFailed = useRef(false);
 
   const publish = useCallback(() => {
     setProjects(
@@ -80,6 +88,7 @@ export function useSessionNavigation({
 
   const reload = useCallback(async () => {
     const version = ++generation.current;
+    readAt.current = Date.now();
     const since = knownProjectsEpoch();
     const nextRows: SessionSummary[] = [];
     let cursor: string | null = null;
@@ -93,6 +102,7 @@ export function useSessionNavigation({
         );
       if (generation.current !== version) return;
       if (!result.ok) {
+        readFailed.current = true;
         setStatus("error");
         setError(result.error);
         return;
@@ -100,12 +110,14 @@ export function useSessionNavigation({
       nextRows.push(...result.value.sessions);
       cursor = result.value.next;
       if (cursor && seen.has(cursor)) {
+        readFailed.current = true;
         setStatus("error");
         setError("The session list could not finish loading. Try again.");
         return;
       }
       if (cursor) seen.add(cursor);
     } while (cursor);
+    readFailed.current = false;
     confirmed.current = nextRows;
     // Every row is a project record, so opening one can draw its title and connect to its session
     // without waiting for the project's own read. See `known-projects.ts`.
@@ -126,25 +138,70 @@ export function useSessionNavigation({
     [fetchJson, baseUrl],
   );
 
+  // The list is read when the server says it changed (`session-list-notices.ts`), and on a timer
+  // only while that cannot be heard. A hidden tab reads nothing — it reads when it is looked at —
+  // and while the server is writing nothing, neither is anybody's tab.
   useEffect(() => {
-    void reload();
-    const refresh = () => {
-      if (!document.hidden && pending.current.length === 0) void reload();
+    const source = notices ?? sessionListNotices();
+    // A read on its way already answers whatever changed before it started; a change after that
+    // is read once more when it lands. Starting a fresh read on every notice instead would discard
+    // the one in flight, and a steady stream of notices could then discard every read before any
+    // arrived. "On its way" ends when anything newer has been read since (the generation moved),
+    // or after `SESSION_LIST_READ_STALL_MS`: a request that never answers must not hold every
+    // later one behind it.
+    let disposed = false;
+    let readVersion = -1;
+    let readStartedAt = 0;
+    let again = false;
+    const reading = () =>
+      readVersion === generation.current && Date.now() - readStartedAt < SESSION_LIST_READ_STALL_MS;
+    const read = () => {
+      // `reload` takes the next generation as its first step.
+      const version = generation.current + 1;
+      readVersion = version;
+      readStartedAt = Date.now();
+      void reload().finally(() => {
+        if (readVersion !== version) return;
+        readVersion = -1;
+        if (again && !disposed) {
+          again = false;
+          refresh();
+        }
+      });
     };
-    const timer = setInterval(refresh, 10000);
+    const refresh = () => {
+      if (document.hidden || pending.current.length > 0) return;
+      if (reading()) again = true;
+      else read();
+    };
+    read();
+    const timer = setInterval(() => {
+      if (
+        !source.live() ||
+        readFailed.current ||
+        Date.now() - readAt.current >= SESSION_LIST_BACKSTOP_MS
+      )
+        refresh();
+    }, SESSION_LIST_POLL_MS);
+    // `down` needs nothing: the timer above takes over until the next `live`.
+    const unsubscribe = source.subscribe((notice) => {
+      if (notice !== "down") refresh();
+    });
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     const channel =
       typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("nap-sessions");
     if (channel) channel.onmessage = refresh;
     return () => {
+      disposed = true;
       generation.current++;
       clearInterval(timer);
+      unsubscribe();
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
       channel?.close();
     };
-  }, [reload]);
+  }, [reload, notices]);
 
   /**
    * Titles this tab asked for and is still waiting on. Drawn as `titling` straight away, before
@@ -191,8 +248,8 @@ export function useSessionNavigation({
     [fetchJson, baseUrl, reload, publish, undim],
   );
   // A title the server is writing on its own, after a first prompt, lands in seconds; read again
-  // every few until it has, rather than leave the name dimmed until the next ten-second poll. The
-  // server's flag expires with its claim, so this cannot outlast that.
+  // every few until it has. Its landing is announced, but a claim that expires unanswered is not —
+  // nothing writes when it does — and the flag expires with that claim, so this cannot outlast it.
   const serverTitling = projects.some((row) => row.titling);
   useEffect(() => {
     if (!serverTitling) return;
@@ -417,6 +474,22 @@ export function useSessionNavigation({
 
 /** How soon the list is read again while a model is writing a session's title. */
 export const TITLING_RECHECK_MS = 2000;
+
+/**
+ * How long a read may be on its way before a notice starts another beside it rather than waiting:
+ * a request that never answers must not hold every later read behind it.
+ */
+export const SESSION_LIST_READ_STALL_MS = 30_000;
+
+/** How often the list is read while the server's notices cannot be heard. */
+export const SESSION_LIST_POLL_MS = 10_000;
+
+/**
+ * How often it is read even while they can. A notice is a wake-up rather than a delivery, and one
+ * can be lost — a listener reconnecting, a process dying between its commit and its announcement —
+ * so a list that hears nothing for this long reads anyway. Focusing the tab reads too.
+ */
+export const SESSION_LIST_BACKSTOP_MS = 5 * 60_000;
 
 /**
  * Tells every other list of this user's sessions that it changed, so it reads again rather than

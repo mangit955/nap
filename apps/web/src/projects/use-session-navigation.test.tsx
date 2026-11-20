@@ -8,7 +8,14 @@ import { expect, it, vi } from "vitest";
 import { recallLog, rememberLog } from "../hooks/remembered-logs.ts";
 import { ev } from "../testing/events.ts";
 import { navigationServer } from "../testing/navigation-server.ts";
-import { TITLING_RECHECK_MS, useSessionNavigation } from "./use-session-navigation.ts";
+import type { SessionListNotice, SessionListNotices } from "./session-list-notices.ts";
+import {
+  SESSION_LIST_BACKSTOP_MS,
+  SESSION_LIST_POLL_MS,
+  SESSION_LIST_READ_STALL_MS,
+  TITLING_RECHECK_MS,
+  useSessionNavigation,
+} from "./use-session-navigation.ts";
 
 const row = (name: string, extra: Partial<SessionSummary> = {}): SessionSummary => ({
   projectId: crypto.randomUUID(),
@@ -473,9 +480,246 @@ it("reads the list again every few seconds while the server is writing a title",
       await act(() => vi.advanceTimersByTimeAsync(TITLING_RECHECK_MS));
       expect(reads).toBe(expected);
     }
-    // The fourth read said the title landed, so the rechecks stop (the ten-second poll is later).
+    // The fourth read said the title landed, so the rechecks stop (the slow poll is later).
     await act(() => vi.advanceTimersByTimeAsync(TITLING_RECHECK_MS + 1000));
     expect(reads).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+/** Notices the test sends by hand, standing in for the tab's `/ws/account` socket. */
+function manualNotices() {
+  let live = false;
+  const listeners = new Set<(notice: SessionListNotice) => void>();
+  const notices: SessionListNotices = {
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    close: () => listeners.clear(),
+    live: () => live,
+  };
+  return {
+    notices,
+    listeners,
+    say: (notice: SessionListNotice) => {
+      if (notice === "live") live = true;
+      if (notice === "down") live = false;
+      for (const listener of [...listeners]) listener(notice);
+    },
+  };
+}
+
+/** Mounts the hook on fake timers, counting every read of the list. */
+async function counting(notices: SessionListNotices) {
+  vi.useFakeTimers();
+  const session = row("Counted");
+  let reads = 0;
+  const fetchJson = vi.fn(async () => {
+    reads++;
+    return Response.json({ sessions: [session], next: null });
+  });
+  const view = renderHook(() => useSessionNavigation({ fetchJson, notices }));
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  return { reads: () => reads, view };
+}
+
+it("reads the list when the server says it changed, and not on a timer while it can hear", async () => {
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+    expect(reads()).toBe(1);
+
+    // Live: whatever changed while nobody was listening is read once.
+    await act(async () => source.say("live"));
+    expect(reads()).toBe(2);
+    // A minute of nothing happening is a minute of no requests at all.
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(reads()).toBe(2);
+
+    await act(async () => source.say("changed"));
+    expect(reads()).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reads on the old timer while the server cannot be heard, and stops once it can", async () => {
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(2);
+
+    await act(async () => source.say("live"));
+    expect(reads()).toBe(3);
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS * 3));
+    expect(reads()).toBe(3);
+
+    await act(async () => source.say("down"));
+    expect(reads()).toBe(3);
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(4);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reads anyway when nothing has been heard for the backstop's length", async () => {
+  // A notice can be lost between a commit and its announcement; this is what bounds that.
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+    await act(async () => source.say("live"));
+    expect(reads()).toBe(2);
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_BACKSTOP_MS - SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(2);
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads()).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("reads nothing on a notice while the tab is hidden, and reads when it is looked at", async () => {
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+  try {
+    const source = manualNotices();
+    const { reads } = await counting(source.notices);
+    await act(async () => source.say("live"));
+    await act(async () => source.say("changed"));
+    expect(reads()).toBe(1);
+
+    hidden.mockReturnValue(false);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(reads()).toBe(2);
+  } finally {
+    hidden.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it("lets go of the tab's notices when the list is unmounted", async () => {
+  try {
+    const source = manualNotices();
+    const { view } = await counting(source.notices);
+    expect(source.listeners.size).toBe(1);
+
+    view.unmount();
+
+    expect(source.listeners.size).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("retries a read that failed on the short timer, live or not", async () => {
+  // The read on `ready` after an API deploy can meet a 502; it must not wait out the backstop.
+  vi.useFakeTimers();
+  try {
+    const source = manualNotices();
+    const session = row("Retried");
+    let reads = 0;
+    const fetchJson = vi.fn(async () => {
+      reads++;
+      return reads === 2
+        ? Response.json({ error: "Bad gateway" }, { status: 502 })
+        : Response.json({ sessions: [session], next: null });
+    });
+    const { result } = renderHook(() =>
+      useSessionNavigation({ fetchJson, notices: source.notices }),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    await act(async () => source.say("live"));
+    expect(reads).toBe(2);
+    expect(result.current.status).toBe("error");
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS));
+    expect(reads).toBe(3);
+    expect(result.current.status).toBe("ready");
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_MS * 3));
+    expect(reads).toBe(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("draws a read that was under way when notices kept coming, and reads once more after it", async () => {
+  // A list slower to read than notices are to arrive must still show something: each notice used
+  // to discard the read in flight, and a steady stream of them discarded every one.
+  const source = manualNotices();
+  const session = row("Busy");
+  const answers: ((response: Response) => void)[] = [];
+  const fetchJson = vi.fn(() => new Promise<Response>((resolve) => answers.push(resolve)));
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson, notices: source.notices }));
+  await waitFor(() => expect(answers).toHaveLength(1));
+
+  for (let i = 0; i < 10; i++) await act(async () => source.say("changed"));
+  expect(fetchJson).toHaveBeenCalledTimes(1);
+
+  await act(async () => answers[0]?.(Response.json({ sessions: [session], next: null })));
+  await waitFor(() => expect(result.current.status).toBe("ready"));
+  expect(result.current.projects.map((item) => item.name)).toEqual(["Busy"]);
+  // The notices that came during it are answered by one more read, not ten.
+  await waitFor(() => expect(fetchJson).toHaveBeenCalledTimes(2));
+  await act(async () =>
+    answers[1]?.(Response.json({ sessions: [{ ...session, name: "Busier" }], next: null })),
+  );
+  await waitFor(() => expect(result.current.projects[0]?.name).toBe("Busier"));
+  expect(fetchJson).toHaveBeenCalledTimes(2);
+});
+
+it("does not let a read that never answers hold later ones behind it", async () => {
+  const source = manualNotices();
+  const session = row("Stalled");
+  let calls = 0;
+  // The first request never answers; every later one does.
+  const fetchJson = vi.fn(async () => {
+    calls++;
+    if (calls === 1) return await new Promise<Response>(() => {});
+    return Response.json({ sessions: [{ ...session, name: `Read ${calls}` }], next: null });
+  });
+  const { result } = renderHook(() => useSessionNavigation({ fetchJson, notices: source.notices }));
+  await waitFor(() => expect(calls).toBe(1));
+
+  // A newer read (a write settling, say) succeeds past it: the stalled one is no longer on its way.
+  await act(async () => result.current.reload());
+  expect(result.current.projects[0]?.name).toBe("Read 2");
+  await act(async () => source.say("changed"));
+  await waitFor(() => expect(result.current.projects[0]?.name).toBe("Read 3"));
+});
+
+it("starts another read beside one that has been on its way too long", async () => {
+  vi.useFakeTimers();
+  try {
+    const source = manualNotices();
+    let calls = 0;
+    const fetchJson = vi.fn(async () => {
+      calls++;
+      if (calls === 1) return await new Promise<Response>(() => {});
+      return Response.json({ sessions: [row("Late")], next: null });
+    });
+    const { result } = renderHook(() =>
+      useSessionNavigation({ fetchJson, notices: source.notices }),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    // Live, so only notices start reads here: no ten-second timer.
+    await act(async () => source.say("live"));
+    await act(async () => source.say("changed"));
+    expect(calls).toBe(1);
+
+    await act(() => vi.advanceTimersByTimeAsync(SESSION_LIST_READ_STALL_MS));
+    await act(async () => source.say("changed"));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    // The notice starts a read beside the stalled one; when it lands, the notices that waited
+    // behind the stalled one are answered by one more.
+    expect(calls).toBe(3);
+    expect(result.current.status).toBe("ready");
   } finally {
     vi.useRealTimers();
   }

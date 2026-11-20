@@ -28,6 +28,12 @@ export type StreamTickets = {
   verify(ticket: string, sessionId: string): Caller | null;
 };
 
+/**
+ * What an `/ws/account` ticket is bound to in place of a session. Not a uuid, so it can never name
+ * a session: a session's ticket cannot open the account socket, nor this one a session's stream.
+ */
+export const ACCOUNT_STREAM = "account";
+
 /** Long enough for a fetch and a socket open on a slow connection; a reconnect asks again. */
 const TICKET_TTL_MS = 60_000;
 

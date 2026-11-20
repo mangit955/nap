@@ -35,6 +35,7 @@ import { MediaAttachmentsSchema } from "@nap/shared/media";
 
 import { LEASE_GRACE_MS, LEASE_TTL_MS, ORPHAN_SWEEP_LIMIT } from "@nap/shared/lease-windows";
 import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import {
   type ClosedSteers,
   MAX_WAITING_STEERS,
@@ -122,16 +123,25 @@ export type PostgresTurnQueueOptions = {
    * on a transaction, where "after this write" would be before the commit.
    */
   claims: ClaimAnnouncer | null;
+  /**
+   * Told, after the commit, about every write here that changes what an owner's session list draws:
+   * a request queued, claimed, settled, failed by a cancel before it ran, or reclaimed from a dead
+   * worker. A settle is the end of a turn as the list sees it, because the runtime has appended the
+   * turn's last event before the worker settles. Absent, open tabs see the change at their slow poll.
+   */
+  sessionList?: SessionListAnnouncer | null;
 };
 
 export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   readonly #db: PostgresJsDatabase;
   readonly #claims: ClaimAnnouncer | null;
+  readonly #sessionList: SessionListAnnouncer | null;
 
   /** Takes a database rather than a URL, for the reason `PostgresEventStore` does. */
   constructor(db: PostgresJsDatabase, options: PostgresTurnQueueOptions) {
     this.#db = db;
     this.#claims = options.claims;
+    this.#sessionList = options.sessionList ?? null;
   }
 
   async enqueue(request: EnqueueTurnRequest): Promise<void> {
@@ -150,6 +160,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
       billsToUser: request.billsToUser,
     });
     this.#claims?.announce();
+    this.#sessionList?.announce({ userId: request.userId });
   }
 
   async getStatus(request: {
@@ -190,7 +201,10 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
 
     for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
       const claimed = await this.#claimOnce(owner, tried);
-      if (claimed.leased !== null) return claimed.leased;
+      if (claimed.leased !== null) {
+        this.#sessionList?.announce({ userId: claimed.leased.userId });
+        return claimed.leased;
+      }
       // Nothing left to try, as against having lost a race on one candidate.
       if (claimed.skip === null) return null;
       tried.push(claimed.skip);
@@ -364,12 +378,13 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
           eq(turnRequests.state, "leased"),
         ),
       )
-      .returning({ id: turnRequests.id });
+      .returning({ id: turnRequests.id, userId: turnRequests.userId });
 
     if (rows.length === 0) return false;
     // The session is free again, so whatever was queued behind this turn can now be claimed — by
     // any worker, which is why the worker settling it is not the only one that needs to know.
     this.#claims?.announce();
+    this.#sessionList?.announce(...rows.map(({ userId }) => ({ userId })));
     return true;
   }
 
@@ -418,6 +433,9 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
 
     // At most one, by the partial unique index. `failed` here can only be a row this statement just
     // moved out of `queued`.
+    // Only a request failed before it ran changes the list; a running one is merely flagged, and
+    // its settle announces.
+    if (rows.some((row) => row.state === "failed")) this.#sessionList?.announce({ sessionId });
     const leased = rows.find((row) => row.state === "leased");
     if (leased !== undefined) return { cancelled: true, was: "leased", requestId: leased.id };
     if (rows.length > 0) return { cancelled: true, was: "queued" };
@@ -461,6 +479,8 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
     // Each of those sessions is free again. Only when there were some: every tick of a healthy
     // deployment finds none, and a wake-up per tick would be a poll by another name.
     if (orphaned.length > 0) this.#claims?.announce();
+    if (orphaned.length > 0)
+      this.#sessionList?.announce(...orphaned.map(({ sessionId }) => ({ sessionId })));
     return orphaned;
   }
 
@@ -572,7 +592,10 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
         queued = true;
         return { as: "turn" } as const;
       });
-      if (queued) this.#claims?.announce();
+      if (queued) {
+        this.#claims?.announce();
+        this.#sessionList?.announce({ userId: request.userId });
+      }
       return admitted;
     } catch (error) {
       // A retry of the same message committed first. Whatever it did is the answer.
@@ -689,12 +712,16 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
   }
 
   async markOrphanAnnounced(requestId: string): Promise<void> {
-    await this.#db
+    const marked = await this.#db
       .update(turnRequests)
       .set({ finishedAt: sql`now()` })
       // Conditional on the state, so this can never be mistaken for a settlement: only the
       // janitor's own rows are terminal with a null `finished_at`.
-      .where(and(eq(turnRequests.id, requestId), eq(turnRequests.state, "orphaned")));
+      .where(and(eq(turnRequests.id, requestId), eq(turnRequests.state, "orphaned")))
+      .returning({ userId: turnRequests.userId });
+    // The janitor has appended the turn's `turn.failed` by now, which the card's time and order
+    // are read from; the reclaim's own notice came before it.
+    if (marked.length > 0) this.#sessionList?.announce(...marked.map(({ userId }) => ({ userId })));
   }
 }
 

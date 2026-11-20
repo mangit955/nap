@@ -24,7 +24,7 @@ import { type AccountRouteDeps, registerAccountRoutes } from "./account/routes.t
 import type { Authenticate, AuthInstance } from "./auth/auth.ts";
 import { findOwnedSession } from "./auth/owned-session.ts";
 import { type AuthVariables, requireUser } from "./auth/require-user.ts";
-import type { StreamTickets } from "./auth/stream-ticket.ts";
+import { ACCOUNT_STREAM, type StreamTickets } from "./auth/stream-ticket.ts";
 import { type ComputerAccessDeps, registerComputerAccessRoutes } from "./computer/access.ts";
 import { registerTestRecordingRoutes, type TestRecordingDeps } from "./computer/recordings.ts";
 import {
@@ -42,6 +42,8 @@ import { registerSessionStartRoutes, type SessionStartRouteDeps } from "./projec
 import { registerTurnRoutes, type TurnRouteDeps } from "./turns/routes.ts";
 import { type HeartbeatOptions, openEventStream } from "./ws/event-stream.ts";
 import { parseStreamQuery } from "./ws/query.ts";
+import type { SessionListHub } from "./ws/session-list-hub.ts";
+import { openSessionListStream } from "./ws/session-list-stream.ts";
 import { viewerSignal } from "./ws/viewer-signal.ts";
 
 /**
@@ -135,6 +137,11 @@ export type AppDeps = {
      * itself. Absent, viewing frames are accepted and dropped: the sweep then sees turns alone.
      */
     viewers?: Pick<ProjectSandboxStore, "recordViewer">;
+    /**
+     * Who on this pod wants to hear that their session list changed, behind `/ws/account`. Absent,
+     * that route and its ticket route do not exist, and tabs read their list on a timer.
+     */
+    sessionList?: SessionListHub;
   };
   /**
    * Reading a project's files needs a session's sandbox, which means a `SessionStore` — and
@@ -380,6 +387,43 @@ export function createApp(deps: AppDeps): Hono<{ Variables: AuthVariables }> {
 
     return await deps.stream.upgradeWebSocket(c, events);
   });
+
+  if (deps.stream.sessionList !== undefined) {
+    const hub = deps.stream.sessionList;
+    /** The `/ws/account` ticket: no session to check, only who is asking. */
+    if (tickets !== undefined) {
+      app.post("/account/stream-ticket", (c) => {
+        const caller = { userId: c.get("userId"), isAnonymous: c.get("isAnonymous") };
+        c.header("Cache-Control", "no-store");
+        return c.json({ ticket: tickets.issue(caller, ACCOUNT_STREAM) });
+      });
+    }
+
+    /** "Your session list changed" — see `ws/session-list-stream.ts`. The caller's own, always. */
+    app.get("/ws/account", async (c) => {
+      const userId = c.get("userId");
+      let stream: ReturnType<typeof openSessionListStream> | undefined;
+      let released: (() => void) | undefined;
+      const close = () => {
+        released?.();
+        stream?.onClose();
+      };
+      return await deps.stream.upgradeWebSocket(c, {
+        onOpen: (_event, ws) => {
+          released = deps.metrics?.connectionOpened();
+          stream = openSessionListStream({
+            hub,
+            userId,
+            socket: ws,
+            ...(deps.stream.heartbeat === undefined ? {} : { heartbeat: deps.stream.heartbeat }),
+          });
+        },
+        onMessage: (event) => stream?.onMessage(event.data),
+        onClose: close,
+        onError: close,
+      });
+    });
+  }
 
   // Every method, because the library owns this whole prefix: sign-in posts, the OAuth
   // callback arrives as a GET redirect from GitHub, and which paths exist under it is its

@@ -236,6 +236,12 @@ enqueued, a lease was settled, or the janitor reclaimed one. Every idle worker h
 queue at once rather than at its next poll. It carries nothing and claims nothing itself; a lost one
 costs a wait of up to one fallback poll. See `docs/adr/0027`.
 
+**Session list notice** — a notification that something a user's session cards draw has changed: a
+turn queued, started or finished, a rename or title, a shelf change, a pull request or its feedback.
+It carries the owner's user id and nothing else; every API pod hears it and tells that user's
+`/ws/account` sockets, and each tab reads `GET /sessions` again. A lost one costs a wait of up to the
+tab's five-minute backstop read. See `@nap/shared/ports/session-list-channel`.
+
 **Event** — one durable, ordered fact about a session, identified by its `seq`. Appended to the
 store *before* it is published to the bus, never the other way round.
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ProjectRepositorySchema } from "@nap/shared/github-protocol";
 import type { ClaimAnnouncer } from "@nap/shared/ports/claim-channel";
+import type { SessionListAnnouncer } from "@nap/shared/ports/session-list-channel";
 import type {
   AdmittedSessionStart,
   SessionStartStore,
@@ -27,16 +28,20 @@ export type PostgresSessionStartStoreOptions = {
    */
   // Use a pooled database: a nested transaction only commits a savepoint.
   claims: ClaimAnnouncer | null;
+  /** Told once a new project has committed, so its author's other tabs draw it. */
+  sessionList?: SessionListAnnouncer | null;
 };
 
 export class PostgresSessionStartStore implements SessionStartStore {
   readonly #claims: ClaimAnnouncer | null;
+  readonly #sessionList: SessionListAnnouncer | null;
 
   constructor(
     private readonly db: PostgresJsDatabase,
     options: PostgresSessionStartStoreOptions,
   ) {
     this.#claims = options.claims;
+    this.#sessionList = options.sessionList ?? null;
   }
 
   async find(userId: string, operationId: string): Promise<StartReceipt | null> {
@@ -59,7 +64,10 @@ export class PostgresSessionStartStore implements SessionStartStore {
     const result = await this.#admit(input);
     // After the commit, and on a retry that found its earlier start as well: a wake-up that names
     // nothing new costs one claim query, and one that was lost the first time is replaced.
-    if (result.kind === "created") this.#claims?.announce();
+    if (result.kind === "created") {
+      this.#claims?.announce();
+      this.#sessionList?.announce({ userId: input.userId });
+    }
     return result;
   }
 
