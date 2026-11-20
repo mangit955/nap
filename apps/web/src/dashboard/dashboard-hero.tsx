@@ -2,6 +2,7 @@
 
 import type { MediaAttachment } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED } from "@nap/shared/model-capabilities";
+import type { Effort } from "@nap/shared/model-lines";
 import { type ReactNode, useEffect, useRef } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ComposerAddMenu } from "../chat/composer-add-menu.tsx";
@@ -26,6 +27,9 @@ export function DashboardHero({
   modelsLoading = false,
   model,
   onModelChange,
+  effort,
+  defaultEffort,
+  onEffortChange,
   onAddKey,
   onChange,
   onSubmit,
@@ -43,6 +47,11 @@ export function DashboardHero({
   modelsLoading?: boolean;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
+  /** The effort chosen; absent is `defaultEffort`. */
+  effort?: Effort | undefined;
+  defaultEffort?: Effort | undefined;
+  /** Absent hides the effort column. */
+  onEffortChange?: ((effort: Effort) => void) | undefined;
   onAddKey?: (() => void) | undefined;
   onChange: (value: string) => void;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
@@ -138,6 +147,9 @@ export function DashboardHero({
                 disabled={disabled}
                 loading={modelsLoading}
                 onChange={(choice) => onModelChange?.(choice)}
+                effort={effort}
+                defaultEffort={defaultEffort}
+                onEffortChange={onEffortChange}
                 onAddKey={onAddKey}
                 onPick={() => box.current?.focus()}
               />

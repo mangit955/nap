@@ -2,6 +2,7 @@
 
 import { RepositoryImportSchema } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
+import type { Effort } from "@nap/shared/model-lines";
 import { SessionStartedSchema, SessionStartSchema } from "@nap/shared/session-start-protocol";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,6 +33,7 @@ export function NewSessionComposer({
   models,
   modelsLoading,
   fallback,
+  defaultEffort,
   onAddKey,
   fetchJson = credentialedFetch,
   onSourceChange,
@@ -41,6 +43,8 @@ export function NewSessionComposer({
   models: readonly ModelOption[];
   modelsLoading: boolean;
   fallback?: string | undefined;
+  /** The effort a turn runs at when nobody chose one, for this caller. */
+  defaultEffort?: Effort | undefined;
   onAddKey: () => void;
   fetchJson?: FetchJson;
   /** The repository the draft will start from, for the thread details card beside it. */
@@ -260,7 +264,12 @@ export function NewSessionComposer({
           ? {
               // A draft saved before there were lines may hold an exact version: sent as its
               // line, and dropped when this deployment offers nothing it could mean.
-              prompt: { message, model: sendableModel(models, value.model), attachments },
+              prompt: {
+                message,
+                model: sendableModel(models, value.model),
+                effort: value.effort,
+                attachments,
+              },
             }
           : {}),
       },
@@ -326,6 +335,7 @@ export function NewSessionComposer({
           text: prompt.message,
           ...(prompt.attachments === undefined ? {} : { attachments: prompt.attachments }),
           ...(prompt.model === undefined ? {} : { model: prompt.model }),
+          ...(prompt.effort === undefined ? {} : { effort: prompt.effort }),
         });
       entered.started(result.projectId);
     } catch (error) {
@@ -364,8 +374,12 @@ export function NewSessionComposer({
       error={error}
       models={models}
       modelsLoading={modelsLoading}
-      model={draft?.model ?? fallback}
+      // What a start would send, so the trigger never names a line the start will not run on.
+      model={sendableModel(models, draft?.model) ?? fallback}
       onModelChange={(model) => setDraft((value) => value && { ...value, model })}
+      effort={draft?.effort}
+      defaultEffort={defaultEffort}
+      onEffortChange={(effort) => setDraft((value) => value && { ...value, effort })}
       onAddKey={onAddKey}
       mediaState={media}
       onChange={(text) => {

@@ -350,7 +350,10 @@ describe("AppShell", () => {
         target: { value: "Keep this draft" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Model" }));
+      fireEvent.click(screen.getByRole("button", { name: "Anthropic" }));
       fireEvent.click(screen.getByRole("button", { name: /Opus/ }));
+      // A line picked keeps the popup open for its effort; the level closes it.
+      fireEvent.click(screen.getByRole("radio", { name: "High" }));
       fireEvent.change(screen.getByLabelText("Attach images or videos"), {
         target: { files: [new File(["small"], "reference.png", { type: "image/png" })] },
       });
@@ -358,12 +361,12 @@ describe("AppShell", () => {
       const preview = screen.getByRole("img", { name: "reference.png" }).getAttribute("src");
 
       fireEvent.click(screen.getByRole("button", { name: "Model" }));
-      expect(screen.getByRole("button", { name: /Opus/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Opus, Anthropic, in use/ })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
       fireEvent.click(screen.getByRole("tab", { name: "Files" }));
       expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
       expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
-      expect(screen.queryByRole("button", { name: /Opus/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Opus, Anthropic/ })).toBeNull();
       expect(media.revokeObjectURL).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
 

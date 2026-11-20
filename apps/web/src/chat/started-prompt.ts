@@ -1,4 +1,5 @@
 import { MediaAttachmentsSchema } from "@nap/shared/media";
+import { EffortSchema } from "@nap/shared/model-lines";
 import { z } from "zod";
 import { defaultStorage, type PromptStorage } from "./first-prompt.ts";
 
@@ -28,8 +29,9 @@ const StartedPromptSchema = z.object({
   requestId: z.uuid(),
   text: z.string().min(1),
   attachments: MediaAttachmentsSchema.optional(),
-  /** So the workspace's composer starts on the model the prompt was sent with. */
+  /** So the workspace's composer starts on the model and effort the prompt was sent with. */
   model: z.string().min(1).optional(),
+  effort: EffortSchema.optional(),
 });
 export type StartedPrompt = z.infer<typeof StartedPromptSchema>;
 
