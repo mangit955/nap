@@ -343,7 +343,8 @@ it("abandons the scope but keeps a machine the project recorded since, and says 
     value: { released: false },
   });
   expect(announce).toHaveBeenCalledTimes(1);
-  // The machine was kept, so nothing a card draws changed.
+  // The machine was kept, so the card's workspace state did not change; the abandon's new
+  // `updatedAt` shows at the tab's next read.
   expect(listed).not.toHaveBeenCalled();
   const [after] = await db.select().from(projects).where(eq(projects.id, f.projectId));
   expect(after).toMatchObject({ sandboxId: "replacement" });

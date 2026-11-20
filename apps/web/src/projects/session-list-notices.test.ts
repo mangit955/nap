@@ -196,15 +196,14 @@ describe("createSessionListNotices", () => {
     const { net, notices } = setup();
     const stop = notices.subscribe(() => {});
     await vi.advanceTimersByTimeAsync(0);
-    net.latest.drop();
 
+    // A drop just before the linger ends leaves its retry pending when the socket is stopped.
     stop();
-    await vi.advanceTimersByTimeAsync(NOTICE_LINGER_MS);
-    const opened = net.opened.length;
-    expect(net.latest.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(NOTICE_LINGER_MS - 1);
+    net.latest.drop();
     await vi.advanceTimersByTimeAsync(NOTICE_BACKOFF.maxMs);
 
-    expect(net.opened).toHaveLength(opened);
+    expect(net.opened).toHaveLength(1);
   });
 
   it("closes at once when told to, lingering or not, and forgets its lists", async () => {

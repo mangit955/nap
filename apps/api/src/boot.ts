@@ -210,7 +210,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
    */
   const sessionList =
     notifyTransport === null || notifyBus === null
-      ? new PostgresSessionListChannel(db, new InProcessNotifyTransport())
+      ? new PostgresSessionListChannel(db, new InProcessNotifyTransport(), { hearing: () => true })
       : new PostgresSessionListChannel(db, notifyTransport, {
           hearing: () => notifyBus.listening,
         });

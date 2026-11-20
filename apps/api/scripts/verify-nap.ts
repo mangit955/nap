@@ -281,7 +281,9 @@ try {
   };
   // One process serves the sockets and writes every row, so its notices need go nowhere else —
   // as `bootNap` arranges it with no `LISTEN` connection.
-  const sessionList = new PostgresSessionListChannel(db, new InProcessNotifyTransport());
+  const sessionList = new PostgresSessionListChannel(db, new InProcessNotifyTransport(), {
+    hearing: () => true,
+  });
   const composed = composeNap({
     config,
     auth,

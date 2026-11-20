@@ -219,7 +219,9 @@ const calibrated = process.env.NAP_PROOF_CALIBRATED_LATENCY === "true";
 const random = seededRandom(tunable("NAP_PROOF_SEED", 1));
 
 // Wired as `bootNap` wires it, so a change written on one pod is announced to a tab on another.
-const sessionList = new PostgresSessionListChannel(db, transport);
+const sessionList = new PostgresSessionListChannel(db, transport, {
+  hearing: () => bus.listening,
+});
 
 const { app, worker, reaper, janitor } = composeNap({
   config: CONFIG,

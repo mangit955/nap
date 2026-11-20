@@ -36,10 +36,11 @@ const PayloadSchema = z.uuid();
 export type PostgresSessionListChannelOptions = {
   /**
    * Whether the listening socket is still delivering: the event bus's `listening` in a deployment,
-   * which reads its echo over the same socket, as `PostgresClaimChannel` is handed. Absent means
-   * "assume so", which is right for a transport inside one process.
+   * which reads its echo over the same socket, as `PostgresClaimChannel` is handed; `() => true` for
+   * a transport inside one process, which cannot go deaf. Required, because a composition that
+   * forgot it would compile, pass every test, and leave tabs trusting a deaf pod.
    */
-  hearing?: () => boolean;
+  hearing: () => boolean;
 };
 
 export class PostgresSessionListChannel implements SessionListChannel {
@@ -50,11 +51,11 @@ export class PostgresSessionListChannel implements SessionListChannel {
   constructor(
     db: PostgresJsDatabase,
     transport: NotifyTransport,
-    options: PostgresSessionListChannelOptions = {},
+    options: PostgresSessionListChannelOptions,
   ) {
     this.#db = db;
     this.#transport = transport;
-    this.#hearing = options.hearing ?? (() => true);
+    this.#hearing = options.hearing;
   }
 
   hearing(): boolean {

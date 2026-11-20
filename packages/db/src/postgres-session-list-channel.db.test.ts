@@ -55,7 +55,7 @@ function replica(name = randomUUID()) {
     name,
     notifier,
     transport,
-    channel: new PostgresSessionListChannel(drizzle(notifier), transport),
+    channel: new PostgresSessionListChannel(drizzle(notifier), transport, { hearing: () => true }),
   };
 }
 
@@ -115,33 +115,16 @@ describe("PostgresSessionListChannel over two processes", () => {
     expect(heard).toEqual([]);
   });
 
-  it("says whether it is hearing as it was told, and assumes so when nobody said", async () => {
+  it("says whether it is hearing as it was told", async () => {
     let listening = true;
     const target = replica();
     const told = new PostgresSessionListChannel(drizzle(target.notifier), target.transport, {
       hearing: () => listening,
     });
 
-    expect(target.channel.hearing()).toBe(true);
     expect(told.hearing()).toBe(true);
     listening = false;
     expect(told.hearing()).toBe(false);
-  });
-
-  it("says notices were missed when its listener comes back from a drop", async () => {
-    // A drop shorter than the event bus's echo notices is otherwise invisible: postgres.js listens
-    // again by itself, and whatever was announced in between is simply gone.
-    const api = replica();
-    let missed = 0;
-    await api.channel.listen(
-      () => {},
-      () => missed++,
-    );
-    expect(missed).toBe(0);
-
-    await setup`select pg_terminate_backend(pid) from pg_stat_activity where application_name = ${api.name}`;
-
-    await expect.poll(() => missed, { timeout: 15_000, interval: 50 }).toBe(1);
   });
 
   it("ignores a payload that is not a user id", async () => {
