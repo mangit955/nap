@@ -10,10 +10,10 @@
  * Next applies the compiler only to the browser bundle. Every file under `app/` is a server page
  * or layout and never reaches it, so the config leaves `app/` alone too; `/sign-up`'s test calls
  * its page as a plain async function, which a compiled component cannot survive outside a render.
- * A `"use client"` file added under `app/` would ship compiled and be tested uncompiled.
+ * A `"use client"` file under `app/` would ship compiled and be tested uncompiled, so none may exist.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -47,6 +47,16 @@ describe("React Compiler", () => {
 
   it("leaves server components under app/ as Next does", () => {
     expect(String(SignUpPage)).not.toMatch(COMPILED);
+  });
+
+  it("finds no client component under app/, where the tests leave code uncompiled", () => {
+    const appDirectory = join(repoRoot, "apps/web/src/app");
+    const clients = readdirSync(appDirectory, { recursive: true, encoding: "utf8" }).filter(
+      (path) =>
+        /\.tsx?$/.test(path) &&
+        /^\s*["']use client["']/.test(readFileSync(join(appDirectory, path), "utf8")),
+    );
+    expect(clients).toEqual([]);
   });
 
   it("is the same release in the tests as in the build", () => {
