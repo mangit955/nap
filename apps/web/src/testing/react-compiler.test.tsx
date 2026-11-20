@@ -61,6 +61,18 @@ describe("React Compiler", () => {
     expect(clients).toEqual([]);
   });
 
+  it("finds nothing outside app/ importing from it, which would put app/ code in the browser", () => {
+    const source = join(repoRoot, "apps/web/src");
+    const importers = readdirSync(source, { recursive: true, encoding: "utf8" }).filter(
+      (path) =>
+        /\.tsx?$/.test(path) &&
+        !/\.test\.tsx?$/.test(path) &&
+        !path.startsWith("app/") &&
+        /from\s+["'](?:\.{1,2}\/)+app\//.test(readFileSync(join(source, path), "utf8")),
+    );
+    expect(importers).toEqual([]);
+  });
+
   it("is the same release in the tests as in the build", () => {
     // The root copy is what `vitest.config.ts` resolves; the web app's is what `next build` loads.
     const root = compilerPin("package.json");

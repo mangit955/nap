@@ -150,6 +150,31 @@ describe("GitHub connections", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("ages the repositories' last-fetched time while the drawer stays open", async () => {
+    // React Compiler reuses JSX whose inputs did not change, so a re-render that changes nothing
+    // the render reads cannot move this label: the clock it shows has to be one of those inputs.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetchJson = vi.fn(async (url: string) =>
+        url.endsWith("/installations/42/repositories")
+          ? Response.json({ repositories })
+          : Response.json({ configured: true, installations: [installation] }),
+      );
+      render(<GitHubConnections fetchJson={fetchJson} />);
+      fireEvent.click(await screen.findByRole("button", { name: /@nap-team/ }));
+      const drawer = screen.getByRole("dialog", { name: "@nap-team" });
+      fireEvent.click(within(drawer).getByRole("tab", { name: "Repositories" }));
+      await within(drawer).findByRole("list", { name: "Repositories" });
+      expect(within(drawer).getByText(/Last fetched: just now/)).toBeVisible();
+
+      act(() => vi.advanceTimersByTime(90_000));
+
+      expect(within(drawer).getByText(/Last fetched: 1m ago/)).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("moves between the drawer's tabs with the arrow keys and closes from its breadcrumb", async () => {
     const fetchJson = vi.fn(async (url: string) =>
       url.endsWith("/repositories")

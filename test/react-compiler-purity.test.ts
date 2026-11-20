@@ -8,6 +8,11 @@
  * once can see. The chat's "Working for" clock did exactly that, counting a second turn from the
  * first one's start. The fix is a `"use no memo"` directive on the function. This test compiles
  * apps/web the way `next build` does and finds any such read still inside a once-per-mount block.
+ *
+ * The same blindness has a second shape: state whose value is thrown away (`const [, setTick] =
+ * useState(0)`) and set on a timer only to make the component render again. Compiled, that render
+ * reuses everything, because nothing it reads changed. GitHub's "Last fetched: just now" stopped
+ * aging that way. The clock has to be state the render reads.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -108,7 +113,44 @@ function cachedImpureReads(file: string, source: string): string[] {
   return [...found];
 }
 
-describe("React Compiler and impure reads in render", () => {
+/**
+ * `file:line` of every discarded state value (`const [, set] = useState(…)` or `useReducer`) in a
+ * function the compiler compiled. A function it refused runs as written, where forcing a render
+ * still works.
+ */
+function forcedRendersInCompiledCode(file: string, source: string): string[] {
+  const discarded = [
+    ...source.matchAll(/const \[\s*,\s*\w+\s*\]\s*=\s*use(?:State|Reducer)\b/g),
+  ].map((match) => source.slice(0, match.index).split("\n").length);
+  if (discarded.length === 0) return [];
+  const compiled: { start: number; end: number }[] = [];
+  transformSync(source, {
+    filename: file,
+    babelrc: false,
+    configFile: false,
+    code: false,
+    parserOpts: { plugins: ["typescript", "jsx"] },
+    plugins: [
+      [
+        "babel-plugin-react-compiler",
+        {
+          panicThreshold: "none",
+          logger: {
+            logEvent(_file: string, event: { kind: string; fnLoc?: t.SourceLocation | null }) {
+              if (event.kind === "CompileSuccess" && event.fnLoc)
+                compiled.push({ start: event.fnLoc.start.line, end: event.fnLoc.end.line });
+            },
+          },
+        },
+      ],
+    ],
+  });
+  return discarded
+    .filter((line) => compiled.some(({ start, end }) => start <= line && line <= end))
+    .map((line) => `${relative(repoRoot, file)}:${line}`);
+}
+
+describe("React Compiler and what a render reads", () => {
   it("finds a clock read the compiler would keep from the first render", () => {
     // The shape of the bug this guards: a hook reading the clock while rendering.
     const source = `
@@ -151,6 +193,27 @@ describe("React Compiler and impure reads in render", () => {
       }`;
     expect(cachedImpureReads(join(webSource, "probe.tsx"), source)).toEqual([]);
   });
+
+  it("finds state kept only to force a render in compiled code", () => {
+    const source = `
+      import { useEffect, useState } from "react";
+      export function Fetched({ at }) {
+        const [, setTick] = useState(0);
+        useEffect(() => {
+          const timer = setInterval(() => setTick((value) => value + 1), 30_000);
+          return () => clearInterval(timer);
+        }, []);
+        return <p>{ago(at)}</p>;
+      }`;
+    expect(forcedRendersInCompiledCode(join(webSource, "probe.tsx"), source)).toHaveLength(1);
+  });
+
+  it("finds no state kept only to force a render in the web app's compiled code", () => {
+    const found = browserSources(webSource).flatMap((file) =>
+      forcedRendersInCompiledCode(file, readFileSync(file, "utf8")),
+    );
+    expect(found).toEqual([]);
+  }, 60_000);
 
   it("finds none in the web app", () => {
     const found = browserSources(webSource).flatMap((file) =>
