@@ -7,9 +7,10 @@
  * transforms with its own plugins, so without the same compiler in `vitest.config.ts` every
  * component test here would pass against code that never reaches a browser.
  *
- * Next applies the compiler only to the browser bundle. Server components under `app/` never
- * reach it, so the config leaves them alone too; `/sign-up`'s test calls its page as a plain
- * async function, which a compiled component cannot survive outside a render.
+ * Next applies the compiler only to the browser bundle. Every file under `app/` is a server page
+ * or layout and never reaches it, so the config leaves `app/` alone too; `/sign-up`'s test calls
+ * its page as a plain async function, which a compiled component cannot survive outside a render.
+ * A `"use client"` file added under `app/` would ship compiled and be tested uncompiled.
  */
 
 import { readFileSync } from "node:fs";
@@ -39,7 +40,9 @@ describe("React Compiler", () => {
   });
 
   it("compiles the client components this suite renders", () => {
-    expect(String(ChangedFilesCard)).toMatch(COMPILED);
+    // Any compiled client component would do. If this one stops compiling, check it with the
+    // compiler before suspecting the test config.
+    expect(String(ChangedFilesCard), "ChangedFilesCard ran uncompiled").toMatch(COMPILED);
   });
 
   it("leaves server components under app/ as Next does", () => {

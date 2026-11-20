@@ -116,12 +116,17 @@ export default defineConfig({
         //
         // React Compiler runs here as it does in `next build`, so these tests exercise the
         // components that ship: compiled code differs from its source wherever a component
-        // breaks the Rules of React. Next compiles only the browser bundle, so server components
-        // (everything under `app/`) are left alone, as they are in production.
-        // `apps/web/src/testing/react-compiler.test.tsx` fails if either half goes.
+        // breaks the Rules of React. Next compiles only the browser bundle, so `app/`, where every
+        // file is a server page or layout, is left alone as it is in production. Passing
+        // `exclude` replaces the plugin's default, so node_modules is listed again: Next never
+        // compiles a dependency. `apps/web/src/testing/react-compiler.test.tsx` fails if the
+        // compiler or the `app/` exclusion goes.
         plugins: [
           react(),
-          babel({ presets: [reactCompilerPreset()], exclude: [/\/apps\/web\/src\/app\//] }),
+          babel({
+            presets: [reactCompilerPreset()],
+            exclude: [/[/\\]node_modules[/\\]/, /\/apps\/web\/src\/app\//],
+          }),
         ],
         test: {
           name: "web",

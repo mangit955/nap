@@ -325,6 +325,9 @@ function useWorkingSince(
   openedAt: string | undefined,
   queuedBehindCompaction: boolean,
 ): number | undefined {
+  // React Compiler would cache the `Date.now()` below on its first read, so every later wait in
+  // this pane would count from the first one's start. Reading the clock in render is the point.
+  "use no memo";
   type Since = { at: number; key: string | undefined };
   const [since, setSince] = useState<Since | undefined>(() =>
     working ? { at: Date.now(), key: openedAt } : undefined,
