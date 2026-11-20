@@ -54,7 +54,9 @@ describe("React Compiler", () => {
     const clients = readdirSync(appDirectory, { recursive: true, encoding: "utf8" }).filter(
       (path) =>
         /\.tsx?$/.test(path) &&
-        /^\s*["']use client["']/.test(readFileSync(join(appDirectory, path), "utf8")),
+        /^(?:\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/))*\s*["']use client["']/.test(
+          readFileSync(join(appDirectory, path), "utf8"),
+        ),
     );
     expect(clients).toEqual([]);
   });

@@ -93,7 +93,13 @@ function cachedImpureReads(file: string, source: string): string[] {
         ReferencedIdentifier(inner) {
           const binding = inner.scope.getBinding(inner.node.name);
           const declared = binding?.path.node;
-          if (declared?.type === "VariableDeclarator" && declared.init && isImpure(declared.init))
+          if (
+            declared?.type === "VariableDeclarator" &&
+            declared.init &&
+            isImpure(declared.init) &&
+            // Read by the render itself, not by a handler for its own use or once per module.
+            binding?.path.getFunctionParent() === render
+          )
             found.add(at(inner.node));
         },
       });
@@ -130,10 +136,18 @@ describe("React Compiler and impure reads in render", () => {
   });
 
   it("leaves a closure that reads the clock when it is called", () => {
+    // Both closures land in a once-per-mount block (they capture only a state setter), and both
+    // read the clock when clicked, which is right.
     const source = `
-      export function Stamp({ onStamp }) {
-        const stamp = () => onStamp(Date.now());
-        return <button onClick={stamp}>Stamp</button>;
+      import { useState } from "react";
+      export function Stamp() {
+        const [at, setAt] = useState(0);
+        const stamp = () => setAt(Date.now());
+        const stampLocal = () => {
+          const t = Date.now();
+          setAt(t);
+        };
+        return <Buttons at={at} stamp={stamp} stampLocal={stampLocal} />;
       }`;
     expect(cachedImpureReads(join(webSource, "probe.tsx"), source)).toEqual([]);
   });
