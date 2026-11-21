@@ -124,6 +124,35 @@ describe("the social providers", () => {
     expect(props.onSocial).toHaveBeenCalledWith(provider);
   });
 
+  it("hides every control while the API has not said which providers there are", () => {
+    // The answer moves the fields: a row arriving pushes Email onto a provider, an empty one
+    // pulls the submit button up to where Email was. Nothing is offered until it is known.
+    setup({ socialProviders: [], socialPending: true, controlsHeld: true, notice: "Expired." });
+
+    for (const field of ["Email", "Password"]) {
+      expect(screen.getByLabelText(field)).not.toBeVisible();
+    }
+    // By text: a hidden button has no accessible name, so a role query cannot pick it out.
+    expect(screen.getByText("Sign in", { selector: "button" })).not.toBeVisible();
+    expect(screen.getByText("Create one", { selector: "button" })).not.toBeVisible();
+    // The heading and the reason they are here are not controls and do not wait, and a screen
+    // reader is told the rest is coming rather than finding nothing under the heading.
+    expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
+    expect(screen.getByText("Expired.")).toBeVisible();
+    expect(screen.getByText("Loading the ways to sign in…")).toHaveAttribute("role", "status");
+    // And the row keeps its place, so with providers configured nothing moves when it fills.
+    expect(screen.getByTestId("providers-pending").parentElement?.children).toHaveLength(2);
+  });
+
+  it("shows the form with the row still held open when the lookup is only slow", () => {
+    // The answer may yet bring providers; they fill the held row rather than push Email down.
+    setup({ socialProviders: [], socialPending: true, controlsHeld: false });
+
+    expect(screen.getByLabelText("Email")).toBeVisible();
+    expect(screen.getByTestId("providers-pending")).toBeInTheDocument();
+    expect(screen.queryByText("Loading the ways to sign in…")).toBeNull();
+  });
+
   it("offers neither when neither is configured", () => {
     // A button that looks fine and dies at the redirect back is the failure the whole
     // paired-credentials rule exists to prevent; not drawing it is the other half.
@@ -144,23 +173,20 @@ describe("the social providers", () => {
     // A menu that reorders itself between deployments is one nobody builds muscle memory for.
     setup({ socialProviders: ["github", "google"] });
 
-    // The accessible name, not `textContent`: these buttons are a logo and nothing else, so
-    // their text content is empty and an assertion on it would pass on two blank strings.
+    // The accessible name, which is the whole sentence; the text drawn is only the brand.
     const labels = screen
       .getAllByRole("button", { name: /^Continue with/ })
       .map((button) => button.getAttribute("aria-label"));
     expect(labels).toEqual(["Continue with Google", "Continue with GitHub"]);
   });
 
-  it("says who it is for a screen reader, since the mark is all there is to see", () => {
-    // The cost of dropping the words: an unlabelled icon button is announced as "button", and
-    // two of them are two identical buttons with no way to tell which is which.
+  it("shows the provider's name, inside the sentence a screen reader hears", () => {
+    // The visible word has to be part of the spoken name, or somebody driving the page by voice
+    // says "GitHub" and nothing answers.
     setup({ socialProviders: ["github"] });
 
     const button = screen.getByRole("button", { name: "Continue with GitHub" });
-    expect(button).toHaveTextContent("");
-    // A pointer gets the same sentence a screen reader does.
-    expect(button).toHaveAttribute("title", "Continue with GitHub");
+    expect(button).toHaveTextContent("GitHub");
   });
 });
 
@@ -168,21 +194,15 @@ describe("the way in with no account", () => {
   it("is offered when the deployment allows it", () => {
     const props = setup({ demoEnabled: true });
 
-    click("Browse without an account");
+    click("try it without an account");
 
     expect(props.onDemo).toHaveBeenCalled();
-  });
-
-  it("says what it costs, so nobody meets a greyed-out picker unprepared", () => {
-    setup({ demoEnabled: true });
-
-    expect(screen.getByText(/unless this deployment offers a free tier/)).toBeInTheDocument();
   });
 
   it("is not offered when the deployment has closed that door", () => {
     setup({ demoEnabled: false });
 
-    expect(screen.queryByRole("button", { name: "Browse without an account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "try it without an account" })).toBeNull();
   });
 });
 
@@ -205,7 +225,7 @@ describe("when something goes wrong", () => {
   it("turns a ring beside the words while it waits", () => {
     // Reached by class, which this file otherwise never does: a spinner is decorative by
     // design — `aria-hidden`, no role, no name — so a role query is the one thing that cannot
-    // see it. The same exception the doodle sheet below makes.
+    // see it.
     //
     // The words are asserted by the accessible name, and both halves matter: without the ring
     // a stalled request looks identical to a fast one, and without the sentence there is
@@ -217,36 +237,49 @@ describe("when something goes wrong", () => {
   });
 });
 
-describe("the paper it is written on", () => {
-  /**
-   * Queried by test id and by counting elements, which the rest of this file never does — the
-   * doodle sheet has no accessible surface *by design*, so a role query is the one thing that
-   * cannot see it. The same exception the syntax highlighting makes; see
-   * `docs/gotchas/web.md`.
-   */
-  it("hangs a sheet of doodles behind the form, out of everyone's way", () => {
+describe("the page around the form", () => {
+  it("names each field without drawing a label over it", () => {
+    // The placeholder is the only name a sighted person sees; the hidden label is the one a
+    // screen reader and a password manager read. Both have to say the same thing.
+    setup({ mode: "sign-up" });
+
+    for (const field of ["Name", "Email", "Password"]) {
+      expect(screen.getByLabelText(field)).toBe(screen.getByPlaceholderText(field));
+    }
+  });
+
+  it("keeps a focus outline for forced colours on every field", () => {
+    // Read from the class list because jsdom has no forced-colors mode to render. The fields'
+    // focus is a border colour, which High Contrast repaints away; `outline-none` would leave
+    // them with no focus indicator there at all, where `outline-hidden` restores one.
+    setup({ mode: "sign-up" });
+
+    for (const field of ["Name", "Email", "Password"]) {
+      const classes = screen.getByLabelText(field).className.split(/\s+/);
+      expect(classes).toContain("outline-hidden");
+      expect(classes).not.toContain("outline-none");
+    }
+  });
+
+  it("offers the other mode exactly once, wherever the layout puts it", () => {
+    // It sits top right on a wide screen and under the form on a phone. Drawing it twice and
+    // hiding one would leave a screen reader with two "Sign in" buttons on a sign-up page, and
+    // with the submit button that is three things saying sign in.
+    setup({ mode: "sign-up" });
+
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
+  });
+
+  it("keeps the photograph and its line out of the accessibility tree", () => {
+    // Decoration repeating the front page's own line. `getByText` walks into `aria-hidden`
+    // subtrees, so the assertion is on the ancestor rather than on the text's absence.
     setup();
 
-    const wall = screen.getByTestId("doodle-wall");
-
-    // Hidden from assistive technology and untouchable by the pointer. A full-screen layer over
-    // the one form on the page is exactly the shape of thing that swallows a click, and a
-    // hundred unlabelled drawings in the accessibility tree is a page nobody can navigate.
-    expect(wall).toHaveAttribute("aria-hidden", "true");
-    expect(wall.className).toContain("pointer-events-none");
-    expect(wall).toHaveClass("z-0");
-
-    // The wall is decoration, never foreground content: the logo and every piece of the form
-    // sit in the layer above it so even the text below the card stays clean and legible.
-    expect(screen.getByRole("main")).toHaveClass("z-10");
-    expect(screen.getByRole("link", { name: /back to the front page/i })).toHaveClass("z-10");
-
-    // A wall rather than a few marks: if the layout ever collapses to a handful of drawings the
-    // page still looks intentional, which is why this is worth pinning to a number.
-    expect(wall.querySelectorAll("svg").length).toBeGreaterThan(60);
-
-    // And the form is still a form.
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    const line = screen.getByText("Then go take a nap.");
+    expect(line.closest("[aria-hidden='true']")).not.toBeNull();
+    expect(screen.getByRole("link", { name: /back to the front page/i })).toHaveAttribute(
+      "href",
+      "/",
+    );
   });
 });

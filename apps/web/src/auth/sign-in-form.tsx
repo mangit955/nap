@@ -1,5 +1,5 @@
 /**
- * The way in: an email and a password, or GitHub.
+ * The way in: an email and a password, or a provider.
  *
  * Pure, like every other renderer in this app — `LiveSignIn` owns the requests and the
  * redirect. What that split buys here is that the interesting states (a wrong password, a
@@ -10,11 +10,12 @@
  * two pages would mean two of everything for that. The mode is a link, not a tab, because
  * there are exactly two and a person arrives wanting one of them.
  *
- * **It stands on the same stage as the front page.** `.ai-stage` carries the neutral surface and
- * the whole light token ramp, so this file names no colours of its own beyond the tokens it
- * inherits. It used to be drawn in the dark workspace palette, which meant pressing Sign up on a
- * pale, typographic page and landing on something that looked like a different product — on the
- * one screen standing between a visitor and an account.
+ * **It is drawn in the front page's voice.** "Get started" on that page is a dark, serif,
+ * photographic surface, and landing on a page that looks like a different product is a bad
+ * thing to do to somebody one step from an account. So this wears `.landing`, which carries the
+ * front page's tokens and Inter, and sets its headings in `.lp-serif`. Both faces are loaded only
+ * by the `(landing)` route group's layout, which is why `/sign-in` and `/sign-up` live in that
+ * group — outside it the serif quietly falls back to Georgia (`app/font-placement.test.ts`).
  *
  * Errors are words in the same place every time, in a live region: what comes back from a
  * failed sign-in is the only thing on this screen anybody needs to read, and a message that
@@ -25,7 +26,6 @@ import type { ReactElement } from "react";
 import { useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { GithubIcon, GoogleIcon, type IconProps, SpinnerIcon } from "../ui/icons.tsx";
-import { DoodleWall } from "./doodle-wall.tsx";
 
 export type SignInMode = "sign-in" | "sign-up";
 
@@ -33,19 +33,23 @@ export type SignInMode = "sign-in" | "sign-up";
 export type SocialProvider = "google" | "github";
 
 /**
- * What each social button says, in the order they are drawn.
+ * Each social button, in the order they are drawn.
  *
  * Google first because it is the one most people have and the one fewest people have to think
  * about. The order is fixed here rather than following whatever order the API listed them in:
  * a menu that reorders itself between deployments is one nobody builds muscle memory for.
+ *
+ * The button shows the provider's name and is announced as the whole sentence. The visible word
+ * is inside the spoken one, so somebody using voice control can say what they see.
  */
 const SOCIAL: readonly {
   provider: SocialProvider;
+  name: string;
   label: string;
   Icon: (props: IconProps) => ReactElement;
 }[] = [
-  { provider: "google", label: "Continue with Google", Icon: GoogleIcon },
-  { provider: "github", label: "Continue with GitHub", Icon: GithubIcon },
+  { provider: "google", name: "Google", label: "Continue with Google", Icon: GoogleIcon },
+  { provider: "github", name: "GitHub", label: "Continue with GitHub", Icon: GithubIcon },
 ];
 
 export type SignInFormProps = {
@@ -55,16 +59,29 @@ export type SignInFormProps = {
   /** Pressing one of the social buttons, named by which. */
   onSocial: (provider: SocialProvider) => void;
   /**
-   * Going in without an account at all.
-   *
-   * Still a different kind of act from the three above it — nothing is being proved about who
-   * you are — but it sits in the same row as the providers, because a person weighing "how do I
-   * get in" is weighing all three at once and one of them being elsewhere on the page hides it.
-   * It stays distinguishable by shape: words where the others are marks.
+   * Going in without an account at all. A different kind of act from the others — nothing is
+   * being proved about who you are — so it is a quiet line under the form rather than a button
+   * beside the providers.
    */
   onDemo: () => void;
   /** Only the providers the API actually has credentials for; see `/auth/providers`. */
   socialProviders: readonly SocialProvider[];
+  /**
+   * The API has not said yet which providers it has, so their row is held open, empty: when
+   * the answer brings providers they fill it where it stands and nothing below them moves.
+   */
+  socialPending?: boolean;
+  /**
+   * Keep the controls hidden: the answer is still due and may yet move them.
+   *
+   * The providers' row sits above the email form, so the answer moves the fields: a row
+   * arriving pushes Email down onto Google or GitHub, and a row that turns out empty pulls the
+   * submit button up to where Email was, under a thumb, with a password manager's credentials
+   * already filled. Holding space cannot cure both, so the controls are drawn once the answer
+   * is in. A lookup that is slow rather than answered gets the form anyway, with the row still
+   * held open for a late answer to fill; see `LiveSignIn`.
+   */
+  controlsHeld?: boolean;
   /** Whether this deployment lets anybody in without an account at all. */
   demoEnabled: boolean;
   /** In words, for the person who just tried. Undefined when nothing has gone wrong. */
@@ -80,53 +97,35 @@ export type SignInFormProps = {
   demoPending?: boolean;
 };
 
-/**
- * What each half of the form says about itself. The emphasis word is set heavy and near-black
- * against a light sentence, which is the landing page's treatment at a smaller size — the page
- * a person just came from and the page they arrive on should be recognisably the same voice.
- */
-const COPY: Record<SignInMode, { lead: string; emphasis: string; sub: string }> = {
-  "sign-in": {
-    lead: "Welcome",
-    emphasis: "back.",
-    sub: "Your apps are where you left them.",
-  },
-  "sign-up": {
-    lead: "Start a",
-    emphasis: "nap.",
-    sub: "Describe an app; we'll build it while you're gone.",
-  },
+const COPY: Record<SignInMode, { title: string; sub: string }> = {
+  "sign-in": { title: "Welcome back.", sub: "Your apps are where you left them." },
+  "sign-up": { title: "Start a nap.", sub: "Describe an app; we'll build it while you're gone." },
 };
 
 /*
+ * One radius for every field and button, and fills and borders barely off the ground: on a page
+ * this dark, anything brighter turns the form into a stack of boxes louder than the words in it.
+ *
+ * The placeholder is the field's only visible name, so it is held to body-text contrast (about
+ * 5:1 on the fill) rather than the dimmer grey placeholders usually get.
+ *
  * 16px on the input is not a style choice: below it, iOS zooms the page in on focus and does not
  * zoom back out, which leaves somebody halfway through signing up looking at a form twice the
  * width of their screen.
+ *
+ * Focus is the border turning warm, and `outline-hidden` rather than `outline-none`: forced-colors
+ * mode (Windows High Contrast) repaints every border in one system colour, so the warm border
+ * vanishes there, and `outline-hidden` is the one that gives the outline back in that mode.
  */
 const FIELD =
-  "w-full rounded-[10px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] px-3.5 py-2.5 " +
-  "text-[16px] text-[var(--s-text-primary)] outline-none placeholder:text-[var(--s-text-subtle)] " +
-  "focus-visible:border-[var(--s-text-subtle)] focus-visible:outline focus-visible:outline-2 " +
-  "focus-visible:outline-[var(--s-text-primary)] focus-visible:outline-offset-1";
+  "h-[46px] w-full rounded-xl border border-[#ffffff0f] bg-[#ffffff06] px-3.5 text-[16px] " +
+  "text-(--lp-ink) outline-hidden transition-colors placeholder:text-[#858180] " +
+  "focus-visible:border-[#d6b89e8c] focus-visible:bg-[#ffffff09]";
 
-const PILL =
-  "rounded-full px-5 py-2.5 font-medium text-sm transition-opacity focus-visible:outline " +
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--s-text-primary)] " +
-  "disabled:opacity-50";
-
-/**
- * A provider button with no words in it.
- *
- * Square-ish and fixed at 44px, which is the smallest target iOS and Android both call reliably
- * tappable — an icon-only control is the one shape where that floor is easy to fall through.
- * The name lives in `aria-label`, so a screen reader still hears the full sentence; `title`
- * gives a pointer the same sentence on hover.
- */
-const ICON_BUTTON =
-  "flex size-11 shrink-0 items-center justify-center rounded-full border " +
-  "border-[var(--s-border-1)] bg-[var(--s-surface-1)] text-[var(--s-text-body)] transition-colors " +
-  "hover:border-[var(--s-text-subtle)] focus-visible:outline focus-visible:outline-2 " +
-  "focus-visible:outline-offset-2 focus-visible:outline-[var(--s-text-primary)] disabled:opacity-50";
+const GHOST_BUTTON =
+  "flex h-11 flex-1 items-center justify-center gap-[9px] rounded-xl border border-[#ffffff0f] " +
+  "bg-[#ffffff06] font-medium text-(--lp-ink-2) text-[13.5px] transition-colors " +
+  "hover:border-[#ffffff1f] hover:text-(--lp-ink) disabled:opacity-50";
 
 export function SignInForm({
   mode,
@@ -135,6 +134,8 @@ export function SignInForm({
   onSocial,
   onDemo,
   socialProviders,
+  socialPending = false,
+  controlsHeld = false,
   demoEnabled,
   error,
   notice,
@@ -151,205 +152,274 @@ export function SignInForm({
   // This page's order, filtered by what the API has credentials for — rather than the API's
   // order, which is an implementation detail of how boot happens to check them.
   const offered = SOCIAL.filter(({ provider }) => socialProviders.includes(provider));
+  const providerRow = socialPending || offered.length > 0;
+  // `visibility`, not `display` or opacity: the controls keep their place, cannot be focused,
+  // clicked or read out while hidden, and nothing below them moves when they appear. Inline so
+  // a test's computed style can see it.
+  const held = controlsHeld ? ({ visibility: "hidden" } as const) : undefined;
 
   return (
-    <div className="ai-stage relative flex min-h-dvh flex-col items-center justify-center px-6 py-20">
-      {/*
-        The paper this is written on. A large light surface with one object in the middle of it
-        reads as unfinished rather than as calm — the same problem the landing page has, answered
-        the same way and much further: a sheet of doodles covering the page, with a clearing
-        masked through the middle so the form still sits on plain white.
-      */}
-      <DoodleWall />
+    <div className="landing min-h-dvh lg:grid lg:grid-cols-2">
+      <div className="relative flex min-h-dvh flex-col px-6 pb-7 lg:px-10 lg:pt-7">
+        {/*
+          On a phone the photo has no column of its own, so it becomes a strip across the top
+          that fades into the ground — enough of it to say this is the same place as the front
+          page, without pushing the form below the fold.
+        */}
+        <div aria-hidden="true" className="relative -mx-6 h-[190px] lg:hidden">
+          <div className="absolute inset-0 bg-[url(/landing/heather.jpg)] bg-[70%_40%] bg-cover brightness-80 saturate-70" />
+          <div className="absolute inset-0 bg-linear-to-b from-[#09090b80] via-[#09090b00] via-40% to-(--lp-ground)" />
+        </div>
 
-      {/*
-        The mark is the way back out. An auth page with no exit is a dead end for anybody who
-        arrived by accident, and the wordmark is the one thing on it people already know is a
-        link everywhere else.
-      */}
-      <a
-        href="/"
-        aria-label="nap, back to the front page"
-        className="absolute top-4 left-6 z-10 flex items-center gap-0.5 font-semibold text-[var(--s-text-primary)] text-sm tracking-tight focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
-      >
-        <NapMark className="size-10" />
-        nap
-      </a>
+        {/*
+          The mark is the way back out. An auth page with no exit is a dead end for anybody who
+          arrived by accident, and the wordmark is the one thing on it people already know is a
+          link everywhere else.
 
-      <main className="relative z-10 flex w-full max-w-sm flex-col">
-        <h1 className="text-center font-display font-extralight text-[var(--s-text-body)] text-3xl tracking-[-0.03em]">
-          {copy.lead}{" "}
-          <span className="font-semibold text-[var(--s-text-primary)]">{copy.emphasis}</span>
-        </h1>
-        <p className="mt-2.5 text-balance text-center text-[var(--s-text-muted)] text-sm">
-          {copy.sub}
-        </p>
+          It is lifted above the phone's photo strip and nowhere else. On a wide screen it is a
+          flex item, and a flex item with a z-index stacks even unpositioned: stretched to the
+          column's width it lay over the mode switch in the corner and took every click on it.
+          Hence `lg:z-auto`, and `lg:self-start` so it is only as wide as what it says.
+        */}
+        <a
+          href="/"
+          aria-label="nap, back to the front page"
+          className="absolute top-5 left-6 z-[2] flex h-9 items-center gap-[7px] font-semibold text-(--lp-ink) text-[19px] tracking-[-0.03em] lg:static lg:z-auto lg:self-start"
+        >
+          <NapMark className="size-[26px]" />
+          nap
+        </a>
 
-        <div className="mt-8 rounded-[20px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] p-6 shadow-[0_1px_2px_rgba(12,38,77,0.06),0_10px_30px_-12px_rgba(12,38,77,0.18)]">
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSubmit({ email, password, name });
-            }}
-          >
-            {signingUp && (
-              <label className="flex flex-col gap-1.5">
-                <span className="font-medium text-[var(--s-text-body)] text-xs">Name</span>
-                <input
-                  type="text"
-                  required
-                  autoComplete="name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className={FIELD}
-                />
-              </label>
-            )}
-
-            <label className="flex flex-col gap-1.5">
-              <span className="font-medium text-[var(--s-text-body)] text-xs">Email</span>
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className={FIELD}
-              />
-            </label>
-
-            <label className="flex flex-col gap-1.5">
-              <span className="font-medium text-[var(--s-text-body)] text-xs">Password</span>
-              <input
-                type="password"
-                required
-                // Tells a password manager whether to offer a saved one or a new one; getting it
-                // wrong on a combined form is the usual reason they misbehave.
-                autoComplete={signingUp ? "new-password" : "current-password"}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className={FIELD}
-              />
-            </label>
+        <main className="relative z-[2] -mt-2 flex justify-center lg:mt-0 lg:flex-1 lg:items-center">
+          <div className="w-full max-w-[340px]">
+            <h1 className="lp-serif text-[40px] leading-none lg:text-[44px]">{copy.title}</h1>
+            <p className="lp-muted mt-3 text-[14.5px] leading-normal">{copy.sub}</p>
 
             {/*
               A `status`, not an `alert`: nothing is wrong with what the reader just did, and the
-              two roles are announced with different urgency. Above the button, because it
-              explains why the form is on screen at all.
+              two roles are announced with different urgency. Under the heading, because it
+              explains why the form is on screen at all, and outside the held controls, because
+              it is known before the page is drawn and is worth reading while they wait.
             */}
             {notice !== undefined && (
               <p
                 role="status"
-                className="rounded-[10px] bg-[var(--s-surface-3)] px-3.5 py-2.5 text-[var(--s-text-muted)] text-xs leading-relaxed"
+                className="mt-6 rounded-xl border border-[#ffffff0f] bg-[#ffffff06] px-3.5 py-2.5 text-(--lp-ink-2) text-[13px] leading-relaxed"
               >
                 {notice}
               </p>
             )}
 
-            {error !== undefined && (
-              // A sentence for a person, so it is set like one. It used to be monospaced, which
-              // is the treatment this app reserves for machine output.
-              <p role="alert" className="text-[var(--color-danger)] text-xs leading-relaxed">
-                {error}
+            {/*
+              The held controls are invisible, so somebody reading the page by ear meets this
+              line under the heading rather than nothing at all. Present only while they are
+              held: a page with nothing to report carries no status (`failure-surfaces.test`).
+            */}
+            {controlsHeld && (
+              <p role="status" className="sr-only">
+                Loading the ways to sign in…
               </p>
             )}
 
-            {/*
-              In flight, the words gain a turning ring beside them.
-
-              The sentence says what is happening and the ring says it is still happening —
-              "One moment…" on its own stops being believable the instant it sits still, because
-              a stalled request and a slow one read identically. The ring trails the words rather
-              than leading them, so the thing that changes is the last thing on the line and the
-              text starts where the label it replaced started.
-
-              The ring is 20px to match the line height beside it, so the button does not change
-              height at the moment it is pressed.
+            <div style={held} aria-busy={controlsHeld || undefined}>
+              {/*
+              The providers come first because they are the shortest way in, and each shows its
+              name as well as its mark: two bare logos side by side read as decoration.
             */}
-            <button
-              type="submit"
-              disabled={submitting}
-              className={`${PILL} mt-1 flex items-center justify-center gap-2 bg-[var(--s-text-primary)] text-[var(--s-text-inverse)] hover:opacity-90`}
-            >
-              {submitting ? (
+              {providerRow && (
                 <>
-                  One moment…
-                  <SpinnerIcon className="size-5" />
-                </>
-              ) : (
-                verb
-              )}
-            </button>
-          </form>
+                  <div className="mt-[30px] flex gap-2 lg:mt-9">
+                    {socialPending && (
+                      <>
+                        <span
+                          aria-hidden="true"
+                          data-testid="providers-pending"
+                          className={GHOST_BUTTON}
+                        />
+                        <span aria-hidden="true" className={GHOST_BUTTON} />
+                      </>
+                    )}
+                    {offered.map(({ provider, name: providerName, label, Icon }) => (
+                      <button
+                        key={provider}
+                        type="button"
+                        aria-label={label}
+                        onClick={() => onSocial(provider)}
+                        disabled={submitting}
+                        className={GHOST_BUTTON}
+                      >
+                        <Icon className="size-[15px]" />
+                        {providerName}
+                      </button>
+                    ))}
+                  </div>
 
-          {(offered.length > 0 || demoEnabled) && (
-            <>
-              {/*
-                A divider rather than more buttons in the stack: these are alternatives to the
-                form above, and stacked identically they read as steps.
-              */}
-              <div aria-hidden="true" className="my-4 flex items-center gap-3">
-                <span className="h-px flex-1 bg-[var(--s-border-1)]" />
-                <span className="text-[var(--s-text-subtle)] text-xs">or</span>
-                <span className="h-px flex-1 bg-[var(--s-border-1)]" />
-              </div>
-
-              {/*
-                One row for every way in that is not an email address. The providers are marks
-                rather than sentences because "Continue with Google" is a label nobody reads
-                twice — the logo is what people scan for — and two full-width pills saying almost
-                the same words were the loudest thing on a page whose actual subject is the form
-                above them. Centred, so two marks alone still look placed rather than orphaned.
-              */}
-              <div className="flex items-center justify-center gap-2">
-                {offered.map(({ provider, label, Icon }) => (
-                  <button
-                    key={provider}
-                    type="button"
-                    aria-label={label}
-                    title={label}
-                    onClick={() => onSocial(provider)}
-                    disabled={submitting}
-                    className={ICON_BUTTON}
+                  <div
+                    aria-hidden="true"
+                    className="my-6 flex items-center gap-3.5 text-[#5d5a58] text-xs"
                   >
-                    <Icon className="size-[18px]" />
-                  </button>
-                ))}
+                    <span className="h-px flex-1 bg-[#ffffff0f]" />
+                    or
+                    <span className="h-px flex-1 bg-[#ffffff0f]" />
+                  </div>
+                </>
+              )}
 
-                {demoEnabled && (
+              <form
+                className={`flex flex-col gap-2.5 ${providerRow ? "" : "mt-[30px] lg:mt-9"}`}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onSubmit({ email, password, name });
+                }}
+              >
+                {/*
+                No label is drawn above a field — the placeholder names it — but each still has
+                one, hidden, so a screen reader and a password manager know what it is for.
+              */}
+                {signingUp && (
+                  <label>
+                    <span className="sr-only">Name</span>
+                    <input
+                      type="text"
+                      required
+                      autoComplete="name"
+                      placeholder="Name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      className={FIELD}
+                    />
+                  </label>
+                )}
+
+                <label>
+                  <span className="sr-only">Email</span>
+                  <input
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className={FIELD}
+                  />
+                </label>
+
+                <label>
+                  <span className="sr-only">Password</span>
+                  <input
+                    type="password"
+                    required
+                    // Tells a password manager whether to offer a saved one or a new one; getting
+                    // it wrong on a combined form is the usual reason they misbehave.
+                    autoComplete={signingUp ? "new-password" : "current-password"}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className={FIELD}
+                  />
+                </label>
+
+                {error !== undefined && (
+                  // A sentence for a person, so it is set like one, in the app's one red — which
+                  // still reads at better than 5:1 on this ground.
+                  <p role="alert" className="text-(--color-danger) text-[13px] leading-relaxed">
+                    {error}
+                  </p>
+                )}
+
+                {/*
+                In flight, the words gain a turning ring beside them.
+
+                The sentence says what is happening and the ring says it is still happening —
+                "One moment…" on its own stops being believable the instant it sits still,
+                because a stalled request and a slow one read identically. The ring trails the
+                words, so the text starts where the label it replaced started, and it is 20px to
+                match the line beside it, so the button does not change height when pressed.
+
+                The outline is set here because the page's default draws focus in the text's own
+                colour, and this text is dark on a dark ground.
+              */}
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="mt-2 flex h-[46px] items-center justify-center gap-2 rounded-xl bg-[#f1ede8] font-medium text-[#151411] text-sm shadow-[inset_0_1px_0_#fff,0_1px_2px_#0003] transition-colors hover:bg-white focus-visible:outline-(--lp-ink) focus-visible:outline-offset-3 disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <>
+                      One moment…
+                      <SpinnerIcon className="size-5" />
+                    </>
+                  ) : (
+                    verb
+                  )}
+                </button>
+              </form>
+
+              {/*
+              With no guest door the line is still there, invisibly, so the form is the same
+              height either way: on a wide screen it is centred, and an answer that removed a
+              line under it after it was shown would drop every field by half that line.
+            */}
+              {!demoEnabled && (
+                <p aria-hidden="true" className="invisible mt-5 text-[13px]">
+                  &nbsp;
+                </p>
+              )}
+              {demoEnabled && (
+                <p className="lp-muted mt-5 text-center text-[13px]">
+                  or{" "}
                   <button
                     type="button"
                     onClick={onDemo}
                     disabled={submitting || demoPending}
-                    className={`${PILL} flex-1 border border-[var(--s-border-1)] text-[var(--s-text-body)] transition-colors hover:border-[var(--s-text-subtle)]`}
+                    // Underlined because its colour alone sits too close to the "or" beside it to
+                    // say it can be pressed; the line is held to about 3:1 so it is seen.
+                    className="text-(--lp-ink-2) underline decoration-[#ffffff66] underline-offset-4 transition-colors hover:text-(--lp-ink) disabled:opacity-50"
                   >
-                    Browse without an account
+                    try it without an account
                   </button>
-                )}
-              </div>
-
-              {demoEnabled && (
-                <p className="mt-3 text-center text-[var(--s-text-subtle)] text-xs">
-                  Browse without an account. Running work requires an API key unless this deployment
-                  offers a free tier.
                 </p>
               )}
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        </main>
 
-        <p className="mt-6 text-center text-[var(--s-text-muted)] text-sm">
-          {signingUp ? "Already have an account?" : "No account yet?"}{" "}
+        {/*
+          Rendered once and moved by the layout: top right beside the mark on a wide screen,
+          under the form on a phone. Two copies would put two "Sign in" buttons on the page for a
+          screen reader, one of them hidden.
+        */}
+        <p
+          style={held}
+          className="lp-muted mt-7 text-center text-[13.5px] lg:absolute lg:top-7 lg:right-10 lg:mt-0 lg:flex lg:h-9 lg:items-center lg:gap-1.5"
+        >
+          {signingUp ? "Have an account?" : "No account yet?"}{" "}
           <button
             type="button"
             onClick={() => onModeChange(signingUp ? "sign-in" : "sign-up")}
-            className="font-medium text-[var(--s-text-primary)] underline underline-offset-4 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--s-text-primary)]"
+            className="text-(--lp-ink) transition-colors hover:text-white"
           >
             {signingUp ? "Sign in" : "Create one"}
           </button>
         </p>
-      </main>
+      </div>
+
+      {/*
+        The front page's photograph, dulled and darkened toward the line set over it. Decoration:
+        the line repeats the front page's own and nothing here needs to be read to sign in.
+      */}
+      <div
+        aria-hidden="true"
+        className="relative m-2.5 ml-0 hidden overflow-hidden rounded-[20px] lg:block"
+      >
+        <div className="absolute inset-0 bg-[url(/landing/heather.jpg)] bg-[62%_50%] bg-cover brightness-80 saturate-70" />
+        <div className="absolute inset-0 bg-linear-to-b from-[#09090b00] from-55% to-[#09090bb3]" />
+        <p className="lp-serif absolute bottom-9 left-10 text-(--lp-ink) text-[34px] leading-[1.05]">
+          Describe an app.
+          <br />
+          <span className="text-[#d9cabc]">Then go take a nap.</span>
+        </p>
+      </div>
     </div>
   );
 }

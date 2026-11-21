@@ -1,4 +1,4 @@
-import { LiveSignIn } from "../../auth/live-sign-in.tsx";
+import { LiveSignIn } from "../../../auth/live-sign-in.tsx";
 
 /**
  * Making an account, at a URL somebody can type.

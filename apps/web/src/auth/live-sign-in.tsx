@@ -81,6 +81,9 @@ async function sessionSurvived(): Promise<boolean> {
   }
 }
 
+/** How long the form's controls wait for the providers lookup before they are shown anyway. */
+const PROVIDERS_WAIT_MS = 4000;
+
 export function LiveSignIn({
   notice,
   initialMode = "sign-in",
@@ -105,6 +108,12 @@ export function LiveSignIn({
     social: [],
     demo: false,
   });
+  // Whether the API has answered, either way. Until then the form holds the providers' row open
+  // and its controls hidden, because the answer moves them; see `controlsHeld` in the form.
+  const [waysKnown, setWaysKnown] = useState(false);
+  // A slow answer is not a missing one: past this point the form is shown anyway, with the row
+  // still held open, so somebody whose only way in is GitHub still gets it when it arrives.
+  const [waitedLongEnough, setWaitedLongEnough] = useState(false);
 
   // A guest session is still a session. Better Auth correctly refuses to mint a second anonymous
   // identity for the same browser, so a person returning to this page should continue their
@@ -117,8 +126,12 @@ export function LiveSignIn({
 
   useEffect(() => {
     let cancelled = false;
+    const lookup = new AbortController();
+    // The form's controls wait for this answer (see `controlsHeld`), but not for ever: a lookup
+    // that is slow shows the email form without waiting further, and keeps going.
+    const stopWaiting = setTimeout(() => setWaitedLongEnough(true), PROVIDERS_WAIT_MS);
 
-    void credentialedFetch(`${DEFAULT_BASE_URL}/auth/providers`)
+    void credentialedFetch(`${DEFAULT_BASE_URL}/auth/providers`, { signal: lookup.signal })
       .then((response) => (response.ok ? response.json() : {}))
       .then((body: { socialProviders?: string[]; demo?: boolean }) => {
         if (cancelled) return;
@@ -131,10 +144,15 @@ export function LiveSignIn({
       })
       // A server that cannot say which ways in it has is one we offer none of. The email form
       // still works, and that is a better answer than a button that cannot.
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setWaysKnown(true);
+      });
 
     return () => {
       cancelled = true;
+      clearTimeout(stopWaiting);
+      lookup.abort();
     };
   }, []);
 
@@ -261,6 +279,8 @@ export function LiveSignIn({
       }}
       onDemo={() => void startDemo()}
       socialProviders={ways.social}
+      socialPending={!waysKnown}
+      controlsHeld={!waysKnown && !waitedLongEnough}
       demoEnabled={ways.demo}
       demoPending={sessionPending}
       error={error}

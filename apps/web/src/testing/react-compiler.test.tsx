@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import nextConfig from "../../next.config.ts";
-import SignUpPage from "../app/sign-up/page.tsx";
+import SignUpPage from "../app/(landing)/sign-up/page.tsx";
 import { ChangedFilesCard } from "../chat/changed-files-card.tsx";
 
 const repoRoot = join(import.meta.dirname, "../../../..");

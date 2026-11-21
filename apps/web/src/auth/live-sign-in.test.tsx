@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -17,8 +17,11 @@ const signUpEmail = vi.fn();
 const signInSocial = vi.fn();
 const signInAnonymous = vi.fn();
 const getSession = vi.fn();
-/** What `/auth/providers` answers with, per test. */
+/** What `/auth/providers` answers with, per test, and whether it answers at all. */
 const ways = { socialProviders: [] as string[], demo: false };
+let waysAnswer: "answers" | "unreachable" | "late" = "answers";
+/** Releases a "late" answer, when the test decides it has arrived. */
+let answerLate = () => {};
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace, refresh: vi.fn() }),
@@ -43,10 +46,30 @@ vi.mock("./client.ts", () => ({
 // The providers lookup is a real network call in an effect; left alone it reaches for a server
 // that is not there and the test waits on the failure.
 vi.mock("../api/credentialed-fetch.ts", () => ({
-  credentialedFetch: () => Promise.resolve(new Response(JSON.stringify(ways))),
+  credentialedFetch: (_url: string, init?: RequestInit) => {
+    if (waysAnswer === "unreachable") return Promise.reject(new TypeError("Failed to fetch"));
+    if (waysAnswer === "late") {
+      // Answers when the test says so, or fails when the caller aborts, as a real request would.
+      return new Promise((resolve, reject) => {
+        answerLate = () => resolve(new Response(JSON.stringify(ways)));
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      });
+    }
+    return Promise.resolve(new Response(JSON.stringify(ways)));
+  },
 }));
 
 const { LiveSignIn } = await import("./live-sign-in.tsx");
+
+/**
+ * Render, then wait for the form's controls to be shown: they stay hidden until the providers
+ * lookup answers, as a person sees them, and a role query cannot find a hidden button.
+ */
+async function renderReady(ui: Parameters<typeof render>[0]) {
+  const view = render(ui);
+  await vi.waitFor(() => expect(screen.getByLabelText("Email")).toBeVisible());
+  return view;
+}
 
 function submit(email = "ada@example.com", password = "a good password") {
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
@@ -61,13 +84,14 @@ beforeEach(() => {
   getSession.mockResolvedValue({ data: { user: { id: "u1" } } });
   ways.socialProviders = [];
   ways.demo = false;
+  waysAnswer = "answers";
   window.history.replaceState(null, "", "/sign-in");
 });
 
 describe("when the server refuses the credentials", () => {
   it("says what it said, and lets them try again", async () => {
     signInEmail.mockResolvedValue({ error: { message: "That email and password do not match." } });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     submit();
 
@@ -86,7 +110,7 @@ describe("when the server cannot be reached at all", () => {
     // the worst failure this page has: nothing to read, nothing to press, no way to know it is
     // not still trying.
     signInEmail.mockRejectedValue(new TypeError("Failed to fetch"));
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     submit();
 
@@ -98,7 +122,7 @@ describe("when the server cannot be reached at all", () => {
     // Two different problems, and telling somebody their password is wrong when the network is
     // down sends them off to reset a password that was fine.
     signInEmail.mockRejectedValue(new TypeError("Failed to fetch"));
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     submit();
 
@@ -110,7 +134,7 @@ describe("when it works", () => {
   it("leaves the button held down while the page is on its way out", async () => {
     // Re-enabling it first invites a second submission during the navigation.
     signInEmail.mockResolvedValue({ data: {} });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     submit();
 
@@ -120,8 +144,8 @@ describe("when it works", () => {
 });
 
 describe("the address bar", () => {
-  it("follows the form to the other half", () => {
-    render(<LiveSignIn />);
+  it("follows the form to the other half", async () => {
+    await renderReady(<LiveSignIn />);
 
     fireEvent.click(screen.getByRole("button", { name: "Create one" }));
 
@@ -129,18 +153,18 @@ describe("the address bar", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Start a nap." })).toBeInTheDocument();
   });
 
-  it("keeps a guest's upgrade when they switch to making an account", () => {
+  it("keeps a guest's upgrade when they switch to making an account", async () => {
     window.history.replaceState(null, "", "/sign-in?upgrade=1");
     useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
-    render(<LiveSignIn upgrade />);
+    await renderReady(<LiveSignIn upgrade />);
 
     fireEvent.click(screen.getByRole("button", { name: "Create one" }));
 
     expect(`${window.location.pathname}${window.location.search}`).toBe("/sign-up?upgrade=1");
   });
 
-  it("keeps what was already typed, since the switch is not a navigation", () => {
-    render(<LiveSignIn />);
+  it("keeps what was already typed, since the switch is not a navigation", async () => {
+    await renderReady(<LiveSignIn />);
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Create one" }));
@@ -153,9 +177,9 @@ describe("the way in with no account", () => {
   it("is not offered until the server says it exists", async () => {
     // The right way round: a button that appears late beats one that disappears under a cursor,
     // and a demo link on a deployment that has closed that door leads nowhere.
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    expect(screen.queryByRole("button", { name: "Browse without an account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "try it without an account" })).toBeNull();
   });
 
   it("signs in anonymously and goes straight to work", async () => {
@@ -163,9 +187,9 @@ describe("the way in with no account", () => {
     // question that page asks.
     ways.demo = true;
     signInAnonymous.mockResolvedValue({});
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
   });
@@ -173,16 +197,16 @@ describe("the way in with no account", () => {
   it("holds the free-trial button until the current session is known", async () => {
     ways.demo = true;
     useSession.mockReturnValue({ data: undefined, isPending: true });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    expect(await screen.findByRole("button", { name: "Browse without an account" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "try it without an account" })).toBeDisabled();
     expect(signInAnonymous).not.toHaveBeenCalled();
   });
 
   it("continues an existing free trial instead of attempting a second anonymous sign-in", async () => {
     ways.demo = true;
     useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
 
@@ -194,7 +218,7 @@ describe("the way in with no account", () => {
     // dashboard would leave no way to do it.
     ways.demo = true;
     useSession.mockReturnValue({ data: { user: { isAnonymous: true } }, isPending: false });
-    render(<LiveSignIn upgrade />);
+    await renderReady(<LiveSignIn upgrade />);
 
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
@@ -202,7 +226,7 @@ describe("the way in with no account", () => {
 
   it("still sends a signed-in account on, even when asked to upgrade", async () => {
     useSession.mockReturnValue({ data: { user: { isAnonymous: false } }, isPending: false });
-    render(<LiveSignIn upgrade />);
+    await renderReady(<LiveSignIn upgrade />);
 
     await vi.waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
   });
@@ -212,9 +236,9 @@ describe("the way in with no account", () => {
     // for as long as the page is open and nothing on screen says why.
     ways.demo = true;
     signInAnonymous.mockRejectedValue(new Error("offline"));
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("couldn't reach the server");
     expect(push).not.toHaveBeenCalled();
@@ -239,9 +263,9 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     ways.demo = true;
     signInAnonymous.mockResolvedValue({});
     getSession.mockResolvedValue({ data: null });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/blocked/i);
     expect(push).not.toHaveBeenCalled();
@@ -252,9 +276,9 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     ways.demo = true;
     signInAnonymous.mockResolvedValue({});
     getSession.mockResolvedValue({ data: null });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/allow cookies/i);
   });
@@ -264,7 +288,7 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     // saying so sends somebody off to reset one that was fine.
     signInEmail.mockResolvedValue({});
     getSession.mockResolvedValue({ data: null });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     submit();
 
@@ -277,12 +301,12 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     ways.demo = true;
     signInAnonymous.mockResolvedValue({});
     getSession.mockResolvedValue({ data: null });
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     await screen.findByRole("alert");
-    expect(screen.getByRole("button", { name: "Browse without an account" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "try it without an account" })).toBeEnabled();
   });
 
   it("treats a check it could not make as a working sign-in", async () => {
@@ -292,19 +316,65 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     ways.demo = true;
     signInAnonymous.mockResolvedValue({});
     getSession.mockRejectedValue(new TypeError("Failed to fetch"));
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
   });
 });
 
 describe("the social buttons", () => {
+  /*
+   * The providers are drawn above the email form, so the server's answer moves the fields. The
+   * controls stay hidden until it is in, and are then drawn once, where they will stay.
+   */
+  it("shows the form's controls only once the server has said which providers there are", async () => {
+    render(<LiveSignIn />);
+
+    expect(screen.getByLabelText("Email")).not.toBeVisible();
+    await vi.waitFor(() => expect(screen.getByLabelText("Email")).toBeVisible());
+    expect(screen.queryByTestId("providers-pending")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Continue with/ })).toBeNull();
+  });
+
+  it("shows them when the server cannot be asked, so the form is not hidden for ever", async () => {
+    waysAnswer = "unreachable";
+    render(<LiveSignIn />);
+
+    await vi.waitFor(() => expect(screen.getByLabelText("Email")).toBeVisible());
+  });
+
+  it("shows the form after waiting long enough, and fills in a provider that answers late", async () => {
+    // Somebody whose only way in is GitHub must still get it from a slow lookup, and it must
+    // arrive in the row held open for it rather than pushing the fields down.
+    vi.useFakeTimers();
+    try {
+      waysAnswer = "late";
+      ways.socialProviders = ["github"];
+      render(<LiveSignIn />);
+      expect(screen.getByLabelText("Email")).not.toBeVisible();
+
+      // Just short of the limit, it is still waiting; at the limit it shows the form.
+      await act(() => vi.advanceTimersByTimeAsync(3999));
+      expect(screen.getByLabelText("Email")).not.toBeVisible();
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(screen.getByLabelText("Email")).toBeVisible();
+      expect(screen.getByTestId("providers-pending")).toBeInTheDocument();
+
+      await act(async () => answerLate());
+
+      expect(screen.getByRole("button", { name: "Continue with GitHub" })).toBeVisible();
+      expect(screen.queryByTestId("providers-pending")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("draws only what the server says it has, and sends the right provider", async () => {
     ways.socialProviders = ["google"];
     signInSocial.mockResolvedValue({});
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Continue with Google" }));
 
@@ -320,7 +390,7 @@ describe("the social buttons", () => {
   it("lands a new account on the key step rather than the dashboard", async () => {
     // The one moment where asking about a key is not an interruption of something else.
     signInEmail.mockResolvedValue({});
-    render(<LiveSignIn />);
+    await renderReady(<LiveSignIn />);
 
     submit();
 
