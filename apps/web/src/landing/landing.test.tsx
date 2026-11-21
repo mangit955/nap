@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { FEATURED_REPLAY_PATH } from "../replay/featured.ts";
 import { REPO_URL } from "./github-button.tsx";
 import { type AuthState, Landing } from "./landing.tsx";
 
@@ -33,12 +34,31 @@ describe("signed out", () => {
 describe("the repository link", () => {
   it("points at the source", () => {
     show("signed-out");
-    expect(bar().getByRole("link", { name: /star on github/i })).toHaveAttribute("href", REPO_URL);
+    expect(bar().getByRole("link", { name: /^github$/i })).toHaveAttribute("href", REPO_URL);
   });
 
   it("is there before the session resolves, because it is right either way", () => {
     show("pending");
-    expect(bar().getByRole("link", { name: /star on github/i })).toBeInTheDocument();
+    expect(bar().getByRole("link", { name: /^github$/i })).toBeInTheDocument();
+  });
+});
+
+describe("the bar's links", () => {
+  it("lead to the page's own sections and to the docs", () => {
+    show("signed-out");
+    const nav = within(bar().getByRole("navigation", { name: "Front page" }));
+    const links = nav
+      .getAllByRole("link")
+      .map((link) => [link.textContent, link.getAttribute("href")]);
+    expect(links).toEqual([
+      ["Product", "#product"],
+      ["Built with nap", "#built"],
+      ["Changelog", "#changelog"],
+      ["Docs", "/docs"],
+    ]);
+    for (const [, href] of links.slice(0, 3)) {
+      expect(document.getElementById(String(href).slice(1))).not.toBeNull();
+    }
   });
 });
 
@@ -52,7 +72,7 @@ describe("the way into the docs", () => {
   it("is offered again at the foot of the page, where the bar has long gone", () => {
     show("signed-out");
     const footer = within(screen.getByRole("contentinfo"));
-    expect(footer.getByRole("link", { name: /^docs$/i })).toHaveAttribute("href", "/docs");
+    expect(footer.getByRole("link", { name: /^how it works$/i })).toHaveAttribute("href", "/docs");
   });
 });
 
@@ -70,22 +90,20 @@ describe("the frame", () => {
 
   it("carries the page's story under the hero, in order", () => {
     show("signed-out");
-    const sections = screen
-      .getAllByRole("region")
-      .map((region) => region.getAttribute("aria-labelledby"));
-    expect(sections).toEqual(["why-title", "features-title", "measured-title", "start-title"]);
+    const sections = [...screen.getByRole("main").querySelectorAll(":scope > section")].map(
+      (section) => section.id,
+    );
+    expect(sections).toEqual(["product", "built", "changelog", "start"]);
   });
 
-  it("names every section with a heading of its own", () => {
+  it("names every section, and keeps the serif for the closing line alone", () => {
     show("signed-out");
-    for (const name of [
-      /you describe it/i,
-      /built to work alone/i,
-      /built to keep going/i,
-      /describe it tonight/i,
-    ]) {
+    expect(screen.getByRole("region", { name: "Product" })).toBeInTheDocument();
+    for (const name of [/^built with nap$/i, /^changelog$/i, /^build your first app\.$/i]) {
       expect(screen.getByRole("heading", { level: 2, name })).toBeInTheDocument();
     }
+    const serif = [...document.querySelectorAll("main h2.lp-serif")].map((h) => h.textContent);
+    expect(serif).toEqual(["Build your first app."]);
   });
 
   it("scopes its dark colours to itself rather than to the whole app", () => {
@@ -100,16 +118,22 @@ describe("the frame", () => {
   });
 });
 
-describe("the measurements", () => {
-  it("pairs measured results with their report and scope", () => {
+describe("the footer", () => {
+  it("links the engineering reports, which the page itself no longer quotes", () => {
     show("signed-out");
-    const region = within(screen.getByRole("region", { name: /built to keep going/i }));
-    expect(region.getByText("Turns completed")).toBeInTheDocument();
-    expect(region.getByText(/2,422/)).toBeInTheDocument();
-    expect(region.getByRole("link", { name: /read the cluster report/i })).toHaveAttribute(
+    const footer = within(screen.getByRole("contentinfo"));
+    expect(footer.getByRole("link", { name: /engineering reports/i })).toHaveAttribute(
       "href",
       `${REPO_URL}/blob/main/docs/scaling-cluster.md`,
     );
-    expect(region.getByText(/24 August 2026/)).toBeInTheDocument();
+  });
+
+  it("keeps a recorded session one click from the front page", () => {
+    show("signed-out");
+    const footer = within(screen.getByRole("contentinfo"));
+    expect(footer.getByRole("link", { name: /watch a real session/i })).toHaveAttribute(
+      "href",
+      FEATURED_REPLAY_PATH,
+    );
   });
 });

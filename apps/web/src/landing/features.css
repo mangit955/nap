@@ -1,110 +1,17 @@
 @layer components {
-  :where(.lp-benefits) {
-    padding-block: 80px 100px;
-    scroll-margin-top: 100px;
-  }
-  :where(.nf-heading) {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 36px;
-  }
-  :where(.nf-heading .lp-eyebrow) {
-    color: var(--color-muted);
-    font-size: var(--lp-text-label);
-    letter-spacing: 0.12em;
-  }
-  :where(.lp-benefits h2) {
-    margin: 20px 0 0;
-    font-size: clamp(40px, 4.5vw, 62px);
-    line-height: 1.04;
-  }
-  :where(.lp-benefits h2 > span) {
-    color: var(--color-muted);
-  }
-  :where(.nf-heading-aside) {
-    flex-shrink: 1;
-    padding-bottom: 4px;
-  }
-  :where(.nf-heading-aside p) {
-    color: var(--color-muted);
-    font-size: var(--lp-text-body);
-    line-height: 1.8;
-    letter-spacing: -0.01em;
-    min-width: 0;
-  }
-  :where(.nf-replay) {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    min-height: 40px;
-    margin: 12px 0 -7px;
-    color: var(--color-ink-2);
-    font-size: 13px;
-    cursor: pointer;
-    transition: color 150ms ease;
-    white-space: nowrap;
-  }
-  :where(.nf-replay:hover) {
-    color: var(--color-ink);
-  }
-  :where(.lp-benefit-grid) {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
-    margin-top: 43px;
-  }
-  :where(.lp-benefit-card) {
-    height: 100%;
-    min-width: 0;
-    overflow: hidden;
-    border: 1px solid var(--color-edge);
-    border-radius: 12px;
-    background: var(--color-panel);
-    transition: border-color 180ms ease;
-  }
-  :where(.lp-benefit-card:hover, .lp-benefit-card:focus-within) {
-    border-color: var(--color-line-strong);
-  }
-  :where(.nf-card-copy) {
-    padding: 23px 25px 29px;
-    border-top: 1px solid #ffffff07;
-  }
-  :where(.nf-card-index) {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    color: var(--color-muted);
-    font-size: var(--lp-text-label);
-    letter-spacing: 0.1em;
-    font-variant-numeric: tabular-nums;
-  }
-  :where(.nf-card-index i) {
-    width: 13px;
-    height: 1px;
-    background: var(--color-line-strong);
-  }
-  :where(.lp-benefit-card h3) {
-    margin: 17px 0 14px;
-    color: var(--color-ink);
-    font-size: 25px;
-    font-weight: 450;
-    line-height: 1.16;
-    letter-spacing: -0.045em;
-  }
-  :where(.lp-benefit-card p) {
-    color: var(--color-ink-2);
-    font-size: var(--lp-text-body);
-    line-height: 1.8;
-    letter-spacing: -0.015em;
-  }
+  /* A window of the product resting on the photograph: the drawing is the window's contents. */
   :where(.nf-art) {
     position: relative;
     display: flex;
     flex-direction: column;
     justify-content: center;
-    height: 276px;
-    padding: 24px 19px;
+    width: 100%;
+    max-width: 520px;
+    height: 300px;
+    padding: 24px;
+    border: 1px solid #ffffff1a;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px #000b;
     color: var(--color-ink-2);
     font-family: var(--font-sans);
     font-size: 12px;
@@ -533,19 +440,6 @@
     font-size: 11px;
     margin-top: 14px;
   }
-  :where(.nf-section-foot) {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--color-gutter);
-    font-size: var(--lp-text-label);
-    margin-top: 20px;
-  }
-  :where(.nf-section-foot > span:last-child) {
-    margin-left: auto;
-    font-size: 11px;
-    letter-spacing: 0.1em;
-  }
   :where([data-reveal="in"] .nf-browser) {
     animation: nf-close-tab 1600ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
@@ -647,115 +541,12 @@
       transform: none;
     }
   }
-  @media (max-width: 1100px) {
-    :where(.nf-heading-aside p) {
-      font-size: var(--lp-text-body);
-      min-width: 0;
-    }
-    :where(.nf-heading) {
-      gap: 20px;
-    }
-    :where(.nf-card-copy) {
-      padding: 21px 20px 25px;
-    }
-    :where(.nf-art) {
-      padding-inline: 12px;
-    }
-    :where(.lp-benefit-card h3) {
-      font-size: 23px;
-    }
-  }
-  @media (max-width: 1000px) {
-    :where(.nf-heading) {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-    :where(.nf-heading-aside) {
-      display: flex;
-      width: 100%;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 4px 16px;
-      flex-shrink: 1;
-    }
-    :where(.nf-replay) {
-      margin: 0;
-      min-height: 40px;
-      white-space: nowrap;
-    }
-    :where(.lp-benefit-grid) {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 14px;
-      margin-top: 30px;
-    }
-    :where(.lp-benefit-card) {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      align-items: stretch;
-    }
-    :where(.nf-art) {
-      padding-inline: 24px;
-    }
-    :where(.nf-card-copy) {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 28px;
-      border-top: 0;
-      border-left: 1px solid #ffffff07;
-    }
-    :where(.lp-benefit-card h3) {
-      font-size: 25px;
-    }
-  }
-  @media (max-width: 680px) {
-    :where(.lp-benefits) {
-      padding-block: 60px 70px;
-    }
-    :where(.lp-benefits h2) {
-      font-size: clamp(33px, 7.2vw, 46px);
-    }
-    :where(.nf-heading .lp-eyebrow) {
-      font-size: var(--lp-text-label);
-    }
-    :where(.nf-heading-aside p) {
-      font-size: var(--lp-text-body);
-      min-width: 0;
-    }
-    :where(.nf-replay) {
-      font-size: 13px;
-      min-height: 40px;
-      white-space: nowrap;
-    }
-    :where(.lp-benefit-card) {
-      display: block;
-    }
-    :where(.nf-art) {
-      padding-inline: 24px;
-    }
-    :where(.nf-card-copy) {
-      border-left: 0;
-      border-top: 1px solid #ffffff07;
-      padding: 24px;
-    }
-    :where(.lp-benefit-card h3) {
-      font-size: 27px;
-    }
-    :where(.lp-benefit-card p) {
-      font-size: var(--lp-text-body);
-      color: var(--color-ink-2);
-    }
-    :where(.nf-section-foot > span:last-child) {
-      display: none;
-    }
-  }
   @media (prefers-reduced-motion: reduce) {
-    :where(.lp-benefits *, .lp-benefits *::after) {
+    :where(.lp-rows *, .lp-rows *::after) {
       animation: none;
       transition: none;
     }
-    :where(.nf-replay, .nf-browser) {
+    :where(.nf-browser) {
       display: none;
     }
   }

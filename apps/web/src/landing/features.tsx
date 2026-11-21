@@ -10,7 +10,6 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Globe2,
-  RotateCcw,
   Terminal,
   X,
 } from "lucide-react";
@@ -19,94 +18,52 @@ import { NapMark } from "../brand/nap-mark.tsx";
 import { Reveal } from "./parts.tsx";
 import "./features.css";
 
+/**
+ * What nap does, one row each: a plain heading, one sentence, a link to how it works, and a drawing
+ * of the product doing it. The drawings sit on the dusk photograph, as the hero's session does, so
+ * the photograph is a backdrop the product stands on and never a scene in front of it.
+ */
+const ROWS = [
+  {
+    id: "persistence",
+    title: "It keeps working after you close the tab.",
+    body: "Every project runs in its own cloud sandbox, so the build carries on while your laptop sleeps.",
+    link: { label: "How sessions run", href: "/docs#durable-jobs" },
+    Art: Persistence,
+  },
+  {
+    id: "verification",
+    title: "It checks its own work.",
+    body: "Your project's typecheck and build decide when a change is done. When one fails, nap reads the error and fixes it.",
+    link: { label: "How verification works", href: "/docs#verification" },
+    Art: Verification,
+  },
+  {
+    id: "ownership",
+    title: "The code is yours.",
+    body: "Real files, a git history for every change, and a repo you can push to GitHub and keep building without nap.",
+    link: { label: "Connect GitHub", href: "/sign-up" },
+    Art: Ownership,
+  },
+] as const;
+
 export function Features() {
-  const [run, setRun] = useState(0);
   return (
-    <section id="features" aria-labelledby="features-title" className="lp-benefits lp-container">
-      <Reveal className="nf-heading">
-        <div>
-          <span className="lp-eyebrow">LESS SUPERVISION. MORE MAKING.</span>
-          <h2 id="features-title" className="lp-serif">
-            Built to work alone.
-            <br />
-            <span>Designed to earn your trust.</span>
-          </h2>
-        </div>
-        <div className="nf-heading-aside">
-          <p>
-            Space to step away.
-            <br />
-            Every detail when you return.
-          </p>
-          <button
-            type="button"
-            className="nf-replay"
-            onClick={() => setRun((current) => current + 1)}
-          >
-            <RotateCcw size={12} /> Replay animations
-          </button>
-        </div>
-      </Reveal>
-      <div className="lp-benefit-grid">
-        <Reveal>
-          <article className="lp-benefit-card">
-            <Persistence key={run} />
-            <div className="nf-card-copy">
-              <span className="nf-card-index">
-                01 <i /> PERSISTENCE
-              </span>
-              <h3>
-                Close the tab.
-                <br />
-                It keeps going.
-              </h3>
-              <p>The job runs in its own sandbox. Your laptop can rest while nap does the work.</p>
-            </div>
-          </article>
-        </Reveal>
-        <Reveal delayMs={70}>
-          <article className="lp-benefit-card">
-            <Verification key={run} />
-            <div className="nf-card-copy">
-              <span className="nf-card-index">
-                02 <i /> VERIFICATION
-              </span>
-              <h3>
-                "Done" comes
-                <br />
-                with evidence.
-              </h3>
-              <p>
-                Your project's own checks decide what passes. A failed check starts a repair turn.
-              </p>
-            </div>
-          </article>
-        </Reveal>
-        <Reveal delayMs={140}>
-          <article className="lp-benefit-card">
-            <Ownership key={run} />
-            <div className="nf-card-copy">
-              <span className="nf-card-index">
-                03 <i /> OWNERSHIP
-              </span>
-              <h3>
-                Your project.
-                <br />
-                All the way down.
-              </h3>
-              <p>
-                Real files, a live event log, and git history. See every change and keep building on
-                it.
-              </p>
-            </div>
-          </article>
-        </Reveal>
-      </div>
-      <div className="nf-section-foot">
-        <NapMark className="size-4" />
-        <span>Independent work. A complete record.</span>
-        <span>BUILT INTO NAP</span>
-      </div>
+    <section id="product" aria-label="Product" className="lp-rows lp-container">
+      {ROWS.map(({ id, title, body, link, Art }) => (
+        <article key={id} className="lp-row" aria-labelledby={`${id}-title`}>
+          <div className="lp-row-copy">
+            <h2 id={`${id}-title`}>{title}</h2>
+            <p>{body}</p>
+            <a href={link.href} className="lp-more">
+              {link.label} <span aria-hidden="true">→</span>
+            </a>
+          </div>
+          <Reveal className="lp-wall lp-row-art">
+            <Art />
+          </Reveal>
+        </article>
+      ))}
     </section>
   );
 }

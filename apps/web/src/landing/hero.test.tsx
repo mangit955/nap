@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { FEATURED_REPLAY_PATH } from "../replay/featured.ts";
+import { REPO_URL } from "./github-button.tsx";
 import { Hero } from "./hero.tsx";
 
 describe("the front page's hero", () => {
@@ -19,12 +19,9 @@ describe("the front page's hero", () => {
     );
   });
 
-  it("offers a recorded session to anybody, one click from the front page", () => {
+  it("offers the repository beside it", () => {
     render(<Hero />);
-    expect(screen.getByRole("link", { name: /watch a real session/i })).toHaveAttribute(
-      "href",
-      FEATURED_REPLAY_PATH,
-    );
+    expect(screen.getByRole("link", { name: "Star on GitHub" })).toHaveAttribute("href", REPO_URL);
   });
 
   it("keeps project creation behind sign-up", () => {
@@ -39,9 +36,14 @@ describe("the front page's hero", () => {
     ).toBeInTheDocument();
   });
 
-  it("hides the decorative photograph from assistive technology", () => {
-    const { container } = render(<Hero />);
-    expect(container.querySelector(".lp-hero-scenery")).toHaveAttribute("aria-hidden", "true");
-    expect(container.querySelectorAll(".lp-mountain-texture")).toHaveLength(2);
+  it("puts nothing in the photograph's wall but the session", () => {
+    // An earlier hero laid a mountain mask across the session and hid most of it on a phone. This
+    // catches a layer added beside the session; a pseudo-element drawn over it needs layout to
+    // see, and `scripts/check-landing.js` hit-tests the window's centre for that.
+    render(<Hero />);
+    const session = screen.getByRole("group", { name: /interactive nap session demo/i });
+    const wall = session.closest(".lp-wall");
+    expect(wall).not.toBeNull();
+    expect(wall?.children).toHaveLength(1);
   });
 });

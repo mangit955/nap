@@ -1,21 +1,25 @@
 import { NapMark } from "../brand/nap-mark.tsx";
-import { GithubIcon } from "../ui/icons.tsx";
+import { FEATURED_REPLAY_PATH } from "../replay/featured.ts";
 import { REPO_URL } from "./github-button.tsx";
 
 const COLUMNS = [
   {
     title: "Product",
     links: [
-      { label: "How it works", href: "#why" },
-      { label: "Features", href: "#features" },
+      { label: "Built with nap", href: "#built" },
+      { label: "Changelog", href: "#changelog" },
+      { label: "Watch a real session", href: FEATURED_REPLAY_PATH },
       { label: "Get started", href: "/sign-up" },
     ],
   },
   {
-    title: "Explore",
+    title: "Docs",
     links: [
-      { label: "Docs", href: "/docs" },
+      { label: "How it works", href: "/docs" },
       { label: "Architecture", href: "/docs#architecture" },
+      // The load and cluster runs: how the backend behaves at scale, measured with simulated
+      // workloads. Proof for an engineer, which is why it lives here and not in the page.
+      { label: "Engineering reports", href: `${REPO_URL}/blob/main/docs/scaling-cluster.md` },
     ],
   },
   {
@@ -30,43 +34,35 @@ const COLUMNS = [
 
 export function LandingFooter() {
   return (
-    <footer className="lp-footer lp-container">
-      <div className="lp-footer-main">
-        <div>
+    <footer className="lp-footer">
+      <div className="lp-container">
+        <div className="lp-footer-main">
           <a href="/" className="lp-footer-brand">
-            <NapMark className="nap-mark-awake size-10" />
+            <NapMark className="size-6" />
             nap
           </a>
-          <p>
-            A little less work.
-            <br />A little more possibility.
-          </p>
-          <a href={REPO_URL} className="lp-text-link">
-            <GithubIcon className="size-4" /> Follow the build
-          </a>
+          <nav aria-label="Footer">
+            {COLUMNS.map((column) => (
+              <div key={column.title}>
+                <h2>{column.title}</h2>
+                {column.links.map((link) => (
+                  <a key={link.label} href={link.href}>
+                    {link.label}
+                  </a>
+                ))}
+              </div>
+            ))}
+          </nav>
         </div>
-        <nav aria-label="Footer">
-          {COLUMNS.map((column) => (
-            <div key={column.title}>
-              <h2>{column.title}</h2>
-              {column.links.map((link) => (
-                <a key={link.label} href={link.href}>
-                  {link.label}
-                </a>
-              ))}
-            </div>
-          ))}
-        </nav>
+        <div className="lp-footer-fine">
+          <span>© 2026 nap · MIT licensed</span>
+          <span>
+            Photo: "Як потрапити у казку" by Misha Reme,{" "}
+            <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>, via
+            Wikimedia Commons. Tinted and cropped.
+          </span>
+        </div>
       </div>
-      <div className="lp-footer-bottom">
-        <span>© 2026 nap</span>
-        <span>Open source. MIT licensed.</span>
-      </div>
-      <p className="lp-photo-credit">
-        Landscape: "Як потрапити у казку" by Misha Reme,{" "}
-        <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>, via Wikimedia
-        Commons. Tinted and cropped.
-      </p>
     </footer>
   );
 }

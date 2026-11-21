@@ -98,7 +98,7 @@ export function BookingPreview() {
             <button type="button" className="lp-booking-reserve" onClick={() => setConfirmed(true)}>
               Reserve your quiet <span aria-hidden="true">↗</span>
             </button>
-            <p className="lp-booking-footnote">An interactive example built with nap.</p>
+            <p className="lp-booking-footnote">An interactive example.</p>
           </>
         )}
       </div>

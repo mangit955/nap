@@ -11,7 +11,6 @@
 
 import { useEffect, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
-import { GithubIcon } from "../ui/icons.tsx";
 import { REPO_URL } from "./github-button.tsx";
 import type { AuthState } from "./landing.tsx";
 
@@ -19,9 +18,9 @@ import type { AuthState } from "./landing.tsx";
 const SCROLLED_AT = 24;
 
 const LINKS = [
-  { href: "#why", label: "How it works" },
-  { href: "#features", label: "Features" },
-  { href: "#measured", label: "Results" },
+  { href: "#product", label: "Product" },
+  { href: "#built", label: "Built with nap" },
+  { href: "#changelog", label: "Changelog" },
   { href: "/docs", label: "Docs" },
 ] as const;
 
@@ -37,7 +36,7 @@ export function LandingNav({ auth }: { auth: AuthState }) {
 
   return (
     <header className="lp-nav fixed inset-x-0 top-0 z-50" data-scrolled={scrolled}>
-      <div className="mx-auto flex h-[72px] max-w-[1360px] items-center justify-between gap-4 px-5 md:px-12">
+      <div className="lp-container flex h-[68px] items-center justify-between gap-4">
         <a
           href="/"
           className="flex items-center gap-2 font-semibold text-[21px] tracking-[-0.03em] focus-visible:outline-2 focus-visible:outline-white focus-visible:outline-offset-4"
@@ -60,7 +59,7 @@ export function LandingNav({ auth }: { auth: AuthState }) {
 
         <div className="flex items-center gap-2">
           <details className="group lg:hidden">
-            <summary className="lp-pill lp-pill-glass lp-pill-small lp-menu-toggle cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            <summary className="lp-button lp-button-ghost lp-menu-toggle cursor-pointer list-none [&::-webkit-details-marker]:hidden">
               <span className="sr-only">Menu</span>
               <svg
                 aria-hidden="true"
@@ -76,7 +75,7 @@ export function LandingNav({ auth }: { auth: AuthState }) {
             </summary>
             <nav
               aria-label="Mobile front page"
-              className="lp-nav-menu absolute inset-x-5 top-[68px] flex flex-col gap-1 rounded-2xl p-3"
+              className="lp-nav-menu absolute inset-x-5 top-[64px] flex flex-col gap-1 rounded-2xl p-3"
             >
               {LINKS.map((link) => (
                 <a
@@ -96,17 +95,16 @@ export function LandingNav({ auth }: { auth: AuthState }) {
             href={REPO_URL}
             target="_blank"
             rel="noreferrer"
-            className="lp-text-link mr-3 hidden xl:inline-flex"
+            className="lp-text-link mr-3 hidden sm:inline-flex"
           >
-            <GithubIcon className="size-4" />
-            Star on GitHub
+            GitHub
           </a>
           {auth === "signed-out" && (
             <>
-              <a href="/sign-in" className="lp-text-link hidden sm:inline-flex">
+              <a href="/sign-in" className="lp-text-link mr-3 hidden sm:inline-flex">
                 Sign in
               </a>
-              <a href="/sign-up" className="lp-pill lp-pill-light lp-pill-small">
+              <a href="/sign-up" className="lp-button lp-button-light">
                 Get started
               </a>
             </>

@@ -10,6 +10,7 @@ import { Sidebar } from "../dashboard/sidebar.tsx";
 import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { BookingPreview } from "./booking-preview.tsx";
+import { BOOKING_PROMPT } from "./example-apps.ts";
 import { useSpaceScale } from "./use-space-scale.ts";
 
 export type DemoStage = "prompt" | "building" | "ready";
@@ -26,8 +27,6 @@ const SESSION = {
   updatedAt: "2026-10-25T12:00:00.000Z",
   sessionIds: [],
 } satisfies ProjectSummaryPayload;
-export const BOOKING_PROMPT =
-  "Build a cabin booking app for a quiet weekend in the Highlands. Let me choose a date, change the length of stay, and reserve the cabin.";
 const PROMPT: TranscriptItem = { kind: "message", key: 1, from: "user", text: BOOKING_PROMPT };
 const RESPONSE: TranscriptItem = {
   kind: "message",
