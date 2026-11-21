@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { format } from "node:util";
+import { pino } from "pino";
 import { describe, expect, it } from "vitest";
 import { createLogger } from "./logger.ts";
 import { redactConsole, withoutQueryParams } from "./redact-query-params.ts";
@@ -37,15 +38,26 @@ function asError(value: unknown): Error {
 }
 
 describe("withoutQueryParams", () => {
-  it("returns an ordinary value as the same reference", () => {
-    const error = new Error("plain", { cause: new Error("inner") });
-    const fields = { err: error, ids: ["a", "b"], n: 1 };
+  it("leaves an ordinary line exactly as pino alone would write it", () => {
+    class NotFound extends Error {
+      readonly status = 404;
+    }
     const cyclic: Record<string, unknown> = { n: 1 };
     cyclic.self = cyclic;
+    const fields = {
+      err: new Error("plain", { cause: new Error("inner") }),
+      failure: { ok: false, error: new NotFound("missing") },
+      list: [1, "two", { three: 3 }],
+      when: new Date(0),
+      cyclic,
+    };
+    const withHook: string[] = [];
+    const withoutHook: string[] = [];
+    createLogger({ level: "info" }, { write: (l: string) => withHook.push(l) }).warn(fields, "m");
+    pino({ level: "info" }, { write: (l: string) => withoutHook.push(l) }).warn(fields, "m");
 
-    expect(withoutQueryParams(error)).toBe(error);
-    expect(withoutQueryParams(fields)).toBe(fields);
-    expect(withoutQueryParams(cyclic)).toBe(cyclic);
+    const comparable = (line: string) => ({ ...JSON.parse(line), time: 0 }) as unknown;
+    expect(withHook.map(comparable)).toEqual(withoutHook.map(comparable));
     expect(withoutQueryParams("no query here\nparams: fine")).toBe("no query here\nparams: fine");
   });
 
@@ -75,7 +87,7 @@ describe("withoutQueryParams", () => {
     expect(copy.stack).not.toContain("s3cret");
     expect(copy.stack).toContain("    at ");
     expect(copy).toMatchObject({ query: 'select 1 where "token" = $1' });
-    expect(copy.cause).toBe(original.cause);
+    expect(copy.cause).toMatchObject({ message: "connect ECONNREFUSED" });
     // The original is untouched: whoever threw it may still be holding it.
     expect(original).toMatchObject({ params: ["s3cret"] });
   });
@@ -99,11 +111,36 @@ describe("withoutQueryParams", () => {
   it("writes a cycle back to a query error without the original's fields", () => {
     const fields: Record<string, unknown> = { err: aQueryError() };
     fields.self = fields;
+    // Two objects deep: `b` changes nothing itself, and still leads back to the error.
+    const a: Record<string, unknown> = { err: aQueryError() };
+    const b: Record<string, unknown> = { a };
+    a.b = b;
 
-    const output = logged(fields);
+    expect(logged(fields)).not.toContain("s3cret");
+    expect(logged(fields)).toContain("[Circular]");
+    expect(logged({ a })).not.toContain("s3cret");
+  });
+
+  it("cuts a Drizzle stack carried inside a wrapper's own stack", () => {
+    const wrapper = new Error("could not sweep");
+    wrapper.stack = `Error: could not sweep\n    at sweep (a.ts:1:1)\nCaused by: Error: ${DRIZZLE_MESSAGE}\n    at q (b.ts:2:2)`;
+
+    expect(logged({ err: wrapper })).not.toContain("s3cret");
+    expect(logged({ err: wrapper })).toContain("sweep (a.ts:1:1)");
+  });
+
+  it("withholds a data exception's message, which quotes the rejected value", () => {
+    const cause = Object.assign(new Error('invalid input syntax for type uuid: "s3cret"'), {
+      name: "PostgresError",
+      code: "22P02",
+      routine: "string_to_uuid",
+    });
+    const error = Object.assign(aQueryError(), { cause });
+
+    const output = logged({ err: error, failure: { error } });
 
     expect(output).not.toContain("s3cret");
-    expect(output).toContain("[Circular]");
+    expect(output).toContain("22P02");
   });
 
   it("withholds what is nested too deeply to check, rather than passing it through", () => {
@@ -143,9 +180,17 @@ describe("withoutQueryParams", () => {
       },
     });
     const nullMessage = Object.assign(new Error("x"), { message: null });
+    const throwingMessage = new Error("x");
+    Object.defineProperty(throwingMessage, "message", {
+      get() {
+        throw new Error("getter threw");
+      },
+    });
 
     expect(() => logged({ err: hostile })).not.toThrow();
     expect(() => logged({ err: nullMessage })).not.toThrow();
+    // Read by pino after the walk returns, so the copy must not keep the getter.
+    expect(() => logged({ err: throwingMessage })).not.toThrow();
     expect(() => logged({ err: Object.assign(aQueryError(), { message: null }) })).not.toThrow();
   });
 });

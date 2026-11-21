@@ -32,9 +32,9 @@ export function logFromBetterAuth(
     ...(others.length > 0 ? { args: others.map(withoutWhereValues) } : {}),
   };
   const safe = withoutQueryParams(fields);
-  const text = typeof message === "string" ? withoutQueryParams(message) : "";
+  const text = typeof message === "string" ? String(withoutQueryParams(message)) : "";
   getLogger()[level](
-    typeof safe === "string" ? { withheld: safe } : safe,
+    typeof safe === "object" && safe !== null ? safe : { withheld: String(safe) },
     `[Better Auth] ${text}`.trimEnd(),
   );
 }

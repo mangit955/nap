@@ -9,9 +9,11 @@
  * #283), chat text and command output on an event append, an API key's ciphertext. The query
  * text holds only `$1` placeholders and the cause says why it failed, which is all a reader
  * needs, so the parameters are dropped everywhere rather than judged secret or not per table.
- * A Postgres error's `detail` goes too: for a constraint violation it repeats the rejected
- * value (`Key (email)=(…) already exists`), and its code and constraint name still say what
- * happened.
+ *
+ * The database can repeat a value too. A Postgres error's `detail` does for a constraint
+ * violation (`Key (email)=(…) already exists`), and so does the message of a data exception
+ * (`invalid input syntax for type uuid: "…"`). Both go; the SQLSTATE code and the constraint
+ * name still say what happened.
  *
  * Applied where pino is built (`logger.ts`), to `console` at boot (`redactConsole`), and to
  * Better Auth's lines (`auth/better-auth-log.ts`), so no call site has to remember.
@@ -31,6 +33,9 @@ const DRIZZLE_FIELDS = new Set<PropertyKey>(["params"]);
  */
 const POSTGRES_FIELDS = new Set<PropertyKey>(["params", "detail", "parameters", "args"]);
 
+/** SQLSTATE class 22, data exceptions: the server's message quotes the value it rejected. */
+const ECHOING_CLASS = "22";
+
 /**
  * Deeper than any log line this repo writes. Past it an object is replaced rather than passed
  * through, because passing it through is exactly how a buried query error would get out.
@@ -40,19 +45,27 @@ const MAX_DEPTH = 16;
 const CIRCULAR = "[Circular]";
 const TOO_DEEP = "[nested too deeply to check for query parameters]";
 const UNREADABLE = "[withheld: could not be checked for query parameters]";
+const ECHOED = "[server message withheld: it can repeat the rejected value]";
+
+/** Marks an object whose copy is still being built, so a reference back to it is a cycle. */
+const IN_PROGRESS: unique symbol = Symbol("in progress");
 
 /**
- * The same value with every failed query's parameters removed, or the very same reference when
- * there were none — so an ordinary line reaches pino exactly as it would have.
+ * The value with every failed query's parameters removed.
  *
- * Strings, errors (with their causes and any nested errors), arrays and plain objects are
- * walked; anything else is a class instance this repo does not log errors inside. Never throws:
- * it runs inside every log call, and a log call that throws turns a request's error handler
- * into a second, unlogged error.
+ * Errors (with their causes and any nested errors), arrays and plain objects come back as
+ * fresh copies, always — never the original, even where nothing needed removing. Keeping an
+ * original anywhere is how a cycle or a second reference used to hand pino the unredacted
+ * error back. pino writes a copy exactly as it writes the original, which `redact-query-params
+ * .test.ts` checks against pino alone. Other class instances are passed through unwalked; this
+ * repo logs no error inside one.
+ *
+ * Never throws: it runs inside every log call, and a log call that throws turns a request's
+ * error handler into a second, unlogged error.
  */
-export function withoutQueryParams<T>(value: T): T | string {
+export function withoutQueryParams(value: unknown): unknown {
   try {
-    return redact(value, 0, { done: new Map(), inProgress: new Set() });
+    return redact(value, 0, new Map());
   } catch {
     return UNREADABLE;
   }
@@ -62,9 +75,9 @@ export function withoutQueryParams<T>(value: T): T | string {
  * Routes every `console` method through `withoutQueryParams`.
  *
  * For libraries that write to `console` directly and offer no way not to: Better Auth's adapter
- * prints the raw error of a failed follow-up read with `console.error(error)`, beside the
- * logger it was given. Called once per process, at boot; it changes a global, which is why a
- * component never calls it.
+ * and better-call's router both print a raw error with `console.error`, beside the logger they
+ * were given. Called once per process, at boot; it changes a global, which is why a component
+ * never calls it.
  */
 export function redactConsole(target: Console = console): void {
   for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const) {
@@ -73,53 +86,35 @@ export function redactConsole(target: Console = console): void {
   }
 }
 
-type Walk = {
-  /**
-   * What each object already became. A second reference to an error must get the redacted
-   * copy, not the original — pino and `console` print every reference, not only the first.
-   */
-  done: Map<object, unknown>;
-  /** Objects whose copy is still being built: a reference back to one is a cycle. */
-  inProgress: Set<object>;
-};
+/** Each object walked so far, mapped to its copy — or to `IN_PROGRESS` while it is built. */
+type Copies = Map<object, unknown>;
 
-function redact<T>(value: T, depth: number, walk: Walk): T | string {
+function redact(value: unknown, depth: number, copies: Copies): unknown {
   if (typeof value === "string") return redactText(value);
   if (typeof value !== "object" || value === null) return value;
-  if (walk.done.has(value)) return walk.done.get(value) as T;
-  // A back-reference adds nothing to the line, and leaving the original in place would put
-  // its unredacted fields back. It does not count as a change on its own: when nothing else in
-  // the cycle needed redacting, the original goes out untouched.
-  if (walk.inProgress.has(value)) return CIRCULAR;
+  if (copies.has(value)) {
+    const copy = copies.get(value);
+    return copy === IN_PROGRESS ? CIRCULAR : copy;
+  }
   if (depth > MAX_DEPTH) return TOO_DEEP;
 
-  walk.inProgress.add(value);
-  const result = redactObject(value, depth, walk);
-  walk.inProgress.delete(value);
-  walk.done.set(value, result);
-  return result;
+  copies.set(value, IN_PROGRESS);
+  const copy = copyOf(value, depth, copies);
+  copies.set(value, copy);
+  return copy;
 }
 
-function redactObject<T extends object>(value: T, depth: number, walk: Walk): T {
-  if (value instanceof Error) return redactError(value, depth, walk) as T;
-  if (Array.isArray(value)) {
-    let changed = false;
-    const items = value.map((item: unknown) => {
-      const next = redact(item, depth + 1, walk);
-      if (next !== item && next !== CIRCULAR) changed = true;
-      return next;
-    });
-    return (changed ? items : value) as T;
-  }
+function copyOf(value: object, depth: number, copies: Copies): unknown {
+  if (value instanceof Error) return copyError(value, depth, copies);
+  if (Array.isArray(value)) return value.map((item: unknown) => redact(item, depth + 1, copies));
   const proto: unknown = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return value;
-  let changed = false;
-  const entries = Object.entries(value).map(([key, field]: [string, unknown]) => {
-    const next = redact(field, depth + 1, walk);
-    if (next !== field && next !== CIRCULAR) changed = true;
-    return [key, next] as const;
-  });
-  return (changed ? Object.fromEntries(entries) : value) as T;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, field]: [string, unknown]) => [
+      key,
+      redact(field, depth + 1, copies),
+    ]),
+  );
 }
 
 /**
@@ -136,53 +131,62 @@ function redactText(text: string): string {
 
 /**
  * A copy of the error, same prototype so pino still serializes it as an error, with parameter
- * fields left out and every other own field redacted. The stack is rewritten by replacing the
- * message it starts with, which keeps the frames; a stack that does not contain the message is
- * cut like any other text.
+ * fields left out and every other own field redacted.
+ *
+ * The stack gets the redacted message in place of the original, which keeps the frames, and is
+ * then cut like any other text — a wrapper's stack can carry a whole Drizzle stack after its
+ * own message.
  */
-function redactError(error: Error, depth: number, walk: Walk): Error {
-  const dropped = error.name === "PostgresError" ? POSTGRES_FIELDS : DRIZZLE_FIELDS;
+function copyError(error: Error, depth: number, copies: Copies): Error {
+  const isPostgres = readField(error, "name") === "PostgresError";
+  const dropped = isPostgres ? POSTGRES_FIELDS : DRIZZLE_FIELDS;
+  const code = readField(error, "code");
   const original = readField(error, "message");
-  const message = typeof original === "string" ? redactText(original) : original;
-  let changed = message !== original;
-  const fields = new Map<PropertyKey, PropertyDescriptor>();
+  let message: unknown = original;
+  if (typeof original === "string") {
+    message =
+      isPostgres && typeof code === "string" && code.startsWith(ECHOING_CLASS)
+        ? ECHOED
+        : redactText(original);
+  }
 
+  const copy: Error = Object.create(Object.getPrototypeOf(error));
+  copies.set(error, copy);
   for (const key of Reflect.ownKeys(error)) {
-    if (dropped.has(key)) {
-      changed = true;
-      continue;
+    if (dropped.has(key)) continue;
+    let value: unknown;
+    if (key === "message") value = message;
+    else {
+      const before = readField(error, key);
+      if (key === "stack" && typeof before === "string") {
+        // `split`/`join` rather than `replace`: a replacement string treats `$&` as "the
+        // match", and SQL text may contain it.
+        // A stack that does not repeat a withheld server message may still hold it some
+        // other way, so it is replaced outright; the frames of a socket read say little.
+        let swapped = before;
+        if (typeof original === "string" && original !== "" && typeof message === "string") {
+          if (before.includes(original)) swapped = before.split(original).join(message);
+          else if (message === ECHOED) swapped = `PostgresError: ${ECHOED}`;
+        }
+        value = redactText(swapped);
+      } else value = redact(before, depth + 1, copies);
     }
-    const descriptor = Object.getOwnPropertyDescriptor(error, key);
-    if (descriptor === undefined) continue;
-    // Read through the original, not copied as a descriptor: V8 makes `stack` an own accessor
-    // that answers only for the error it was created on, so a copied getter reads `undefined`.
-    const before = readField(error, key);
-    let next: unknown;
-    if (key === "message") next = message;
-    else if (key === "stack" && typeof before === "string") {
-      // `split`/`join` rather than `replace`: a replacement string treats `$&` as "the match",
-      // and SQL text may contain it.
-      next =
-        typeof original === "string" && before.includes(original)
-          ? before.split(original).join(String(message))
-          : redactText(before);
-    } else next = redact(before, depth + 1, walk);
-    if (next !== before && next !== CIRCULAR) changed = true;
-    fields.set(key, {
-      value: next,
-      enumerable: descriptor.enumerable ?? false,
+    Object.defineProperty(copy, key, {
+      value,
+      enumerable: Object.getOwnPropertyDescriptor(error, key)?.enumerable ?? false,
       writable: true,
       configurable: true,
     });
   }
-
-  if (!changed) return error;
-  const copy: Error = Object.create(Object.getPrototypeOf(error));
-  for (const [key, descriptor] of fields) Object.defineProperty(copy, key, descriptor);
   return copy;
 }
 
-/** A field's value, or a placeholder when reading it throws — a getter is somebody else's code. */
+/**
+ * A field's value, or a placeholder when reading it throws — a getter is somebody else's code.
+ * Read through the original rather than copied as a descriptor: V8 makes `stack` an own
+ * accessor that answers only for the error it was created on, so a copied getter reads
+ * `undefined`.
+ */
 function readField(error: Error, key: PropertyKey): unknown {
   try {
     return Reflect.get(error, key);
