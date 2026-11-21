@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 // The real form constructs the auth client on import; what is under test is only what the page
 // hands it.
-vi.mock("../../auth/live-sign-in.tsx", () => ({ LiveSignIn: () => null }));
+vi.mock("../../../auth/live-sign-in.tsx", () => ({ LiveSignIn: () => null }));
 
 const { default: Page } = await import("./page.tsx");
 

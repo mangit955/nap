@@ -155,7 +155,7 @@ describe("the way in with no account", () => {
     // and a demo link on a deployment that has closed that door leads nowhere.
     render(<LiveSignIn />);
 
-    expect(screen.queryByRole("button", { name: "Browse without an account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "try it without an account" })).toBeNull();
   });
 
   it("signs in anonymously and goes straight to work", async () => {
@@ -165,7 +165,7 @@ describe("the way in with no account", () => {
     signInAnonymous.mockResolvedValue({});
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
   });
@@ -175,7 +175,7 @@ describe("the way in with no account", () => {
     useSession.mockReturnValue({ data: undefined, isPending: true });
     render(<LiveSignIn />);
 
-    expect(await screen.findByRole("button", { name: "Browse without an account" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "try it without an account" })).toBeDisabled();
     expect(signInAnonymous).not.toHaveBeenCalled();
   });
 
@@ -214,7 +214,7 @@ describe("the way in with no account", () => {
     signInAnonymous.mockRejectedValue(new Error("offline"));
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("couldn't reach the server");
     expect(push).not.toHaveBeenCalled();
@@ -241,7 +241,7 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     getSession.mockResolvedValue({ data: null });
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/blocked/i);
     expect(push).not.toHaveBeenCalled();
@@ -254,7 +254,7 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     getSession.mockResolvedValue({ data: null });
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/allow cookies/i);
   });
@@ -279,10 +279,10 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     getSession.mockResolvedValue({ data: null });
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     await screen.findByRole("alert");
-    expect(screen.getByRole("button", { name: "Browse without an account" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "try it without an account" })).toBeEnabled();
   });
 
   it("treats a check it could not make as a working sign-in", async () => {
@@ -294,7 +294,7 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
     getSession.mockRejectedValue(new TypeError("Failed to fetch"));
     render(<LiveSignIn />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Browse without an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "try it without an account" }));
 
     await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard"));
   });

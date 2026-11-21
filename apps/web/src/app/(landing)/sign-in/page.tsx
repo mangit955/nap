@@ -1,5 +1,5 @@
-import { LiveSignIn } from "../../auth/live-sign-in.tsx";
-import { EXPIRED_PARAM, expiredNotice } from "../../errors/expired-session.ts";
+import { LiveSignIn } from "../../../auth/live-sign-in.tsx";
+import { EXPIRED_PARAM, expiredNotice } from "../../../errors/expired-session.ts";
 
 /**
  * The way in — and the place a session that has expired lands, since every route needs one.

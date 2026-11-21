@@ -10,8 +10,9 @@ import type { ReactNode } from "react";
  *
  * **Loaded here, not in the root layout, because Next preloads a font on every route under the
  * layout that calls it.** In the root they cost every page of the app about 180KB of woff2 it never
- * draws. This group holds exactly the documents that draw them: `/`, and the two `/demo/*` apps
- * the landing page shows in iframes — the ledger and the booking site — which are documents of
+ * draws. This group holds exactly the documents that draw them: `/`, `/sign-in` and `/sign-up`
+ * (drawn in the front page's voice, see `auth/sign-in-form.tsx`), and the two `/demo/*` apps the
+ * landing page shows in iframes — the ledger and the booking site — which are documents of
  * their own and read the same variables from `landing.css` and `product-story.css`. The other two
  * demos draw neither face and sit outside it. A page outside the group that draws a landing class
  * gets `sans-serif` and Georgia without any error, and one inside it that draws none preloads
