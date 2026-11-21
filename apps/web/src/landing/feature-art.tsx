@@ -19,6 +19,9 @@ import { DemoFrame, DemoWorkspace, DrawnDiff, Panel, PaneTabs } from "./demo-win
  * it answered. Each is cropped to the part of the window the row is about.
  */
 
+/** Every row's window is drawn this wide, cropped to the part the row is about. */
+export const ROW_WIDTH = 900;
+
 const AT = "2026-11-20T10:00:00.000Z";
 const VERIFIED: JobSummary = { phase: "verified", phaseLabel: "Verified", open: false };
 const JOB_ID = "8a7b6c5d-4e3f-4a2b-9c1d-0e1f2a3b4c5d";
@@ -69,7 +72,9 @@ const GITHUB: ProjectGitHub = {
  * The review as GitHub has it: a teammate asks for a change, and the person who connected nap
  * passes it on with a `/nap` comment. Nap acts only on those, once its owner approves them in
  * nap; a review's own text is never sent to the agent (`project-github.tsx` says so in the app).
- * Nap does not comment on the pull request itself.
+ * Nap does not comment on the pull request itself, and the sandbox does not push: a verified
+ * commit is published to the same branch by the server, on its own when the repository is set to
+ * publish automatically (as this one is) and otherwise when its owner says so.
  *
  * The review's timestamps are left out (`at: null`): the panel prints them in the reader's raw
  *  locale format, which on a page of prose reads as debug output. */
@@ -94,7 +99,7 @@ const PULL_REQUEST: PullRequestInspection = {
       id: "t1",
       kind: "review",
       author: "mira",
-      body: "Stripe retries up to four times, so this still sends four emails on the first day. Can we key it by customer and day?",
+      body: "The email tells them the payment failed but not what to do. Can it link straight to the billing page so they can update their card?",
       state: "CHANGES_REQUESTED",
       at: null,
     },
@@ -102,7 +107,7 @@ const PULL_REQUEST: PullRequestInspection = {
       id: "t2",
       kind: "comment",
       author: "sam",
-      body: "/nap key the sent emails by customer and day, as mira asked",
+      body: "/nap link the past-due email to the billing page, as mira asked",
       state: null,
       at: null,
     },
@@ -235,8 +240,8 @@ export function RepoArt() {
       label="A task on the acme/storefront repository ending in a draft pull request with its checks passing"
       className="lp-repo-demo"
       narrowShows="pane"
-      wide={{ width: 900, height: 840, visible: 640 }}
-      narrow={{ width: 380, height: 760, visible: 600 }}
+      wide={{ width: ROW_WIDTH, height: 840, visible: 640 }}
+      narrow={{ width: 360, height: 760, visible: 600 }}
     >
       <DemoWorkspace
         title="acme/storefront"
@@ -363,8 +368,8 @@ export function ChecksArt() {
     <DemoFrame
       label="A failing test caught by the project's own checks, fixed, and passing"
       className="lp-checks-demo"
-      wide={{ width: 900, height: 860, visible: 660 }}
-      narrow={{ width: 380, height: 900, visible: 660 }}
+      wide={{ width: ROW_WIDTH, height: 860, visible: 660 }}
+      narrow={{ width: 360, height: 900, visible: 660 }}
     >
       <DemoWorkspace
         title="acme/storefront"
@@ -389,24 +394,24 @@ const ANSWER: TranscriptItem[] = [
     kind: "message",
     key: 1,
     from: "agent",
-    text: "Following sam's /nap comment on #214: keying the sent emails by customer and day, so a Stripe retry after the first email is logged instead of sent.",
+    text: "Following sam's /nap comment on #214: adding a link to the billing page in the past-due email, so the customer can update their card from it.",
   },
   {
     kind: "files",
     key: 2,
     files: [
       {
-        path: "server/webhooks.ts",
+        path: "emails/past-due.tsx",
         changeType: "modified",
-        diff: "+if (await emails.sentToday(order.customer))",
-        added: 2,
-        removed: 0,
+        diff: "+<Button href={billingUrl(order.customer)}>Update your card</Button>",
+        added: 4,
+        removed: 1,
       },
       {
-        path: "server/webhooks.test.ts",
-        changeType: "modified",
-        diff: "+it('sends one email per day', async () => {",
-        added: 24,
+        path: "emails/past-due.test.tsx",
+        changeType: "created",
+        diff: "+it('links to the billing page', async () => {",
+        added: 12,
         removed: 0,
       },
     ],
@@ -415,29 +420,29 @@ const ANSWER: TranscriptItem[] = [
     kind: "step",
     key: 3,
     at: AT,
-    toolCallId: "review-push",
+    toolCallId: "review-checks",
     toolName: "run_command",
-    input: { command: "git push origin nap/failed-payment-emails" },
+    input: { command: "bun run typecheck && bun test && bun run build" },
     status: "ok",
-    output: "Pushed 3f9a1c0",
-    streamed: "8c41f2e..3f9a1c0  nap/failed-payment-emails",
+    output: "passed",
+    streamed: "✓ Typecheck passed\n✓ 213 tests passed\n✓ Production build completed",
     files: [],
   },
   {
     kind: "message",
     key: 4,
     from: "agent",
-    text: "Pushed `3f9a1c0` to the same branch. Typecheck, tests and the build pass here; CI is running on the pull request.",
+    text: "Done. The email now has an Update your card button that opens the billing page, and a new test checks the link. Typecheck, all 213 tests and the build pass.",
   },
 ];
 
 export function ReviewArt() {
   return (
     <DemoFrame
-      label="A reviewer's comment on the pull request, and nap pushing a fix and replying"
+      label="A reviewer's comment on the pull request, passed to nap with a /nap comment, and nap's checked fix"
       className="lp-review-demo"
-      wide={{ width: 900, height: 700 }}
-      narrow={{ width: 380, height: 820 }}
+      wide={{ width: ROW_WIDTH, height: 700 }}
+      narrow={{ width: 360, height: 820 }}
       showcase={{ ...SHOWCASE, pullRequestView: "Timeline" }}
     >
       <div className="lp-review">

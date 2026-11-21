@@ -44,13 +44,23 @@ class FakeObserver {
 
 /** `queued` delivers an entry the observer had queued before it was disconnected, which a real
  *  observer may still hand over. */
-function intersect(isIntersecting = true, { queued = false, ratio = isIntersecting ? 1 : 0 } = {}) {
+function intersect(
+  isIntersecting = true,
+  { queued = false, ratio = isIntersecting ? 1 : 0, shown = 0, viewport = 900 } = {},
+) {
   const callback = fire;
   if (callback === undefined) throw new Error("nothing ever observed the element");
   if (!connected && !queued) return;
   act(() => {
     callback(
-      [{ isIntersecting, intersectionRatio: ratio } as IntersectionObserverEntry],
+      [
+        {
+          isIntersecting,
+          intersectionRatio: ratio,
+          intersectionRect: { height: shown },
+          rootBounds: { height: viewport },
+        } as IntersectionObserverEntry,
+      ],
       undefined as unknown as IntersectionObserver,
     );
   });
@@ -131,6 +141,26 @@ describe("the hero session's run", () => {
     advance(VERIFYING_AFTER_MS - 1);
     expect(screen.getByText("working")).toBeInTheDocument();
     advance(1);
+    expect(screen.getByText("verifying")).toBeInTheDocument();
+  });
+
+  it("does not spend its play offscreen when the frame draws after the reader scrolled on", () => {
+    const view = render(<Stage ready={false} />);
+    intersect(true, { ratio: 0.5 });
+    intersect(false);
+    view.rerender(<Stage ready />);
+    advance(VERIFIED_AFTER_MS * 2);
+    expect(screen.getByText("working")).toBeInTheDocument();
+    intersect(true, { ratio: 0.5 });
+    advance(VERIFYING_AFTER_MS);
+    expect(screen.getByText("verifying")).toBeInTheDocument();
+  });
+
+  it("plays in a window too short to show a third of it, once it fills most of the window", () => {
+    // A 210px-tall window can show at most 31% of a 680px hero.
+    render(<Stage />);
+    intersect(true, { ratio: 0.31, shown: 210, viewport: 210 });
+    advance(VERIFYING_AFTER_MS);
     expect(screen.getByText("verifying")).toBeInTheDocument();
   });
 

@@ -27,6 +27,22 @@ export const VERIFYING_AFTER_MS = 2400;
 export const VERIFIED_AFTER_MS = 5000;
 /** Enough of the window showing that the run is not playing to the top of the fold. */
 const THRESHOLD = 0.35;
+/** Or, in a window too short to show that much, this much of the window filled by it. */
+const FILLS_WINDOW = 0.6;
+/** Every ratio worth hearing about on the way to `THRESHOLD`, so a short window's fill is seen. */
+const THRESHOLDS = [0, 0.1, 0.2, THRESHOLD, 0.5, 0.75, 1];
+
+/**
+ * In view enough to play to. The ratio, not `isIntersecting`: an observer delivers a first entry
+ * whatever its thresholds, and one row of pixels at the bottom of the screen counts as
+ * intersecting.
+ */
+function inView(entry: IntersectionObserverEntry): boolean {
+  if (!entry.isIntersecting) return false;
+  if (entry.intersectionRatio >= THRESHOLD) return true;
+  const viewport = entry.rootBounds?.height;
+  return viewport !== undefined && entry.intersectionRect.height >= viewport * FILLS_WINDOW;
+}
 
 /** How long a seen hero waits for its first frame to draw before it starts without it. */
 export const READY_WAIT_MS = 4000;
@@ -46,6 +62,7 @@ export function useDemoStage<T extends HTMLElement>(
   const [stage, setStage] = useState<DemoStage>("working");
   // Read from the observer's callback, which outlives the render that set it.
   const isReady = useRef(ready);
+  // The run's start, waiting for `ready`; it checks that the hero is still in view.
   const startWhenReady = useRef<(() => void) | null>(null);
   useEffect(() => {
     isReady.current = ready;
@@ -63,16 +80,19 @@ export function useDemoStage<T extends HTMLElement>(
       return;
     }
     const timers: ReturnType<typeof setTimeout>[] = [];
-    // Set once the run may no longer start. An observer can still deliver an entry it queued
-    // before `disconnect`, so the callback asks this rather than trusting the disconnect.
+    // Set once the run may no longer start: it has started, motion was reduced, or the hero went
+    // away. An observer can still deliver an entry it queued before `disconnect`, so the callback
+    // asks this rather than trusting the disconnect.
     let stopped = false;
-    let started = false;
-    // Set once the run is over or abandoned, so a start still waiting for the frame does nothing.
-    let finished = false;
+    // Whether the hero is in view now. Watched until the run starts, so a frame that draws after
+    // the reader has scrolled on waits for them to come back rather than playing to nobody.
+    let visible = false;
+    let waitedForFrame = false;
     const play = () => {
-      if (started || finished) return;
-      started = true;
+      if (stopped || !visible || !(isReady.current || waitedForFrame)) return;
+      stopped = true;
       startWhenReady.current = null;
+      observer.disconnect();
       timers.push(
         setTimeout(() => setStage("verifying"), VERIFYING_AFTER_MS),
         setTimeout(() => setStage("verified"), VERIFIED_AFTER_MS),
@@ -82,34 +102,31 @@ export function useDemoStage<T extends HTMLElement>(
     const still = (event: MediaQueryListEvent) => {
       if (!event.matches) return;
       stopped = true;
-      finished = true;
+      startWhenReady.current = null;
       observer.disconnect();
       for (const timer of timers) clearTimeout(timer);
       setStage("verified");
     };
     const observer = new IntersectionObserver(
       (entries) => {
-        // The ratio, not `isIntersecting`: an observer delivers a first entry whatever its
-        // thresholds, and one row of pixels at the bottom of the screen counts as intersecting.
-        const seen = entries.some(
-          (entry) => entry.isIntersecting && entry.intersectionRatio >= THRESHOLD,
-        );
-        if (stopped || !seen) return;
-        stopped = true;
-        observer.disconnect();
-        if (isReady.current) play();
-        else {
-          startWhenReady.current = play;
-          timers.push(setTimeout(play, READY_WAIT_MS));
-        }
+        const latest = entries.at(-1);
+        if (stopped || latest === undefined) return;
+        visible = inView(latest);
+        play();
       },
-      { threshold: THRESHOLD },
+      { threshold: THRESHOLDS },
+    );
+    startWhenReady.current = play;
+    timers.push(
+      setTimeout(() => {
+        waitedForFrame = true;
+        play();
+      }, READY_WAIT_MS),
     );
     observer.observe(element);
     motion.addEventListener("change", still);
     return () => {
       stopped = true;
-      finished = true;
       startWhenReady.current = null;
       observer.disconnect();
       motion.removeEventListener("change", still);

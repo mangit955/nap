@@ -10,14 +10,16 @@
     container-type: inline-size;
     text-align: left;
   }
-  /* Nothing is shown until the space has been measured (`useSpaceScale` writes `data-space`):
-     the server's HTML has no width to scale by, and would draw the window at its full design
-     size and then snap to the column. The demos are the product's components, which need the
-     page's script to draw at all, so a page without it loses nothing it could have shown. */
-  .lp-demo > * {
+  /* The contents are not shown until the space has been measured (`useSpaceScale` writes
+     `data-space`): the server's HTML has no width to scale by, and would draw the window at its
+     full design size and then snap to the column. The frame around them is shown, at its final
+     size, from the first paint (below). A page without script shows the contents unscaled
+     instead (`landing.tsx`). */
+  .lp-demo-space,
+  .lp-demo-overlay {
     transition: opacity 320ms ease-out;
   }
-  .lp-demo:not([data-space]) > * {
+  .lp-demo:not([data-space]) :is(.lp-demo-space, .lp-demo-overlay) {
     opacity: 0;
   }
   /* The window's visible part. Its height is the design's `visible` height at the same scale, so
@@ -275,6 +277,10 @@
     border-bottom: 0;
     border-radius: 12px 12px 0 0;
   }
+  /* The panel waits for its diff, so it arrives whole rather than as an empty box. */
+  .lp-hero-changes:has(.lp-drawn-diff[data-drawn="false"]) {
+    opacity: 0;
+  }
   .lp-hero-changes-body {
     height: 200px;
     padding: 6px;
@@ -283,18 +289,31 @@
     mask-image: linear-gradient(180deg, #000 62%, transparent);
   }
 
-  /* A phone gets a space of its own: one column, the sidebar gone, and only the pane the demo
-     is about. `chooseSpace` in `demo-window.tsx` decides when, per demo, and writes it to
-     `data-space`; a container query could not, since each demo switches at its own width.
+  /* A narrow column's frame is the narrow space's visible height at the narrow scale, which is
+     the column over `--narrow-w`, never above 1. In CSS so the page does not move when the
+     script arrives; the widths are `narrowBelow` in `demo-window.tsx`, and
+     `demo-window.test.tsx` holds the two to each other. */
+  @container (width < 1002px) {
+    .lp-hero-demo .lp-demo-crop {
+      aspect-ratio: auto;
+      height: min(calc(var(--narrow-v) * 1px), calc(var(--narrow-v) * 100cqw / var(--narrow-w)));
+      border-radius: 10px 10px 0 0;
+    }
+  }
+  @container (width < 705px) {
+    .lp-demo:not(.lp-hero-demo) .lp-demo-crop {
+      aspect-ratio: auto;
+      height: min(calc(var(--narrow-v) * 1px), calc(var(--narrow-v) * 100cqw / var(--narrow-w)));
+      border-radius: 10px 10px 0 0;
+    }
+  }
+  /* Inside the frame, a phone gets a space of its own: one column, the sidebar gone, and only the
+     pane the demo is about. These follow `data-space` rather than the width, so the layout is
+     always the one the scale was computed for.
 
      The space is the column's width over the scale: `narrow.width` on a phone, the column itself
      above it, where the scale is 1. Dividing a length by a number is valid `calc()`; it is the
      other way round that is not. */
-  .lp-demo[data-space="narrow"] .lp-demo-crop {
-    aspect-ratio: auto;
-    height: calc(var(--narrow-v) * var(--space-k, 1) * 1px);
-    border-radius: 10px 10px 0 0;
-  }
   .lp-demo[data-space="narrow"] .lp-demo-space {
     width: calc(100cqw / var(--space-k, 1));
     height: calc(var(--narrow-h) * 1px);

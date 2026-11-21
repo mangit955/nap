@@ -3,11 +3,10 @@
 /**
  * Fits a fixed design space to the width it is actually given.
  *
- * Two things on this page — the poured bento and the live demo — place their contents in plain
- * pixels, because the shape drawn behind them is traced from those same numbers and a percentage
- * layout would put the contents somewhere the skin was never drawn for. Something then has to
- * shrink that space to the column it lands in, and this is it: one ratio, written to the element
- * as a custom property the stylesheet scales by.
+ * The landing page's demos draw the product's own components at the size the product lays them
+ * out for, and those components do not reflow into a column a third that wide. Something then has
+ * to shrink that space to the column it lands in, and this is it: one ratio, written to the
+ * element as a custom property the stylesheet scales by, and the layout it was computed for.
  *
  * **It measures, which is the second attempt.** The first was pure CSS —
  * `scale: calc(100cqw / 460)` — and it is silently invalid: `scale` takes a *number*, a container
@@ -27,28 +26,25 @@ import { type RefObject, useLayoutEffect, useRef } from "react";
 /** What the stylesheet reads. Defaults to 1, so markup nothing has measured is simply unscaled. */
 const VAR = "--space-k";
 
-/** A space whose layout changes with the width it is given, and the name of that layout. */
+/** The space a box draws at, and the name of its layout, which goes to `data-space`. */
 export type SpaceChoice = { width: number; layout: string };
 
 /**
- * `designWidth` is a number, or a function of the width the box was given for a space whose
- * layout changes with it: a phone gets a narrower space rather than the desktop one shrunk. A
- * function may also name the layout it chose, which is written to `data-space` so the stylesheet
- * switches layouts at exactly the width the ratio was computed for.
+ * `choose` picks the space for the width the box was given: a phone gets a narrower space rather
+ * than the desktop one shrunk. The layout it names is written to `data-space`, so the stylesheet
+ * lays the space out for exactly the width the ratio was computed for.
  */
 export function useSpaceScale(
   ref: RefObject<HTMLElement | null>,
-  designWidth: number | ((width: number) => number | SpaceChoice),
+  choose: (width: number) => SpaceChoice,
 ): void {
   // Read through a ref so a function written inline does not re-run the effect on every render.
-  const design = useRef(designWidth);
+  const current = useRef(choose);
   useLayoutEffect(() => {
-    design.current = designWidth;
+    current.current = choose;
   });
-  const fixed = typeof designWidth === "number" ? designWidth : null;
 
   useLayoutEffect(() => {
-    void fixed;
     const host = ref.current;
     if (host === null) return;
 
@@ -58,12 +54,10 @@ export function useSpaceScale(
       // ancestor, during a print. Scaling to zero there would hide the section outright, where
       // leaving the last known ratio alone costs nothing.
       if (width <= 0) return;
-      const target = design.current;
-      const chosen = typeof target === "number" ? target : target(width);
-      const space = typeof chosen === "number" ? chosen : chosen.width;
-      if (space <= 0) return;
-      host.style.setProperty(VAR, `${width / space}`);
-      if (typeof chosen !== "number") host.dataset.space = chosen.layout;
+      const space = current.current(width);
+      if (space.width <= 0) return;
+      host.style.setProperty(VAR, `${width / space.width}`);
+      host.dataset.space = space.layout;
     };
 
     fit();
@@ -73,5 +67,5 @@ export function useSpaceScale(
     observer.observe(host);
 
     return () => observer.disconnect();
-  }, [ref, fixed]);
+  }, [ref]);
 }

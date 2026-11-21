@@ -41,13 +41,15 @@ describe("what nap does", () => {
         "Email customers when a payment fails",
       ),
     );
-    await waitFor(() => expect(review).toHaveTextContent(/Stripe retries up to four times/));
+    await waitFor(() => expect(review).toHaveTextContent(/link straight to the billing page/));
     expect(network).not.toHaveBeenCalled();
   });
 
   it("draws no raw timestamps, copy buttons or avatars in the pictures", async () => {
     render(<Features />);
-    await waitFor(() => expect(document.body).toHaveTextContent(/Stripe retries up to four times/));
+    await waitFor(() =>
+      expect(document.body).toHaveTextContent(/link straight to the billing page/),
+    );
     expect(document.querySelector(".lp-review-pr time")).toBeNull();
     expect(document.querySelector("[aria-label='Copy response']")).toBeNull();
     expect(document.querySelector("img[src*='github.com']")).toBeNull();

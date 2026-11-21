@@ -8,7 +8,7 @@ import type { TranscriptItem } from "../chat/transcript.ts";
 import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
 import { AppPreview } from "./app-preview.tsx";
 import { demoSessions, LEDGER_ID } from "./demo-sessions.ts";
-import { DemoFrame, DemoWorkspace, DrawnDiff, PaneTabs } from "./demo-window.tsx";
+import { DemoFrame, DemoWorkspace, DrawnDiff, PaneTabs, type Space } from "./demo-window.tsx";
 import type { DemoStage } from "./use-demo-stage.ts";
 import "./ledger-app.css";
 import "./ledger-night.css";
@@ -146,6 +146,12 @@ const SCHEMA_DIFF: GitComparison["files"][number] = {
 
 const noop = () => {};
 
+/** The hero's two spaces: the whole workspace, and on a phone its right pane. */
+export const HERO_SPACE = {
+  wide: { width: 1280, height: 800 },
+  narrow: { width: 360, height: 720, visible: 640 },
+} satisfies Record<string, Space>;
+
 export function HeroDemo({
   stage,
   onFirstFrame,
@@ -166,8 +172,8 @@ export function HeroDemo({
       className="lp-hero-demo"
       // A phone shows the pane, where the run is seen: the schema, the app, then the Changes.
       narrowShows="pane"
-      wide={{ width: 1280, height: 800 }}
-      narrow={{ width: 380, height: 720, visible: 640 }}
+      wide={HERO_SPACE.wide}
+      narrow={HERO_SPACE.narrow}
       overlay={
         stage === "verified" && (
           <div className="lp-hero-changes" data-arrive>

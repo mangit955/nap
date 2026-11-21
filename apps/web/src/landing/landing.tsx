@@ -30,6 +30,11 @@ export function Landing({ auth, hero }: { auth: AuthState; hero: ReactNode }) {
   return (
     <div className="landing relative min-h-dvh overflow-x-clip">
       <LandingNav auth={auth} />
+      {/* Without script nothing measures the demos, which then stay hidden (`demo.css`); this
+          shows them at their design size instead, cropped by their frames. */}
+      <noscript>
+        <style>{".lp-demo-space, .lp-demo-overlay { opacity: 1 !important; }"}</style>
+      </noscript>
 
       <main>
         {hero}

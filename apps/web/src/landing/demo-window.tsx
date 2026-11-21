@@ -32,15 +32,12 @@ import "./demo.css";
  * of the window it is about, and `visible` cuts its height so the window runs off the bottom of
  * the backdrop. **A phone gets its own space** (`chooseSpace`): the sidebar and one pane go, and
  * the text stays the size it is in the product instead of shrinking with the screen. The hook
- * writes which space it chose to `data-space`, and `demo.css` lays out from that.
+ * writes which space it chose to `data-space`, and `demo.css` lays the space out from that; the
+ * frame's own height comes from the stylesheet alone, so it is right before any script runs.
  *
  * Everything inside is a picture. It is `inert` and hidden from assistive technology, and the
  * frame carries one accessible name saying what the picture shows.
  */
-
-/** The product's text size, and the smallest a demo may draw it (`scripts/check-landing.js`). */
-const TEXT_PX = 14;
-const MIN_TEXT_PX = 9;
 
 export type Space = {
   width: number;
@@ -50,13 +47,29 @@ export type Space = {
 };
 
 /**
- * The space a demo draws at a given column width. The wide space until it would shrink the
- * product's text under 9px, then the narrow one, which is as wide as the column (never under
- * `narrow.width`) so its text is never drawn larger than the product draws it. Each demo switches
- * at its own width: the hero's 1280 space below a 823px column, the rows' 900 below 579px.
+ * The smallest scale a wide space is drawn at: the smallest text that tells a demo's story, the
+ * plan's 11.5px "Plan · 3 of 4 done", at 9px. `scripts/check-landing.js` measures the rendered
+ * text against the same 9px.
+ */
+const MIN_SCALE = 9 / 11.5;
+
+/**
+ * The column width below which a demo drawn `wide` pixels wide switches to its narrow space. The
+ * stylesheet reserves each demo's height from the same numbers before any script runs (`demo.css`,
+ * held to them by `demo-window.test.tsx`): the hero's 1280 switches below 1002, the rows' 900
+ * below 705.
+ */
+export function narrowBelow(wide: number): number {
+  return Math.ceil(wide * MIN_SCALE);
+}
+
+/**
+ * The space a demo draws at a given column width: the wide one, or below `narrowBelow` the narrow
+ * one, as wide as the column (never under `narrow.width`) so its text is never drawn larger than
+ * the product draws it.
  */
 export function chooseSpace(column: number, wide: Space, narrow: Space): SpaceChoice {
-  return column * (TEXT_PX / wide.width) >= MIN_TEXT_PX
+  return column >= narrowBelow(wide.width)
     ? { width: wide.width, layout: "wide" }
     : { width: Math.max(narrow.width, column), layout: "narrow" };
 }
@@ -88,6 +101,7 @@ export function DemoFrame({
     "--wide-w": wide.width,
     "--wide-h": wide.height,
     "--wide-v": wide.visible ?? wide.height,
+    "--narrow-w": narrow.width,
     "--narrow-h": narrow.height,
     "--narrow-v": narrow.visible ?? narrow.height,
   };
@@ -248,12 +262,22 @@ export function Panel({
 }
 
 /**
+ * Whether a diff under `root` has drawn: anything but the product's "Loading diff…" placeholder.
+ * Its other notices (a binary file, a raw patch shown because highlighting failed) are finished
+ * states and are shown. The text is the product's, in `changes-panel.tsx` and `pierre-patch.tsx`.
+ */
+export function isDrawn(root: Element): boolean {
+  return ![...root.querySelectorAll(".t3-diff-notice")].some(
+    (notice) => notice.textContent === "Loading diff…",
+  );
+}
+
+/**
  * A diff that stays invisible until it has drawn, then fades in.
  *
  * The product draws a diff on the client only, after its highlighter loads, and says "Loading
  * diff…" until then: honest in the app, but on the landing page it is the first thing the hero
- * shows and then a hard cut. Drawn means no `t3-diff-notice` is left inside, the product's class
- * for every placeholder a diff shows. `onDrawn` lets the hero start its clock from here.
+ * shows and then a hard cut (`isDrawn`). `onDrawn` lets the hero start its clock from here.
  */
 export function DrawnDiff({
   file,
@@ -269,11 +293,11 @@ export function DrawnDiff({
     if (element === null) return;
     const observer = new MutationObserver(() => check());
     const check = () => {
-      if (element.querySelector(".t3-diff-notice") !== null) return;
+      if (!isDrawn(element)) return;
       setDrawn(true);
       observer.disconnect();
     };
-    observer.observe(element, { childList: true, subtree: true });
+    observer.observe(element, { childList: true, subtree: true, characterData: true });
     check();
     return () => observer.disconnect();
   }, []);

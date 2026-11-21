@@ -46,7 +46,9 @@ function working(row: SessionSummary, minutes: number, now: number): SessionSumm
     activity: "working",
     diff: null,
     turnFinishedAt: null,
-    runStartedAt: new Date(now - minutes * 60_000).toISOString(),
+    // Half a minute more than asked, so a timer reading its own clock a second behind `now`
+    // still says the whole minute.
+    runStartedAt: new Date(now - (minutes + 0.5) * 60_000).toISOString(),
   };
 }
 
