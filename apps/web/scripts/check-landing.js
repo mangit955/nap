@@ -79,9 +79,10 @@
     control.focus();
     if (control.matches(":focus-visible")) {
       rings++;
-      const ring = getComputedStyle(control).outlineColor;
+      const style = getComputedStyle(control);
+      const drawn = style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) >= 1;
       check(
-        contrast(ring, ground) >= 3,
+        drawn && contrast(style.outlineColor, ground) >= 3,
         `"${control.textContent.trim()}" has a visible focus ring`,
       );
     }
