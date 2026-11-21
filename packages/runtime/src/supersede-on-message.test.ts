@@ -33,6 +33,7 @@ const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const OLD_JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
 const EARLIER_JOB = "8c7b6a59-4d3e-4f21-9a8b-7c6d5e4f3a2b";
 const DEAD_TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+const EARLIER_TURN = "5e4d3c2b-1a09-4f8e-9d7c-6b5a4f3e2d1c";
 const MESSAGE_TURN = "b1e5c0de-2222-4333-8444-555566667777";
 /** `scriptGit`'s own sha, so the workspace is sitting on the commit the dead turn announced. */
 const COMMIT_SHA = FAKE_COMMIT_SHA;
@@ -54,6 +55,20 @@ beforeEach(() => {
   events = new InMemoryEventStore();
   agent = new ScriptedAgent(() => completedTurn(COMMIT_SHA), true);
 });
+
+/** A turn that finished normally, before the one that died. */
+async function seedEarlier(
+  ...written: readonly { type: NapEvent["type"]; payload: unknown }[]
+): Promise<void> {
+  for (const event of written) {
+    await events.append({
+      ...event,
+      sessionId: SESSION_ID,
+      turnId: EARLIER_TURN,
+      createdAt: "2026-11-21T11:00:00.000Z",
+    } as PendingEvent);
+  }
+}
 
 /** The dead worker's events, then the janitor's: the log a message arrives on. */
 async function seedLog(
@@ -221,15 +236,15 @@ describe("a message on a session whose interrupted job the log already answers",
   it("closes it unverified, with no notice, when it died before committing anything", async () => {
     // An earlier job left the project at a checkpoint; the interrupted one never moved HEAD off
     // it. Nothing is unchecked, so there is nothing to supersede: continuing would say the same.
-    await seedLog(
+    await seedEarlier(
       started(EARLIER_JOB),
+      turnStarted(),
       committed(COMMIT_SHA),
       green(EARLIER_JOB),
       checkpointed(EARLIER_JOB),
       closed(EARLIER_JOB),
-      started(),
-      turnStarted(),
     );
+    await seedLog(started(), turnStarted());
 
     await send();
 
