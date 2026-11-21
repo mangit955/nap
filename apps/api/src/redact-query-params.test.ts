@@ -38,25 +38,36 @@ function asError(value: unknown): Error {
 }
 
 describe("withoutQueryParams", () => {
-  it("leaves an ordinary line exactly as pino alone would write it", () => {
+  it("leaves an ordinary line exactly as pino alone would write it", async () => {
     class NotFound extends Error {
       readonly status = 404;
     }
+    // What a vendor call that timed out rejects with. `DOMException` keeps `message`, `name`
+    // and `code` in getters that throw on anything but a real instance, which a copy made on
+    // its prototype is not — and the key verifier logs exactly this as `err`.
+    const timeout = AbortSignal.timeout(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
     const cyclic: Record<string, unknown> = { n: 1 };
     cyclic.self = cyclic;
-    const fields = {
-      err: new Error("plain", { cause: new Error("inner") }),
-      failure: { ok: false, error: new NotFound("missing") },
-      list: [1, "two", { three: 3 }],
-      when: new Date(0),
-      cyclic,
-    };
+    const lines = [
+      { err: new Error("plain", { cause: new Error("inner") }) },
+      { err: timeout.reason, platform: "anthropic" },
+      { err: new DOMException("gone", "AbortError") },
+      { err: new AggregateError([new Error("one")], "several") },
+      { failure: { ok: false, error: new NotFound("missing") } },
+      { list: [1, "two", { three: 3 }], when: new Date(0), cyclic },
+    ];
     const withHook: string[] = [];
     const withoutHook: string[] = [];
-    createLogger({ level: "info" }, { write: (l: string) => withHook.push(l) }).warn(fields, "m");
-    pino({ level: "info" }, { write: (l: string) => withoutHook.push(l) }).warn(fields, "m");
+    const hooked = createLogger({ level: "info" }, { write: (l: string) => withHook.push(l) });
+    const plain = pino({ level: "info" }, { write: (l: string) => withoutHook.push(l) });
+    for (const fields of lines) {
+      hooked.warn(fields, "m");
+      plain.warn(fields, "m");
+    }
 
     const comparable = (line: string) => ({ ...JSON.parse(line), time: 0 }) as unknown;
+    expect(withHook).toHaveLength(lines.length);
     expect(withHook.map(comparable)).toEqual(withoutHook.map(comparable));
     expect(withoutQueryParams("no query here\nparams: fine")).toBe("no query here\nparams: fine");
   });
@@ -170,6 +181,19 @@ describe("withoutQueryParams", () => {
 
     expect(output).not.toContain("someone@example.com");
     expect(output).toContain("users_email_unique");
+  });
+
+  it("replaces a stack that does not repeat a data exception's withheld message", () => {
+    // Built with one message and given the server's afterwards, so the stack never saw it.
+    const cause = Object.assign(new Error("built before the server answered"), {
+      name: "PostgresError",
+      code: "22P02",
+      message: 'invalid input syntax for type uuid: "s3cret"',
+    });
+    cause.stack = `PostgresError: invalid input for "s3cret"\n    at read (c.ts:3:3)`;
+
+    expect(logged({ err: cause })).not.toContain("s3cret");
+    expect(logged({ err: cause })).toContain("22P02");
   });
 
   it("keeps a data exception's code on the line pino writes for err alone", () => {

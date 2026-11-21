@@ -135,8 +135,15 @@ function redactText(text: string): string {
 }
 
 /**
- * A copy of the error, same prototype so pino still serializes it as an error, with parameter
- * fields left out and every other own field redacted.
+ * A copy of the error with parameter fields left out and every other field redacted.
+ *
+ * **Not on the original's prototype.** Some errors keep their fields in getters that check they
+ * are called on a real instance: `DOMException` (what `AbortSignal.timeout` rejects with) does
+ * for `message`, `name` and `code`, and pino reads every enumerable one. On a look-alike made
+ * with `Object.create(proto)` those getters throw, and the log call throws with them. So every
+ * field pino would read — own keys, and inherited enumerable ones as `for…in` finds them — is
+ * read here, on the original, and becomes the copy's own; the copy's prototype carries only the
+ * original constructor, which is where pino takes the error's `type` from.
  *
  * The stack gets the redacted message in place of the original, which keeps the frames, and is
  * then cut like any other text — a wrapper's stack can carry a whole Drizzle stack after its
@@ -147,56 +154,68 @@ function copyError(error: Error, depth: number, copies: Copies): Error {
   const dropped = isPostgres ? POSTGRES_FIELDS : DRIZZLE_FIELDS;
   const code = readField(error, "code");
   const original = readField(error, "message");
-  let message: unknown = original;
   const withheld =
     isPostgres && typeof code === "string" && code.startsWith(ECHOING_CLASS)
       ? echoed(code, readField(error, "routine"))
       : undefined;
-  if (typeof original === "string") message = withheld ?? redactText(original);
+  const message = typeof original === "string" ? (withheld ?? redactText(original)) : original;
+  const stack = redactStack(readField(error, "stack"), original, message, withheld);
 
-  const copy: Error = Object.create(Object.getPrototypeOf(error));
+  const copy: Error = Object.create(
+    Object.create(Error.prototype, {
+      constructor: { value: readField(error, "constructor"), writable: true, configurable: true },
+    }),
+  );
   copies.set(error, copy);
-  for (const key of Reflect.ownKeys(error)) {
+
+  const enumerable = new Set<PropertyKey>();
+  for (const key in error) enumerable.add(key);
+  const keys = new Set<PropertyKey>([...Reflect.ownKeys(error), ...enumerable, "name"]);
+  for (const key of keys) {
     if (dropped.has(key)) continue;
     let value: unknown;
     if (key === "message") value = message;
-    else {
-      const before = readField(error, key);
-      if (key === "stack" && typeof before === "string") {
-        // `split`/`join` rather than `replace`: a replacement string treats `$&` as "the
-        // match", and SQL text may contain it.
-        // A stack that does not repeat a withheld server message may still hold it some
-        // other way, so it is replaced outright; the frames of a socket read say little.
-        let swapped = before;
-        if (typeof original === "string" && original !== "" && typeof message === "string") {
-          if (before.includes(original)) swapped = before.split(original).join(message);
-          else if (withheld !== undefined) swapped = `PostgresError: ${withheld}`;
-        }
-        value = redactText(swapped);
-      } else value = redact(before, depth + 1, copies);
-    }
+    else if (key === "stack") value = stack;
+    else value = redact(readField(error, key), depth + 1, copies);
     Object.defineProperty(copy, key, {
       value,
-      enumerable: Object.getOwnPropertyDescriptor(error, key)?.enumerable ?? false,
+      enumerable: Object.getOwnPropertyDescriptor(error, key)?.enumerable ?? enumerable.has(key),
       writable: true,
       configurable: true,
     });
   }
-  // A class may supply `message` or `stack` through a getter on its prototype. The copy would
-  // inherit it, and pino would read it again: unredacted, or throwing for want of a private
-  // field the copy does not have. So both are always the copy's own, already redacted.
-  if (!Object.hasOwn(copy, "message")) {
-    Object.defineProperty(copy, "message", { value: message, writable: true, configurable: true });
-  }
-  if (!Object.hasOwn(copy, "stack")) {
-    const stack = readField(error, "stack");
-    Object.defineProperty(copy, "stack", {
-      value: typeof stack === "string" ? redactText(stack) : stack,
-      writable: true,
-      configurable: true,
-    });
+  // Read here rather than inherited, whether the original had them as its own or not.
+  for (const [key, value] of [
+    ["message", message],
+    ["stack", stack],
+  ] as const) {
+    if (!Object.hasOwn(copy, key)) {
+      Object.defineProperty(copy, key, { value, writable: true, configurable: true });
+    }
   }
   return copy;
+}
+
+/**
+ * The stack with the redacted message in place of the original, then cut like any other text.
+ * A stack that does not repeat a withheld server message — the message was changed after the
+ * error was built — may still hold it some other way, so it is replaced outright.
+ */
+function redactStack(
+  stack: unknown,
+  original: unknown,
+  message: unknown,
+  withheld: string | undefined,
+): unknown {
+  if (typeof stack !== "string") return stack;
+  let swapped = stack;
+  if (typeof original === "string" && original !== "" && typeof message === "string") {
+    // `split`/`join` rather than `replace`: a replacement string treats `$&` as "the match",
+    // and SQL text may contain it.
+    if (stack.includes(original)) swapped = stack.split(original).join(message);
+    else if (withheld !== undefined) swapped = `PostgresError: ${withheld}`;
+  }
+  return redactText(swapped);
 }
 
 /**
