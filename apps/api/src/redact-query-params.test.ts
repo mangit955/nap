@@ -172,6 +172,41 @@ describe("withoutQueryParams", () => {
     expect(output).toContain("users_email_unique");
   });
 
+  it("keeps a data exception's code on the line pino writes for err alone", () => {
+    const cause = Object.assign(new Error('invalid input syntax for type uuid: "s3cret"'), {
+      name: "PostgresError",
+      code: "22P02",
+      routine: "string_to_uuid",
+      where: "unnamed portal parameter $1 = 's3cret'",
+    });
+    const error = Object.assign(aQueryError(), { cause });
+
+    // `err` alone: pino folds the cause into the message and stack, dropping its fields.
+    const output = logged({ err: error });
+
+    expect(output).not.toContain("s3cret");
+    expect(output).toContain("22P02");
+    expect(logged({ failure: { error } })).not.toContain("s3cret");
+  });
+
+  it("redacts a message or stack the error class supplies through a getter", () => {
+    class Inherited extends Error {
+      override get message(): string {
+        return DRIZZLE_MESSAGE;
+      }
+    }
+    class Private extends Error {
+      readonly #text = DRIZZLE_MESSAGE;
+      override get message(): string {
+        return this.#text;
+      }
+    }
+
+    expect(logged({ err: new Inherited() })).not.toContain("s3cret");
+    expect(() => logged({ err: new Private() })).not.toThrow();
+    expect(logged({ err: new Private() })).not.toContain("s3cret");
+  });
+
   it("never throws, whatever the error's fields do", () => {
     const hostile = new Error("plain");
     Object.defineProperty(hostile, "diagnostics", {

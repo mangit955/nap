@@ -28,10 +28,11 @@ const WITHHELD = "\n[query parameters withheld from the log]";
 const DRIZZLE_FIELDS = new Set<PropertyKey>(["params"]);
 
 /**
- * postgres.js's: `detail` (see above), and the values it attaches non-enumerably — enumerably
- * when its `debug` option is on.
+ * postgres.js's: `detail` (see above); `where`, the server's error context, which quotes a bind
+ * parameter when `log_parameter_max_length_on_error` is set; and the values it attaches
+ * non-enumerably — enumerably when its `debug` option is on.
  */
-const POSTGRES_FIELDS = new Set<PropertyKey>(["params", "detail", "parameters", "args"]);
+const POSTGRES_FIELDS = new Set<PropertyKey>(["params", "detail", "where", "parameters", "args"]);
 
 /** SQLSTATE class 22, data exceptions: the server's message quotes the value it rejected. */
 const ECHOING_CLASS = "22";
@@ -45,7 +46,11 @@ const MAX_DEPTH = 16;
 const CIRCULAR = "[Circular]";
 const TOO_DEEP = "[nested too deeply to check for query parameters]";
 const UNREADABLE = "[withheld: could not be checked for query parameters]";
-const ECHOED = "[server message withheld: it can repeat the rejected value]";
+/** In place of a data exception's message; the code and routine still say what went wrong. */
+function echoed(code: string, routine: unknown): string {
+  const where = typeof routine === "string" ? ` in ${routine}` : "";
+  return `[server message withheld: it can repeat the rejected value] (SQLSTATE ${code}${where})`;
+}
 
 /** Marks an object whose copy is still being built, so a reference back to it is a cycle. */
 const IN_PROGRESS: unique symbol = Symbol("in progress");
@@ -143,12 +148,11 @@ function copyError(error: Error, depth: number, copies: Copies): Error {
   const code = readField(error, "code");
   const original = readField(error, "message");
   let message: unknown = original;
-  if (typeof original === "string") {
-    message =
-      isPostgres && typeof code === "string" && code.startsWith(ECHOING_CLASS)
-        ? ECHOED
-        : redactText(original);
-  }
+  const withheld =
+    isPostgres && typeof code === "string" && code.startsWith(ECHOING_CLASS)
+      ? echoed(code, readField(error, "routine"))
+      : undefined;
+  if (typeof original === "string") message = withheld ?? redactText(original);
 
   const copy: Error = Object.create(Object.getPrototypeOf(error));
   copies.set(error, copy);
@@ -166,7 +170,7 @@ function copyError(error: Error, depth: number, copies: Copies): Error {
         let swapped = before;
         if (typeof original === "string" && original !== "" && typeof message === "string") {
           if (before.includes(original)) swapped = before.split(original).join(message);
-          else if (message === ECHOED) swapped = `PostgresError: ${ECHOED}`;
+          else if (withheld !== undefined) swapped = `PostgresError: ${withheld}`;
         }
         value = redactText(swapped);
       } else value = redact(before, depth + 1, copies);
@@ -174,6 +178,20 @@ function copyError(error: Error, depth: number, copies: Copies): Error {
     Object.defineProperty(copy, key, {
       value,
       enumerable: Object.getOwnPropertyDescriptor(error, key)?.enumerable ?? false,
+      writable: true,
+      configurable: true,
+    });
+  }
+  // A class may supply `message` or `stack` through a getter on its prototype. The copy would
+  // inherit it, and pino would read it again: unredacted, or throwing for want of a private
+  // field the copy does not have. So both are always the copy's own, already redacted.
+  if (!Object.hasOwn(copy, "message")) {
+    Object.defineProperty(copy, "message", { value: message, writable: true, configurable: true });
+  }
+  if (!Object.hasOwn(copy, "stack")) {
+    const stack = readField(error, "stack");
+    Object.defineProperty(copy, "stack", {
+      value: typeof stack === "string" ? redactText(stack) : stack,
       writable: true,
       configurable: true,
     });
