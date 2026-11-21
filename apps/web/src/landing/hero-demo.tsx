@@ -176,7 +176,7 @@ export function HeroDemo({
       narrow={HERO_SPACE.narrow}
       overlay={
         stage === "verified" && (
-          <div className="lp-hero-changes" data-arrive>
+          <div className="lp-hero-changes">
             <div className="lp-panel-head">
               <Files className="size-3.5" />
               <span>Changes</span>

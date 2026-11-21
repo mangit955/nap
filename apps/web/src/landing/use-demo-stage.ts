@@ -29,8 +29,11 @@ export const VERIFIED_AFTER_MS = 5000;
 const THRESHOLD = 0.35;
 /** Or, in a window too short to show that much, this much of the window filled by it. */
 const FILLS_WINDOW = 0.6;
-/** Every ratio worth hearing about on the way to `THRESHOLD`, so a short window's fill is seen. */
-const THRESHOLDS = [0, 0.1, 0.2, THRESHOLD, 0.5, 0.75, 1];
+/**
+ * Every twentieth of the hero, so a window too short for `THRESHOLD` still hears about it filling
+ * up: coarser steps can jump past the fill while the reader scrolls.
+ */
+const THRESHOLDS = Array.from({ length: 21 }, (_, step) => step / 20);
 
 /**
  * In view enough to play to. The ratio, not `isIntersecting`: an observer delivers a first entry

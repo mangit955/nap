@@ -277,9 +277,23 @@
     border-bottom: 0;
     border-radius: 12px 12px 0 0;
   }
-  /* The panel waits for its diff, so it arrives whole rather than as an empty box. */
+  /* The panel waits for its diff, so it arrives whole rather than as an empty box, and it rises
+     in when it appears. A transition rather than the hero's arrivals (`use-arrivals.ts`): an
+     animation would override the rule that keeps it hidden until its diff has drawn. */
+  .lp-hero-changes {
+    transition:
+      opacity 460ms cubic-bezier(0.22, 1, 0.36, 1),
+      translate 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @starting-style {
+    .lp-hero-changes {
+      opacity: 0;
+      translate: 0 12px;
+    }
+  }
   .lp-hero-changes:has(.lp-drawn-diff[data-drawn="false"]) {
     opacity: 0;
+    translate: 0 12px;
   }
   .lp-hero-changes-body {
     height: 200px;
@@ -289,15 +303,44 @@
     mask-image: linear-gradient(180deg, #000 62%, transparent);
   }
 
-  /* A narrow column's frame is the narrow space's visible height at the narrow scale, which is
-     the column over `--narrow-w`, never above 1. In CSS so the page does not move when the
-     script arrives; the widths are `narrowBelow` in `demo-window.tsx`, and
-     `demo-window.test.tsx` holds the two to each other. */
+  /* A narrow column gets a space of its own: one pane, the sidebar gone, its frame the narrow
+     space's visible height at the narrow scale (the column over `--narrow-w`, never above 1).
+     The space is the column's width over the scale: `narrow.width` on a phone, the column itself
+     above it. Dividing a length by a number is valid `calc()`; it is the other way round that
+     is not.
+
+     All of it is container queries, so it is right before any script runs and without one: the
+     page does not move when the script arrives, and a page without script still shows a phone
+     the phone's layout. The widths are `narrowBelow` in `demo-window.tsx`, where the scale
+     switches; `demo-window.test.tsx` holds every query here and in `features.css` to them. The
+     rules are written once per width because a query cannot take its width from the element. */
   @container (width < 1002px) {
     .lp-hero-demo .lp-demo-crop {
       aspect-ratio: auto;
       height: min(calc(var(--narrow-v) * 1px), calc(var(--narrow-v) * 100cqw / var(--narrow-w)));
       border-radius: 10px 10px 0 0;
+    }
+    .lp-hero-demo .lp-demo-space {
+      width: calc(100cqw / var(--space-k, 1));
+      height: calc(var(--narrow-h) * 1px);
+    }
+    .lp-hero-demo :is(.lp-window[data-sidebar="true"], .lp-window-panes) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lp-hero-demo .lp-window-sidebar,
+    .lp-hero-demo[data-narrow="chat"] .lp-window-right,
+    .lp-hero-demo[data-narrow="pane"] .lp-window-chat {
+      display: none;
+    }
+    .lp-hero-demo .lp-window-chat {
+      border-right: 0;
+    }
+    /* The Changes panel stays, inside the window's edge and no wider than the space. */
+    .lp-hero-demo .lp-demo-overlay {
+      right: calc(12px * var(--space-k, 1));
+    }
+    .lp-hero-demo .lp-hero-changes {
+      width: min(440px, calc(100cqw / var(--space-k, 1) - 24px));
     }
   }
   @container (width < 705px) {
@@ -306,34 +349,20 @@
       height: min(calc(var(--narrow-v) * 1px), calc(var(--narrow-v) * 100cqw / var(--narrow-w)));
       border-radius: 10px 10px 0 0;
     }
-  }
-  /* Inside the frame, a phone gets a space of its own: one column, the sidebar gone, and only the
-     pane the demo is about. These follow `data-space` rather than the width, so the layout is
-     always the one the scale was computed for.
-
-     The space is the column's width over the scale: `narrow.width` on a phone, the column itself
-     above it, where the scale is 1. Dividing a length by a number is valid `calc()`; it is the
-     other way round that is not. */
-  .lp-demo[data-space="narrow"] .lp-demo-space {
-    width: calc(100cqw / var(--space-k, 1));
-    height: calc(var(--narrow-h) * 1px);
-  }
-  .lp-demo[data-space="narrow"] :is(.lp-window[data-sidebar="true"], .lp-window-panes) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .lp-demo[data-space="narrow"] .lp-window-sidebar,
-  .lp-demo[data-space="narrow"][data-narrow="chat"] .lp-window-right,
-  .lp-demo[data-space="narrow"][data-narrow="pane"] .lp-window-chat {
-    display: none;
-  }
-  .lp-demo[data-space="narrow"] .lp-window-chat {
-    border-right: 0;
-  }
-  /* The Changes panel stays, inside the window's edge and no wider than the space. */
-  .lp-demo[data-space="narrow"] .lp-demo-overlay {
-    right: calc(12px * var(--space-k, 1));
-  }
-  .lp-demo[data-space="narrow"] .lp-hero-changes {
-    width: min(440px, calc(100cqw / var(--space-k, 1) - 24px));
+    .lp-demo:not(.lp-hero-demo) .lp-demo-space {
+      width: calc(100cqw / var(--space-k, 1));
+      height: calc(var(--narrow-h) * 1px);
+    }
+    .lp-demo:not(.lp-hero-demo) :is(.lp-window[data-sidebar="true"], .lp-window-panes) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lp-demo:not(.lp-hero-demo) .lp-window-sidebar,
+    .lp-demo:not(.lp-hero-demo)[data-narrow="chat"] .lp-window-right,
+    .lp-demo:not(.lp-hero-demo)[data-narrow="pane"] .lp-window-chat {
+      display: none;
+    }
+    .lp-demo:not(.lp-hero-demo) .lp-window-chat {
+      border-right: 0;
+    }
   }
 }

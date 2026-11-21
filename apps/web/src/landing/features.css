@@ -31,14 +31,20 @@
   .lp-review-chat .lp-panel-body {
     padding-inline: 4px;
   }
-  .lp-review-demo[data-space="narrow"] .lp-review-pr {
-    left: 0;
-    width: auto;
-    height: 520px;
-  }
-  .lp-review-demo[data-space="narrow"] .lp-review-chat {
-    right: 16px;
-    left: 16px;
-    width: auto;
+  /* On a phone the two windows stack, so the chat never covers the /nap comment it answers. The
+     width is the rows' `narrowBelow` (`demo.css`). */
+  @container (width < 705px) {
+    .lp-review-demo .lp-review {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .lp-review-demo :is(.lp-review-pr, .lp-review-chat) {
+      position: static;
+      width: auto;
+    }
+    .lp-review-demo .lp-review-pr {
+      height: 530px;
+    }
   }
 }

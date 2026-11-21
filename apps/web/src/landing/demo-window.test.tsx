@@ -26,17 +26,43 @@ describe("choosing a demo's space", () => {
     expect(chooseSpace(704, ROW.wide, ROW.narrow).layout).toBe("narrow");
   });
 
-  it("switches where the stylesheet reserves each frame's height, so nothing moves on load", () => {
-    // The frame's narrow height is a container query in `demo.css`, there before any script; the
-    // space inside follows `chooseSpace`. Two numbers that must agree, kept in two languages.
-    const css = readFileSync(join(import.meta.dirname, "demo.css"), "utf8");
-    const queries = [...css.matchAll(/@container \(width < (\d+)px\) \{\s*([^{]+)\{/g)].map(
-      ([, width = "", selector = ""]) => ({ width: Number(width), selector: selector.trim() }),
-    );
-    expect(queries).toEqual([
-      { width: narrowBelow(HERO.wide.width), selector: ".lp-hero-demo .lp-demo-crop" },
-      { width: narrowBelow(ROW.wide.width), selector: ".lp-demo:not(.lp-hero-demo) .lp-demo-crop" },
-    ]);
+  it("lays out every narrow space where the scale switches to it, so nothing moves on load", () => {
+    // The narrow layout is container queries, there before any script; the scale inside follows
+    // `chooseSpace`. Every query must be at the width its demo switches, in either stylesheet.
+    const queries = ["demo.css", "features.css"].flatMap((file) => {
+      const css = readFileSync(join(import.meta.dirname, file), "utf8");
+      return [...css.matchAll(/@container \(width < (\d+)px\) \{/g)].map((match) => {
+        // The block's selectors: everything before each `{` at the block's own depth.
+        let depth = 0;
+        let at = (match.index ?? 0) + match[0].length;
+        let text = "";
+        const selectors: string[] = [];
+        for (; depth >= 0 && at < css.length; at++) {
+          const char = css[at];
+          if (char === "{") {
+            if (depth === 0) selectors.push(text.replace(/\/\*[\s\S]*?\*\//g, "").trim());
+            depth++;
+            text = "";
+          } else if (char === "}") {
+            depth--;
+            text = "";
+          } else if (depth === 0) text += char;
+        }
+        return { file, width: Number(match[1]), selectors };
+      });
+    });
+    expect(queries.map(({ file }) => file)).toEqual(["demo.css", "demo.css", "features.css"]);
+    for (const { file, width, selectors } of queries) {
+      expect(selectors.length, file).toBeGreaterThan(0);
+      for (const selector of selectors) {
+        const hero = selector.startsWith(".lp-hero-demo");
+        const row = /^\.lp-(?:demo:not\(\.lp-hero-demo\)|review-demo)/.test(selector);
+        expect(hero || row, `${file}: ${selector} names its demo`).toBe(true);
+        expect(width, `${file}: ${selector}`).toBe(
+          narrowBelow(hero ? HERO.wide.width : ROW.wide.width),
+        );
+      }
+    }
   });
 
   it("draws the plan's count at 9px or more, and 14px text at no more than 14px, everywhere", () => {

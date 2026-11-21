@@ -442,7 +442,7 @@ export function ReviewArt() {
       label="A reviewer's comment on the pull request, passed to nap with a /nap comment, and nap's checked fix"
       className="lp-review-demo"
       wide={{ width: ROW_WIDTH, height: 700 }}
-      narrow={{ width: 360, height: 820 }}
+      narrow={{ width: 360, height: 880 }}
       showcase={{ ...SHOWCASE, pullRequestView: "Timeline" }}
     >
       <div className="lp-review">
