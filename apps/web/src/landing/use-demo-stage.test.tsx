@@ -39,13 +39,13 @@ class FakeObserver {
 
 /** `queued` delivers an entry the observer had queued before it was disconnected, which a real
  *  observer may still hand over. */
-function intersect(isIntersecting = true, { queued = false } = {}) {
+function intersect(isIntersecting = true, { queued = false, ratio = isIntersecting ? 1 : 0 } = {}) {
   const callback = fire;
   if (callback === undefined) throw new Error("nothing ever observed the element");
   if (!connected && !queued) return;
   act(() => {
     callback(
-      [{ isIntersecting } as IntersectionObserverEntry],
+      [{ isIntersecting, intersectionRatio: ratio } as IntersectionObserverEntry],
       undefined as unknown as IntersectionObserver,
     );
   });
@@ -101,6 +101,18 @@ describe("the hero session's run", () => {
     intersect(false);
     advance(VERIFIED_AFTER_MS * 2);
     expect(screen.getByText("working")).toBeInTheDocument();
+  });
+
+  it("does not spend its one play on a sliver at the edge of the screen", () => {
+    // An observer reports a first entry whatever its thresholds, and `isIntersecting` is true for
+    // a single row of pixels. Starting there plays the run to somebody who cannot see it.
+    render(<Stage />);
+    intersect(true, { ratio: 0.05 });
+    advance(VERIFIED_AFTER_MS * 2);
+    expect(screen.getByText("working")).toBeInTheDocument();
+    intersect(true, { ratio: 0.5 });
+    advance(VERIFYING_AFTER_MS);
+    expect(screen.getByText("verifying")).toBeInTheDocument();
   });
 
   it("plays through verifying to verified once it is seen", () => {

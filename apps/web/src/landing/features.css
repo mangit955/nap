@@ -31,16 +31,14 @@
   .lp-review-chat .lp-panel-body {
     padding-inline: 4px;
   }
-  @container (width < 700px) {
-    .lp-review-pr {
-      left: 0;
-      width: auto;
-      height: 520px;
-    }
-    .lp-review-chat {
-      right: 16px;
-      left: 16px;
-      width: auto;
-    }
+  .lp-review-demo[data-space="narrow"] .lp-review-pr {
+    left: 0;
+    width: auto;
+    height: 520px;
+  }
+  .lp-review-demo[data-space="narrow"] .lp-review-chat {
+    right: 16px;
+    left: 16px;
+    width: auto;
   }
 }

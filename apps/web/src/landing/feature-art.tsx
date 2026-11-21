@@ -66,7 +66,13 @@ const GITHUB: ProjectGitHub = {
   followUpPolicy: "owner_approval",
 };
 
-/** The review's timestamps are left out (`at: null`): the panel prints them in the reader's raw
+/**
+ * The review as GitHub has it: a teammate asks for a change, and the person who connected nap
+ * passes it on with a `/nap` comment. Nap acts only on those, once its owner approves them in
+ * nap; a review's own text is never sent to the agent (`project-github.tsx` says so in the app).
+ * Nap does not comment on the pull request itself.
+ *
+ * The review's timestamps are left out (`at: null`): the panel prints them in the reader's raw
  *  locale format, which on a page of prose reads as debug output. */
 const PULL_REQUEST: PullRequestInspection = {
   number: 214,
@@ -96,8 +102,8 @@ const PULL_REQUEST: PullRequestInspection = {
     {
       id: "t2",
       kind: "comment",
-      author: "nap-agent[bot]",
-      body: "Done in `3f9a1c0`. Emails are keyed by customer and day, so retries after the first are logged instead of sent. Two new tests cover it.",
+      author: "sam",
+      body: "/nap key the sent emails by customer and day, as mira asked",
       state: null,
       at: null,
     },
@@ -220,7 +226,7 @@ export function RepoArt() {
       className="lp-repo-demo"
       narrowShows="pane"
       wide={{ width: 900, height: 840, visible: 640 }}
-      narrow={{ width: 420, height: 760, visible: 600 }}
+      narrow={{ width: 380, height: 760, visible: 600 }}
     >
       <DemoWorkspace
         title="acme/storefront"
@@ -348,7 +354,7 @@ export function ChecksArt() {
       label="A failing test caught by the project's own checks, fixed, and passing"
       className="lp-checks-demo"
       wide={{ width: 900, height: 860, visible: 660 }}
-      narrow={{ width: 420, height: 900, visible: 660 }}
+      narrow={{ width: 380, height: 900, visible: 660 }}
     >
       <DemoWorkspace
         title="acme/storefront"
@@ -373,7 +379,7 @@ const ANSWER: TranscriptItem[] = [
     kind: "message",
     key: 1,
     from: "agent",
-    text: "mira asked for one email per customer per day. Keying the sent emails by customer and day.",
+    text: "Following sam's /nap comment on #214: keying the sent emails by customer and day, so a Stripe retry after the first email is logged instead of sent.",
   },
   {
     kind: "files",
@@ -411,7 +417,7 @@ const ANSWER: TranscriptItem[] = [
     kind: "message",
     key: 4,
     from: "agent",
-    text: "Pushed `3f9a1c0` to the same branch and replied on the review. CI is running.",
+    text: "Pushed `3f9a1c0` to the same branch. Typecheck, tests and the build pass here; CI is running on the pull request.",
   },
 ];
 
@@ -421,7 +427,7 @@ export function ReviewArt() {
       label="A reviewer's comment on the pull request, and nap pushing a fix and replying"
       className="lp-review-demo"
       wide={{ width: 900, height: 700 }}
-      narrow={{ width: 420, height: 820 }}
+      narrow={{ width: 380, height: 820 }}
       showcase={{ ...SHOWCASE, pullRequestView: "Timeline" }}
     >
       <div className="lp-review">
@@ -436,7 +442,7 @@ export function ReviewArt() {
         <Panel
           icon={<NapMark className="size-3.5" />}
           title="nap"
-          aside="Working on review"
+          aside="Follow-up approved"
           className="lp-review-chat"
         >
           <ChatTranscript items={ANSWER} />

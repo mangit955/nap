@@ -268,32 +268,37 @@
   }
 
   /* A phone gets a space of its own: one column, the sidebar gone, and only the pane the demo
-     is about. The width here is `NARROW` in `demo-window.tsx`, where the scale switches too. */
-  @container (width < 700px) {
-    /* The space is the column's width over the scale: `--narrow-w` on a phone, the column itself
-       above it, where the scale is 1. Dividing a length by a number is valid `calc()`; it is the
-       other way round that is not. */
-    .lp-demo-crop {
-      aspect-ratio: auto;
-      height: calc(var(--narrow-v) * var(--space-k, 1) * 1px);
-      border-radius: 10px 10px 0 0;
-    }
-    .lp-demo-space {
-      width: calc(100cqw / var(--space-k, 1));
-      height: calc(var(--narrow-h) * 1px);
-    }
-    .lp-window[data-sidebar="true"],
-    .lp-window-panes {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .lp-window-sidebar,
-    .lp-demo-overlay,
-    .lp-demo[data-narrow="chat"] .lp-window-right,
-    .lp-demo[data-narrow="pane"] .lp-window-chat {
-      display: none;
-    }
-    .lp-window-chat {
-      border-right: 0;
-    }
+     is about. `chooseSpace` in `demo-window.tsx` decides when, per demo, and writes it to
+     `data-space`; a container query could not, since each demo switches at its own width.
+
+     The space is the column's width over the scale: `narrow.width` on a phone, the column itself
+     above it, where the scale is 1. Dividing a length by a number is valid `calc()`; it is the
+     other way round that is not. */
+  .lp-demo[data-space="narrow"] .lp-demo-crop {
+    aspect-ratio: auto;
+    height: calc(var(--narrow-v) * var(--space-k, 1) * 1px);
+    border-radius: 10px 10px 0 0;
+  }
+  .lp-demo[data-space="narrow"] .lp-demo-space {
+    width: calc(100cqw / var(--space-k, 1));
+    height: calc(var(--narrow-h) * 1px);
+  }
+  .lp-demo[data-space="narrow"] :is(.lp-window[data-sidebar="true"], .lp-window-panes) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lp-demo[data-space="narrow"] .lp-window-sidebar,
+  .lp-demo[data-space="narrow"][data-narrow="chat"] .lp-window-right,
+  .lp-demo[data-space="narrow"][data-narrow="pane"] .lp-window-chat {
+    display: none;
+  }
+  .lp-demo[data-space="narrow"] .lp-window-chat {
+    border-right: 0;
+  }
+  /* The Changes panel stays, inside the window's edge and no wider than the space. */
+  .lp-demo[data-space="narrow"] .lp-demo-overlay {
+    right: calc(12px * var(--space-k, 1));
+  }
+  .lp-demo[data-space="narrow"] .lp-hero-changes {
+    width: min(440px, calc(100cqw / var(--space-k, 1) - 24px));
   }
 }

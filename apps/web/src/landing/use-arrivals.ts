@@ -19,10 +19,10 @@
  * The Web Animations API rather than classes, so an element animates once, when it arrives, and
  * nothing in a stylesheet can replay it. With `fill: "backwards"` an element waiting for its turn
  * is held invisible, so a row never shows, vanishes and fades back. Under reduced motion nothing
- * animates and everything is simply there.
+ * animates and everything is simply there, and switching it on finishes whatever is arriving.
  */
 
-import { type RefObject, useLayoutEffect, useRef } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 
 export const ARRIVING = '[role="log"] > div, [data-arrive]';
 /** Short and decelerating: arriving, not bouncing. */
@@ -36,6 +36,18 @@ export function useArrivals(
   from: "shown" | "hidden",
 ): void {
   const seen = useRef<WeakSet<Element>>(new WeakSet());
+  const running = useRef<Animation[]>([]);
+  // Turning reduced motion on mid-arrival ends every arrival where it would have finished.
+  useEffect(() => {
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const still = (event: { matches: boolean }) => {
+      if (!event.matches) return;
+      for (const animation of running.current) animation.finish();
+      running.current = [];
+    };
+    motion.addEventListener("change", still);
+    return () => motion.removeEventListener("change", still);
+  }, []);
   useLayoutEffect(() => {
     const root = ref.current;
     if (root === null) return;
@@ -47,14 +59,15 @@ export function useArrivals(
     const fresh = found.filter((element) => !seen.current.has(element));
     for (const element of fresh) seen.current.add(element);
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    fresh.forEach((element, index) => {
-      element.animate?.(
+    running.current = fresh.flatMap((element, index) => {
+      const animation = element.animate?.(
         [
           { opacity: 0, transform: "translateY(8px)" },
           { opacity: 1, transform: "none" },
         ],
         { duration: DURATION_MS, delay: index * STAGGER_MS, easing: EASE, fill: "backwards" },
       );
+      return animation ? [animation] : [];
     });
   }, [ref, beat, from]);
 }

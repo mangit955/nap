@@ -153,8 +153,10 @@ export function HeroDemo({ stage }: { stage: DemoStage }) {
     <DemoFrame
       label="Nap's workspace: a personal finance app built from a prompt, checked, and verified"
       className="lp-hero-demo"
+      // A phone shows the pane, where the run is seen: the schema, the app, then the Changes.
+      narrowShows="pane"
       wide={{ width: 1280, height: 800 }}
-      narrow={{ width: 420, height: 720, visible: 640 }}
+      narrow={{ width: 380, height: 720, visible: 640 }}
       overlay={
         stage === "verified" && (
           <div className="lp-hero-changes" data-arrive>

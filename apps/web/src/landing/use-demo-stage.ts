@@ -56,7 +56,12 @@ export function useDemoStage<T extends HTMLElement>(): {
     };
     const observer = new IntersectionObserver(
       (entries) => {
-        if (stopped || !entries.some((entry) => entry.isIntersecting)) return;
+        // The ratio, not `isIntersecting`: an observer delivers a first entry whatever its
+        // thresholds, and one row of pixels at the bottom of the screen counts as intersecting.
+        const seen = entries.some(
+          (entry) => entry.isIntersecting && entry.intersectionRatio >= THRESHOLD,
+        );
+        if (stopped || !seen) return;
         stopped = true;
         observer.disconnect();
         timers.push(

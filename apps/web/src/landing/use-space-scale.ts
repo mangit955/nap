@@ -27,14 +27,18 @@ import { type RefObject, useLayoutEffect, useRef } from "react";
 /** What the stylesheet reads. Defaults to 1, so markup nothing has measured is simply unscaled. */
 const VAR = "--space-k";
 
+/** A space whose layout changes with the width it is given, and the name of that layout. */
+export type SpaceChoice = { width: number; layout: string };
+
 /**
  * `designWidth` is a number, or a function of the width the box was given for a space whose
- * layout changes with it — a phone gets a narrower space rather than the desktop one shrunk. The
- * stylesheet has to switch layouts at the same width the function does.
+ * layout changes with it: a phone gets a narrower space rather than the desktop one shrunk. A
+ * function may also name the layout it chose, which is written to `data-space` so the stylesheet
+ * switches layouts at exactly the width the ratio was computed for.
  */
 export function useSpaceScale(
   ref: RefObject<HTMLElement | null>,
-  designWidth: number | ((width: number) => number),
+  designWidth: number | ((width: number) => number | SpaceChoice),
 ): void {
   // Read through a ref so a function written inline does not re-run the effect on every render.
   const design = useRef(designWidth);
@@ -55,9 +59,11 @@ export function useSpaceScale(
       // leaving the last known ratio alone costs nothing.
       if (width <= 0) return;
       const target = design.current;
-      const space = typeof target === "number" ? target : target(width);
+      const chosen = typeof target === "number" ? target : target(width);
+      const space = typeof chosen === "number" ? chosen : chosen.width;
       if (space <= 0) return;
       host.style.setProperty(VAR, `${width / space}`);
+      if (typeof chosen !== "number") host.dataset.space = chosen.layout;
     };
 
     fit();

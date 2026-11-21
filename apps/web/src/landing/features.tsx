@@ -21,7 +21,7 @@ const ROWS: readonly {
   {
     id: "repo",
     title: "Hand it your repo. Come back to a pull request.",
-    body: "Connect GitHub and give nap a task. It clones the repo into its own sandbox, does the work, runs your checks, and opens a draft pull request. Close the tab whenever you like.",
+    body: "Connect GitHub and give nap a task. It clones the repo into its own sandbox, does the work, and runs your checks. Publish the result as a draft pull request, or have nap open one every time. Close the tab whenever you like.",
     link: { label: "Connect GitHub", href: "/sign-up" },
     Art: RepoArt,
   },
@@ -35,7 +35,7 @@ const ROWS: readonly {
   {
     id: "review",
     title: "Review it like a teammate's work.",
-    body: "Comment on the pull request the way you always do. Nap reads the review, pushes a fix to the same branch, and waits for your CI.",
+    body: "Review the pull request on GitHub the way you always do. When you want a change, comment /nap with what to do and approve it in nap. It pushes the fix to the same branch and your CI runs again.",
     link: { label: "Try it on your repo", href: "/sign-up" },
     Art: ReviewArt,
   },

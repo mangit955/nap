@@ -2,7 +2,7 @@
 
 import type { SessionSummary } from "@nap/shared/session-navigation";
 import { Files, GitPullRequest, Globe } from "lucide-react";
-import { type CSSProperties, type ReactNode, type RefObject, useRef } from "react";
+import { type CSSProperties, type ReactNode, useRef } from "react";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
@@ -11,7 +11,7 @@ import { Sidebar } from "../dashboard/sidebar.tsx";
 import { SHOWCASE, type Showcase, ShowcaseContext } from "../ui/showcase.ts";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { DEMO_MODELS } from "./demo-sessions.ts";
-import { useSpaceScale } from "./use-space-scale.ts";
+import { type SpaceChoice, useSpaceScale } from "./use-space-scale.ts";
 import "./demo.css";
 
 /**
@@ -21,17 +21,17 @@ import "./demo.css";
  * the same picture at every width (`use-space-scale.ts`). **Cropped**, because a whole workspace
  * shrunk into a column has unreadable labels: each demo draws a space only as large as the part
  * of the window it is about, and `visible` cuts its height so the window runs off the bottom of
- * the backdrop. **A phone gets its own space**: below `NARROW` the stylesheet drops the sidebar
- * and one pane, and the space is as wide as the column (never under `narrow.width`), so the text
- * stays the size it is in the product instead of shrinking with the screen.
+ * the backdrop. **A phone gets its own space** (`chooseSpace`): the sidebar and one pane go, and
+ * the text stays the size it is in the product instead of shrinking with the screen. The hook
+ * writes which space it chose to `data-space`, and `demo.css` lays out from that.
  *
  * Everything inside is a picture. It is `inert` and hidden from assistive technology, and the
  * frame carries one accessible name saying what the picture shows.
  */
 
-/** Below this width, in CSS pixels, a demo draws its narrow space. Matches the container query
- *  in `demo.css`. */
-export const NARROW = 700;
+/** The product's text size, and the smallest a demo may draw it (`scripts/check-landing.js`). */
+const TEXT_PX = 14;
+const MIN_TEXT_PX = 9;
 
 export type Space = {
   width: number;
@@ -40,12 +40,23 @@ export type Space = {
   visible?: number;
 };
 
+/**
+ * The space a demo draws at a given column width. The wide space until it would shrink the
+ * product's text under 9px, then the narrow one, which is as wide as the column (never under
+ * `narrow.width`) so its text is never drawn larger than the product draws it. Each demo switches
+ * at its own width: the hero's 1280 space below a 823px column, the rows' 900 below 579px.
+ */
+export function chooseSpace(column: number, wide: Space, narrow: Space): SpaceChoice {
+  return column * (TEXT_PX / wide.width) >= MIN_TEXT_PX
+    ? { width: wide.width, layout: "wide" }
+    : { width: Math.max(narrow.width, column), layout: "narrow" };
+}
+
 export function DemoFrame({
   label,
   wide,
   narrow,
   className = "",
-  frameRef,
   children,
   overlay,
   narrowShows = "chat",
@@ -55,7 +66,6 @@ export function DemoFrame({
   wide: Space;
   narrow: Space;
   className?: string;
-  frameRef?: RefObject<HTMLDivElement | null>;
   children: ReactNode;
   /** Drawn over the window's edge, at the same scale: a panel that floats over it. */
   overlay?: ReactNode;
@@ -63,16 +73,12 @@ export function DemoFrame({
   narrowShows?: "chat" | "pane";
   showcase?: Showcase;
 }) {
-  const own = useRef<HTMLDivElement>(null);
-  const ref = frameRef ?? own;
-  // The narrow space is at least `narrow.width` and otherwise as wide as the column, so its text
-  // is never drawn larger than the product draws it.
-  useSpaceScale(ref, (width) => (width < NARROW ? Math.max(narrow.width, width) : wide.width));
+  const ref = useRef<HTMLDivElement>(null);
+  useSpaceScale(ref, (width) => chooseSpace(width, wide, narrow));
   const style: CSSProperties & Record<`--${string}`, number> = {
     "--wide-w": wide.width,
     "--wide-h": wide.height,
     "--wide-v": wide.visible ?? wide.height,
-    "--narrow-w": narrow.width,
     "--narrow-h": narrow.height,
     "--narrow-v": narrow.visible ?? narrow.height,
   };

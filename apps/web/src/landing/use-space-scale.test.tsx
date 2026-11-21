@@ -32,7 +32,7 @@ function widthIs(width: number) {
   };
 }
 
-function Space({ design }: { design: number | ((width: number) => number) }) {
+function Space({ design }: { design: Parameters<typeof useSpaceScale>[1] }) {
   const ref = useRef<HTMLDivElement>(null);
   useSpaceScale(ref, design);
   return <div ref={ref} data-testid="space" />;
@@ -97,6 +97,24 @@ describe("fitting a design space to its column", () => {
 
     widthIs(800);
     observed?.();
+    expect(scaleOf(view)).toBe("0.8");
+  });
+
+  it("names the layout it chose, so the stylesheet can follow it", () => {
+    // Each demo switches to its narrow space at its own width, which a container query cannot
+    // take from the element; the attribute carries the decision the ratio was computed for.
+    const design = (width: number) =>
+      width < 840
+        ? { width: Math.max(420, width), layout: "narrow" }
+        : { width: 1280, layout: "wide" };
+    widthIs(700);
+    const view = render(<Space design={design} />);
+    expect(view.getByTestId("space")).toHaveAttribute("data-space", "narrow");
+    expect(scaleOf(view)).toBe("1");
+
+    widthIs(1024);
+    observed?.();
+    expect(view.getByTestId("space")).toHaveAttribute("data-space", "wide");
     expect(scaleOf(view)).toBe("0.8");
   });
 

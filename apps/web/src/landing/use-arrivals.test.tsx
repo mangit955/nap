@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useArrivals } from "./use-arrivals.ts";
@@ -10,17 +10,24 @@ import { useArrivals } from "./use-arrivals.ts";
  */
 
 let reduce = false;
-const animated: { element: Element; delay: number }[] = [];
+let motionChanged: ((event: { matches: boolean }) => void) | undefined;
+const animated: { element: Element; delay: number; finished: boolean }[] = [];
 const realAnimate = Element.prototype.animate;
 const realMatchMedia = window.matchMedia;
 
 beforeEach(() => {
   reduce = false;
+  motionChanged = undefined;
   animated.length = 0;
   Element.prototype.animate = function animate(_frames, options) {
     const delay = typeof options === "object" ? Number(options.delay ?? 0) : 0;
-    animated.push({ element: this, delay });
-    return {} as Animation;
+    const entry = { element: this, delay, finished: false };
+    animated.push(entry);
+    return {
+      finish() {
+        entry.finished = true;
+      },
+    } as Animation;
   };
   window.matchMedia = vi.fn((query: string) => ({
     matches: query.includes("reduce") && reduce,
@@ -28,10 +35,12 @@ beforeEach(() => {
     onchange: null,
     addListener() {},
     removeListener() {},
-    addEventListener() {},
+    addEventListener(_: string, listener: (event: { matches: boolean }) => void) {
+      motionChanged = listener;
+    },
     removeEventListener() {},
     dispatchEvent: () => false,
-  }));
+  })) as unknown as typeof window.matchMedia;
 });
 
 afterEach(() => {
@@ -79,6 +88,14 @@ describe("easing in what arrives", () => {
     expect(animated.map(({ delay }) => delay)).toEqual(
       [...animated.map(({ delay }) => delay)].sort((x, y) => x - y),
     );
+  });
+
+  it("finishes what is still arriving the moment reduced motion is turned on", () => {
+    const view = render(<Demo beat={0} items={["plan"]} from="shown" />);
+    view.rerender(<Demo beat={1} items={["plan", "step", "reply"]} from="shown" />);
+    expect(animated.map(({ finished }) => finished)).toEqual([false, false]);
+    act(() => motionChanged?.({ matches: true }));
+    expect(animated.map(({ finished }) => finished)).toEqual([true, true]);
   });
 
   it("moves nothing for somebody who asked for no motion", () => {
