@@ -21,11 +21,13 @@ import {
   type MouseEvent,
   memo,
   type ReactNode,
+  use,
   useEffect,
   useRef,
   useState,
 } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { ShowcaseContext } from "../ui/showcase.ts";
 import {
   compactTime,
   diffLabel,
@@ -512,7 +514,8 @@ function Elapsed({ since }: { since: string }) {
 /** The repository owner's avatar, or the Nap mark for a session that came from no repository. */
 export function SourceMark({ source }: { source: SessionSource }) {
   const [failed, setFailed] = useState(false);
-  if (source.owner === null || failed)
+  const remote = use(ShowcaseContext)?.remoteAvatars ?? true;
+  if (source.owner === null || failed || !remote)
     return source.owner === null ? (
       <NapMark aria-hidden className="size-4 shrink-0 rounded-[4px]" />
     ) : (

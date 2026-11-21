@@ -22,15 +22,31 @@
  * full-size content later.
  */
 
-import { type RefObject, useLayoutEffect } from "react";
+import { type RefObject, useLayoutEffect, useRef } from "react";
 
 /** What the stylesheet reads. Defaults to 1, so markup nothing has measured is simply unscaled. */
 const VAR = "--space-k";
 
-export function useSpaceScale(ref: RefObject<HTMLElement | null>, designWidth: number): void {
+/**
+ * `designWidth` is a number, or a function of the width the box was given for a space whose
+ * layout changes with it — a phone gets a narrower space rather than the desktop one shrunk. The
+ * stylesheet has to switch layouts at the same width the function does.
+ */
+export function useSpaceScale(
+  ref: RefObject<HTMLElement | null>,
+  designWidth: number | ((width: number) => number),
+): void {
+  // Read through a ref so a function written inline does not re-run the effect on every render.
+  const design = useRef(designWidth);
   useLayoutEffect(() => {
+    design.current = designWidth;
+  });
+  const fixed = typeof designWidth === "number" ? designWidth : null;
+
+  useLayoutEffect(() => {
+    void fixed;
     const host = ref.current;
-    if (host === null || designWidth <= 0) return;
+    if (host === null) return;
 
     const fit = () => {
       const width = host.getBoundingClientRect().width;
@@ -38,7 +54,10 @@ export function useSpaceScale(ref: RefObject<HTMLElement | null>, designWidth: n
       // ancestor, during a print. Scaling to zero there would hide the section outright, where
       // leaving the last known ratio alone costs nothing.
       if (width <= 0) return;
-      host.style.setProperty(VAR, `${width / designWidth}`);
+      const target = design.current;
+      const space = typeof target === "number" ? target : target(width);
+      if (space <= 0) return;
+      host.style.setProperty(VAR, `${width / space}`);
     };
 
     fit();
@@ -48,5 +67,5 @@ export function useSpaceScale(ref: RefObject<HTMLElement | null>, designWidth: n
     observer.observe(host);
 
     return () => observer.disconnect();
-  }, [ref, designWidth]);
+  }, [ref, fixed]);
 }

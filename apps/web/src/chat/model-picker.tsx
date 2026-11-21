@@ -15,7 +15,8 @@
 import { Popover } from "@base-ui/react/popover";
 import { Toolbar } from "@base-ui/react/toolbar";
 import { DEFAULT_EFFORT, type Effort, type ModelVendor } from "@nap/shared/model-lines";
-import { useEffect, useId, useRef, useState } from "react";
+import { use, useEffect, useId, useRef, useState } from "react";
+import { ShowcaseContext } from "../ui/showcase.ts";
 import { type ModelOption, modelInUse } from "./model-options.ts";
 import { EFFORT_LABELS, EffortGlyph, resolveEffortGlyph } from "./model-picker/effort-glyph.tsx";
 import { VendorLogo } from "./model-picker/vendor-logo.tsx";
@@ -97,6 +98,7 @@ export function ModelPicker({
   const effortColumn = useRef<HTMLDivElement>(null);
   const chosenEffort = effort ?? defaultEffort;
   const describedBy = useId();
+  const vendorLogos = use(ShowcaseContext)?.vendorLogos ?? true;
 
   useEffect(() => {
     // Reading the token is intentional: a new value means the composer is now serving a
@@ -174,7 +176,7 @@ export function ModelPicker({
         disabled={disabled}
         className="group/model-trigger flex h-7 max-w-[220px] items-center gap-1.5 rounded-lg px-2 font-normal text-[13px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted data-[popup-open]:bg-hover data-[popup-open]:text-ink"
       >
-        <VendorLogo vendor={selected.vendor} className="size-3.5" />
+        {vendorLogos && <VendorLogo vendor={selected.vendor} className="size-3.5" />}
         <span className="truncate">{selected.label}</span>
         {showEffort && <TriggerEffort option={selected} effort={chosenEffort} />}
         <span id={describedBy} className="sr-only">

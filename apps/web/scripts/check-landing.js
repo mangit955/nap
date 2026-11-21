@@ -2,8 +2,10 @@
  * care about (1440, 1024, 768 and 390 at least). It checks what component tests cannot, because
  * jsdom does no layout and no hit-testing:
  *
- * - the photograph is behind the product, never in front of it: the hero's session and each
- *   feature drawing receive the hit at their own centre;
+ * - the backdrop is behind the product, never in front of it: the hero's session and each
+ *   feature's window receive the hit at their own centre;
+ * - every window of the product is drawn large enough to read: the workspace's 14px text lands
+ *   between 9px and 14px, never shrunk to a thumbnail nor blown up past the product's own size;
  * - every link and button on the page gets its own clicks rather than a sibling laid over it;
  * - every focus ring on the page's dark ground can be seen (3:1 against the ground);
  * - the serif is set on the hero and the closing line and nowhere else in the page's own copy;
@@ -48,6 +50,15 @@
     window.scrollIntoView({ block: "center" });
     await settle();
     check(owns(window, centre(window)), `nothing drawn over ${window.className}`);
+  }
+
+  // The demos draw the product's 14px text at the scale `useSpaceScale` measured.
+  for (const demo of document.querySelectorAll(".lp-demo")) {
+    const text = 14 * Number(demo.style.getPropertyValue("--space-k") || 1);
+    check(
+      text >= 9 && text <= 14.01,
+      `${demo.getAttribute("aria-label")} is readable (text at ${text.toFixed(1)}px)`,
+    );
   }
 
   for (const anchor of document.querySelectorAll('.landing a[href^="#"]')) {

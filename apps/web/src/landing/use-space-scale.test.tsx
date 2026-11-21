@@ -32,7 +32,7 @@ function widthIs(width: number) {
   };
 }
 
-function Space({ design }: { design: number }) {
+function Space({ design }: { design: number | ((width: number) => number) }) {
   const ref = useRef<HTMLDivElement>(null);
   useSpaceScale(ref, design);
   return <div ref={ref} data-testid="space" />;
@@ -84,6 +84,20 @@ describe("fitting a design space to its column", () => {
     observed?.();
 
     expect(scaleOf(view)).toBe("1");
+  });
+
+  it("draws a narrower space when the column is narrow, if asked to", () => {
+    // A phone gets a space of its own, laid out for the width, rather than the desktop one
+    // shrunk until its labels are unreadable. The stylesheet switches the layout at the same
+    // width, so the ratio has to follow the space the stylesheet chose.
+    const design = (width: number) => (width < 600 ? 400 : 1000);
+    widthIs(500);
+    const view = render(<Space design={design} />);
+    expect(scaleOf(view)).toBe("1.25");
+
+    widthIs(800);
+    observed?.();
+    expect(scaleOf(view)).toBe("0.8");
   });
 
   it("stops measuring when the section goes away", () => {

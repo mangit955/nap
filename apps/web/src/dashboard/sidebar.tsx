@@ -33,8 +33,15 @@ export function Sidebar({
   navigation,
   ownerId,
   persistScroll = true,
+  sessions: fixedSessions,
 }: {
   persistScroll?: boolean;
+  /**
+   * A fixed list to draw, for a caller with no account behind it: the landing page's demos. It
+   * carries the repository and pull request rows that \`recents\` cannot, without the navigation
+   * hook, so nothing can be dragged, renamed or fetched. Ignored when \`navigation\` is given.
+   */
+  sessions?: readonly SessionSummary[] | undefined;
   ownerId?: string | undefined;
   navigation?: ReturnType<typeof useSessionNavigation> | undefined;
   name: string;
@@ -117,8 +124,9 @@ export function Sidebar({
     },
     [loading, navigationStatus, persistScroll],
   );
-  const sessions: SessionSummary[] =
+  const sessions: readonly SessionSummary[] =
     navigation?.projects ??
+    fixedSessions ??
     recents.map((row) => ({
       ...row,
       createdAt: row.updatedAt,
