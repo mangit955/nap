@@ -37,10 +37,12 @@ class FakeObserver {
   }
 }
 
-function intersect(isIntersecting = true) {
+/** `queued` delivers an entry the observer had queued before it was disconnected, which a real
+ *  observer may still hand over. */
+function intersect(isIntersecting = true, { queued = false } = {}) {
   const callback = fire;
   if (callback === undefined) throw new Error("nothing ever observed the element");
-  if (!connected) return;
+  if (!connected && !queued) return;
   act(() => {
     callback(
       [{ isIntersecting } as IntersectionObserverEntry],
@@ -135,6 +137,14 @@ describe("the hero session's build", () => {
     advance(BUILDING_AFTER_MS);
     expect(screen.getByText("building")).toBeInTheDocument();
     act(() => motionChanged?.({ matches: true }));
+    expect(screen.getByText("ready")).toBeInTheDocument();
+  });
+
+  it("stays finished when an entry queued before reduced motion arrives after it", () => {
+    render(<Stage />);
+    act(() => motionChanged?.({ matches: true }));
+    intersect(true, { queued: true });
+    advance(BUILDING_AFTER_MS);
     expect(screen.getByText("ready")).toBeInTheDocument();
   });
 

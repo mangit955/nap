@@ -40,16 +40,21 @@ export function useDemoStage<T extends HTMLElement>(): {
       return;
     }
     const timers: ReturnType<typeof setTimeout>[] = [];
+    // Set once the build may no longer start. An observer can still deliver an entry it queued
+    // before `disconnect`, so the callback asks this rather than trusting the disconnect.
+    let stopped = false;
     // Turning reduced motion on mid-visit ends the build where it would have finished.
     const still = (event: MediaQueryListEvent) => {
       if (!event.matches) return;
+      stopped = true;
       observer.disconnect();
       for (const timer of timers) clearTimeout(timer);
       setStage("ready");
     };
     const observer = new IntersectionObserver(
       (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (stopped || !entries.some((entry) => entry.isIntersecting)) return;
+        stopped = true;
         observer.disconnect();
         timers.push(
           setTimeout(() => setStage("building"), BUILDING_AFTER_MS),
@@ -61,6 +66,7 @@ export function useDemoStage<T extends HTMLElement>(): {
     observer.observe(element);
     motion.addEventListener("change", still);
     return () => {
+      stopped = true;
       observer.disconnect();
       motion.removeEventListener("change", still);
       for (const timer of timers) clearTimeout(timer);

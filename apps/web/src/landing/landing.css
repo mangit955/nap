@@ -722,8 +722,9 @@
     background: #fff;
   }
   /* The page's focus ring is drawn in the text colour, which on this button is the dark ink and
-     would vanish against the dark page around it. */
-  .lp-button-light:focus-visible {
+     would vanish against the dark page around it. Scoped under `.landing` so it outranks the
+     page-wide focus rule, which `:is()` gives an element's weight on top of two classes. */
+  .landing .lp-button-light:focus-visible {
     outline-color: var(--lp-ink);
   }
   .lp-button-ghost {
