@@ -81,8 +81,8 @@ async function sessionSurvived(): Promise<boolean> {
   }
 }
 
-/** How long the providers lookup may take before the form is shown without them. */
-const PROVIDERS_TIMEOUT_MS = 4000;
+/** How long the form's controls wait for the providers lookup before they are shown anyway. */
+const PROVIDERS_WAIT_MS = 4000;
 
 export function LiveSignIn({
   notice,
@@ -108,9 +108,12 @@ export function LiveSignIn({
     social: [],
     demo: false,
   });
-  // Whether the API has answered, either way, or given up trying. Until then the form holds its
-  // controls hidden, because the answer moves them; see `socialPending` in the form.
+  // Whether the API has answered, either way. Until then the form holds the providers' row open
+  // and its controls hidden, because the answer moves them; see `controlsHeld` in the form.
   const [waysKnown, setWaysKnown] = useState(false);
+  // A slow answer is not a missing one: past this point the form is shown anyway, with the row
+  // still held open, so somebody whose only way in is GitHub still gets it when it arrives.
+  const [waitedLongEnough, setWaitedLongEnough] = useState(false);
 
   // A guest session is still a session. Better Auth correctly refuses to mint a second anonymous
   // identity for the same browser, so a person returning to this page should continue their
@@ -123,10 +126,10 @@ export function LiveSignIn({
 
   useEffect(() => {
     let cancelled = false;
-    // Bounded, because the form's controls stay hidden until this answers (see `socialPending`):
-    // a lookup that hangs must give up and show the email form rather than nothing at all.
     const lookup = new AbortController();
-    const giveUp = setTimeout(() => lookup.abort(), PROVIDERS_TIMEOUT_MS);
+    // The form's controls wait for this answer (see `controlsHeld`), but not for ever: a lookup
+    // that is slow shows the email form without waiting further, and keeps going.
+    const stopWaiting = setTimeout(() => setWaitedLongEnough(true), PROVIDERS_WAIT_MS);
 
     void credentialedFetch(`${DEFAULT_BASE_URL}/auth/providers`, { signal: lookup.signal })
       .then((response) => (response.ok ? response.json() : {}))
@@ -148,7 +151,7 @@ export function LiveSignIn({
 
     return () => {
       cancelled = true;
-      clearTimeout(giveUp);
+      clearTimeout(stopWaiting);
       lookup.abort();
     };
   }, []);
@@ -277,6 +280,7 @@ export function LiveSignIn({
       onDemo={() => void startDemo()}
       socialProviders={ways.social}
       socialPending={!waysKnown}
+      controlsHeld={!waysKnown && !waitedLongEnough}
       demoEnabled={ways.demo}
       demoPending={sessionPending}
       error={error}

@@ -19,7 +19,9 @@ const signInAnonymous = vi.fn();
 const getSession = vi.fn();
 /** What `/auth/providers` answers with, per test, and whether it answers at all. */
 const ways = { socialProviders: [] as string[], demo: false };
-let waysAnswer: "answers" | "unreachable" | "hangs" = "answers";
+let waysAnswer: "answers" | "unreachable" | "late" = "answers";
+/** Releases a "late" answer, when the test decides it has arrived. */
+let answerLate = () => {};
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace, refresh: vi.fn() }),
@@ -46,11 +48,12 @@ vi.mock("./client.ts", () => ({
 vi.mock("../api/credentialed-fetch.ts", () => ({
   credentialedFetch: (_url: string, init?: RequestInit) => {
     if (waysAnswer === "unreachable") return Promise.reject(new TypeError("Failed to fetch"));
-    if (waysAnswer === "hangs") {
-      // Never answers; only the caller's own signal ends it, as with a real stalled request.
-      return new Promise((_, reject) =>
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
-      );
+    if (waysAnswer === "late") {
+      // Answers when the test says so, or fails when the caller aborts, as a real request would.
+      return new Promise((resolve, reject) => {
+        answerLate = () => resolve(new Response(JSON.stringify(ways)));
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      });
     }
     return Promise.resolve(new Response(JSON.stringify(ways)));
   },
@@ -342,19 +345,27 @@ describe("the social buttons", () => {
     await vi.waitFor(() => expect(screen.getByLabelText("Email")).toBeVisible());
   });
 
-  it("gives up on a lookup that never answers, and shows the form without providers", async () => {
+  it("shows the form after waiting long enough, and fills in a provider that answers late", async () => {
+    // Somebody whose only way in is GitHub must still get it from a slow lookup, and it must
+    // arrive in the row held open for it rather than pushing the fields down.
     vi.useFakeTimers();
     try {
-      waysAnswer = "hangs";
+      waysAnswer = "late";
+      ways.socialProviders = ["github"];
       render(<LiveSignIn />);
       expect(screen.getByLabelText("Email")).not.toBeVisible();
 
-      // Just short of the limit, it is still waiting; at the limit it gives up.
+      // Just short of the limit, it is still waiting; at the limit it shows the form.
       await act(() => vi.advanceTimersByTimeAsync(3999));
       expect(screen.getByLabelText("Email")).not.toBeVisible();
       await act(() => vi.advanceTimersByTimeAsync(1));
-
       expect(screen.getByLabelText("Email")).toBeVisible();
+      expect(screen.getByTestId("providers-pending")).toBeInTheDocument();
+
+      await act(async () => answerLate());
+
+      expect(screen.getByRole("button", { name: "Continue with GitHub" })).toBeVisible();
+      expect(screen.queryByTestId("providers-pending")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

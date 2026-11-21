@@ -127,7 +127,7 @@ describe("the social providers", () => {
   it("hides every control while the API has not said which providers there are", () => {
     // The answer moves the fields: a row arriving pushes Email onto a provider, an empty one
     // pulls the submit button up to where Email was. Nothing is offered until it is known.
-    setup({ socialProviders: [], socialPending: true });
+    setup({ socialProviders: [], socialPending: true, controlsHeld: true, notice: "Expired." });
 
     for (const field of ["Email", "Password"]) {
       expect(screen.getByLabelText(field)).not.toBeVisible();
@@ -135,10 +135,22 @@ describe("the social providers", () => {
     // By text: a hidden button has no accessible name, so a role query cannot pick it out.
     expect(screen.getByText("Sign in", { selector: "button" })).not.toBeVisible();
     expect(screen.getByText("Create one", { selector: "button" })).not.toBeVisible();
-    // The heading is not a control and does not wait.
+    // The heading and the reason they are here are not controls and do not wait, and a screen
+    // reader is told the rest is coming rather than finding nothing under the heading.
     expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
+    expect(screen.getByText("Expired.")).toBeVisible();
+    expect(screen.getByText("Loading the ways to sign in…")).toHaveAttribute("role", "status");
     // And the row keeps its place, so with providers configured nothing moves when it fills.
     expect(screen.getByTestId("providers-pending").parentElement?.children).toHaveLength(2);
+  });
+
+  it("shows the form with the row still held open when the lookup is only slow", () => {
+    // The answer may yet bring providers; they fill the held row rather than push Email down.
+    setup({ socialProviders: [], socialPending: true, controlsHeld: false });
+
+    expect(screen.getByLabelText("Email")).toBeVisible();
+    expect(screen.getByTestId("providers-pending")).toBeInTheDocument();
+    expect(screen.queryByText("Loading the ways to sign in…")).toBeNull();
   });
 
   it("offers neither when neither is configured", () => {

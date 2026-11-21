@@ -67,16 +67,21 @@ export type SignInFormProps = {
   /** Only the providers the API actually has credentials for; see `/auth/providers`. */
   socialProviders: readonly SocialProvider[];
   /**
-   * The API has not said yet which providers it has.
-   *
-   * Their row sits above the email form, so its answer moves the fields: a row arriving pushes
-   * Email down onto Google or GitHub, and a row that turns out empty pulls the submit button up
-   * to where Email was, under a thumb, with a password manager's credentials already filled.
-   * Holding space for the row cannot cure both, so the controls stay hidden until the answer is
-   * in and drawn once, where they will stay. The row and the guest line are still held open while
-   * hidden, so with providers configured nothing moves when the controls appear.
+   * The API has not said yet which providers it has, so their row is held open, empty: when
+   * the answer brings providers they fill it where it stands and nothing below them moves.
    */
   socialPending?: boolean;
+  /**
+   * Keep the controls hidden: the answer is still due and may yet move them.
+   *
+   * The providers' row sits above the email form, so the answer moves the fields: a row
+   * arriving pushes Email down onto Google or GitHub, and a row that turns out empty pulls the
+   * submit button up to where Email was, under a thumb, with a password manager's credentials
+   * already filled. Holding space cannot cure both, so the controls are drawn once the answer
+   * is in. A lookup that is slow rather than answered gets the form anyway, with the row still
+   * held open for a late answer to fill; see `LiveSignIn`.
+   */
+  controlsHeld?: boolean;
   /** Whether this deployment lets anybody in without an account at all. */
   demoEnabled: boolean;
   /** In words, for the person who just tried. Undefined when nothing has gone wrong. */
@@ -130,6 +135,7 @@ export function SignInForm({
   onDemo,
   socialProviders,
   socialPending = false,
+  controlsHeld = false,
   demoEnabled,
   error,
   notice,
@@ -150,7 +156,7 @@ export function SignInForm({
   // `visibility`, not `display` or opacity: the controls keep their place, cannot be focused,
   // clicked or read out while hidden, and nothing below them moves when they appear. Inline so
   // a test's computed style can see it.
-  const held = socialPending ? ({ visibility: "hidden" } as const) : undefined;
+  const held = controlsHeld ? ({ visibility: "hidden" } as const) : undefined;
 
   return (
     <div className="landing min-h-dvh lg:grid lg:grid-cols-2">
@@ -189,7 +195,33 @@ export function SignInForm({
             <h1 className="lp-serif text-[40px] leading-none lg:text-[44px]">{copy.title}</h1>
             <p className="lp-muted mt-3 text-[14.5px] leading-normal">{copy.sub}</p>
 
-            <div style={held}>
+            {/*
+              A `status`, not an `alert`: nothing is wrong with what the reader just did, and the
+              two roles are announced with different urgency. Under the heading, because it
+              explains why the form is on screen at all, and outside the held controls, because
+              it is known before the page is drawn and is worth reading while they wait.
+            */}
+            {notice !== undefined && (
+              <p
+                role="status"
+                className="mt-6 rounded-xl border border-[#ffffff0f] bg-[#ffffff06] px-3.5 py-2.5 text-(--lp-ink-2) text-[13px] leading-relaxed"
+              >
+                {notice}
+              </p>
+            )}
+
+            {/*
+              The held controls are invisible, so somebody reading the page by ear meets this
+              line under the heading rather than nothing at all. Present only while they are
+              held: a page with nothing to report carries no status (`failure-surfaces.test`).
+            */}
+            {controlsHeld && (
+              <p role="status" className="sr-only">
+                Loading the ways to sign in…
+              </p>
+            )}
+
+            <div style={held} aria-busy={controlsHeld || undefined}>
               {/*
               The providers come first because they are the shortest way in, and each shows its
               name as well as its mark: two bare logos side by side read as decoration.
@@ -287,20 +319,6 @@ export function SignInForm({
                   />
                 </label>
 
-                {/*
-                A `status`, not an `alert`: nothing is wrong with what the reader just did, and
-                the two roles are announced with different urgency. Above the button, because it
-                explains why the form is on screen at all.
-              */}
-                {notice !== undefined && (
-                  <p
-                    role="status"
-                    className="rounded-xl border border-[#ffffff0f] bg-[#ffffff06] px-3.5 py-2.5 text-(--lp-ink-2) text-[13px] leading-relaxed"
-                  >
-                    {notice}
-                  </p>
-                )}
-
                 {error !== undefined && (
                   // A sentence for a person, so it is set like one, in the app's one red — which
                   // still reads at better than 5:1 on this ground.
@@ -338,11 +356,11 @@ export function SignInForm({
               </form>
 
               {/*
-              Its line is held, invisibly, while the API is still answering for the same reason
-              as the providers' row: on a wide screen the form is centred, and a line arriving
-              under it would lift every field by half its height.
+              With no guest door the line is still there, invisibly, so the form is the same
+              height either way: on a wide screen it is centred, and an answer that removed a
+              line under it after it was shown would drop every field by half that line.
             */}
-              {socialPending && !demoEnabled && (
+              {!demoEnabled && (
                 <p aria-hidden="true" className="invisible mt-5 text-[13px]">
                   &nbsp;
                 </p>
