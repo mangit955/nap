@@ -125,7 +125,7 @@ describe("orphaning an abandoned request", () => {
     expect(written.every((event) => event.turnId === id)).toBe(true);
   });
 
-  it("says the work was interrupted, and that Resume picks it up", async () => {
+  it("says the work was interrupted, that Resume picks it up, and what a message does", async () => {
     const id = await abandoned();
     await partialTurn(id);
     pastGrace();
@@ -137,6 +137,10 @@ describe("orphaning an abandoned request", () => {
     // Resume, not "reopen": opening a project starts nothing, and only Resume continues the job.
     expect(notice?.type === "system.notice" && notice.payload.text).toMatch(
       /put the project away and press resume/i,
+    );
+    // Most people send a message rather than pressing Resume, and that closes this job.
+    expect(notice?.type === "system.notice" && notice.payload.text).toMatch(
+      /send a message: that starts new work in its place/i,
     );
   });
 

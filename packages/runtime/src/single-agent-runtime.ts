@@ -84,7 +84,7 @@ import { type AppTestRecordingClock, withAppTestRecording } from "./app-test-rec
 import { AppTestRun } from "./app-test-run.ts";
 import { contextCompactor } from "./compaction.ts";
 import { compactionHistoryFile } from "./compaction-history.ts";
-import { continuationFor } from "./continue-job.ts";
+import { closingForNewJob, continuationFor } from "./continue-job.ts";
 import { EventSink } from "./event-sink.ts";
 import { shouldAnnouncePreview } from "./preview-announced.ts";
 import { repairCommitSubject, repairPrompt } from "./repair-prompt.ts";
@@ -254,6 +254,21 @@ function resumeFailureNotice(error: SandboxError): string {
   return (
     `Couldn't start this project back up: ${error.message}. ` +
     "Nothing has been lost — its files are still saved. Try again in a moment."
+  );
+}
+
+/**
+ * What a person is told when their message closes a job a dead worker left open.
+ *
+ * Says the work is unchecked and what will check it. It does not promise the work survived: a
+ * restore from an older snapshot can have lost some of it, and acquiring the sandbox says so
+ * separately. "The next change" rather than "this message", because a message that changes no
+ * files runs no checks.
+ */
+function supersededNotice(objective: string): string {
+  return (
+    `The interrupted job "${commitMessage(objective)}" was closed so this message could start. ` +
+    "Whatever it saved has not been checked; the checks after your next change cover the whole project."
   );
 }
 
@@ -580,22 +595,11 @@ export class SingleAgentRuntime implements Runtime {
     if (continuation.kind === "none") return;
 
     if (continuation.kind === "close") {
-      scope.emit("job.completed", {
-        jobId: continuation.jobId,
-        outcome: continuation.outcome,
-      });
-      await sink.drain();
+      await this.#closeLeftOpen(scope, sandboxId, continuation, options);
       getLogger().info(
         { jobId: continuation.jobId, outcome: continuation.outcome },
         "an open job had nothing left to do and was closed",
       );
-      await this.#finishRepositoryJob({
-        scope,
-        sandboxId,
-        jobId: continuation.jobId,
-        requestId: options.turnId,
-        signal: options.signal,
-      });
       return;
     }
 
@@ -676,6 +680,67 @@ export class SingleAgentRuntime implements Runtime {
         });
       }
     }
+  }
+
+  /**
+   * Closing a job a dead worker left open, without continuing it, and settling its repository job,
+   * which would otherwise wait on a publish that is never coming.
+   *
+   * The caller's turn writes the closing event: a resume's, or the message's that superseded it.
+   */
+  async #closeLeftOpen(
+    scope: TurnScope,
+    sandboxId: string,
+    closing: { jobId: string; outcome: JobOutcome },
+    options: { turnId: string; signal?: AbortSignal | undefined },
+    /** What the person is told about it, right after it closes. */
+    notice?: string,
+  ): Promise<void> {
+    scope.emit("job.completed", closing);
+    if (notice !== undefined) scope.emit("system.notice", { level: "info", text: notice });
+    await scope.sink.drain();
+    await this.#finishRepositoryJob({
+      scope,
+      sandboxId,
+      jobId: closing.jobId,
+      requestId: options.turnId,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * A message is about to open a job: close whatever job a dead worker left open first.
+   *
+   * Only `resumeSession` continues an open job, and `openJob` reads only the newest, so a job still
+   * open when the message's `job.started` is written would never be continued or closed. Under the
+   * message's lease nothing else can be writing to the session, so an open job here is one whose
+   * worker died. The log's own answer is kept where it has one; otherwise the message supersedes
+   * the job rather than spending checks and repair turns on an objective the person has moved on
+   * from, and the notice says what became of it (`closingForNewJob`).
+   */
+  async #closeInterrupted(
+    scope: TurnScope,
+    sandboxId: string,
+    history: readonly StoredEvent[],
+    request: { turnId: string; signal?: AbortSignal | undefined },
+  ): Promise<void> {
+    const state = foldJobs(history);
+    const job = openJob(state);
+    // Asked before HEAD is read, for the reason `#continue` asks first: most turns have nothing open.
+    if (job === undefined) return;
+
+    const closing = closingForNewJob(state, {
+      workspaceHeadSha: await this.#workspaceHead(sandboxId),
+    });
+    if (closing === null) return;
+    // A message stopped before it ran must not take the job away from Resume: superseding is only
+    // honest when new work actually replaces it. Checked after the HEAD read, which can be slow
+    // and does not itself listen for the abort.
+    request.signal?.throwIfAborted();
+
+    const notice = closing.outcome === "superseded" ? supersededNotice(job.objective) : undefined;
+    await this.#closeLeftOpen(scope, sandboxId, closing, request, notice);
+    getLogger().info(closing, "a message closed the job a dead worker left open");
   }
 
   /**
@@ -1067,6 +1132,8 @@ export class SingleAgentRuntime implements Runtime {
           mode: "plan",
         });
       }
+
+      await this.#closeInterrupted(scope, sandboxId.value.id, history, request);
 
       // A job opens on a prompt, and this turn belongs to it. Opened after the sandbox is in
       // hand because a job that could never run is a job nothing will ever close — and the

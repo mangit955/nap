@@ -447,3 +447,38 @@ it.each([3000, null])(
     if (previewPort === null) expect(f.agent.requests[0]?.computer).toBeUndefined();
   },
 );
+
+it("settles the repository job of an interrupted job a message supersedes, before its own job opens", async () => {
+  // The dead worker's job never reached `finishJob`, so its stored GitHub job still says working.
+  // Closing it without settling that record would leave a job the project page shows as working
+  // forever, so the message settles it — as not verified, which publishes nothing.
+  const f = await fixture();
+  const interrupted = crypto.randomUUID();
+  const base = { sessionId, turnId: crypto.randomUUID(), createdAt: "2026-11-21T00:00:00Z" };
+  await f.events.append({
+    ...base,
+    type: "job.started",
+    payload: { jobId: interrupted, objective: "Fix this repo" },
+  });
+  await f.events.append({
+    ...base,
+    type: "turn.completed",
+    payload: {
+      commitSha: FAKE_COMMIT_SHA,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      durationMs: 1,
+    },
+  });
+  const settled: { jobId: string; outcome: string; newJobOpen: boolean }[] = [];
+  f.finishJob.mockImplementation(async (request) => {
+    const jobs = foldJobs(await f.events.readFrom(sessionId, 0)).jobs;
+    settled.push({ jobId: request.jobId, outcome: request.outcome, newJobOpen: jobs.length > 1 });
+    return { ok: true, value: undefined };
+  });
+
+  expect(await f.run()).toMatchObject({ ok: true });
+
+  expect(settled[0]).toEqual({ jobId: interrupted, outcome: "superseded", newJobOpen: false });
+  // And the message's own job is settled as usual, after it.
+  expect(settled.map((entry) => entry.outcome)).toEqual(["superseded", "verified"]);
+});

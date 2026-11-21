@@ -105,6 +105,8 @@ export function isJobOpen(job: JobState): boolean {
  * about the domain and every reader of it has to agree: a fifth `JobPhase` added with this
  * spelled out in three components is a phase that quietly renders as a success in two of them.
  * Not the negation of `isJobOpen` — an open job has not failed, and `verified` is neither.
+ * Nor is `superseded`: its work is in the project, unchecked rather than found broken, and the
+ * next job's checks cover it.
  */
 export function isJobFailed(job: Pick<JobState, "phase">): boolean {
   return job.phase === "exhausted" || job.phase === "abandoned";

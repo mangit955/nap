@@ -11,7 +11,7 @@ import type { JobOutcome, NapEvent, VerifiedCheck } from "@nap/shared/events";
 import { foldJobs, MAX_REPAIR_ATTEMPTS } from "@nap/shared/job-state";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { describe, expect, it } from "vitest";
-import { continuationFor } from "./continue-job.ts";
+import { closingForNewJob, continuationFor } from "./continue-job.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const JOB_A = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
@@ -324,5 +324,44 @@ describe("a job left in repair", () => {
     const rounds = Array.from({ length: MAX_REPAIR_ATTEMPTS + 1 }, () => redRound(JOB_A)).flat();
     // The fold already calls this `exhausted`, which is closed, so nothing is left to do.
     expect(decide(started(JOB_A), committed(SHA), ...rounds)).toEqual({ kind: "none" });
+  });
+});
+
+/**
+ * A message opening a new job over one that is still open. Only the newest job is ever continued,
+ * so the older one has to close here; the question is only what it closes as.
+ */
+describe("a new job opening over an open one", () => {
+  const closeAt = (
+    workspaceHeadSha: string | null,
+    ...events: readonly { type: NapEvent["type"]; payload: unknown }[]
+  ) => closingForNewJob(foldJobs(log(...events)), { workspaceHeadSha });
+
+  it("closes nothing when nothing is open", () => {
+    expect(closeAt(SHA, started(JOB_A), committed(SHA), closed(JOB_A, "verified"))).toBeNull();
+  });
+
+  it("supersedes a job with a commit nothing has checked, rather than checking it first", () => {
+    expect(closeAt(SHA, started(JOB_A), committed(SHA))).toEqual({
+      jobId: JOB_A,
+      outcome: "superseded",
+    });
+  });
+
+  it("supersedes a job left in repair, rather than running the repair", () => {
+    expect(closeAt(SHA, started(JOB_A), committed(SHA), ...redRound(JOB_A))).toEqual({
+      jobId: JOB_A,
+      outcome: "superseded",
+    });
+  });
+
+  it("closes a job that committed nothing as unverified, which is what continuing would say", () => {
+    expect(closeAt(null, started(JOB_A))).toEqual({ jobId: JOB_A, outcome: "unverified" });
+  });
+
+  it("closes a job whose commit is already a checkpoint as verified", () => {
+    expect(
+      closeAt(SHA, started(JOB_A), committed(SHA), verifying(JOB_A), checkpoint(JOB_A, SHA)),
+    ).toEqual({ jobId: JOB_A, outcome: "verified" });
   });
 });

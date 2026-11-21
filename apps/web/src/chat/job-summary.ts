@@ -30,6 +30,7 @@ const PHASE_LABELS: Record<JobPhase, string> = {
   unverified: "Unverified",
   exhausted: "Out of repairs",
   abandoned: "Abandoned",
+  superseded: "Superseded",
 };
 
 /** What the workspace knows about this session's jobs: all of them, and the newest described. */
