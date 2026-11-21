@@ -1,5 +1,5 @@
 import { AppPreview } from "../../../../landing/app-preview.tsx";
-import "../../../../landing/product-story.css";
+import "../../../../landing/ledger-app.css";
 
 export const metadata = { title: "Ledger example app", robots: { index: false, follow: false } };
 

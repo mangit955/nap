@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * The front page's frame: the bar, the hero, the story under it, and the footer.
+ * The front page's frame: the bar, the hero, what nap does, the example apps, what changed lately,
+ * one last way in, and the footer.
  *
  * The hero arrives as a slot so this can be mounted and asserted on without a router, a session or
  * a network — the same split the panes and the sign-in form already use. The sections below it do
@@ -16,11 +17,11 @@
  */
 
 import type { ReactNode } from "react";
+import { BuiltWithNap } from "./built-with-nap.tsx";
+import { Changelog } from "./changelog.tsx";
 import { Features } from "./features.tsx";
 import { LandingFooter } from "./landing-footer.tsx";
 import { LandingNav } from "./landing-nav.tsx";
-import { Measurements } from "./measurements.tsx";
-import { ProductStory } from "./product-story.tsx";
 import { StartNow } from "./start-now.tsx";
 
 export type AuthState = "pending" | "signed-out";
@@ -32,9 +33,9 @@ export function Landing({ auth, hero }: { auth: AuthState; hero: ReactNode }) {
 
       <main>
         {hero}
-        <ProductStory />
         <Features />
-        <Measurements />
+        <BuiltWithNap />
+        <Changelog />
         <StartNow />
       </main>
 

@@ -32,11 +32,18 @@ describe("the feature inspector", () => {
     expect(files).toHaveFocus();
   });
 
-  it("replays the feature scenes and returns the inspector to its first view", () => {
+  it("gives each row one heading and a link to how it works", () => {
     render(<Features />);
-    fireEvent.click(screen.getByRole("tab", { name: "History" }));
-    fireEvent.click(screen.getByRole("button", { name: "Replay animations" }));
-    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
-    expect(within(screen.getByRole("tabpanel")).getByText("App.tsx")).toBeInTheDocument();
+    const rows = screen.getAllByRole("article");
+    expect(rows.map((row) => within(row).getByRole("heading", { level: 2 }).textContent)).toEqual([
+      "It keeps working after you close the tab.",
+      "It checks its own work.",
+      "The code is yours.",
+    ]);
+    expect(rows.map((row) => within(row).getByRole("link").getAttribute("href"))).toEqual([
+      "/docs#durable-jobs",
+      "/docs#verification",
+      "/sign-up",
+    ]);
   });
 });

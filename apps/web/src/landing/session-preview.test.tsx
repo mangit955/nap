@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BOOKING_PROMPT, SessionPreview } from "./session-preview.tsx";
+import { BOOKING_PROMPT } from "./example-apps.ts";
+import { SessionPreview } from "./session-preview.tsx";
 
 describe("the hero demo's sidebar preferences", () => {
   beforeEach(() => sessionStorage.clear());
@@ -54,7 +55,7 @@ describe("the landing session", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Demo booking confirmed");
   });
 
-  it("replays a finite build and lets a new scroll stage take control", () => {
+  it("replays a finite build and lets a new stage from the hero take control", () => {
     vi.useFakeTimers();
     try {
       const { container, rerender } = render(<SessionPreview stage="ready" />);

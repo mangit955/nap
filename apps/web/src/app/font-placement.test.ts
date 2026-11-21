@@ -27,7 +27,7 @@ const SRC = resolve(APP, "..");
 const LANDING_GROUP = join(APP, "(landing)");
 // The stylesheets that set text in the landing faces. Each reads a variable only the group's
 // layout defines.
-const LANDING_STYLESHEETS = ["landing/landing.css", "landing/product-story.css"];
+const LANDING_STYLESHEETS = ["landing/landing.css", "landing/ledger-app.css"];
 const LANDING_FACE_VARIABLES = /var\(--font-(?:inter|newsreader)\)/;
 
 function filesUnder(dir: string, name: (file: string) => boolean): string[] {
