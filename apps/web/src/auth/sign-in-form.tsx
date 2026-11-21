@@ -67,9 +67,14 @@ export type SignInFormProps = {
   /** Only the providers the API actually has credentials for; see `/auth/providers`. */
   socialProviders: readonly SocialProvider[];
   /**
-   * The API has not said yet which providers it has. Their row sits above the email form, so it
-   * is held open, empty, until it does: drawn late, it would push Email down by its own height
-   * at about the moment somebody taps it, and the tap would land on Google or GitHub instead.
+   * The API has not said yet which providers it has.
+   *
+   * Their row sits above the email form, so its answer moves the fields: a row arriving pushes
+   * Email down onto Google or GitHub, and a row that turns out empty pulls the submit button up
+   * to where Email was, under a thumb, with a password manager's credentials already filled.
+   * Holding space for the row cannot cure both, so the controls stay hidden until the answer is
+   * in and drawn once, where they will stay. The row and the guest line are still held open while
+   * hidden, so with providers configured nothing moves when the controls appear.
    */
   socialPending?: boolean;
   /** Whether this deployment lets anybody in without an account at all. */
@@ -142,6 +147,10 @@ export function SignInForm({
   // order, which is an implementation detail of how boot happens to check them.
   const offered = SOCIAL.filter(({ provider }) => socialProviders.includes(provider));
   const providerRow = socialPending || offered.length > 0;
+  // `visibility`, not `display` or opacity: the controls keep their place, cannot be focused,
+  // clicked or read out while hidden, and nothing below them moves when they appear. Inline so
+  // a test's computed style can see it.
+  const held = socialPending ? ({ visibility: "hidden" } as const) : undefined;
 
   return (
     <div className="landing min-h-dvh lg:grid lg:grid-cols-2">
@@ -180,126 +189,127 @@ export function SignInForm({
             <h1 className="lp-serif text-[40px] leading-none lg:text-[44px]">{copy.title}</h1>
             <p className="lp-muted mt-3 text-[14.5px] leading-normal">{copy.sub}</p>
 
-            {/*
+            <div style={held}>
+              {/*
               The providers come first because they are the shortest way in, and each shows its
               name as well as its mark: two bare logos side by side read as decoration.
             */}
-            {providerRow && (
-              <>
-                <div className="mt-[30px] flex gap-2 lg:mt-9">
-                  {socialPending && (
-                    <>
-                      <span
-                        aria-hidden="true"
-                        data-testid="providers-pending"
+              {providerRow && (
+                <>
+                  <div className="mt-[30px] flex gap-2 lg:mt-9">
+                    {socialPending && (
+                      <>
+                        <span
+                          aria-hidden="true"
+                          data-testid="providers-pending"
+                          className={GHOST_BUTTON}
+                        />
+                        <span aria-hidden="true" className={GHOST_BUTTON} />
+                      </>
+                    )}
+                    {offered.map(({ provider, name: providerName, label, Icon }) => (
+                      <button
+                        key={provider}
+                        type="button"
+                        aria-label={label}
+                        onClick={() => onSocial(provider)}
+                        disabled={submitting}
                         className={GHOST_BUTTON}
-                      />
-                      <span aria-hidden="true" className={GHOST_BUTTON} />
-                    </>
-                  )}
-                  {offered.map(({ provider, name: providerName, label, Icon }) => (
-                    <button
-                      key={provider}
-                      type="button"
-                      aria-label={label}
-                      onClick={() => onSocial(provider)}
-                      disabled={submitting}
-                      className={GHOST_BUTTON}
-                    >
-                      <Icon className="size-[15px]" />
-                      {providerName}
-                    </button>
-                  ))}
-                </div>
+                      >
+                        <Icon className="size-[15px]" />
+                        {providerName}
+                      </button>
+                    ))}
+                  </div>
 
-                <div
-                  aria-hidden="true"
-                  className="my-6 flex items-center gap-3.5 text-[#5d5a58] text-xs"
-                >
-                  <span className="h-px flex-1 bg-[#ffffff0f]" />
-                  or
-                  <span className="h-px flex-1 bg-[#ffffff0f]" />
-                </div>
-              </>
-            )}
+                  <div
+                    aria-hidden="true"
+                    className="my-6 flex items-center gap-3.5 text-[#5d5a58] text-xs"
+                  >
+                    <span className="h-px flex-1 bg-[#ffffff0f]" />
+                    or
+                    <span className="h-px flex-1 bg-[#ffffff0f]" />
+                  </div>
+                </>
+              )}
 
-            <form
-              className={`flex flex-col gap-2.5 ${providerRow ? "" : "mt-[30px] lg:mt-9"}`}
-              onSubmit={(event) => {
-                event.preventDefault();
-                onSubmit({ email, password, name });
-              }}
-            >
-              {/*
+              <form
+                className={`flex flex-col gap-2.5 ${providerRow ? "" : "mt-[30px] lg:mt-9"}`}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onSubmit({ email, password, name });
+                }}
+              >
+                {/*
                 No label is drawn above a field — the placeholder names it — but each still has
                 one, hidden, so a screen reader and a password manager know what it is for.
               */}
-              {signingUp && (
+                {signingUp && (
+                  <label>
+                    <span className="sr-only">Name</span>
+                    <input
+                      type="text"
+                      required
+                      autoComplete="name"
+                      placeholder="Name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      className={FIELD}
+                    />
+                  </label>
+                )}
+
                 <label>
-                  <span className="sr-only">Name</span>
+                  <span className="sr-only">Email</span>
                   <input
-                    type="text"
+                    type="email"
                     required
-                    autoComplete="name"
-                    placeholder="Name"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
+                    autoComplete="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
                     className={FIELD}
                   />
                 </label>
-              )}
 
-              <label>
-                <span className="sr-only">Email</span>
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  className={FIELD}
-                />
-              </label>
+                <label>
+                  <span className="sr-only">Password</span>
+                  <input
+                    type="password"
+                    required
+                    // Tells a password manager whether to offer a saved one or a new one; getting
+                    // it wrong on a combined form is the usual reason they misbehave.
+                    autoComplete={signingUp ? "new-password" : "current-password"}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className={FIELD}
+                  />
+                </label>
 
-              <label>
-                <span className="sr-only">Password</span>
-                <input
-                  type="password"
-                  required
-                  // Tells a password manager whether to offer a saved one or a new one; getting
-                  // it wrong on a combined form is the usual reason they misbehave.
-                  autoComplete={signingUp ? "new-password" : "current-password"}
-                  placeholder="Password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className={FIELD}
-                />
-              </label>
-
-              {/*
+                {/*
                 A `status`, not an `alert`: nothing is wrong with what the reader just did, and
                 the two roles are announced with different urgency. Above the button, because it
                 explains why the form is on screen at all.
               */}
-              {notice !== undefined && (
-                <p
-                  role="status"
-                  className="rounded-xl border border-[#ffffff0f] bg-[#ffffff06] px-3.5 py-2.5 text-(--lp-ink-2) text-[13px] leading-relaxed"
-                >
-                  {notice}
-                </p>
-              )}
+                {notice !== undefined && (
+                  <p
+                    role="status"
+                    className="rounded-xl border border-[#ffffff0f] bg-[#ffffff06] px-3.5 py-2.5 text-(--lp-ink-2) text-[13px] leading-relaxed"
+                  >
+                    {notice}
+                  </p>
+                )}
 
-              {error !== undefined && (
-                // A sentence for a person, so it is set like one, in the app's one red — which
-                // still reads at better than 5:1 on this ground.
-                <p role="alert" className="text-(--color-danger) text-[13px] leading-relaxed">
-                  {error}
-                </p>
-              )}
+                {error !== undefined && (
+                  // A sentence for a person, so it is set like one, in the app's one red — which
+                  // still reads at better than 5:1 on this ground.
+                  <p role="alert" className="text-(--color-danger) text-[13px] leading-relaxed">
+                    {error}
+                  </p>
+                )}
 
-              {/*
+                {/*
                 In flight, the words gain a turning ring beside them.
 
                 The sentence says what is happening and the ring says it is still happening —
@@ -311,47 +321,48 @@ export function SignInForm({
                 The outline is set here because the page's default draws focus in the text's own
                 colour, and this text is dark on a dark ground.
               */}
-              <button
-                type="submit"
-                disabled={submitting}
-                className="mt-2 flex h-[46px] items-center justify-center gap-2 rounded-xl bg-[#f1ede8] font-medium text-[#151411] text-sm shadow-[inset_0_1px_0_#fff,0_1px_2px_#0003] transition-colors hover:bg-white focus-visible:outline-(--lp-ink) focus-visible:outline-offset-3 disabled:opacity-60"
-              >
-                {submitting ? (
-                  <>
-                    One moment…
-                    <SpinnerIcon className="size-5" />
-                  </>
-                ) : (
-                  verb
-                )}
-              </button>
-            </form>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="mt-2 flex h-[46px] items-center justify-center gap-2 rounded-xl bg-[#f1ede8] font-medium text-[#151411] text-sm shadow-[inset_0_1px_0_#fff,0_1px_2px_#0003] transition-colors hover:bg-white focus-visible:outline-(--lp-ink) focus-visible:outline-offset-3 disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <>
+                      One moment…
+                      <SpinnerIcon className="size-5" />
+                    </>
+                  ) : (
+                    verb
+                  )}
+                </button>
+              </form>
 
-            {/*
+              {/*
               Its line is held, invisibly, while the API is still answering for the same reason
               as the providers' row: on a wide screen the form is centred, and a line arriving
               under it would lift every field by half its height.
             */}
-            {socialPending && !demoEnabled && (
-              <p aria-hidden="true" className="invisible mt-5 text-[13px]">
-                &nbsp;
-              </p>
-            )}
-            {demoEnabled && (
-              <p className="lp-muted mt-5 text-center text-[13px]">
-                or{" "}
-                <button
-                  type="button"
-                  onClick={onDemo}
-                  disabled={submitting || demoPending}
-                  // Underlined because its colour alone sits too close to the "or" beside it to
-                  // say it can be pressed; the line is held to about 3:1 so it is seen.
-                  className="text-(--lp-ink-2) underline decoration-[#ffffff66] underline-offset-4 transition-colors hover:text-(--lp-ink) disabled:opacity-50"
-                >
-                  try it without an account
-                </button>
-              </p>
-            )}
+              {socialPending && !demoEnabled && (
+                <p aria-hidden="true" className="invisible mt-5 text-[13px]">
+                  &nbsp;
+                </p>
+              )}
+              {demoEnabled && (
+                <p className="lp-muted mt-5 text-center text-[13px]">
+                  or{" "}
+                  <button
+                    type="button"
+                    onClick={onDemo}
+                    disabled={submitting || demoPending}
+                    // Underlined because its colour alone sits too close to the "or" beside it to
+                    // say it can be pressed; the line is held to about 3:1 so it is seen.
+                    className="text-(--lp-ink-2) underline decoration-[#ffffff66] underline-offset-4 transition-colors hover:text-(--lp-ink) disabled:opacity-50"
+                  >
+                    try it without an account
+                  </button>
+                </p>
+              )}
+            </div>
           </div>
         </main>
 
@@ -360,7 +371,10 @@ export function SignInForm({
           under the form on a phone. Two copies would put two "Sign in" buttons on the page for a
           screen reader, one of them hidden.
         */}
-        <p className="lp-muted mt-7 text-center text-[13.5px] lg:absolute lg:top-7 lg:right-10 lg:mt-0 lg:flex lg:h-9 lg:items-center lg:gap-1.5">
+        <p
+          style={held}
+          className="lp-muted mt-7 text-center text-[13.5px] lg:absolute lg:top-7 lg:right-10 lg:mt-0 lg:flex lg:h-9 lg:items-center lg:gap-1.5"
+        >
           {signingUp ? "Have an account?" : "No account yet?"}{" "}
           <button
             type="button"

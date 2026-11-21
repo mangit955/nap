@@ -81,6 +81,9 @@ async function sessionSurvived(): Promise<boolean> {
   }
 }
 
+/** How long the providers lookup may take before the form is shown without them. */
+const PROVIDERS_TIMEOUT_MS = 4000;
+
 export function LiveSignIn({
   notice,
   initialMode = "sign-in",
@@ -105,8 +108,8 @@ export function LiveSignIn({
     social: [],
     demo: false,
   });
-  // Whether the API has answered, either way. The providers are drawn above the email form, so
-  // until it answers the form holds their row open rather than jumping down under a thumb.
+  // Whether the API has answered, either way, or given up trying. Until then the form holds its
+  // controls hidden, because the answer moves them; see `socialPending` in the form.
   const [waysKnown, setWaysKnown] = useState(false);
 
   // A guest session is still a session. Better Auth correctly refuses to mint a second anonymous
@@ -120,8 +123,12 @@ export function LiveSignIn({
 
   useEffect(() => {
     let cancelled = false;
+    // Bounded, because the form's controls stay hidden until this answers (see `socialPending`):
+    // a lookup that hangs must give up and show the email form rather than nothing at all.
+    const lookup = new AbortController();
+    const giveUp = setTimeout(() => lookup.abort(), PROVIDERS_TIMEOUT_MS);
 
-    void credentialedFetch(`${DEFAULT_BASE_URL}/auth/providers`)
+    void credentialedFetch(`${DEFAULT_BASE_URL}/auth/providers`, { signal: lookup.signal })
       .then((response) => (response.ok ? response.json() : {}))
       .then((body: { socialProviders?: string[]; demo?: boolean }) => {
         if (cancelled) return;
@@ -141,6 +148,8 @@ export function LiveSignIn({
 
     return () => {
       cancelled = true;
+      clearTimeout(giveUp);
+      lookup.abort();
     };
   }, []);
 

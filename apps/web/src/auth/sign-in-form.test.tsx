@@ -124,15 +124,21 @@ describe("the social providers", () => {
     expect(props.onSocial).toHaveBeenCalledWith(provider);
   });
 
-  it("keeps their row's place, empty, while the API has not said which there are", () => {
-    // Drawn above the email form, a row that arrives late pushes Email down under a thumb that
-    // was already on its way to it. Empty and unannounced until there is something to offer.
+  it("hides every control while the API has not said which providers there are", () => {
+    // The answer moves the fields: a row arriving pushes Email onto a provider, an empty one
+    // pulls the submit button up to where Email was. Nothing is offered until it is known.
     setup({ socialProviders: [], socialPending: true });
 
-    const held = screen.getByTestId("providers-pending");
-    expect(held).toHaveAttribute("aria-hidden", "true");
-    expect(held.parentElement?.children).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: /^Continue with/ })).toBeNull();
+    for (const field of ["Email", "Password"]) {
+      expect(screen.getByLabelText(field)).not.toBeVisible();
+    }
+    // By text: a hidden button has no accessible name, so a role query cannot pick it out.
+    expect(screen.getByText("Sign in", { selector: "button" })).not.toBeVisible();
+    expect(screen.getByText("Create one", { selector: "button" })).not.toBeVisible();
+    // The heading is not a control and does not wait.
+    expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
+    // And the row keeps its place, so with providers configured nothing moves when it fills.
+    expect(screen.getByTestId("providers-pending").parentElement?.children).toHaveLength(2);
   });
 
   it("offers neither when neither is configured", () => {

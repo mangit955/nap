@@ -35,7 +35,7 @@ shot  --label "auth: sign-up"
 fill  --role textbox --name Name --value "Ada Lovelace"
 fill  --role textbox --name Email --value "ada-<unique>@nap.test"
 fill  --role textbox --name Password --value "a-long-test-password-123"
-click --role button --name "Create account"  # lands on /dashboard in the fixture
+click --role button --name "Create account"  # to /welcome (the key step), which in the fixture forwards to /dashboard
 ```
 
 A refused sign-in: on `/sign-in`, fill `Email` with `verify@nap.test` and `Password` with anything
@@ -47,6 +47,9 @@ wrong, click `Sign in`, then `wait --text "Invalid email or password"`. The noti
 - **Click the mode switch at desktop width, don't just find it.** The logo link once stretched
   across the header and covered it. The switch was still in the ARIA tree and component tests
   still passed, but every click went to the logo. Only a real click caught it.
+- The form's controls stay hidden until `/auth/providers` answers (or 4 s pass), because the
+  answer moves them. The driver waits for a control to be visible before acting, so no extra
+  `wait` is needed. Only the heading shows straight away.
 - The fields have no visible labels. The textboxes are named by visually hidden labels, so
   `--name Email` works.
 - The driver's window is 1440 wide. To check the phone layout, connect to the fixture's Chrome
