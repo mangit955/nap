@@ -154,6 +154,9 @@ distinct from **resume**, which already means bringing a put-away project's sand
 (`resumeSession`). A process restart leaves a job open rather than failing it; nothing continues a
 job while nobody is watching. A message sent instead does not continue it: it closes it as
 *superseded* before its own job opens, unless the log already answers it (`closingForNewJob`).
+The word means the same as for a **Proposed plan** (replaced by a newer message), but the two are
+different things: a superseded job is a stored outcome, `job.completed { outcome: "superseded" }`,
+while a superseded plan is only folded from what came after it.
 
 **Turn request** — a durable, queued intent to execute, and one row in `turn_requests`. Created by
 an API pod at admission, claimed by exactly one worker, terminal exactly once — *queued*, then

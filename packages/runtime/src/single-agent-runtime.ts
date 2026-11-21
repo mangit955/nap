@@ -1133,12 +1133,12 @@ export class SingleAgentRuntime implements Runtime {
         });
       }
 
+      await this.#closeInterrupted(scope, sandboxId.value.id, history, request);
+
       // A job opens on a prompt, and this turn belongs to it. Opened after the sandbox is in
       // hand because a job that could never run is a job nothing will ever close — and the
       // objective repeats the message on purpose, so the log answers "what was asked" without
       // a reader having to work out which message belongs to which job.
-      await this.#closeInterrupted(scope, sandboxId.value.id, history, request);
-
       const jobId = crypto.randomUUID();
       // A job carrying out a plan is for what the plan is for: "Approved" says nothing about it.
       const objective = objectiveOf(approved === undefined ? request.message : approved.title);
