@@ -771,6 +771,24 @@ describe("LiveChatPane", () => {
     expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Opus");
   });
 
+  it("sends the effort picked in the composer with the next turn, and keeps it after", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Model/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Extra high" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "add a dark theme" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    // No line was picked, so none is named and the server's default for this caller stands.
+    expect(turns[0]).toEqual({ message: "add a dark theme", effort: "xhigh" });
+    expect(screen.getByRole("button", { name: /^Model/ })).toHaveAccessibleDescription(
+      "Sol, Extra high effort",
+    );
+  });
+
   it("draws no seam and no away card, however much happened since the last visit", async () => {
     // A cursor from an earlier visit, written before this was removed, sits behind a failure —
     // exactly what used to draw both. Neither belongs in the chat any more.

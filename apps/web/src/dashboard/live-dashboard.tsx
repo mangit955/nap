@@ -171,6 +171,7 @@ function SignedInDashboard({
             models={modelOptions(models)}
             modelsLoading={modelsLoading}
             fallback={models?.fallback ?? undefined}
+            defaultEffort={models?.effort}
             onAddKey={() => setKeyPanelOpen(true)}
             onSourceChange={setDraftSource}
             settingsRequest={settingsRequest}

@@ -89,6 +89,8 @@ const EMAIL = "verify@nap.test";
  */
 const PASSWORD = randomBytes(18).toString("base64url");
 const MODEL = "verify/scripted";
+/** The one key the fixture accepts; see `verifyKey` below. Its hint is `sk-or-…FAKE`. */
+const FIXTURE_KEY = "sk-or-v1-verify-nap-fixture-key-FAKE";
 const SEEDED_SESSION = "Seeded notes app";
 /** Long enough to steer a turn by hand from the driver; short enough not to bore anyone. */
 const STEP_DELAY_MS = 2_500;
@@ -316,10 +318,13 @@ try {
     objects: new InMemoryObjectStore(),
     provider: verifyNapProvider({ stepDelayMs: STEP_DELAY_MS }),
     encryptionKey: encryptionKeyFrom(randomBytes(32).toString("base64")),
-    verifyKey: async () => ({
-      ok: false,
-      message: "Real API keys are disabled in the verify-nap fixture.",
-    }),
+    // One made-up key is accepted, so the picker can be driven as somebody with a key would see
+    // it: every line reachable, the effort column live. Nothing it unlocks spends: the model is
+    // scripted whoever pays. `doctor` checks that this is the only key a run ever holds.
+    verifyKey: async ({ apiKey }) =>
+      apiKey === FIXTURE_KEY
+        ? { ok: true }
+        : { ok: false, message: "Real API keys are disabled in the verify-nap fixture." },
     createProject: (options) => createProjectSession(db, options, { sessionList }),
     upgradeWebSocket,
   });

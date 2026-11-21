@@ -177,7 +177,7 @@ async function capture(
  * that nothing spends money, so this asks the running composition rather than trusting what the
  * fixture wrote about itself.
  */
-async function offeredModels(run: RunFile): Promise<string[]> {
+async function offeredModels(run: RunFile): Promise<{ runnable: string[]; fixtureKey: boolean }> {
   const signedIn = await fetch(`${run.api}/api/auth/sign-in/email`, {
     method: "POST",
     headers: { origin: run.web, "content-type": "application/json" },
@@ -195,14 +195,17 @@ async function offeredModels(run: RunFile): Promise<string[]> {
   });
   if (!listed.ok) throw new Error(`/models answered ${listed.status}`);
   const body = ModelListSchema.parse(await listed.json());
-  // What this caller could actually run: the free model, and any line their key reaches, by the
-  // version it would run. A line that is listed but locked costs nothing.
-  return [
-    ...(body.free === null ? [] : [body.free.id]),
-    ...body.lines.flatMap((line) =>
-      line.available && line.version !== null ? [line.version] : [],
-    ),
-  ];
+  // A line reachable means a key is saved, and the only one the fixture accepts is its made-up
+  // one (`FIXTURE_KEY` in apps/api/scripts/verify-nap.ts), whose turns still run on the scripted
+  // model. Under any other key its lines are counted, and fail the check.
+  const fixtureKey = body.key.configured && body.key.hint === "sk-or-…FAKE";
+  return {
+    fixtureKey,
+    runnable: [
+      ...(body.free === null ? [] : [body.free.id]),
+      ...(fixtureKey ? [] : body.lines.flatMap((line) => (line.available ? [line.key] : []))),
+    ],
+  };
 }
 
 async function doctor(run: RunFile): Promise<boolean> {
@@ -225,8 +228,10 @@ async function doctor(run: RunFile): Promise<boolean> {
     await check(`previewed app answers ${run.preview}`, answers(run.preview)),
     await check(`Chrome DevTools answers ${run.cdp}`, answers(`${run.cdp}/json/version`)),
     await check("the API offers only scripted fake models (verify/*)", async () => {
-      const models = await offeredModels(run);
-      return models.length > 0 && models.every((id) => id.startsWith("verify/"));
+      const { runnable, fixtureKey } = await offeredModels(run);
+      return (
+        (runnable.length > 0 || fixtureKey) && runnable.every((id) => id.startsWith("verify/"))
+      );
     }),
   ];
   console.log(

@@ -33,7 +33,7 @@ describe("the first turn of a project made from the front page", () => {
 
     render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
 
-    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined, undefined);
+    expect(submit).toHaveBeenCalledWith("a habit tracker", {}, undefined);
   });
 
   it("is sent exactly once, however often the effect runs", () => {
@@ -59,7 +59,7 @@ describe("the first turn of a project made from the front page", () => {
     expect(submit).not.toHaveBeenCalled();
 
     view.rerender(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
-    expect(submit).toHaveBeenCalledWith("a habit tracker", undefined, undefined);
+    expect(submit).toHaveBeenCalledWith("a habit tracker", {}, undefined);
   });
 
   it("sends nothing when the visitor simply opened an old project", () => {
@@ -80,12 +80,16 @@ describe("the first turn of a project made from the front page", () => {
     expect(window.sessionStorage.getItem("nap.first-prompt")).not.toBeNull();
   });
 
-  it("sends the dashboard model with the first turn", () => {
-    stashFirstPrompt(PROJECT, { text: "a habit tracker", model: "anthropic/claude-opus-5" });
+  it("sends the dashboard model and effort with the first turn", () => {
+    stashFirstPrompt(PROJECT, { text: "a habit tracker", model: "opus", effort: "high" });
     const submit = vi.fn();
 
     render(<Probe projectId={PROJECT} sessionId={SESSION} submit={submit} />);
 
-    expect(submit).toHaveBeenCalledWith("a habit tracker", "anthropic/claude-opus-5", undefined);
+    expect(submit).toHaveBeenCalledWith(
+      "a habit tracker",
+      { model: "opus", effort: "high" },
+      undefined,
+    );
   });
 });

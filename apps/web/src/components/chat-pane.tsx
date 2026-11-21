@@ -1,7 +1,7 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
-
+import type { Effort } from "@nap/shared/model-lines";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import {
   type ReactNode,
@@ -85,6 +85,9 @@ export function ChatPane({
   models,
   model,
   onModelChange,
+  effort,
+  defaultEffort,
+  onEffortChange,
   onAddKey,
   computerNotice,
   composer,
@@ -143,6 +146,9 @@ export function ChatPane({
   computerNotice?: ((onChange: (shown: string) => void) => ReactNode) | undefined;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
+  effort?: Effort | undefined;
+  defaultEffort?: Effort | undefined;
+  onEffortChange?: ((effort: Effort) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
   onAddKey?: (() => void) | undefined;
   /**
@@ -310,6 +316,9 @@ export function ChatPane({
                 {...(models === undefined ? {} : { models })}
                 {...(model === undefined ? {} : { model })}
                 {...(onModelChange === undefined ? {} : { onModelChange })}
+                effort={effort}
+                defaultEffort={defaultEffort}
+                onEffortChange={onEffortChange}
                 {...(onAddKey === undefined ? {} : { onAddKey })}
               />
             )}
@@ -505,8 +514,10 @@ export function LiveChatPane({
   // Held here rather than in the composer: the choice has to outlive the box being cleared on
   // send, and a retry has to go out on the same model the user picked.
   const [chosen, setModel] = useState<string | undefined>(() => handedOver?.model);
+  const [effort, setEffort] = useState<Effort | undefined>(() => handedOver?.effort);
   // What goes on the wire: the choice as a line, never a stale id a draft held.
   const model = sendableModel(options, chosen);
+  const choice = { model, effort };
   const [firstPrompt, setFirstPrompt] = useState<FirstPrompt>();
   /**
    * The front page's prompt, shown from the first frame, before there is a session to send it to.
@@ -528,13 +539,14 @@ export function LiveChatPane({
   useFirstPrompt({
     projectId,
     sessionId,
-    submit: (message, firstModel, attachments) => {
-      // The dashboard's selected model is part of its first prompt. Put it in the workspace
-      // state before sending, so the composer stays truthful for the turns that follow.
-      if (firstModel !== undefined) setModel(firstModel);
+    submit: (message, first, attachments) => {
+      // The dashboard's selected model and effort are part of its first prompt. Put them in the
+      // workspace state before sending, so the composer stays truthful for the turns that follow.
+      if (first.model !== undefined) setModel(first.model);
+      if (first.effort !== undefined) setEffort(first.effort);
       setEarly(undefined);
-      setFirstPrompt({ text: message, model: firstModel, attachments });
-      void submit(message, firstModel, attachments).then((accepted) => {
+      setFirstPrompt({ text: message, ...first, attachments });
+      void submit(message, first, attachments).then((accepted) => {
         if (accepted) setFirstPrompt(undefined);
       });
     },
@@ -572,26 +584,31 @@ export function LiveChatPane({
         onOpenChanges={onOpenChanges}
         onSubmit={(message, attachments, mode) => {
           setFirstPrompt(undefined);
-          void submit(message, model, attachments, mode === "plan" ? PROPOSE : undefined);
+          void submit(message, choice, attachments, mode === "plan" ? PROPOSE : undefined);
         }}
         onCancel={() => void cancel()}
         // The same submission path as the input: a retry is an ordinary turn, and routing it
         // anywhere else would give it different rate-limit and optimistic-message behaviour.
         onRetry={(message, attachments, plan, fixesTest) =>
-          void submit(message, model, attachments, plan, fixesTest)
+          void submit(message, choice, attachments, plan, fixesTest)
         }
         // Approving and revising are messages too, through the same path, so a plan card's click
         // gets the composer's optimistic message, rate limit and refusal wording (ADR-0025).
         planActions={{
           approve: (planTurnId) =>
-            void submit(APPROVAL_MESSAGE, model, undefined, { intent: "approve", planTurnId }),
-          propose: (message) => void submit(message, model, undefined, PROPOSE),
+            void submit(APPROVAL_MESSAGE, choice, undefined, { intent: "approve", planTurnId }),
+          propose: (message) => void submit(message, choice, undefined, PROPOSE),
         }}
-        onTestApp={(jobId) => void startTest(jobId, model ?? list?.fallback ?? undefined)}
+        onTestApp={(jobId) =>
+          void startTest(jobId, { model: model ?? list?.fallback ?? undefined, effort })
+        }
         files={files ?? []}
         models={options}
         model={model ?? list?.fallback ?? undefined}
         onModelChange={setModel}
+        effort={effort}
+        defaultEffort={list?.effort}
+        onEffortChange={setEffort}
         onAddKey={() => setKeyPanelOpen(true)}
         computerNotice={(onChange) => (
           <ComputerRecoveryNotice
