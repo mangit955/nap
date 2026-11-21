@@ -1,6 +1,6 @@
 import type { NapEvent } from "@nap/shared/events";
 import { describe, expect, it } from "vitest";
-import { prepareCompaction, summaryRequest } from "./compaction.ts";
+import { prepareCompaction, SUMMARY_REASONING_TOKENS, summaryRequest } from "./compaction.ts";
 import { compactionHistoryPath, renderHistoryEntries } from "./compaction-history.ts";
 
 const envelope = {
@@ -108,6 +108,8 @@ describe("compaction planning", () => {
       historyFile: path,
     });
     expect(request.systemPrompt).toContain(path);
+    // The summary's room plus the reasoning's, in the request where the turn budget prices it.
+    expect(request.maxOutputTokens).toBe(256 + SUMMARY_REASONING_TOKENS);
     for (const section of ["Overview", "Key details", "Current state and next steps"])
       expect(request.systemPrompt).toContain(section);
     expect(request.systemPrompt).toMatch(/#42/);

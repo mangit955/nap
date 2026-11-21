@@ -1,18 +1,24 @@
-// Exact IDs keep a newly configured model text-only until its image input is verified.
+import { lineOf } from "./model-lines.ts";
+
+/**
+ * Exact ids outside every line whose image input has been checked: models a deployment may name
+ * for its free tier. A line's versions answer from the line instead (`ModelLine.images`), so a new
+ * version is not text-only for want of a row here.
+ */
 const IMAGE_MODELS = new Set([
-  "openai/gpt-5.6-luna",
-  "openai/gpt-5.6-terra",
-  "openai/gpt-5.6-sol",
-  "anthropic/claude-sonnet-5",
-  "anthropic/claude-opus-5",
   // Free. Read a screenshot inside a tool result through OpenRouter's Messages route, which is
   // the shape the computer tool sends. Its one app test failed — docs/computer-use.md, "A free
   // image model".
   "nvidia/nemotron-3.5-super-vl:free",
 ]);
 
+/**
+ * Whether a turn on this exact model may be sent images. Anything not known to take them is
+ * text-only, so an unchecked model is never sent a screenshot it would reject.
+ */
 export function modelSupportsImages(model: string | undefined): boolean {
-  return model !== undefined && IMAGE_MODELS.has(model);
+  if (model === undefined) return false;
+  return lineOf(model)?.images ?? IMAGE_MODELS.has(model);
 }
 
 export const MODEL_MEDIA_UNSUPPORTED =

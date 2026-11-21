@@ -16,6 +16,7 @@
  * no reset to forget, and two turns in flight at once cannot corrupt each other.
  */
 
+import type { Effort } from "../model-lines.ts";
 import type { BilledWeights, TokenUsage } from "../usage.ts";
 
 /**
@@ -82,8 +83,8 @@ export type LLMToolDefinition = {
 export type LLMRequest = {
   /**
    * A short, tool-free request outside the agent's own loop: a compaction summary, or a session
-   * title (docs/adr/0031). Both are asked for without thinking, which a summary does not need and
-   * a five-word title should not pay for.
+   * title (docs/adr/0031). A title is asked for without thinking, which five words should not pay
+   * for; a summary at the lowest effort, because the newest versions refuse thinking off.
    */
   purpose?: "compaction" | "title";
   maxOutputTokens?: number;
@@ -172,6 +173,11 @@ export type ModelCredentials = {
 export type LLMTurnOptions = {
   /** Absent means the provider's configured default, which is the normal case. */
   model?: string | undefined;
+  /**
+   * How hard the model thinks on this turn's own steps. Absent means the provider's configured
+   * default. Summaries and titles ignore it: they are the provider's policy, not the person's.
+   */
+  effort?: Effort | undefined;
   /**
    * Absent means this deployment's own account — which is what a turn on the free models runs
    * on, and what every turn ran on before anyone could bring a key.

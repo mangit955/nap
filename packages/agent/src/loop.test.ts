@@ -316,8 +316,9 @@ describe("recovering", () => {
   });
 
   it.each([
-    ["openai/gpt-5.6-luna", "anthropic/claude-fable-5", false],
-    ["anthropic/claude-fable-5", "openai/gpt-5.6-luna", true],
+    // A model no line claims is text-only.
+    ["openai/gpt-5.6-luna", "vendor/text-only", false],
+    ["vendor/text-only", "openai/gpt-5.6-luna", true],
   ])(
     "selects computer availability again when %s falls back to %s",
     async (model, fallbackModel, computer) => {

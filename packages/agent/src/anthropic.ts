@@ -22,11 +22,12 @@ const NAMESPACE = "anthropic/";
 /**
  * The first-party model id for a model named the way the rest of the codebase names it.
  *
- * `anthropic/claude-opus-5` → `claude-opus-5`. Anything else is passed through untouched: an
- * id from another vendor cannot be made valid here by rewriting it, and turning
- * `openai/gpt-5.6-luna` into something Anthropic-shaped would hide a routing mistake that the
- * model allowlist is supposed to catch first.
+ * `anthropic/claude-opus-5.5` → `claude-opus-5-5`: the namespace goes, and so does the dot,
+ * because Anthropic's own API spells a version with hyphens where OpenRouter uses a dot. Anything
+ * else is passed through untouched: an id from another vendor cannot be made valid here by
+ * rewriting it, and turning `openai/gpt-6.2-sol` into something Anthropic-shaped would hide a
+ * routing mistake that the access rules are supposed to catch first.
  */
 export function toDirectAnthropicModel(model: string): string {
-  return model.startsWith(NAMESPACE) ? model.slice(NAMESPACE.length) : model;
+  return model.startsWith(NAMESPACE) ? model.slice(NAMESPACE.length).replaceAll(".", "-") : model;
 }

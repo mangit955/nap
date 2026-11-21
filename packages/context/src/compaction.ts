@@ -108,6 +108,17 @@ export function textOnlyContext(value: unknown): string {
 }
 
 /**
+ * How much a summary may spend thinking, on top of the summary itself.
+ *
+ * A summary is asked for with adaptive thinking at `low`, because the newest versions of most lines
+ * refuse thinking off (`toRequestParams` in `@nap/agent/claude-provider`). Thinking tokens count
+ * against the output ceiling, so the ceiling grows by this much, or the reasoning could eat the
+ * room the summary was given. In the request rather than added by the provider, so the turn budget
+ * prices the whole ceiling before it admits the call.
+ */
+export const SUMMARY_REASONING_TOKENS = 8_192;
+
+/**
  * One bounded, tool-free call that folds the next fragment into the running summary.
  *
  * The shape asked for is what the agent needs on the other side of the compaction: where the
@@ -125,7 +136,7 @@ export function summaryRequest(options: {
 }): LLMRequest {
   return {
     purpose: "compaction",
-    maxOutputTokens: options.maxOutputTokens,
+    maxOutputTokens: options.maxOutputTokens + SUMMARY_REASONING_TOKENS,
     systemPrompt: summaryInstructions(options.historyFile),
     messages: [
       {
