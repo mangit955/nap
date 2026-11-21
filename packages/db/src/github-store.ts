@@ -213,6 +213,7 @@ export class PostgresGitHubStore implements GitHubStore {
           kind: "resume",
           message: null,
           model: input.open.model,
+          effort: input.open.effort ?? null,
           billsToUser: input.open.billsToUser,
         });
       }

@@ -5,6 +5,7 @@ import { FAKE_OWNER, InMemoryProjectStore } from "@nap/db/testing/in-memory-proj
 import { InMemorySessionStore } from "@nap/db/testing/in-memory-session-store";
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemoryTurnRateLimiter } from "@nap/db/testing/in-memory-turn-rate-limiter";
+import type { LineKey } from "@nap/shared/model-lines";
 import type { CancelChannel } from "@nap/shared/ports/cancel-channel";
 import { UNTITLED_PROJECT } from "@nap/shared/project-title";
 import type { Hono } from "hono";
@@ -12,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
 import type { SessionTitles } from "../projects/session-titler.ts";
+import type { ModelPolicy } from "./model-access.ts";
 import { TurnRegistry } from "./registry.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
@@ -59,12 +61,10 @@ function app(
         ...(cancels === undefined ? {} : { cancels }),
         titles,
         projects,
-        allowedModels: ALLOWED,
+        models: policy(),
         // Somebody who brought their own key, which is what most of these tests are about —
         // the free tier's narrower rules have their own block below.
         keys: async () => OPENROUTER_KEY,
-        freeModel: FREE_MODEL,
-        defaultModel: ALLOWED[0] ?? "",
         // Linked to the project store, so the name the route reads off the session is the
         // project's, exactly as the real join hands it over.
         sessions: new InMemorySessionStore(
@@ -88,10 +88,23 @@ const post = (hono: { request: Hono["request"] }, path: string, body?: unknown) 
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
-/** What this deployment will run a turn on, as the route enforces it. */
-const ALLOWED = ["openai/gpt-5.6-luna", "anthropic/claude-opus-5", "openai/gpt-oss-20b:free"];
-/** What a turn runs on when nobody is paying for it. */
+/** What a turn runs on when nobody is paying for it. Text-only: no line claims it. */
 const FREE_MODEL = "openai/gpt-oss-20b:free";
+/** The version each line runs on in these tests. Fable has none. */
+const VERSIONS: Partial<Record<LineKey, string>> = {
+  sol: "openai/gpt-6.2-sol",
+  luna: "openai/gpt-5.6-luna",
+  opus: "anthropic/claude-opus-5",
+};
+/** What this deployment will run a turn on, as the route enforces it. */
+function policy(freeModel: string | null = FREE_MODEL): ModelPolicy {
+  return {
+    versionOf: (line) => VERSIONS[line] ?? null,
+    // Null is no free tier; a default parameter would read `undefined` as "use the default".
+    freeModel: freeModel ?? undefined,
+    freeEffort: "low",
+  };
+}
 /** A caller who brought their own key, and may therefore reach the paid models. */
 const OPENROUTER_KEY = { platform: "openrouter", apiKey: "sk-or-theirs" } as const;
 
@@ -170,7 +183,7 @@ describe("POST /sessions/:sessionId/turns", () => {
     ];
     const res = await post(hono, `/sessions/${SESSION}/turns`, {
       message: "Match this flow",
-      model: ALLOWED[1],
+      model: "opus",
       attachments,
     });
     expect(res.status).toBe(202);
@@ -565,7 +578,7 @@ describe("POST /sessions/:sessionId/turns/cancel", () => {
         userId: "somebody-else",
         kind: "turn",
         message: "theirs",
-        model: ALLOWED[0] ?? "",
+        model: "openai/gpt-5.6-luna",
         billsToUser: false,
       });
       await queue.claim("their-pod");
@@ -627,7 +640,9 @@ describe("limits", () => {
     sessionSandboxId?: string | null;
     /** Passed in when a test needs to look at what the allowance actually recorded. */
     rate?: InMemoryTurnRateLimiter;
-    allowedModels?: string[];
+    freeRate?: InMemoryTurnRateLimiter;
+    /** The free tier's model; the default one is text-only. */
+    freeModel?: string;
   }) {
     const projects = new InMemoryProjectStore(
       (options.running ?? []).map((project, i) => ({
@@ -653,10 +668,8 @@ describe("limits", () => {
         queue: options.queue,
         registry: new TurnRegistry(),
         projects: unnamedProject(),
-        allowedModels: options.allowedModels ?? ALLOWED,
+        models: policy(options.freeModel),
         keys: async () => (options.noKey === true ? null : OPENROUTER_KEY),
-        freeModel: FREE_MODEL,
-        defaultModel: ALLOWED[0] ?? "",
         sessions: new InMemorySessionStore([
           {
             sessionId: SESSION,
@@ -671,10 +684,12 @@ describe("limits", () => {
               limit: options.turns ?? 100,
               windowMs: 60 * 60 * 1000,
             }),
-          freeRate: new InMemoryTurnRateLimiter({
-            limit: options.freeTurns ?? 100,
-            windowMs: 60 * 60 * 1000,
-          }),
+          freeRate:
+            options.freeRate ??
+            new InMemoryTurnRateLimiter({
+              limit: options.freeTurns ?? 100,
+              windowMs: 60 * 60 * 1000,
+            }),
           projects,
           sandboxes: { perUser: options.perUser ?? 100, total: options.total ?? 100 },
           freeSandboxes: {
@@ -704,11 +719,12 @@ describe("limits", () => {
   });
 
   it.each(["nvidia/nemotron-3-ultra-550b-a55b:free", "custom/unknown-model"])(
-    "refuses new references on %s before spending allowance or queuing work",
+    "refuses new references on the free tier's %s before spending allowance or queuing work",
     async (model) => {
+      // Every line takes images; a free model no line claims may not.
       const queue = new InMemoryTurnQueue();
       const rate = new InMemoryTurnRateLimiter({ limit: 1, windowMs: 60_000 });
-      const hono = limited({ queue, rate, allowedModels: [...ALLOWED, model] });
+      const hono = limited({ queue, freeRate: rate, noKey: true, freeModel: model });
       const refused = await post(hono, `/sessions/${SESSION}/turns`, {
         message: "Use this reference",
         model,
@@ -736,17 +752,41 @@ describe("limits", () => {
     },
   );
 
-  it("writes an allowed model onto the request", async () => {
+  it("writes the version of the line asked for onto the request, with its effort", async () => {
+    // The line is the person's choice; the version is what runs and what is billed, so it is
+    // the version that is queued. The effort travels beside it to the worker.
     const queue = new InMemoryTurnQueue();
     const hono = limited({ queue });
 
     const accepted = await post(hono, `/sessions/${SESSION}/turns`, {
       message: "hello",
-      model: "anthropic/claude-opus-5",
+      model: "opus",
+      effort: "max",
     });
 
     expect(accepted.status).toBe(202);
-    expect(queue.enqueued[0]).toMatchObject({ model: "anthropic/claude-opus-5" });
+    expect(queue.enqueued[0]).toMatchObject({ model: "anthropic/claude-opus-5", effort: "max" });
+  });
+
+  it("refuses an effort the provider would not take, before queuing anything", async () => {
+    const queue = new InMemoryTurnQueue();
+    const refused = await post(limited({ queue }), `/sessions/${SESSION}/turns`, {
+      message: "hello",
+      effort: "maximum",
+    });
+    expect(refused.status).toBe(400);
+    expect(queue.enqueued).toEqual([]);
+  });
+
+  it("answers 409 for a line with no working version, and queues nothing", async () => {
+    const queue = new InMemoryTurnQueue();
+    const refused = await post(limited({ queue }), `/sessions/${SESSION}/turns`, {
+      message: "hello",
+      model: "fable",
+    });
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toMatchObject({ code: "model_unavailable" });
+    expect(queue.enqueued).toEqual([]);
   });
 
   it("resolves the default itself rather than leaving the worker to apply one", async () => {
@@ -754,13 +794,14 @@ describe("limits", () => {
     // any more: which default is right depends on who is asking — a paid one for somebody
     // spending their own money, a free one for everybody else — and that is a fact only this
     // layer has. Leaving it unset would mean a key-less turn silently falling through to
-    // `NAP_MODEL`, which this deployment pays for.
+    // whatever the provider defaults to, which this deployment pays for.
     const queue = new InMemoryTurnQueue();
     const hono = limited({ queue });
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ model: ALLOWED[0] });
+    // An OpenRouter key's default line is Sol, at medium.
+    expect(queue.enqueued[0]).toMatchObject({ model: "openai/gpt-6.2-sol", effort: "medium" });
   });
 
   it("marks a turn as billed to the caller when they brought a key", async () => {
@@ -784,7 +825,12 @@ describe("limits", () => {
 
     await post(hono, `/sessions/${SESSION}/turns`, { message: "hello" });
 
-    expect(queue.enqueued[0]).toMatchObject({ billsToUser: false, model: FREE_MODEL });
+    expect(queue.enqueued[0]).toMatchObject({
+      billsToUser: false,
+      model: FREE_MODEL,
+      // The deployment pays, so the deployment's effort.
+      effort: "low",
+    });
   });
 
   it("refuses a paid model to somebody with no key, and says a key is what is missing", async () => {
@@ -795,7 +841,7 @@ describe("limits", () => {
 
     const refused = await post(hono, `/sessions/${SESSION}/turns`, {
       message: "hello",
-      model: "anthropic/claude-opus-5",
+      model: "opus",
     });
 
     expect(refused.status).toBe(403);
@@ -1170,7 +1216,7 @@ it("queues only an approved completed job for app testing, with no client prompt
     (
       await post(f.app, `/sessions/${SESSION}/tests`, {
         jobId,
-        model: "anthropic/claude-opus-5",
+        model: "opus",
         message: "untrusted instructions",
       })
     ).status,
@@ -1179,32 +1225,32 @@ it("queues only an approved completed job for app testing, with no client prompt
     (
       await post(f.app, `/sessions/${SESSION}/tests`, {
         jobId: crypto.randomUUID(),
-        model: "anthropic/claude-opus-5",
+        model: "opus",
       })
     ).status,
   ).toBe(409);
-  expect(
-    (await post(f.app, `/sessions/${UNKNOWN}/tests`, { jobId, model: "anthropic/claude-opus-5" }))
-      .status,
-  ).toBe(404);
+  expect((await post(f.app, `/sessions/${UNKNOWN}/tests`, { jobId, model: "opus" })).status).toBe(
+    404,
+  );
   expect(
     (await post(f.app, `/sessions/${SESSION}/tests`, { jobId, model: FREE_MODEL })).status,
   ).toBe(400);
   const accepted = await post(f.app, `/sessions/${SESSION}/tests`, {
     jobId,
-    model: "anthropic/claude-opus-5",
+    model: "opus",
+    effort: "high",
   });
   expect(accepted.status).toBe(202);
   expect(f.queue.enqueued[0]).toMatchObject({
     kind: "test",
     message: jobId,
     model: "anthropic/claude-opus-5",
+    effort: "high",
     billsToUser: true,
   });
-  expect(
-    (await post(f.app, `/sessions/${SESSION}/tests`, { jobId, model: "anthropic/claude-opus-5" }))
-      .status,
-  ).toBe(409);
+  expect((await post(f.app, `/sessions/${SESSION}/tests`, { jobId, model: "opus" })).status).toBe(
+    409,
+  );
 });
 
 describe("admission's lookups", () => {
@@ -1233,10 +1279,8 @@ describe("admission's lookups", () => {
         queue,
         registry: new TurnRegistry(),
         projects: unnamedProject(),
-        allowedModels: ALLOWED,
+        models: policy(),
         keys,
-        freeModel: FREE_MODEL,
-        defaultModel: ALLOWED[0] ?? "",
         sessions,
       },
     });
@@ -1314,10 +1358,8 @@ describe("when the deployment pays for nobody", () => {
         queue,
         registry: new TurnRegistry(),
         projects,
-        allowedModels: ALLOWED,
+        models: policy(null),
         keys: async () => null,
-        freeModel: undefined,
-        defaultModel: ALLOWED[0] ?? "",
         sessions: new InMemorySessionStore([{ sessionId: SESSION, projectId: "project-1" }], {
           projects,
         }),

@@ -5,7 +5,13 @@ import type { SessionStartStore } from "@nap/shared/ports/session-start-store";
 import { Hono } from "hono";
 import { expect, it, vi } from "vitest";
 import type { AuthVariables } from "../auth/require-user.ts";
+import type { ModelPolicy } from "../turns/model-access.ts";
 import { registerSessionStartRoutes } from "./start-routes.ts";
+
+/** Every line on one version; `freeModel` is the free tier, absent for none. */
+function policy(freeModel: string | undefined): ModelPolicy {
+  return { versionOf: () => "vendor/paid", freeModel, freeEffort: "medium" };
+}
 
 it("validates model access before creating and replays an admitted operation before checking limits", async () => {
   const result = { projectId: randomUUID(), sessionId: randomUUID(), requestId: randomUUID() };
@@ -23,12 +29,12 @@ it("validates model access before creating and replays an admitted operation bef
     store,
     projects: new InMemoryProjectStore(),
     webOrigin: "https://nap.example",
-    admission: { allowedModels: ["free", "paid"], freeModel: "free", defaultModel: "paid" },
+    admission: { models: policy("free") },
   });
   const body = {
     operationId: randomUUID(),
     source: { kind: "template" },
-    prompt: { message: "Build a page", model: "paid" },
+    prompt: { message: "Build a page", model: "sol" },
   };
   const send = () =>
     app.request("/sessions/start", {
@@ -66,7 +72,7 @@ it("refuses a guest's repository start with the code that asks it to sign in", a
     store,
     projects: new InMemoryProjectStore(),
     webOrigin: "https://nap.example",
-    admission: { allowedModels: ["free"], freeModel: "free", defaultModel: "free" },
+    admission: { models: policy("free") },
   });
 
   const response = await app.request("/sessions/start", {
@@ -110,7 +116,7 @@ it("writes the seed at once and asks for a model's title only after the session 
     store,
     projects: new InMemoryProjectStore(),
     webOrigin: "https://nap.example",
-    admission: { allowedModels: ["free"], freeModel: "free", defaultModel: "free" },
+    admission: { models: policy("free") },
     titles,
   });
   const start = (prompt: { message: string }) =>
@@ -145,7 +151,7 @@ it("refuses a caller with no key when the deployment pays for nobody, and starts
     store,
     projects: new InMemoryProjectStore(),
     webOrigin: "https://nap.example",
-    admission: { allowedModels: ["free:free", "paid"], freeModel: undefined, defaultModel: "paid" },
+    admission: { models: policy(undefined) },
   });
 
   for (const model of [undefined, "free:free"]) {

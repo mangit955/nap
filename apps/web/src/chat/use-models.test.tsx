@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { modelList } from "../testing/model-list.ts";
 import { useModels } from "./use-models.ts";
 
 /**
@@ -12,16 +13,7 @@ import { useModels } from "./use-models.ts";
  * Both mutations proved exactly that before `settle` existed.
  */
 
-const LIST = {
-  models: [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
-    { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true, available: true },
-  ],
-  fallback: "openai/gpt-5.6-luna",
-  // Whether this caller brought their own key, which is what decides the flags above.
-  key: { configured: true, platform: "openrouter", hint: "sk-or-…4f2a" },
-};
+const LIST = modelList();
 
 const answering =
   (body: unknown, status = 200) =>
@@ -71,7 +63,7 @@ describe("useModels", () => {
     // An unvalidated body puts an undefined id on a turn, which the route then refuses for
     // naming a model that is not a string — a failure reported two layers from its cause.
     const { result } = renderHook(() =>
-      useModels({ fetchJson: answering({ models: [{ id: 7, label: "seven" }], fallback: "x" }) }),
+      useModels({ fetchJson: answering({ lines: [{ key: 7, label: "seven" }], fallback: "x" }) }),
     );
 
     await settle();
@@ -82,7 +74,7 @@ describe("useModels", () => {
     // An empty list would hide the picker, which looks identical to the endpoint being down —
     // and the schema says a deployment always has at least one model.
     const { result } = renderHook(() =>
-      useModels({ fetchJson: answering({ models: [], fallback: "x" }) }),
+      useModels({ fetchJson: answering({ ...LIST, lines: [] }) }),
     );
 
     await settle();

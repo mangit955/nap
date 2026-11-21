@@ -59,8 +59,9 @@ const OWNERSHIP = [
   },
   {
     component: "LLMProvider",
-    owns: "Model policy — effort, thinking configuration, refusal and fallback, retries, usage accounting.",
-    never: "Deciding which models a caller may reach. That is the route's.",
+    owns: "Model policy — thinking configuration, refusal and fallback, retries, usage accounting.",
+    never:
+      "Deciding which model lines a caller may reach, or which version a line runs. That is the route's.",
   },
   {
     component: "SandboxManager",

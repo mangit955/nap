@@ -1,104 +1,203 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ModelPicker, modelInUse } from "./model-picker.tsx";
+import { modelOption } from "../testing/model-options.ts";
+import { resolveEffortGlyph } from "./model-picker/effort-glyph.tsx";
+import { ModelPicker } from "./model-picker.tsx";
 
 /**
- * What a caller may run is the server's decision; this only draws it. The cases worth pinning
- * are the two that get the *money* question wrong if they regress: a locked model must not be
- * selectable, and a locked model must not be what the composer says a message will run on.
+ * What a caller may run is the server's decision; this only draws it. The cases worth pinning are
+ * the ones that get the *money* question wrong if they regress — a locked line must not be
+ * selectable, nor named as what a message will run on — and the effort a turn is sent with.
  */
 
-const MODELS = [
-  { id: "openai/gpt-5.6-luna", label: "Gpt 5.6 Luna", free: false, available: false },
-  { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: false },
-  { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true, available: true },
+const FREE = modelOption({
+  id: "openai/gpt-oss-20b:free",
+  label: "Gpt Oss 20b",
+  free: true,
+  vendor: null,
+  images: false,
+  efforts: [],
+});
+const LINES = [
+  modelOption({ id: "sol", label: "Sol", version: "openai/gpt-6.2-sol", isNew: true }),
+  modelOption({ id: "luna", label: "Luna", version: "openai/gpt-6-luna" }),
+  modelOption({
+    id: "opus",
+    label: "Opus",
+    vendor: "anthropic",
+    version: "anthropic/claude-opus-5.5",
+  }),
+  modelOption({
+    id: "fable",
+    label: "Fable",
+    vendor: "anthropic",
+    version: null,
+    available: false,
+  }),
+  modelOption({
+    id: "muse-ember",
+    label: "Muse Ember",
+    vendor: "meta",
+    version: "meta/muse-ember",
+  }),
 ];
 
 function open(props: Partial<Parameters<typeof ModelPicker>[0]> = {}) {
-  const handlers = { onChange: vi.fn(), onAddKey: vi.fn() };
-  render(<ModelPicker models={MODELS} model={undefined} {...handlers} {...props} />);
-  fireEvent.click(screen.getByRole("button", { name: "Model" }));
+  const handlers = {
+    onChange: vi.fn(),
+    onAddKey: vi.fn(),
+    onEffortChange: vi.fn(),
+    onPick: vi.fn(),
+  };
+  render(<ModelPicker models={LINES} model="sol" {...handlers} {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: /^Model/ }));
   return handlers;
 }
 
-describe("a model this caller cannot reach", () => {
-  it("is still listed, so nobody has to guess the product is smaller than it is", () => {
-    open();
+const tab = (name: string) =>
+  fireEvent.click(
+    within(screen.getByRole("toolbar", { name: "Vendors" })).getByRole("button", { name }),
+  );
 
-    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).toBeInTheDocument();
+describe("the trigger", () => {
+  it("names the line a message will run on, with its effort in bars", () => {
+    render(
+      <ModelPicker
+        models={LINES}
+        model="opus"
+        effort="high"
+        onChange={vi.fn()}
+        onEffortChange={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: /^Model/ });
+    // Named for its job, described by its setting, so a screen reader hears both.
+    expect(trigger).toHaveAccessibleName("Model");
+    expect(trigger).toHaveAccessibleDescription("Opus, High effort");
+    expect(trigger.querySelector("[data-effort-glyph]")).not.toBeNull();
   });
 
-  it("says why, in words a screen reader reaches", () => {
-    // Deliberately not a `disabled` button: that is unreachable by keyboard and unannounced,
-    // so the one explanation would be visible only to people using a mouse and eyes.
-    open();
+  it("writes Max out rather than drawing a full row of bars", () => {
+    expect(resolveEffortGlyph(["low", "medium", "high", "xhigh", "max"], "max")).toEqual({
+      count: 4,
+      filled: 4,
+      word: "Max",
+    });
+    expect(resolveEffortGlyph(["low", "medium", "high", "xhigh", "max"], "medium")).toEqual({
+      count: 4,
+      filled: 2,
+      word: null,
+    });
+  });
 
-    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).toHaveAccessibleDescription(
-      "needs your key",
+  it("never names a locked line as the one in use", () => {
+    render(<ModelPicker models={LINES} model="fable" onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Sol");
+  });
+});
+
+describe("the list", () => {
+  it("opens on the vendor of the line in use, with T3's New badge", () => {
+    open();
+    const list = screen.getByRole("list", { name: "Model" });
+    expect(list).toHaveTextContent("Sol");
+    expect(list).toHaveTextContent("Luna");
+    expect(list).not.toHaveTextContent("Opus");
+    expect(within(list).getByText("New")).toHaveTextContent("New model");
+    expect(screen.getByRole("button", { name: /Sol, OpenAI, in use/ })).toHaveAttribute(
+      "aria-current",
+      "true",
     );
   });
 
-  it("opens the key form instead of being chosen", () => {
-    const handlers = open();
+  it("switches vendor from the rail", () => {
+    open();
+    tab("Meta");
+    expect(screen.getByRole("list", { name: "Model" })).toHaveTextContent("Muse Ember");
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: /Claude Opus 5/ }));
+  it("searches every vendor at once", () => {
+    open();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search models" }), {
+      target: { value: "o" },
+    });
+    const list = screen.getByRole("list", { name: "Model" });
+    expect(list).toHaveTextContent("Sol");
+    expect(list).toHaveTextContent("Opus");
+    expect(list).not.toHaveTextContent("Muse Ember");
+  });
 
+  it("keeps a locked line listed, says why, and opens the key form instead of choosing it", () => {
+    const handlers = open({
+      models: LINES.map((line) => (line.id === "opus" ? { ...line, available: false } : line)),
+    });
+    tab("Anthropic");
+    const opus = screen.getByRole("button", { name: /Opus/ });
+    // Not `disabled`: that is unreachable by keyboard and unannounced.
+    expect(opus).toHaveAccessibleDescription("needs your key");
+    fireEvent.click(opus);
     expect(handlers.onAddKey).toHaveBeenCalled();
-    // The half that matters: picking it must not set it as the model, or the next message is
-    // sent on a model the server will refuse.
     expect(handlers.onChange).not.toHaveBeenCalled();
   });
-});
 
-describe("what the composer says it will run on", () => {
-  it("labels an unverified image model as text only without blocking text selection", () => {
-    const handlers = open();
-    const option = screen.getByRole("button", { name: /Gpt Oss 20b/ });
-    expect(option).toHaveTextContent("Text only");
-    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).not.toHaveTextContent(
-      "Text only",
+  it("says a line with no working version is unavailable, rather than a key away", () => {
+    open();
+    tab("Anthropic");
+    expect(screen.getByRole("button", { name: /Fable/ })).toHaveAccessibleDescription(
+      "unavailable",
     );
-    fireEvent.click(option);
-    expect(handlers.onChange).toHaveBeenCalledWith("openai/gpt-oss-20b:free");
   });
 
-  it("falls back to the first model this caller can actually reach", () => {
-    // Not the first *listed* one. The allowlist opens with a paid model, so a free caller
-    // would otherwise see "Gpt 5.6 Luna" on the composer and have every message refused.
-    render(<ModelPicker models={MODELS} model={undefined} onChange={vi.fn()} />);
-
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Gpt Oss 20b");
-  });
-
-  it("honours an explicit choice", () => {
-    const reachable = MODELS.map((model) => ({ ...model, available: true }));
-    render(<ModelPicker models={reachable} model="anthropic/claude-opus-5" onChange={vi.fn()} />);
-
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
-  });
-
-  it("chooses a reachable model when one is picked", () => {
-    const handlers = open();
-
-    fireEvent.click(screen.getByRole("button", { name: /Gpt Oss 20b/ }));
-
-    expect(handlers.onChange).toHaveBeenCalledWith("openai/gpt-oss-20b:free");
+  it("offers the free model in its own tab, marked free and text only", () => {
+    const handlers = open({
+      models: [FREE, ...LINES.map((line) => ({ ...line, available: false }))],
+      model: FREE.id,
+    });
+    const free = screen.getByRole("button", { name: /Gpt Oss 20b/ });
+    expect(free).toHaveTextContent("Free");
+    expect(free).toHaveTextContent("Text only");
+    expect(screen.getByText("Set by this deployment")).toBeInTheDocument();
+    fireEvent.click(free);
+    expect(handlers.onChange).toHaveBeenCalledWith(FREE.id);
   });
 });
 
-describe("the model a message will run on", () => {
-  it("is the one chosen, when the caller can reach it", () => {
-    expect(modelInUse(MODELS, "openai/gpt-oss-20b:free")?.label).toBe("Gpt Oss 20b");
-  });
-  it("falls back to the first reachable model rather than the first listed", () => {
-    expect(modelInUse(MODELS, undefined)?.label).toBe("Gpt Oss 20b");
-  });
-  it("is the only model, when there is nothing to choose between", () => {
-    expect(modelInUse([MODELS[0] as (typeof MODELS)[number]], undefined)?.label).toBe(
-      "Gpt 5.6 Luna",
+describe("the effort column", () => {
+  it("offers the line's five levels, marking the default and the one chosen", () => {
+    open({ effort: "xhigh", defaultEffort: "medium" });
+    const levels = within(screen.getByRole("radiogroup", { name: "Effort" })).getAllByRole("radio");
+    expect(levels.map((level) => level.textContent)).toEqual([
+      "Low",
+      "MediumDefault",
+      "High",
+      "Extra high",
+      "Max",
+    ]);
+    expect(screen.getByRole("radio", { name: "Extra high" })).toHaveAttribute(
+      "aria-checked",
+      "true",
     );
   });
-  it("is nothing while the list has not arrived", () => {
-    expect(modelInUse([], undefined)).toBeUndefined();
+
+  it("sends the level picked, and closes", async () => {
+    const handlers = open();
+    fireEvent.click(screen.getByRole("radio", { name: "Max" }));
+    expect(handlers.onEffortChange).toHaveBeenCalledWith("max");
+    expect(handlers.onPick).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("radiogroup", { name: "Effort" })).toBeNull());
+  });
+
+  it("keeps the popup open after a line is picked, so the level comes next", () => {
+    const handlers = open();
+    tab("Anthropic");
+    fireEvent.click(screen.getByRole("button", { name: /Opus/ }));
+    expect(handlers.onChange).toHaveBeenCalledWith("opus");
+    expect(screen.getByRole("radiogroup", { name: "Effort" })).toBeInTheDocument();
+  });
+
+  it("is not drawn for a caller that cannot send an effort", () => {
+    render(<ModelPicker models={LINES} model="sol" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    expect(screen.queryByRole("radiogroup", { name: "Effort" })).toBeNull();
   });
 });

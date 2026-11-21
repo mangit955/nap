@@ -53,12 +53,7 @@ it("opens the live computer when app testing is requested", () => {
   const test = vi.fn();
   render(
     <ComputerNavigation.Provider value={seek}>
-      <AppTestCards
-        events={verified}
-        running={false}
-        model="anthropic/claude-sonnet-5"
-        onTest={test}
-      />
+      <AppTestCards events={verified} running={false} images onTest={test} />
     </ComputerNavigation.Provider>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Test the app" }));
@@ -104,37 +99,16 @@ it("opens only a completed available recording by turn identity", () => {
 it("offers app testing only after the latest completed job and respects busy/model states", () => {
   const onTest = vi.fn();
   const view = render(
-    <AppTestCards
-      events={verified.slice(0, 3)}
-      running={false}
-      model="anthropic/claude-sonnet-5"
-      onTest={onTest}
-    />,
+    <AppTestCards events={verified.slice(0, 3)} running={false} images onTest={onTest} />,
   );
   expect(screen.queryByRole("button", { name: "Test the app" })).not.toBeInTheDocument();
-  view.rerender(
-    <AppTestCards
-      events={verified}
-      running={false}
-      model="anthropic/claude-sonnet-5"
-      onTest={onTest}
-    />,
-  );
+  view.rerender(<AppTestCards events={verified} running={false} images onTest={onTest} />);
   fireEvent.click(screen.getByRole("button", { name: "Test the app" }));
   expect(onTest).toHaveBeenCalledWith("job");
-  view.rerender(
-    <AppTestCards events={verified} running model="anthropic/claude-sonnet-5" onTest={onTest} />,
-  );
+  view.rerender(<AppTestCards events={verified} running images onTest={onTest} />);
   expect(screen.getByRole("button", { name: "Test the app" })).toBeDisabled();
   expect(screen.getByText(/Wait for the current turn/)).toBeInTheDocument();
-  view.rerender(
-    <AppTestCards
-      events={verified}
-      running={false}
-      model="openai/gpt-oss-20b:free"
-      onTest={onTest}
-    />,
-  );
+  view.rerender(<AppTestCards events={verified} running={false} images={false} onTest={onTest} />);
   expect(screen.getByRole("button", { name: "Test the app" })).toBeDisabled();
 });
 it("keeps a failed assertion as data until Fix it is clicked and labels unavailable recordings", () => {
@@ -178,12 +152,7 @@ it("keeps generated repair instructions out of cards while retaining assertion d
   );
   render(
     <>
-      <AppTestCards
-        events={events}
-        running={false}
-        model="anthropic/claude-sonnet-5"
-        onTest={vi.fn()}
-      />
+      <AppTestCards events={events} running={false} images onTest={vi.fn()} />
       <AppTestResult
         test={{ ...foldAppTests(result)[0]!, goal: instruction }}
         running={false}

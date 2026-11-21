@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import * as draftNavigation from "../projects/use-draft-navigation.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
+import { modelOption } from "../testing/model-options.ts";
 import { ChatInput } from "./chat-input.tsx";
 
 function show(props: Partial<Parameters<typeof ChatInput>[0]> = {}) {
@@ -60,13 +61,15 @@ describe("reference inputs", () => {
     browser.restore();
   });
   const models = [
-    { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
-    {
+    modelOption({ id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true }),
+    modelOption({
       id: "nvidia/nemotron-3-ultra-550b-a55b:free",
       label: "Nemotron",
       free: true,
       available: true,
-    },
+      images: false,
+      vendor: null,
+    }),
   ];
 
   it.each(["picker", "paste", "drop"])(
@@ -346,15 +349,27 @@ describe("the @ and / menus", () => {
 
 describe("the model picker", () => {
   const models = [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
-    { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true, available: true },
+    modelOption({ id: "sol", label: "Sol" }),
+    modelOption({ id: "opus", label: "Opus", vendor: "anthropic" }),
+    modelOption({
+      id: "openai/gpt-oss-20b:free",
+      label: "Gpt Oss 20b",
+      free: true,
+      available: true,
+      images: false,
+      vendor: null,
+      efforts: [],
+    }),
   ];
+  const pickTab = (name: string) =>
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Vendors" })).getByRole("button", { name }),
+    );
 
   it("names the model turns will run on", () => {
-    show({ models, model: "openai/gpt-5.6-luna" });
+    show({ models, model: "sol" });
 
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Gpt 5 6 Luna");
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Sol");
   });
 
   it("stays hidden when the deployment offers no choice", () => {
@@ -374,12 +389,13 @@ describe("the model picker", () => {
 
   it("reports the model that was chosen", () => {
     const onModelChange = vi.fn();
-    show({ models, model: "openai/gpt-5.6-luna", onModelChange });
+    show({ models, model: "sol", onModelChange });
 
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
-    fireEvent.click(screen.getByRole("button", { name: /Claude Opus 5/ }));
+    pickTab("Anthropic");
+    fireEvent.click(screen.getByRole("button", { name: /Opus/ }));
 
-    expect(onModelChange).toHaveBeenCalledWith("anthropic/claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("opus");
   });
 
   it("can change model while the composer has a long message", () => {
@@ -394,37 +410,39 @@ describe("the model picker", () => {
           onSubmit={() => {}}
           onCancel={() => {}}
           models={models}
-          model="anthropic/claude-opus-5"
+          model="opus"
         />,
       ),
     ).not.toThrow();
   });
 
   it("highlights model choices on hover", () => {
-    show({ models, model: "openai/gpt-5.6-luna" });
+    show({ models, model: "sol" });
 
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
 
-    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).toHaveClass("hover:bg-hover");
+    expect(screen.getByRole("button", { name: /Sol/ })).toHaveClass("hover:bg-hover");
   });
 
   it("says which one is running, in words rather than only in colour", () => {
-    show({ models, model: "anthropic/claude-opus-5" });
+    show({ models, model: "opus" });
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
 
     // Which model is running decides what a turn costs, and a highlight alone is nothing to
     // somebody listening to the page.
-    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).toHaveTextContent("on");
+    expect(screen.getByRole("button", { name: /Opus/ })).toHaveAccessibleName(/in use/);
   });
 
   it("says which ones cost nothing, in words rather than only in colour", () => {
     // The same argument as the "on" marker above, and it applies harder: price is the reason
     // somebody reaches for this menu at all, and a colour says nothing to a screen reader.
-    show({ models, model: "openai/gpt-5.6-luna" });
+    show({ models, model: "sol" });
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
 
+    pickTab("Free");
     expect(screen.getByRole("button", { name: /Gpt Oss 20b/ })).toHaveAccessibleName(/free/i);
-    expect(screen.getByRole("button", { name: /Claude Opus 5/ })).not.toHaveAccessibleName(/free/i);
+    pickTab("Anthropic");
+    expect(screen.getByRole("button", { name: /Opus/ })).not.toHaveAccessibleName(/free/i);
   });
 
   it("opens a list that is actually on the page", () => {
@@ -433,23 +451,34 @@ describe("the model picker", () => {
     // out at -29px against a composer starting at 44px and was painted away entirely, with the
     // button appearing dead. jsdom has no layout, so this test passed against the broken code
     // too. The guard for the clipping itself is a measurement in a real browser.
-    show({ models, model: "openai/gpt-5.6-luna" });
+    show({ models, model: "sol" });
 
     expect(screen.queryByRole("list", { name: "Model" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
 
-    const menu = screen.getByRole("list", { name: "Model" });
-    expect(menu).toBeInTheDocument();
-    for (const choice of models) expect(menu).toHaveTextContent(choice.label);
+    // One vendor at a time, as T3's picker draws it; every one is a tab away.
+    for (const [vendor, label] of [
+      ["OpenAI", "Sol"],
+      ["Anthropic", "Opus"],
+      ["Free", "Gpt Oss 20b"],
+    ] as const) {
+      pickTab(vendor);
+      expect(screen.getByRole("list", { name: "Model" })).toHaveTextContent(label);
+    }
   });
 
-  it("closes when something outside it is pressed", () => {
-    show({ models, model: "openai/gpt-5.6-luna" });
+  it("closes when something outside it is pressed", async () => {
+    show({ models, model: "sol" });
     fireEvent.click(screen.getByRole("button", { name: "Model" }));
 
-    fireEvent.pointerDown(document.body);
+    // Base UI dismisses on the press that ends outside, as a pointer does it.
+    fireEvent.pointerDown(document.body, { pointerType: "mouse" });
+    fireEvent.mouseDown(document.body);
+    fireEvent.pointerUp(document.body, { pointerType: "mouse" });
+    fireEvent.mouseUp(document.body);
+    fireEvent.click(document.body);
 
-    expect(screen.queryByRole("list", { name: "Model" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Model" })).toBeNull());
   });
 
   it("gets out of the way when a trigger is typed", () => {
@@ -521,6 +550,23 @@ it("restores an owner-bound workspace draft after navigating away", async () => 
   view.unmount();
   show(props);
   await waitFor(() => expect(box()).toHaveValue("Keep this follow-up"));
+  vi.unstubAllGlobals();
+});
+
+it("restores a workspace draft's line and effort with its text", async () => {
+  // A follow-up written on Opus at Max must not come back, after a reload, to run at Medium.
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  const draftIdentity = { ownerId: crypto.randomUUID(), projectId: crypto.randomUUID() };
+  const view = show({ draftIdentity, model: "opus", effort: "max" });
+  await waitFor(() => expect(box()).toBeEnabled());
+  type("Keep this follow-up");
+  view.unmount();
+  const onModelChange = vi.fn();
+  const onEffortChange = vi.fn();
+  show({ draftIdentity, onModelChange, onEffortChange });
+  await waitFor(() => expect(box()).toHaveValue("Keep this follow-up"));
+  expect(onModelChange).toHaveBeenCalledWith("opus");
+  expect(onEffortChange).toHaveBeenCalledWith("max");
   vi.unstubAllGlobals();
 });
 

@@ -32,9 +32,7 @@ function api(queue: InMemoryTurnQueue, store: EventStore) {
       sessions,
       projects: new InMemoryProjectStore(),
       registry: new TurnRegistry(),
-      allowedModels: ["fixture/free"],
-      freeModel: "fixture/free",
-      defaultModel: "fixture/free",
+      models: { versionOf: () => null, freeModel: "fixture/free", freeEffort: "medium" },
     },
   });
 }

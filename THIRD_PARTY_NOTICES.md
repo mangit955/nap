@@ -25,6 +25,14 @@ The session sidebar in `apps/web/src/dashboard/sidebar.tsx`, `session-list.tsx`,
 row layout, status rules and snooze presets at revision
 [51273020db3245f4ec29514a419d29b5dcb012dc](https://github.com/pingdotgg/t3code/tree/51273020db3245f4ec29514a419d29b5dcb012dc).
 
+The model and effort picker in `apps/web/src/chat/model-picker.tsx`, with
+`model-picker/effort-glyph.tsx` and `model-picker/vendor-logo.tsx`, adapts T3 Code's
+`ProviderModelPicker.tsx`, `ModelPickerContent.tsx`, `ModelPickerSidebar.tsx`, `ModelListRow.tsx`,
+`ComposerModelEffort.tsx`, `TraitsPicker.tsx`, `EffortGlyph.tsx` and the OpenAI and Claude marks
+in `Icons.tsx`; `apps/web/public/model-logos/muse.png` is its `mcp/logos/muse.png`. Revision
+[ccc1feb15572c422fbdce26ba6077b91459cfd47](https://github.com/pingdotgg/t3code/tree/ccc1feb15572c422fbdce26ba6077b91459cfd47).
+Nap rebuilds it on Base UI in its own theme, without T3's favorites, providers or settings.
+
 The upstream license follows in full:
 
 MIT License

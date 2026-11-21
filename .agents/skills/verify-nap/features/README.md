@@ -57,6 +57,8 @@ starts with `Preconditions:`), and `Gotchas`.
   with the previewed app.
 - [File tree](./file-tree.md): the Files tab, filtering, opening a file, and the changed-files card
   in the chat.
+- [Model picker](./model-picker.md): the line and effort a turn runs on, the key form a locked line
+  opens, and the version a turn is queued on.
 
 Not mapped yet: settings (`/settings/*`), plan mode, the diff view, Test the app, archived
 sessions. Add a file for each one the first time a change touches it.

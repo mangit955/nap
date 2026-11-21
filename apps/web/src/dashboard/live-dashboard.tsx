@@ -6,6 +6,7 @@ import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { authClient } from "../auth/client.ts";
 import { forgetSignedOut } from "../auth/forget-signed-out.ts";
+import { modelOptions } from "../chat/model-options.ts";
 import { useModels } from "../chat/use-models.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { SpinnerIcon } from "../ui/icons.tsx";
@@ -167,9 +168,10 @@ function SignedInDashboard({
           <NewSessionComposer
             key={draftVersion}
             ownerId={user.id}
-            models={models?.models ?? []}
+            models={modelOptions(models)}
             modelsLoading={modelsLoading}
-            fallback={models?.fallback}
+            fallback={models?.fallback ?? undefined}
+            defaultEffort={models?.effort}
             onAddKey={() => setKeyPanelOpen(true)}
             onSourceChange={setDraftSource}
             settingsRequest={settingsRequest}

@@ -6,6 +6,7 @@ import type {
   RepositoryFeedback,
   RepositoryJob,
 } from "../github-protocol.ts";
+import type { Effort } from "../model-lines.ts";
 import type { EnqueueTurnRequest } from "./turn-queue.ts";
 
 export type GitHubConnectionState = {
@@ -24,7 +25,7 @@ export type ImportRepository = Pick<
   name: string;
   repository: GitHubRepository;
   /** The first start, queued with the project. `billsToUser` says whose account its turns use. */
-  open?: { requestId: string; model: string; billsToUser: boolean };
+  open?: { requestId: string; model: string; effort?: Effort | undefined; billsToUser: boolean };
 };
 
 export type RepositoryJobUpdate = Partial<

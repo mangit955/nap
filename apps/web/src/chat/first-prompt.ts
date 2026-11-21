@@ -1,4 +1,5 @@
 import { type MediaAttachment, MediaAttachmentsSchema } from "@nap/shared/media";
+import { type Effort, EffortSchema } from "@nap/shared/model-lines";
 import { z } from "zod";
 /**
  * The sentence someone typed on the landing page, carried into the project it created.
@@ -29,6 +30,7 @@ export type FirstPrompt = {
   attachments?: MediaAttachment[] | undefined;
   /** Absent means the server's fallback, rather than a browser guess at what that is. */
   model?: string | undefined;
+  effort?: Effort | undefined;
 };
 
 export function stashFirstPrompt(
@@ -66,6 +68,7 @@ export function takeFirstPrompt(
   return {
     text: stash.text,
     ...(stash.model === undefined ? {} : { model: stash.model }),
+    ...(stash.effort === undefined ? {} : { effort: stash.effort }),
     ...(stash.attachments === undefined ? {} : { attachments: stash.attachments }),
   };
 }
@@ -91,6 +94,7 @@ function parse(raw: string): ({ projectId: string } & FirstPrompt) | undefined {
         projectId: z.string(),
         text: z.string(),
         model: z.string().optional(),
+        effort: EffortSchema.optional(),
         attachments: MediaAttachmentsSchema.optional(),
       })
       .safeParse(JSON.parse(raw));

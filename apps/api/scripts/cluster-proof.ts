@@ -99,9 +99,7 @@ function tunable(key: string, fallback: number): number {
  */
 const CONFIG: NapConfig = {
   NAP_WEB_ORIGIN: "http://localhost:3000",
-  NAP_MODEL: "proof/fake",
   NAP_FREE_MODEL: "proof/fake",
-  NAP_ALLOWED_MODELS: ["proof/fake"],
   NAP_MAX_STEPS: 8,
   NAP_CONTEXT_BUDGET_TOKENS: 80_000,
   NAP_MAX_SANDBOXES_PER_USER: tunable("NAP_MAX_SANDBOXES_PER_USER", 10),

@@ -176,6 +176,13 @@
       "when": 1794590761114,
       "tag": "0024_hot_query_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795180996562,
+      "tag": "0025_turn_effort",
+      "breakpoints": true
     }
   ]
 }

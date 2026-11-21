@@ -21,7 +21,7 @@ import { type ReactNode, StrictMode, useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../../api/src/app.ts";
 import { createLogger } from "../../../api/src/logger.ts";
-import { resolveTurnAccess } from "../../../api/src/turns/model-access.ts";
+import { type ModelPolicy, resolveTurnAccess } from "../../../api/src/turns/model-access.ts";
 import { stashFirstPrompt } from "../chat/first-prompt.ts";
 import { jobView } from "../chat/job-summary.ts";
 import { handOffStartedPrompt, peekStartedPrompt } from "../chat/started-prompt.ts";
@@ -29,20 +29,14 @@ import type { SessionLog } from "../hooks/use-session-log.ts";
 import { ev, OTHER_SESSION_ID, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
+import { modelList } from "../testing/model-list.ts";
 import { LiveChatPane } from "./chat-pane.tsx";
 
-const MODELS = {
-  models: [
-    { id: "openai/gpt-5.6-luna", label: "Gpt 5 6 Luna", free: false, available: true },
-    { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: true },
-  ],
-  key: { configured: false },
-  fallback: "openai/gpt-5.6-luna",
-};
+const MODELS = modelList();
 
 const FIRST_PROMPT = {
   text: "Use the pasted layout and this flow",
-  model: "anthropic/claude-opus-5",
+  model: "opus",
   attachments: [
     {
       kind: "image",
@@ -426,9 +420,7 @@ describe("LiveChatPane", () => {
         expect(screen.getByRole("button", { name: "Remove pasted.png" })).toBeEnabled();
         expect(screen.getByRole("button", { name: "Remove flow.webm" })).toBeEnabled();
       });
-      expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent(
-        "Claude Opus 5",
-      );
+      expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Opus");
       expect(screen.getByRole("img", { name: "flow.webm" })).toHaveAttribute(
         "src",
         "data:image/jpeg;base64,/9j/AAAA",
@@ -762,7 +754,7 @@ describe("LiveChatPane", () => {
   it("keeps the dashboard model selected after sending its first prompt", async () => {
     stashFirstPrompt(PROJECT_ID, {
       text: "build me a todo list",
-      model: "anthropic/claude-opus-5",
+      model: "opus",
     });
 
     render(
@@ -775,8 +767,26 @@ describe("LiveChatPane", () => {
     );
 
     await vi.waitFor(() => expect(turns).toHaveLength(1));
-    expect(turns[0]?.model).toBe("anthropic/claude-opus-5");
-    expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Claude Opus 5");
+    expect(turns[0]?.model).toBe("opus");
+    expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Opus");
+  });
+
+  it("sends the effort picked in the composer with the next turn, and keeps it after", async () => {
+    render(<LiveChatPane sessionId={SESSION_ID} log={failedTurn()} fetchJson={fetchJson} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Model/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Extra high" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+      target: { value: "add a dark theme" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    // No line was picked, so none is named and the server's default for this caller stands.
+    expect(turns[0]).toEqual({ message: "add a dark theme", effort: "xhigh" });
+    expect(screen.getByRole("button", { name: /^Model/ })).toHaveAccessibleDescription(
+      "Sol, Extra high effort",
+    );
   });
 
   it("draws no seam and no away card, however much happened since the last visit", async () => {
@@ -924,8 +934,7 @@ it("shows app-test progress at the clicked card before any stream event arrives"
   ];
   let accept: ((response: Response) => void) | undefined;
   const http = async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/models"))
-      return Response.json({ ...MODELS, fallback: "anthropic/claude-opus-5" });
+    if (url.endsWith("/models")) return Response.json({ ...MODELS, fallback: "opus" });
     if (url.endsWith("/tests"))
       return new Promise<Response>((resolve) => {
         accept = resolve;
@@ -975,10 +984,14 @@ it("shows app-test progress at the clicked card before any stream event arrives"
   );
 });
 
-it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
-  "starts a default app test with the owner's Anthropic key when deployment default is %s",
-  async (defaultModel) => {
-    const allowed = [defaultModel, "anthropic/claude-sonnet-5", "anthropic/claude-opus-5"];
+it.each(["openai/gpt-oss-20b:free", undefined])(
+  "starts a default app test on the owner's Anthropic key's default line, free model %s",
+  async (freeModel) => {
+    const policy: ModelPolicy = {
+      versionOf: (line) => (line === "opus" ? "anthropic/claude-opus-5.5" : "vendor/other"),
+      freeModel,
+      freeEffort: "medium",
+    };
     const key = { platform: "anthropic", apiKey: "owner-test-key" } as const;
     const models = createApp({
       logger: createLogger({ level: "silent" }, { write: () => {} }),
@@ -989,9 +1002,8 @@ it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
         upgradeWebSocket: async () => new Response(null),
       },
       models: {
-        allowed,
-        fallback: defaultModel,
-        freeModel: "openai/gpt-5.6-luna",
+        policy,
+        isNew: () => false,
         keys: async () => ({
           userId: "owner",
           platform: "anthropic",
@@ -1016,13 +1028,7 @@ it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
           typeof body.model === "string"
             ? body.model
             : undefined;
-        const access = resolveTurnAccess({
-          requested,
-          key,
-          allowed,
-          defaultModel,
-          freeModel: "openai/gpt-5.6-luna",
-        });
+        const access = resolveTurnAccess({ requested, key, policy });
         admitted.push(access);
         return access.ok
           ? Response.json(
@@ -1054,8 +1060,16 @@ it.each(["openai/gpt-5.6-luna", "openai/gpt-oss-20b:free"])(
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
     await waitFor(() => expect(submitted).toHaveLength(1));
-    expect(submitted).toEqual([{ jobId: JOB_ID, model: "anthropic/claude-sonnet-5" }]);
-    expect(admitted).toEqual([{ ok: true, model: "anthropic/claude-sonnet-5", credentials: key }]);
+    expect(submitted).toEqual([{ jobId: JOB_ID, model: "opus" }]);
+    expect(admitted).toEqual([
+      {
+        ok: true,
+        model: "anthropic/claude-opus-5.5",
+        effort: "medium",
+        line: "opus",
+        credentials: key,
+      },
+    ]);
   },
 );
 

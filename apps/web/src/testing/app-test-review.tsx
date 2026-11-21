@@ -7,6 +7,7 @@ import { jobView } from "../chat/job-summary.ts";
 import { LiveChatPane } from "../components/chat-pane.tsx";
 import { ev, SESSION_ID } from "./events.ts";
 import { JOB_ID } from "./job-events.ts";
+import { modelList } from "./model-list.ts";
 
 const testTurn = "00000000-0000-4000-8000-000000000099";
 const repairTurn = "00000000-0000-4000-8000-000000000098";
@@ -118,19 +119,7 @@ export function AppTestReview() {
   const cursor = events.at(-1)?.seq ?? 0;
   const fetchJson = useCallback(
     async (url: string, init?: RequestInit) => {
-      if (url.endsWith("/models"))
-        return Response.json({
-          models: [
-            {
-              id: "anthropic/claude-sonnet-5",
-              label: "Claude Sonnet 5",
-              free: false,
-              available: true,
-            },
-          ],
-          key: { configured: true },
-          fallback: "anthropic/claude-sonnet-5",
-        });
+      if (url.endsWith("/models")) return Response.json(modelList());
       if (url.includes("/account/api-key"))
         return Response.json({ present: true, platform: "openrouter" });
       if (url.includes("/activity?"))

@@ -1,5 +1,6 @@
 import { GitHubRepositorySchema, RepositoryImportSchema } from "@nap/shared/github-protocol";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
+import { EffortSchema } from "@nap/shared/model-lines";
 import { SessionStartSchema } from "@nap/shared/session-start-protocol";
 import { z } from "zod";
 
@@ -10,6 +11,7 @@ export const ComposerDraftSchema = z.object({
   pendingStart: SessionStartSchema.optional(),
   text: z.string(),
   model: z.string().optional(),
+  effort: EffortSchema.optional(),
   source: RepositoryImportSchema.extend({ repository: GitHubRepositorySchema }).nullable(),
   attachments: MediaAttachmentsSchema,
   expiresAt: z.number(),

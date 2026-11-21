@@ -1,29 +1,33 @@
 /**
- * What `GET /models` answers with.
+ * What `GET /models` answers with: the model lines, what this caller may run, and the defaults.
  *
  * A contract rather than an understanding, like `files-protocol.ts` and `ws-protocol.ts`: the
  * API and the browser are written separately and deploy separately, so the shape is defined
  * once here and validated at both ends.
  *
- * The list is the deployment's allowlist, which is the same list the turn route enforces. A
- * picker built from anything else offers models every turn is then refused for naming.
+ * The lines come from `@nap/shared/model-lines` and their versions from the catalog the API
+ * refreshes, through the same function the turn routes enforce. A picker built from anything
+ * else offers lines every turn is then refused for naming.
  */
 
 import { z } from "zod";
+import { EffortSchema, LineKeySchema } from "./model-lines.ts";
 
-export const ModelChoiceSchema = z.strictObject({
-  /** The id a turn names. Fully namespaced, the way this codebase spells a model everywhere. */
-  id: z.string().min(1),
-  /** The id said out loud, for the menu. Derived by the server so one place decides. */
+export const ModelVendorSchema = z.enum(["openai", "anthropic", "meta"]);
+
+export const LineChoiceSchema = z.strictObject({
+  /** What a turn names. */
+  key: LineKeySchema,
   label: z.string().min(1),
-  /**
-   * Whether this one costs nothing.
-   *
-   * Sent rather than sniffed from the id in the browser: the `:free` suffix is OpenRouter's
-   * convention, and a client that learned to read it would be a second place that has to be
-   * updated when the route's idea of free changes.
-   */
-  free: z.boolean(),
+  vendor: ModelVendorSchema,
+  /** The exact version a turn on this line runs now; null when no version passes. */
+  version: z.string().min(1).nullable(),
+  /** Listed recently: the picker's "New" badge. */
+  isNew: z.boolean(),
+  /** Whether this line may be sent images: attachments, screenshots, app tests. */
+  images: z.boolean(),
+  /** The effort levels it offers, lowest first. */
+  efforts: z.array(EffortSchema).min(1),
   /**
    * Whether *this* caller may actually run it.
    *
@@ -34,9 +38,18 @@ export const ModelChoiceSchema = z.strictObject({
    */
   available: z.boolean(),
 });
-export type ModelChoice = z.infer<typeof ModelChoiceSchema>;
+export type LineChoice = z.infer<typeof LineChoiceSchema>;
 
-/** What the browser needs to say "you are on the free models" without a second request. */
+/** The free tier's one model, for somebody with no key on a deployment that pays for them. */
+export const FreeChoiceSchema = z.strictObject({
+  /** The exact id a turn names. */
+  id: z.string().min(1),
+  label: z.string().min(1),
+  images: z.boolean(),
+});
+export type FreeChoice = z.infer<typeof FreeChoiceSchema>;
+
+/** What the browser needs to say "you are on the free model" without a second request. */
 export const KeyStatusSchema = z.strictObject({
   configured: z.boolean(),
   /** Absent when nothing is saved. */
@@ -47,18 +60,21 @@ export const KeyStatusSchema = z.strictObject({
 export type KeyStatus = z.infer<typeof KeyStatusSchema>;
 
 export const ModelListSchema = z.strictObject({
-  models: z.array(ModelChoiceSchema).min(1),
+  lines: z.array(LineChoiceSchema).min(1),
+  /** Present only when this caller has no key and the deployment has a free tier. */
+  free: FreeChoiceSchema.nullable(),
   /** Whether this caller has brought a key, and which kind. */
   key: KeyStatusSchema,
   /**
-   * What a turn runs on when it names nothing — for *this* caller.
+   * What a turn runs on when it names nothing — for *this* caller: a line key, or the free
+   * model's id. Null when this caller can run nothing at all.
    *
    * Sent rather than assumed to be the first entry: the picker has to show which model is
-   * selected before anybody has chosen, and guessing that from list order would put a tick
-   * against the wrong one every time the allowlist was reordered. It is per-caller for the
-   * same reason the availability flags are — somebody with no key falls back to a free model,
-   * not to the deployment's default.
+   * selected before anybody has chosen, and an OpenRouter key defaults to Sol while an Anthropic
+   * key defaults to Opus.
    */
-  fallback: z.string().min(1),
+  fallback: z.string().min(1).nullable(),
+  /** The effort a turn runs at when it names none. */
+  effort: EffortSchema,
 });
 export type ModelList = z.infer<typeof ModelListSchema>;

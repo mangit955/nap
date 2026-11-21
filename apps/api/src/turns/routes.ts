@@ -2,6 +2,7 @@ import { PlanIntentSchema } from "@nap/shared/agent-plan";
 import { appTestTarget, failedAppTestGoal } from "@nap/shared/app-testing";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
+import { EffortSchema } from "@nap/shared/model-lines";
 import { pendingPlan } from "@nap/shared/plan-mode";
 /**
  * Starting and stopping a turn.
@@ -46,7 +47,7 @@ import { z } from "zod";
 import { findOwnedSession } from "../auth/owned-session.ts";
 import type { AuthVariables } from "../auth/require-user.ts";
 import type { SessionTitles } from "../projects/session-titler.ts";
-import { refusalStatus, resolveTurnAccess } from "./model-access.ts";
+import { type ModelPolicy, refusalStatus, resolveTurnAccess } from "./model-access.ts";
 import type { TurnRegistry } from "./registry.ts";
 import { checkSandboxQuota, type SandboxLimits } from "./sandbox-quota.ts";
 
@@ -85,8 +86,8 @@ export type TurnRouteDeps = {
    * refusing every turn because a limiter was not wired up would be a worse default than
    * running unlimited in a test.
    */
-  /** Every model a turn may name. Which of them *this* caller may name is narrower. */
-  allowedModels: readonly string[];
+  /** The lines as the catalog has them now, and the free tier: what a choice resolves against. */
+  models: ModelPolicy;
   /**
    * Whose account pays, and therefore which models are reachable.
    *
@@ -100,13 +101,6 @@ export type TurnRouteDeps = {
    * never awaited; absent, the seed is the name, as before.
    */
   titles?: SessionTitles | undefined;
-  /**
-   * What a turn runs on when the asker has no key, on this deployment's account. Absent means
-   * there is no free tier and such a turn is refused (`resolveTurnAccess`).
-   */
-  freeModel: string | undefined;
-  /** What a turn runs on when the asker has a key and names nothing. */
-  defaultModel: string;
   limits?: {
     rate: TurnRateLimiter;
     /**
@@ -141,13 +135,16 @@ const TurnBodySchema = z.object({
     .transform((text) => text.trim())
     .refine((text) => text.length > 0, { message: "message must not be empty" }),
   /**
-   * Which model to run on. Absent is the deployment's default, which is the normal case.
+   * Which model line to run on, or the free tier's model. Absent is this caller's default, which
+   * is the normal case.
    *
-   * Checked against the allowlist below rather than passed through: an unchecked model id from
-   * a request body is a stranger choosing what each of your turns costs, and the expensive
-   * models are the ones they would choose.
+   * Resolved by `resolveTurnAccess` rather than passed through: an unchecked model id from a
+   * request body is a stranger choosing what each of your turns costs, and the expensive models
+   * are the ones they would choose.
    */
   model: z.string().min(1).optional(),
+  /** How hard it thinks. Absent is `medium`; ignored on the free tier, where the deployment pays. */
+  effort: EffortSchema.optional(),
   /**
    * Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. The asker's
    * choice for this turn alone, so it travels with the prompt onto the queued request.
@@ -175,6 +172,7 @@ const SteerBodySchema = z.strictObject({
       message: "Send /compact once the turn has finished.",
     }),
   model: z.string().min(1).optional(),
+  effort: EffortSchema.optional(),
   plan: PlanIntentSchema.optional().refine((plan) => plan?.intent !== "approve", {
     message: "Approve a plan from its card, once the turn has finished.",
   }),
@@ -190,7 +188,11 @@ export function registerTurnRoutes(
     const found = await findOwnedSession(deps.sessions, c.req.param("sessionId"), c.get("userId"));
     if (!found.ok) return c.json({ error: found.error.message }, found.error.status);
     const body = z
-      .strictObject({ jobId: z.uuid(), model: z.string().min(1).optional() })
+      .strictObject({
+        jobId: z.uuid(),
+        model: z.string().min(1).optional(),
+        effort: EffortSchema.optional(),
+      })
       .safeParse(await readJson(c.req.raw));
     if (!body.success)
       return c.json({ error: "Choose a completed job and a model to test it." }, 400);
@@ -203,10 +205,9 @@ export function registerTurnRoutes(
     const key = (await deps.keys?.(c.get("userId"))) ?? null;
     const access = resolveTurnAccess({
       requested: body.data.model,
+      effort: body.data.effort,
       key,
-      allowed: deps.allowedModels,
-      freeModel: deps.freeModel,
-      defaultModel: deps.defaultModel,
+      policy: deps.models,
     });
     if (!access.ok)
       return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
@@ -222,6 +223,7 @@ export function registerTurnRoutes(
       kind: "test",
       message: target.jobId,
       model: access.model,
+      effort: access.effort,
       billsToUser: access.credentials !== undefined,
     });
     return c.json({ accepted: true, requestId: id }, 202);
@@ -305,10 +307,9 @@ export function registerTurnRoutes(
     // limit: refusing it must not consume the asker's rate-limit allowance.
     const access = resolveTurnAccess({
       requested: body.data.model,
+      effort: body.data.effort,
       key,
-      allowed: deps.allowedModels,
-      freeModel: deps.freeModel,
-      defaultModel: deps.defaultModel,
+      policy: deps.models,
     });
     if (!access.ok) {
       return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
@@ -356,6 +357,7 @@ export function registerTurnRoutes(
       // applied later, because the default that would be applied is a *paid* one and forgetting
       // it is this deployment buying tokens for a stranger.
       model: access.model,
+      effort: access.effort,
       // Whether, never which — the worker re-opens the key by user id, so plaintext credentials
       // never reach the queue, a query log or a backup.
       billsToUser: access.credentials !== undefined,
@@ -399,10 +401,9 @@ export function registerTurnRoutes(
     const key = (await deps.keys?.(userId)) ?? null;
     const access = resolveTurnAccess({
       requested: body.data.model,
+      effort: body.data.effort,
       key,
-      allowed: deps.allowedModels,
-      freeModel: deps.freeModel,
-      defaultModel: deps.defaultModel,
+      policy: deps.models,
     });
     if (!access.ok)
       return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
@@ -416,6 +417,7 @@ export function registerTurnRoutes(
       message: body.data.message,
       ...(body.data.plan === undefined ? {} : { plan: body.data.plan }),
       model: access.model,
+      effort: access.effort,
       billsToUser: access.credentials !== undefined,
     });
     if (admitted.as === "conflict") return conflict();

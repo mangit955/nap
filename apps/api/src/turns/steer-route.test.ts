@@ -22,7 +22,8 @@ import { TurnRegistry } from "./registry.ts";
 
 const SESSION = "0b7f8f1e-3c2a-4d5b-9e6f-1a2b3c4d5e6f";
 const SOMEBODY_ELSES = "3e0abc41-6f5d-4a8e-8b9c-4d5e6f708192";
-const ALLOWED = ["openai/gpt-5.6-luna", "anthropic/claude-opus-5", "openai/gpt-oss-20b:free"];
+/** Opus runs this version here; every other line, another one. */
+const OPUS = "anthropic/claude-opus-5";
 const FREE_MODEL = "openai/gpt-oss-20b:free";
 
 let queue: InMemoryTurnQueue;
@@ -68,10 +69,12 @@ function app(options: { perUser?: number; running?: number } = {}): Hono {
           sessionIds: [SESSION],
         },
       ]),
-      allowedModels: ALLOWED,
+      models: {
+        versionOf: (line) => (line === "opus" ? OPUS : "openai/gpt-6.2-sol"),
+        freeModel: FREE_MODEL,
+        freeEffort: "medium",
+      },
       keys: async () => ({ platform: "openrouter", apiKey: "sk-or-theirs" }),
-      freeModel: FREE_MODEL,
-      defaultModel: ALLOWED[0] ?? "",
       sessions: new InMemorySessionStore([
         { sessionId: SESSION, projectId: "project-1" },
         { sessionId: SOMEBODY_ELSES, projectId: "project-2", userId: "somebody-else" },
@@ -104,7 +107,7 @@ async function running(): Promise<string> {
     userId: FAKE_OWNER,
     kind: "turn",
     message: "build a notes app",
-    model: ALLOWED[0] ?? "",
+    model: "openai/gpt-6.2-sol",
     billsToUser: true,
   });
   await queue.claim("worker-a");
@@ -143,7 +146,8 @@ describe("POST /sessions/:sessionId/steers", () => {
     const response = await send(app(), {
       id,
       message: "Add tags",
-      model: "anthropic/claude-opus-5",
+      model: "opus",
+      effort: "xhigh",
       plan: { intent: "propose" },
     });
 
@@ -156,7 +160,8 @@ describe("POST /sessions/:sessionId/steers", () => {
         kind: "turn",
         message: "Add tags",
         plan: { intent: "propose" },
-        model: "anthropic/claude-opus-5",
+        model: OPUS,
+        effort: "xhigh",
         billsToUser: true,
       },
     ]);
@@ -184,7 +189,7 @@ describe("POST /sessions/:sessionId/steers", () => {
       userId: "somebody-else",
       kind: "turn",
       message: "theirs",
-      model: ALLOWED[0] ?? "",
+      model: "openai/gpt-6.2-sol",
       billsToUser: false,
     });
 

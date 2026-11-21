@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useModels } from "../chat/use-models.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { modelList } from "../testing/model-list.ts";
 import { forgetAccount } from "./account-cache.ts";
 import { useApiKey } from "./use-api-key.ts";
 
@@ -14,23 +15,9 @@ import { useApiKey } from "./use-api-key.ts";
  * `testing/setup.ts` empties it between tests.
  */
 
-const LOCKED = {
-  models: [
-    { id: "free/one:free", label: "One", free: true, available: true },
-    { id: "anthropic/claude-opus-5", label: "Opus", free: false, available: false },
-  ],
-  fallback: "free/one:free",
-  key: { configured: false },
-};
-const UNLOCKED = {
-  models: [
-    { id: "free/one:free", label: "One", free: true, available: true },
-    { id: "anthropic/claude-opus-5", label: "Opus", free: false, available: true },
-  ],
-  fallback: "anthropic/claude-opus-5",
-  key: { configured: true, platform: "openrouter", hint: "sk-or-…4f2a" },
-};
-const SAVED = { configured: true, platform: "openrouter", hint: "sk-or-…4f2a" };
+const LOCKED = modelList({ key: null, free: { id: "free/one:free", label: "One", images: false } });
+const UNLOCKED = modelList();
+const SAVED = UNLOCKED.key;
 
 /** An API whose key is whatever was last saved, and whose model list follows it. */
 function account() {

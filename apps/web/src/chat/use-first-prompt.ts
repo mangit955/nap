@@ -1,6 +1,7 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
+import type { TurnChoice } from "./use-turn-submission.ts";
 
 /**
  * Sends the prompt someone typed on the front page, once, as this project's first turn.
@@ -25,7 +26,7 @@ import { takeFirstPrompt } from "./first-prompt.ts";
 export function useFirstPrompt(options: {
   projectId: string | undefined;
   sessionId: string | undefined;
-  submit: (message: string, model?: string, attachments?: MediaAttachment[]) => void;
+  submit: (message: string, choice: TurnChoice, attachments?: MediaAttachment[]) => void;
 }): void {
   const { projectId, sessionId, submit } = options;
 
@@ -41,6 +42,13 @@ export function useFirstPrompt(options: {
     const prompt = takeFirstPrompt(projectId);
     if (prompt === undefined) return;
 
-    submitRef.current(prompt.text, prompt.model, prompt.attachments);
+    submitRef.current(
+      prompt.text,
+      {
+        ...(prompt.model === undefined ? {} : { model: prompt.model }),
+        ...(prompt.effort === undefined ? {} : { effort: prompt.effort }),
+      },
+      prompt.attachments,
+    );
   }, [projectId, sessionId]);
 }

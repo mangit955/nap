@@ -107,9 +107,7 @@ const app = createApp({
     registry,
     sessions,
     projects,
-    allowedModels: ["fixture/free"],
-    freeModel: "fixture/free",
-    defaultModel: "fixture/free",
+    models: { versionOf: () => null, freeModel: "fixture/free", freeEffort: "medium" },
   },
 });
 app.post("/fixture/:mode", (c) => {

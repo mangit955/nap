@@ -152,9 +152,7 @@ function fixture(admission: Admission = { freeModel: "free" }) {
       queue,
       webOrigin: config.webOrigin,
       admission: {
-        allowedModels: ["free"],
-        freeModel: admission.freeModel,
-        defaultModel: "free",
+        models: { versionOf: () => "free", freeModel: admission.freeModel, freeEffort: "medium" },
         ...(admission.keys === undefined ? {} : { keys: admission.keys }),
       },
     },

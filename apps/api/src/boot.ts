@@ -70,6 +70,7 @@ import { githubConfigFromEnv } from "./github/config.ts";
 import { createHealthProbe } from "./health.ts";
 import { createLogger } from "./logger.ts";
 import { createDeploymentProvider } from "./model-provider.ts";
+import { fetchCatalogWith } from "./models/model-catalog.ts";
 import { redactConsole } from "./redact-query-params.ts";
 import { createHeartbeatWriter } from "./worker-heartbeat.ts";
 
@@ -369,6 +370,9 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     },
     objects,
     provider: createDeploymentProvider(env),
+    // OpenRouter's public catalog, read only by a role that serves: that is where a line becomes
+    // a version. See `models/model-catalog.ts`.
+    fetchCatalog: fetchCatalogWith(fetch),
     ...(capture === undefined ? {} : { capture }),
     auth,
     authenticate: auth.getUser,
@@ -462,6 +466,7 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
     shuttingDown ??= (async () => {
       composed.reaper.stop();
       composed.github.stop();
+      composed.catalog.stop();
       composed.janitor.stop();
       await composed.worker.stop();
       // Handed over explicitly rather than left to the connection dropping: the next reaper is

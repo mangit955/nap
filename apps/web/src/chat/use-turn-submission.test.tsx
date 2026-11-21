@@ -331,15 +331,15 @@ describe("whether a turn is running", () => {
 });
 
 describe("the model a turn runs on", () => {
-  it("sends the chosen model with the message", async () => {
+  it("sends the chosen line and effort with the message", async () => {
     const { fetchJson, bodies } = poster();
     const { result } = submission(fetchJson);
 
     await act(async () => {
-      await result.current.submit("hello", "anthropic/claude-opus-5");
+      await result.current.submit("hello", { model: "opus", effort: "xhigh" });
     });
 
-    expect(bodies[0]).toEqual({ message: "hello", model: "anthropic/claude-opus-5" });
+    expect(bodies[0]).toEqual({ message: "hello", model: "opus", effort: "xhigh" });
   });
 
   it("omits it entirely when none was chosen", async () => {
@@ -590,11 +590,11 @@ it("admits an app test without an optimistic user message and follows its prepar
   const view = submission(http.fetchJson);
   let accepted = false;
   await act(async () => {
-    accepted = await view.result.current.startTest("job", "anthropic/claude-sonnet-5");
+    accepted = await view.result.current.startTest("job", { model: "sonnet", effort: "high" });
   });
   expect(accepted).toBe(true);
   expect(http.calls[0]).toBe(`/sessions/${SESSION}/tests`);
-  expect(http.bodies[0]).toEqual({ jobId: "job", model: "anthropic/claude-sonnet-5" });
+  expect(http.bodies[0]).toEqual({ jobId: "job", model: "sonnet", effort: "high" });
   expect(view.result.current.pending).toBeUndefined();
   expect(view.result.current.running).toBe(true);
   expect(view.result.current.testPhase).toBe("starting");
@@ -634,7 +634,7 @@ describe("a message sent while a turn runs", () => {
     rerender(log);
 
     await act(async () => {
-      await result.current.submit("Use Postgres instead", "openai/gpt-5.6-luna");
+      await result.current.submit("Use Postgres instead", { model: "luna", effort: "low" });
     });
 
     expect(server.calls).toEqual([
@@ -643,7 +643,8 @@ describe("a message sent while a turn runs", () => {
         body: {
           id: expect.any(String),
           message: "Use Postgres instead",
-          model: "openai/gpt-5.6-luna",
+          model: "luna",
+          effort: "low",
         },
       },
     ]);

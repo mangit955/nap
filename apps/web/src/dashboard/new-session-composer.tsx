@@ -2,11 +2,12 @@
 
 import { RepositoryImportSchema } from "@nap/shared/github-protocol";
 import type { MediaAttachment } from "@nap/shared/media";
-import type { ModelChoice } from "@nap/shared/models-protocol";
+import type { Effort } from "@nap/shared/model-lines";
 import { SessionStartedSchema, SessionStartSchema } from "@nap/shared/session-start-protocol";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
+import { type ModelOption, sendableModel } from "../chat/model-options.ts";
 import { handOffStartedPrompt } from "../chat/started-prompt.ts";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
@@ -32,15 +33,18 @@ export function NewSessionComposer({
   models,
   modelsLoading,
   fallback,
+  defaultEffort,
   onAddKey,
   fetchJson = credentialedFetch,
   onSourceChange,
   settingsRequest = 0,
 }: {
   ownerId: string;
-  models: readonly ModelChoice[];
+  models: readonly ModelOption[];
   modelsLoading: boolean;
   fallback?: string | undefined;
+  /** The effort a turn runs at when nobody chose one, for this caller. */
+  defaultEffort?: Effort | undefined;
   onAddKey: () => void;
   fetchJson?: FetchJson;
   /** The repository the draft will start from, for the thread details card beside it. */
@@ -256,7 +260,18 @@ export function NewSessionComposer({
       value.pendingStart ?? {
         operationId: value.operationId,
         source: value.source ? { ...value.source, kind: "github" } : { kind: "template" },
-        ...(message.trim() ? { prompt: { message, model: value.model, attachments } } : {}),
+        ...(message.trim()
+          ? {
+              // A draft saved before there were lines may hold an exact version: sent as its
+              // line, and dropped when this deployment offers nothing it could mean.
+              prompt: {
+                message,
+                model: sendableModel(models, value.model),
+                effort: value.effort,
+                attachments,
+              },
+            }
+          : {}),
       },
     );
     if (!parsed.success) {
@@ -320,6 +335,7 @@ export function NewSessionComposer({
           text: prompt.message,
           ...(prompt.attachments === undefined ? {} : { attachments: prompt.attachments }),
           ...(prompt.model === undefined ? {} : { model: prompt.model }),
+          ...(prompt.effort === undefined ? {} : { effort: prompt.effort }),
         });
       entered.started(result.projectId);
     } catch (error) {
@@ -358,8 +374,12 @@ export function NewSessionComposer({
       error={error}
       models={models}
       modelsLoading={modelsLoading}
-      model={draft?.model ?? fallback}
+      // What a start would send, so the trigger never names a line the start will not run on.
+      model={sendableModel(models, draft?.model) ?? fallback}
       onModelChange={(model) => setDraft((value) => value && { ...value, model })}
+      effort={draft?.effort}
+      defaultEffort={defaultEffort}
+      onEffortChange={(effort) => setDraft((value) => value && { ...value, effort })}
       onAddKey={onAddKey}
       mediaState={media}
       onChange={(text) => {
