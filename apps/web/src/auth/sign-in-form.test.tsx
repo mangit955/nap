@@ -124,6 +124,17 @@ describe("the social providers", () => {
     expect(props.onSocial).toHaveBeenCalledWith(provider);
   });
 
+  it("keeps their row's place, empty, while the API has not said which there are", () => {
+    // Drawn above the email form, a row that arrives late pushes Email down under a thumb that
+    // was already on its way to it. Empty and unannounced until there is something to offer.
+    setup({ socialProviders: [], socialPending: true });
+
+    const held = screen.getByTestId("providers-pending");
+    expect(held).toHaveAttribute("aria-hidden", "true");
+    expect(held.parentElement?.children).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /^Continue with/ })).toBeNull();
+  });
+
   it("offers neither when neither is configured", () => {
     // A button that looks fine and dies at the redirect back is the failure the whole
     // paired-credentials rule exists to prevent; not drawing it is the other half.

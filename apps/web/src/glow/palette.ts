@@ -19,7 +19,7 @@
  * be: it drifted through the same arc, a few points of saturation at the top of the lightness
  * range. The idea was that a surface changing colour with the light reads as being lit by it.
  * What it actually reads as is the page tinting itself every few seconds for no reason the
- * reader can see, and it drags every neutral on the page — the doodles, the borders, the card's
+ * reader can see, and it drags every neutral on the page — the borders, the card's
  * own face — around with it. A room does not change colour because something in it lit up.
  */
 

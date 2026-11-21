@@ -105,6 +105,9 @@ export function LiveSignIn({
     social: [],
     demo: false,
   });
+  // Whether the API has answered, either way. The providers are drawn above the email form, so
+  // until it answers the form holds their row open rather than jumping down under a thumb.
+  const [waysKnown, setWaysKnown] = useState(false);
 
   // A guest session is still a session. Better Auth correctly refuses to mint a second anonymous
   // identity for the same browser, so a person returning to this page should continue their
@@ -131,7 +134,10 @@ export function LiveSignIn({
       })
       // A server that cannot say which ways in it has is one we offer none of. The email form
       // still works, and that is a better answer than a button that cannot.
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setWaysKnown(true);
+      });
 
     return () => {
       cancelled = true;
@@ -261,6 +267,7 @@ export function LiveSignIn({
       }}
       onDemo={() => void startDemo()}
       socialProviders={ways.social}
+      socialPending={!waysKnown}
       demoEnabled={ways.demo}
       demoPending={sessionPending}
       error={error}

@@ -17,8 +17,9 @@ const signUpEmail = vi.fn();
 const signInSocial = vi.fn();
 const signInAnonymous = vi.fn();
 const getSession = vi.fn();
-/** What `/auth/providers` answers with, per test. */
+/** What `/auth/providers` answers with, per test, and whether it answers at all. */
 const ways = { socialProviders: [] as string[], demo: false };
+let waysUnreachable = false;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace, refresh: vi.fn() }),
@@ -43,7 +44,10 @@ vi.mock("./client.ts", () => ({
 // The providers lookup is a real network call in an effect; left alone it reaches for a server
 // that is not there and the test waits on the failure.
 vi.mock("../api/credentialed-fetch.ts", () => ({
-  credentialedFetch: () => Promise.resolve(new Response(JSON.stringify(ways))),
+  credentialedFetch: () =>
+    waysUnreachable
+      ? Promise.reject(new TypeError("Failed to fetch"))
+      : Promise.resolve(new Response(JSON.stringify(ways))),
 }));
 
 const { LiveSignIn } = await import("./live-sign-in.tsx");
@@ -61,6 +65,7 @@ beforeEach(() => {
   getSession.mockResolvedValue({ data: { user: { id: "u1" } } });
   ways.socialProviders = [];
   ways.demo = false;
+  waysUnreachable = false;
   window.history.replaceState(null, "", "/sign-in");
 });
 
@@ -301,6 +306,27 @@ describe("when the browser accepts the sign-in and drops the cookie", () => {
 });
 
 describe("the social buttons", () => {
+  /*
+   * The providers' row is drawn above the email form, so it is held open until the server says
+   * what goes in it. By test id because the held row is empty and hidden from assistive
+   * technology by design; a role query cannot see it.
+   */
+  it("holds their row open until the server answers, and closes it when there are none", async () => {
+    render(<LiveSignIn />);
+
+    expect(screen.getByTestId("providers-pending")).toBeInTheDocument();
+    await vi.waitFor(() => expect(screen.queryByTestId("providers-pending")).toBeNull());
+    expect(screen.queryByRole("button", { name: /^Continue with/ })).toBeNull();
+  });
+
+  it("lets the row go when the server cannot be asked, so the form is not held for ever", async () => {
+    waysUnreachable = true;
+    render(<LiveSignIn />);
+
+    await vi.waitFor(() => expect(screen.queryByTestId("providers-pending")).toBeNull());
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+  });
+
   it("draws only what the server says it has, and sends the right provider", async () => {
     ways.socialProviders = ["google"];
     signInSocial.mockResolvedValue({});

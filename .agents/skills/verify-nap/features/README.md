@@ -47,6 +47,8 @@ starts with `Preconditions:`), and `Gotchas`.
 
 ## Features
 
+- [Sign in and sign up](./auth-pages.md): the two modes, the switch between them, email sign-up,
+  the guest door, the expired-session notice and a refused sign-in.
 - [Dashboard and session list](./dashboard-and-session-list.md): listing, search, source filter,
   settle and snooze, opening a session.
 - [Start a project](./start-a-project.md): the dashboard composer creates a session and runs its

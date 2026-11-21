@@ -66,6 +66,12 @@ export type SignInFormProps = {
   onDemo: () => void;
   /** Only the providers the API actually has credentials for; see `/auth/providers`. */
   socialProviders: readonly SocialProvider[];
+  /**
+   * The API has not said yet which providers it has. Their row sits above the email form, so it
+   * is held open, empty, until it does: drawn late, it would push Email down by its own height
+   * at about the moment somebody taps it, and the tap would land on Google or GitHub instead.
+   */
+  socialPending?: boolean;
   /** Whether this deployment lets anybody in without an account at all. */
   demoEnabled: boolean;
   /** In words, for the person who just tried. Undefined when nothing has gone wrong. */
@@ -118,6 +124,7 @@ export function SignInForm({
   onSocial,
   onDemo,
   socialProviders,
+  socialPending = false,
   demoEnabled,
   error,
   notice,
@@ -134,6 +141,7 @@ export function SignInForm({
   // This page's order, filtered by what the API has credentials for — rather than the API's
   // order, which is an implementation detail of how boot happens to check them.
   const offered = SOCIAL.filter(({ provider }) => socialProviders.includes(provider));
+  const providerRow = socialPending || offered.length > 0;
 
   return (
     <div className="landing min-h-dvh lg:grid lg:grid-cols-2">
@@ -153,13 +161,15 @@ export function SignInForm({
           arrived by accident, and the wordmark is the one thing on it people already know is a
           link everywhere else.
 
-          `self-start` on a wide screen, where it is a flex item: stretched to the column's width,
-          its stacking layer lies over the mode switch in the corner and takes every click on it.
+          It is lifted above the phone's photo strip and nowhere else. On a wide screen it is a
+          flex item, and a flex item with a z-index stacks even unpositioned: stretched to the
+          column's width it lay over the mode switch in the corner and took every click on it.
+          Hence `lg:z-auto`, and `lg:self-start` so it is only as wide as what it says.
         */}
         <a
           href="/"
           aria-label="nap, back to the front page"
-          className="absolute top-5 left-6 z-[2] flex h-9 items-center gap-[7px] font-semibold text-(--lp-ink) text-[19px] tracking-[-0.03em] lg:static lg:self-start"
+          className="absolute top-5 left-6 z-[2] flex h-9 items-center gap-[7px] font-semibold text-(--lp-ink) text-[19px] tracking-[-0.03em] lg:static lg:z-auto lg:self-start"
         >
           <NapMark className="size-[26px]" />
           nap
@@ -174,9 +184,19 @@ export function SignInForm({
               The providers come first because they are the shortest way in, and each shows its
               name as well as its mark: two bare logos side by side read as decoration.
             */}
-            {offered.length > 0 && (
+            {providerRow && (
               <>
                 <div className="mt-[30px] flex gap-2 lg:mt-9">
+                  {socialPending && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        data-testid="providers-pending"
+                        className={GHOST_BUTTON}
+                      />
+                      <span aria-hidden="true" className={GHOST_BUTTON} />
+                    </>
+                  )}
                   {offered.map(({ provider, name: providerName, label, Icon }) => (
                     <button
                       key={provider}
@@ -204,7 +224,7 @@ export function SignInForm({
             )}
 
             <form
-              className={`flex flex-col gap-2.5 ${offered.length > 0 ? "" : "mt-[30px] lg:mt-9"}`}
+              className={`flex flex-col gap-2.5 ${providerRow ? "" : "mt-[30px] lg:mt-9"}`}
               onSubmit={(event) => {
                 event.preventDefault();
                 onSubmit({ email, password, name });
@@ -307,6 +327,16 @@ export function SignInForm({
               </button>
             </form>
 
+            {/*
+              Its line is held, invisibly, while the API is still answering for the same reason
+              as the providers' row: on a wide screen the form is centred, and a line arriving
+              under it would lift every field by half its height.
+            */}
+            {socialPending && !demoEnabled && (
+              <p aria-hidden="true" className="invisible mt-5 text-[13px]">
+                &nbsp;
+              </p>
+            )}
             {demoEnabled && (
               <p className="lp-muted mt-5 text-center text-[13px]">
                 or{" "}
@@ -314,9 +344,9 @@ export function SignInForm({
                   type="button"
                   onClick={onDemo}
                   disabled={submitting || demoPending}
-                  // Underlined, faintly, because its colour alone sits too close to the "or"
-                  // beside it to say it can be pressed.
-                  className="text-(--lp-ink-2) underline decoration-[#ffffff2e] underline-offset-4 transition-colors hover:text-(--lp-ink) disabled:opacity-50"
+                  // Underlined because its colour alone sits too close to the "or" beside it to
+                  // say it can be pressed; the line is held to about 3:1 so it is seen.
+                  className="text-(--lp-ink-2) underline decoration-[#ffffff66] underline-offset-4 transition-colors hover:text-(--lp-ink) disabled:opacity-50"
                 >
                   try it without an account
                 </button>
