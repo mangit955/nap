@@ -1,9 +1,20 @@
 import { readFileSync } from "node:fs";
-import { format } from "node:util";
+import { inspect } from "node:util";
 import { pino } from "pino";
 import { describe, expect, it } from "vitest";
 import { createLogger } from "./logger.ts";
 import { redactConsole, withoutQueryParams } from "./redact-query-params.ts";
+
+/**
+ * What Bun's `console` prints for these arguments. Bun shows an error's non-enumerable fields,
+ * where Node's `util.format` hides them — and postgres.js puts a query's values on a connection
+ * error in exactly such fields. Capturing with `format` would hide the leak this looks for.
+ */
+function printed(...args: unknown[]): string {
+  return args
+    .map((arg) => (typeof arg === "string" ? arg : inspect(arg, { showHidden: true, depth: 8 })))
+    .join(" ");
+}
 
 /**
  * The end-to-end claim — a real failed query, through pino, leaves no parameters — is in
@@ -259,7 +270,7 @@ describe("redactConsole", () => {
     const written: string[] = [];
     const target = {
       ...console,
-      error: (...args: unknown[]) => written.push(format(...args)),
+      error: (...args: unknown[]) => written.push(printed(...args)),
     } as Console;
 
     redactConsole(target);

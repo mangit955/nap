@@ -24,15 +24,19 @@ const QUERY_MARKER = "Failed query: ";
 const PARAMS_MARKERS = ["\nparams: ", "\\nparams: "];
 const WITHHELD = "\n[query parameters withheld from the log]";
 
-/** Drizzle's field for a query's values, on whatever error carries it. */
-const DRIZZLE_FIELDS = new Set<PropertyKey>(["params"]);
+/**
+ * The fields that hold a query's values, on whatever error carries them: Drizzle's `params`,
+ * and the `parameters` and `args` postgres.js attaches to any error a query ends in — a refused
+ * connection's plain `Error` included. postgres.js makes those two non-enumerable, which hides
+ * them from pino and from Node's `console`, but Bun's `console` prints them anyway.
+ */
+const QUERY_FIELDS = new Set<PropertyKey>(["params", "parameters", "args"]);
 
 /**
- * postgres.js's: `detail` (see above); `where`, the server's error context, which quotes a bind
- * parameter when `log_parameter_max_length_on_error` is set; and the values it attaches
- * non-enumerably — enumerably when its `debug` option is on.
+ * What a `PostgresError` adds: `detail` (see above), and `where`, the server's error context,
+ * which quotes a bind parameter when `log_parameter_max_length_on_error` is set.
  */
-const POSTGRES_FIELDS = new Set<PropertyKey>(["params", "detail", "where", "parameters", "args"]);
+const POSTGRES_FIELDS = new Set<PropertyKey>([...QUERY_FIELDS, "detail", "where"]);
 
 /** SQLSTATE class 22, data exceptions: the server's message quotes the value it rejected. */
 const ECHOING_CLASS = "22";
@@ -151,7 +155,7 @@ function redactText(text: string): string {
  */
 function copyError(error: Error, depth: number, copies: Copies): Error {
   const isPostgres = readField(error, "name") === "PostgresError";
-  const dropped = isPostgres ? POSTGRES_FIELDS : DRIZZLE_FIELDS;
+  const dropped = isPostgres ? POSTGRES_FIELDS : QUERY_FIELDS;
   const code = readField(error, "code");
   const original = readField(error, "message");
   const withheld =

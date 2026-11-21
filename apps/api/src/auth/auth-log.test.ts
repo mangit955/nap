@@ -17,7 +17,7 @@
  */
 
 import { createHmac } from "node:crypto";
-import { format } from "node:util";
+import { inspect } from "node:util";
 import { createDatabase } from "@nap/db/client";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
@@ -26,6 +26,17 @@ import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
 import { redactConsole } from "../redact-query-params.ts";
 import { createAuth } from "./auth.ts";
+
+/**
+ * What Bun's `console` prints for these arguments. Bun shows an error's non-enumerable fields,
+ * where Node's `util.format` hides them — and postgres.js puts a query's values on a connection
+ * error in exactly such fields. Capturing with `format` would hide the leak this looks for.
+ */
+function printed(...args: unknown[]): string {
+  return args
+    .map((arg) => (typeof arg === "string" ? arg : inspect(arg, { showHidden: true, depth: 8 })))
+    .join(" ");
+}
 
 const SECRET = "a-test-secret-that-is-long-enough-to-be-a-secret";
 const API_ORIGIN = "http://localhost:3001";
@@ -70,7 +81,7 @@ beforeEach(() => {
   pinoLines.length = 0;
   consoleLines.length = 0;
   for (const m of CONSOLE_METHODS) {
-    console[m] = (...args: unknown[]) => consoleLines.push(format(...args));
+    console[m] = (...args: unknown[]) => consoleLines.push(printed(...args));
   }
   redactConsole();
 });
