@@ -17,7 +17,8 @@ is a strip above the form and the switch sits under it.
 ## How to get to it (user POV)
 
 - "Get started" or "Sign in" on the front page.
-- Any request that comes back 401 redirects to `/sign-in?expired=1`.
+- An API request that comes back 401 on any other page redirects to `/sign-in?expired=1`. On
+  `/sign-in` itself a 401 is a refused sign-in: it shows the error and stays put.
 
 ## Driving it with verify-nap
 
