@@ -19,6 +19,7 @@ let observers = 0;
 let connected = false;
 let original: typeof IntersectionObserver | undefined;
 let reduce = false;
+let motionChanged: ((event: { matches: boolean }) => void) | undefined;
 
 class FakeObserver {
   constructor(callback: Callback) {
@@ -64,6 +65,7 @@ beforeEach(() => {
   observers = 0;
   connected = false;
   reduce = false;
+  motionChanged = undefined;
   original = globalThis.IntersectionObserver;
   globalThis.IntersectionObserver = FakeObserver as unknown as typeof IntersectionObserver;
   vi.spyOn(window, "matchMedia").mockImplementation(
@@ -71,7 +73,9 @@ beforeEach(() => {
       ({
         matches: reduce && query.includes("reduce"),
         media: query,
-        addEventListener: () => {},
+        addEventListener: (_: string, listener: (event: { matches: boolean }) => void) => {
+          motionChanged = listener;
+        },
         removeEventListener: () => {},
       }) as unknown as MediaQueryList,
   );
@@ -123,6 +127,15 @@ describe("the hero session's build", () => {
     render(<Stage />);
     expect(screen.getByText("ready")).toBeInTheDocument();
     expect(observers).toBe(0);
+  });
+
+  it("finishes at once when reduced motion is turned on mid-build", () => {
+    render(<Stage />);
+    intersect();
+    advance(BUILDING_AFTER_MS);
+    expect(screen.getByText("building")).toBeInTheDocument();
+    act(() => motionChanged?.({ matches: true }));
+    expect(screen.getByText("ready")).toBeInTheDocument();
   });
 
   it("shows the finished app when nothing could ever report it on screen", () => {

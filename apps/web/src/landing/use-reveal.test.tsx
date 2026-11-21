@@ -129,13 +129,3 @@ describe("revealing a section", () => {
     expect(shown()).not.toHaveAttribute("data-reveal");
   });
 });
-
-describe("the delay", () => {
-  it("is written as a custom property, so one rule staggers a whole row", () => {
-    expect(revealProps("pending", 120).style).toEqual({ "--nap-reveal-delay": "120ms" });
-  });
-
-  it("is left off entirely when there is none", () => {
-    expect(revealProps("pending").style).toBeUndefined();
-  });
-});

@@ -2,25 +2,12 @@
   .landing {
     --lp-text-body: 16px;
     --lp-text-small: 14px;
-    --lp-text-label: 12px;
     --lp-ground: #09090b;
     --lp-card: #111113;
-    --lp-night: #0a0a0b;
     --lp-ink: #f6f3ef;
     --lp-ink-2: #c2bfbd;
     --lp-ink-3: #979492;
     --lp-line: #ffffff12;
-    --lp-accent: #d6b89e;
-    --lp-green: #b1c8b7;
-    --lp-app-ground: #f5f7f4;
-    --lp-app-card: #fff;
-    --lp-app-line: #e1e6e0;
-    --lp-app-ink: #1b2d24;
-    --lp-app-muted: #6c786f;
-    --lp-app-brand: #365e4b;
-    --lp-app-brand-soft: #d6e4d9;
-    --lp-app-up: #397751;
-    --lp-app-down: #a66b39;
     background: var(--lp-ground);
     color: var(--lp-ink);
     font-family: var(--font-inter), sans-serif;
@@ -733,6 +720,11 @@
   }
   .lp-button-light:hover {
     background: #fff;
+  }
+  /* The page's focus ring is drawn in the text colour, which on this button is the dark ink and
+     would vanish against the dark page around it. */
+  .lp-button-light:focus-visible {
+    outline-color: var(--lp-ink);
   }
   .lp-button-ghost {
     color: var(--lp-ink);

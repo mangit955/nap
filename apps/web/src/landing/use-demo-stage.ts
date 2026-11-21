@@ -34,12 +34,19 @@ export function useDemoStage<T extends HTMLElement>(): {
 
   useEffect(() => {
     const element = ref.current;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced || typeof IntersectionObserver !== "function" || element === null) {
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motion.matches || typeof IntersectionObserver !== "function" || element === null) {
       setStage("ready");
       return;
     }
     const timers: ReturnType<typeof setTimeout>[] = [];
+    // Turning reduced motion on mid-visit ends the build where it would have finished.
+    const still = (event: MediaQueryListEvent) => {
+      if (!event.matches) return;
+      observer.disconnect();
+      for (const timer of timers) clearTimeout(timer);
+      setStage("ready");
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -52,8 +59,10 @@ export function useDemoStage<T extends HTMLElement>(): {
       { threshold: THRESHOLD },
     );
     observer.observe(element);
+    motion.addEventListener("change", still);
     return () => {
       observer.disconnect();
+      motion.removeEventListener("change", still);
       for (const timer of timers) clearTimeout(timer);
     };
   }, []);

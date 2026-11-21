@@ -36,9 +36,10 @@ describe("the front page's hero", () => {
     ).toBeInTheDocument();
   });
 
-  it("stands the session on the photograph rather than under it", () => {
-    // The photograph is the wall's own background, so it can never be drawn over the window.
-    // An earlier hero laid a mountain mask across the session and hid most of it on a phone.
+  it("puts nothing in the photograph's wall but the session", () => {
+    // An earlier hero laid a mountain mask across the session and hid most of it on a phone. This
+    // catches a layer added beside the session; a pseudo-element drawn over it needs layout to
+    // see, and `scripts/check-landing.js` hit-tests the window's centre for that.
     render(<Hero />);
     const session = screen.getByRole("group", { name: /interactive nap session demo/i });
     const wall = session.closest(".lp-wall");

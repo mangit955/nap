@@ -1554,15 +1554,11 @@ body {
  * nothing here to match, and cannot be left blank. The travel is small and the fade does most of
  * the work: a section sliding a long way reads as a slide, where fourteen pixels reads as the
  * page settling.
- *
- * The delay is a custom property rather than a rule per position, which is what lets one row
- * stagger its children by handing each a different number.
  */
 .nap-reveal {
   transition:
     opacity 520ms cubic-bezier(0.22, 0.61, 0.36, 1),
     transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  transition-delay: var(--nap-reveal-delay, 0ms);
 }
 
 .nap-reveal[data-reveal="pending"] {

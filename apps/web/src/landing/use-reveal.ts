@@ -20,7 +20,7 @@
  * sees until somebody with the setting turned on visits.
  */
 
-import { type CSSProperties, type RefObject, useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "../glow/use-pulse.ts";
 
 export type RevealState = "idle" | "pending" | "in";
@@ -76,19 +76,12 @@ export function useReveal<T extends HTMLElement>(): {
  * What to put on the element. `undefined` while idle, so the markup carries no attribute at all
  * and the hiding rule cannot match — see above.
  */
-export function revealProps(
-  state: RevealState,
-  delayMs = 0,
-): {
+export function revealProps(state: RevealState): {
   className: string;
   "data-reveal": RevealState | undefined;
-  style: CSSProperties | undefined;
 } {
   return {
     className: "nap-reveal",
     "data-reveal": state === "idle" ? undefined : state,
-    // A custom property is not part of `CSSProperties`, and this is the cast React's own types
-    // expect for one — the alternative is a stylesheet rule per delay.
-    style: delayMs > 0 ? ({ "--nap-reveal-delay": `${delayMs}ms` } as CSSProperties) : undefined,
   };
 }
