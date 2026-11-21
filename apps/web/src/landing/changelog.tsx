@@ -10,7 +10,7 @@ import { REPO_URL } from "./github-button.tsx";
 const ENTRIES = [
   { date: "2026-11-21", title: "Choose the model and how hard it thinks, per turn", pr: 314 },
   { date: "2026-11-20", title: "Your message stays in view while the reply streams in", pr: 306 },
-  { date: "2026-11-19", title: "Projects open from the sidebar without a page load", pr: 303 },
+  { date: "2026-11-19", title: "Projects open from the sidebar without a page load", pr: 293 },
   { date: "2026-11-18", title: "Connected repos end in a reviewed draft pull request", pr: 288 },
 ] as const;
 

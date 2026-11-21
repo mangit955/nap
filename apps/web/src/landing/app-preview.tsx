@@ -24,7 +24,7 @@ const PERIODS = {
   },
 };
 
-/** An interactive example app, scoped to the product walkthrough. */
+/** The ledger example app, served on its own at `/demo/ledger`. */
 export function AppPreview() {
   const [period, setPeriod] = useState<keyof typeof PERIODS>("month");
   const data = PERIODS[period];

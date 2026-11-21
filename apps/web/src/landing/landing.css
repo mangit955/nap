@@ -1125,12 +1125,6 @@
     }
   }
 }
-.nap-mark-awake .nap-mark-shut {
-  opacity: 0;
-}
-.nap-mark-awake .nap-mark-open {
-  opacity: 1;
-}
 /* The mark stays still at rest on the landing page; hover can wake it once. */
 .landing .nap-mark-body,
 .landing .nap-mark-z {

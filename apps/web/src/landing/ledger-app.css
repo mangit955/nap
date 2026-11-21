@@ -1,6 +1,6 @@
 /*
- * The ledger example app's styles: a finance dashboard nap "built", served on its own at
- * `/demo/ledger` and shown in the landing page's "Built with nap" gallery.
+ * The ledger example app's styles: a finance dashboard served on its own at `/demo/ledger` and
+ * shown in the landing page's "Built with nap" gallery.
  */
 @layer components {
   :where(.ps-generated-app) {
@@ -12,7 +12,6 @@
   :where(.ps-ledger) {
     display: grid;
     grid-template-columns: 105px minmax(0, 1fr);
-    height: calc(100% - 28px);
     color: #d4d9cd;
     background: #111512;
     font-family: var(--font-inter), sans-serif;
