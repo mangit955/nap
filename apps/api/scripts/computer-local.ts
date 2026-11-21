@@ -171,9 +171,7 @@ try {
   const config = {
     ...loadgenConfig(2),
     NAP_WEB_ORIGIN: WEB,
-    NAP_MODEL: model,
     NAP_FREE_MODEL: model,
-    NAP_ALLOWED_MODELS: [model],
     NAP_WORKER_CONCURRENCY: 1,
     NAP_MAX_STEPS: 40,
     NAP_CONTEXT_BUDGET_TOKENS: 80_000,
@@ -228,7 +226,7 @@ try {
     turnId: crypto.randomUUID(),
     message:
       "Build the local Notes demonstration so I can test saving a note in the real computer.",
-    model: config.NAP_MODEL,
+    model: config.NAP_FREE_MODEL,
     signal: abort.signal,
   });
   if (!seeded.ok) throw new Error("The local source/build turn did not finish successfully.");

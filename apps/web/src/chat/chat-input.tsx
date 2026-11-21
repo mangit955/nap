@@ -1,8 +1,7 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
-import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
-import type { ModelChoice } from "@nap/shared/models-protocol";
+import { MODEL_MEDIA_UNSUPPORTED } from "@nap/shared/model-capabilities";
 import { Paperclip } from "lucide-react";
 import {
   type ReactNode,
@@ -25,6 +24,7 @@ import { ComposerAddMenu } from "./composer-add-menu.tsx";
 import { AttachmentTray, DictationButton, PlanModeButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
 import type { FirstPrompt } from "./first-prompt.ts";
+import { imagesFor, type ModelOption } from "./model-options.ts";
 import { ModelPicker } from "./model-picker.tsx";
 import { useComposerScroll } from "./use-composer-scroll.ts";
 import { useFileDrop } from "./use-file-drop.ts";
@@ -81,7 +81,7 @@ export function ChatInput({
    * What this deployment will run a turn on. Empty hides the control entirely — a deployment
    * with one model has no choice to offer, and a menu with a single row is furniture.
    */
-  models?: readonly ModelChoice[];
+  models?: readonly ModelOption[];
   /** The chosen model. Absent means the server's default, which is what most turns run on. */
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
@@ -221,7 +221,7 @@ export function ChatInput({
     enabled: !running && draftReady,
     onFiles: (dropped) => void media.add(dropped),
   });
-  const images = modelSupportsImages(model);
+  const images = imagesFor(models, model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) =>
     setText((current) => appendDictation(current, spoken)),

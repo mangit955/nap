@@ -114,6 +114,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
       ...(request.plan === undefined ? {} : { plan: structuredClone(request.plan) }),
       ...(request.fixesTest === undefined ? {} : { fixesTest: request.fixesTest }),
       model: request.model,
+      ...(request.effort === undefined ? {} : { effort: request.effort }),
       billsToUser: request.billsToUser,
       state: "queued",
       cancelRequested: false,
@@ -183,6 +184,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
       ...(candidate.plan === undefined ? {} : { plan: structuredClone(candidate.plan) }),
       ...(candidate.fixesTest === undefined ? {} : { fixesTest: candidate.fixesTest }),
       model: candidate.model,
+      ...(candidate.effort === undefined ? {} : { effort: candidate.effort }),
       billsToUser: candidate.billsToUser,
     };
   }
@@ -368,6 +370,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
           message: one.text,
           ...(one.plan === undefined ? {} : { plan: structuredClone(one.plan) }),
           model: one.model,
+          ...(one.effort === undefined ? {} : { effort: one.effort }),
           billsToUser: one.billsToUser,
         });
         // Queued in the order it was sent rather than the order it was resolved in, as Postgres
@@ -428,6 +431,7 @@ export class InMemoryTurnQueue implements TurnQueue, SteerQueue {
       ...(row.plan === undefined ? {} : { plan: structuredClone(row.plan) }),
       ...(row.fixesTest === undefined ? {} : { fixesTest: row.fixesTest }),
       model: row.model,
+      ...(row.effort === undefined ? {} : { effort: row.effort }),
       billsToUser: row.billsToUser,
     }));
   }

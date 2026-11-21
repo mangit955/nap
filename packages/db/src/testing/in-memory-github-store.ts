@@ -123,6 +123,7 @@ export class InMemoryGitHubStore implements GitHubStore {
         kind: "resume",
         message: null,
         model: open.model,
+        ...(open.effort === undefined ? {} : { effort: open.effort }),
         billsToUser: open.billsToUser,
       };
       if (this.enqueued.some((item) => item.id === request.id))

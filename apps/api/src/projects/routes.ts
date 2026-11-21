@@ -23,6 +23,7 @@ import { putProjectAway } from "@nap/runtime/close-project";
 import { deleteProject } from "@nap/runtime/delete-project";
 import { thumbnailKey } from "@nap/runtime/turn-thumbnail";
 import { getLogger } from "@nap/shared/logging";
+import type { Effort } from "@nap/shared/model-lines";
 import type { EventBus } from "@nap/shared/ports/event-bus";
 import type { EventStore } from "@nap/shared/ports/event-store";
 import type { ObjectStore } from "@nap/shared/ports/object-store";
@@ -38,7 +39,12 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { AuthVariables } from "../auth/require-user.ts";
 import { parseProjectId } from "../files/params.ts";
-import { refusalStatus, resolveTurnAccess } from "../turns/model-access.ts";
+import {
+  type ModelPolicy,
+  refusalStatus,
+  resolveTurnAccess,
+  type TurnAccess,
+} from "../turns/model-access.ts";
 import type { CallerKeys } from "../turns/routes.ts";
 import { checkSandboxQuota, type SandboxLimits } from "../turns/sandbox-quota.ts";
 import type { SessionTitles, TitleOutcome } from "./session-titler.ts";
@@ -80,10 +86,8 @@ export type ProjectRouteDeps = {
    */
   models: {
     keys?: CallerKeys;
-    allowedModels: readonly string[];
-    /** Absent means there is no free tier, so a caller with no key may not open anything. */
-    freeModel: string | undefined;
-    defaultModel: string;
+    /** What the caller's default resolves against; with no free tier, no key opens nothing. */
+    policy: ModelPolicy;
   };
   /**
    * The log a close writes `preview.stopped` to. The same store and bus everything else uses —
@@ -274,6 +278,7 @@ export function registerProjectRoutes(
       // prompt somebody typed.
       message: null,
       model: access.model,
+      effort: access.effort,
       // Whether, never which — the worker re-opens the key by user id, so plaintext credentials
       // never reach the queue, a query log or a backup.
       billsToUser: access.billsToUser,
@@ -438,21 +443,24 @@ async function continueAccess(
   deps: ProjectRouteDeps,
   userId: string,
 ): Promise<
-  | { ok: true; model: string; billsToUser: boolean }
-  | { ok: false; code: "byok_required" | "model_not_allowed"; message: string }
+  | { ok: true; model: string; effort: Effort; billsToUser: boolean }
+  | Extract<TurnAccess, { ok: false }>
 > {
   const { models } = deps;
 
   const access = resolveTurnAccess({
     requested: undefined,
     key: (await models.keys?.(userId)) ?? null,
-    allowed: models.allowedModels,
-    freeModel: models.freeModel,
-    defaultModel: models.defaultModel,
+    policy: models.policy,
   });
   if (!access.ok) return access;
 
-  return { ok: true, model: access.model, billsToUser: access.credentials !== undefined };
+  return {
+    ok: true,
+    model: access.model,
+    effort: access.effort,
+    billsToUser: access.credentials !== undefined,
+  };
 }
 
 type RouteError = { status: 400 | 404; message: string };

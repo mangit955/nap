@@ -1,7 +1,7 @@
 import type { FileListing } from "@nap/shared/files-protocol";
-import type { ModelChoice } from "@nap/shared/models-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
+import type { ModelOption } from "../chat/model-options.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { STORY_THREAD_IDS, type StoryThreadId } from "./story-demo-protocol.ts";
 
@@ -18,14 +18,29 @@ export type StoryThread = {
 };
 export const STORY_DEFAULT_MODEL = "openai/gpt-5.6-luna";
 export const STORY_MODELS = [
-  { id: STORY_DEFAULT_MODEL, label: "GPT-5.6 Luna", free: false, available: true },
+  {
+    id: STORY_DEFAULT_MODEL,
+    label: "GPT-5.6 Luna",
+    vendor: "openai",
+    version: STORY_DEFAULT_MODEL,
+    isNew: false,
+    images: true,
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    free: false,
+    available: true,
+  },
   {
     id: "nvidia/nemotron-3-ultra-550b-a55b:free",
     label: "Nemotron 3 Ultra",
+    vendor: null,
+    version: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    isNew: false,
+    images: false,
+    efforts: [],
     free: true,
     available: true,
   },
-] satisfies ModelChoice[];
+] satisfies ModelOption[];
 export const STORY_FILES: Record<string, string> = {
   "src/App.tsx": `import { useState } from "react";\nimport { SpendingChart } from "./SpendingChart";\n\nexport default function App() {\n  const [period, setPeriod] = useState("month");\n  return (\n    <main className="dashboard">\n      <h1>Room to do more.</h1>\n      <Balance amount={12684.50} />\n      <PeriodSwitch value={period} onChange={setPeriod} />\n      <SpendingChart period={period} />\n      <Transactions />\n    </main>\n  );\n}\n`,
   "src/index.css": `:root { color-scheme: dark; }\nbody { margin: 0; background: #111512; color: #d4d9cd; }\n.dashboard { max-width: 1100px; margin: auto; padding: 32px; }\n`,

@@ -23,6 +23,7 @@ import { LIVE_BATCH_MS } from "../hooks/use-event-stream.ts";
 import { knownProject, rememberProjects } from "../projects/known-projects.ts";
 import { ev, OTHER_SESSION_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
+import { modelList } from "../testing/model-list.ts";
 
 const PROJECT_A = "3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
 const PROJECT_B = "4e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192";
@@ -105,15 +106,7 @@ let gone: Set<string>;
 /** Every read, as method and path, in the order it was asked. */
 let reads: string[];
 
-const MODELS = {
-  // Two, because a picker with nothing to choose between is not drawn.
-  models: [
-    { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
-    { id: "anthropic/claude-opus-5", label: "Opus", free: false, available: true },
-  ],
-  fallback: "openai/gpt-5.6-luna",
-  key: { configured: false },
-};
+const MODELS = modelList();
 
 /** Holds a read for A when the test asks for it, and records that it did. */
 async function maybeHold(project: Project, what: string): Promise<void> {

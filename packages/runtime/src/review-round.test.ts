@@ -143,6 +143,7 @@ describe("reviewJob", () => {
         history,
         objective: "x",
         model: undefined,
+        effort: undefined,
         credentials: undefined,
         signal: undefined,
       });

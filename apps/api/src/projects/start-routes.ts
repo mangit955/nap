@@ -22,10 +22,7 @@ export type SessionStartRouteDeps = {
   projects: ProjectStore;
   webOrigin: string;
   github?: { integration: GitHubIntegration; app: GitHubApp | null } | undefined;
-  admission: Pick<
-    TurnRouteDeps,
-    "keys" | "allowedModels" | "freeModel" | "defaultModel" | "limits"
-  >;
+  admission: Pick<TurnRouteDeps, "keys" | "models" | "limits">;
   /** The model's title for a session started with a prompt; never awaited (docs/adr/0031). */
   titles?: SessionTitles | undefined;
 };
@@ -95,10 +92,9 @@ export function registerSessionStartRoutes(
     const key = (await admission.keys?.(userId)) ?? null;
     const access = resolveTurnAccess({
       requested: input.prompt?.model,
+      effort: input.prompt?.effort,
       key,
-      allowed: admission.allowedModels,
-      freeModel: admission.freeModel,
-      defaultModel: admission.defaultModel,
+      policy: admission.models,
     });
     if (!access.ok)
       return c.json({ error: access.message, code: access.code }, refusalStatus(access.code));
@@ -134,6 +130,7 @@ export function registerSessionStartRoutes(
         kind: input.prompt ? "turn" : "resume",
         message: input.prompt?.message ?? null,
         model: access.model,
+        effort: access.effort,
         billsToUser: access.credentials !== undefined,
         ...(input.prompt?.attachments === undefined
           ? {}

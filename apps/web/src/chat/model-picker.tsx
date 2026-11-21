@@ -2,29 +2,12 @@
 
 /** The deployment-backed model choice used by both prompt composers. */
 
-import { modelSupportsImages } from "@nap/shared/model-capabilities";
-import type { ModelChoice } from "@nap/shared/models-protocol";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { type ModelOption, modelInUse } from "./model-options.ts";
 
 /** Ties a locked row to the words explaining why, for anyone not reading with their eyes. */
 const LOCKED_HINT_ID = "model-locked";
-
-/**
- * The model a message will run on: the one chosen, or else the first *reachable* one rather than
- * the first listed, so a free caller never sees a locked model named as theirs. The picker and
- * the context popup both name it, and must not disagree.
- */
-export function modelInUse(
-  models: readonly ModelChoice[],
-  model: string | undefined,
-): ModelChoice | undefined {
-  return (
-    models.find((choice) => choice.id === model) ??
-    models.find((choice) => choice.available) ??
-    models[0]
-  );
-}
 
 export function ModelPicker({
   models,
@@ -36,7 +19,7 @@ export function ModelPicker({
   onAddKey,
   closeWhen,
 }: {
-  models: readonly ModelChoice[];
+  models: readonly ModelOption[];
   /** The server fallback is supplied by the caller when no explicit choice has been made. */
   model: string | undefined;
   disabled?: boolean;
@@ -150,7 +133,7 @@ export function ModelPicker({
                       Free
                     </span>
                   )}
-                  {!modelSupportsImages(choice.id) && (
+                  {!choice.images && (
                     <span className="shrink-0 text-[10px] text-muted">Text only</span>
                   )}
                   {!choice.available && (

@@ -27,11 +27,19 @@ import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-m
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { encryptionKeyFrom } from "../account/secret-box.ts";
 import type { AppDeps } from "../app.ts";
+import type { ModelPolicy } from "../turns/model-access.ts";
 import { TurnRegistry } from "../turns/registry.ts";
 import { createStreamTickets } from "./stream-ticket.ts";
 
 /** A model that costs nothing, which is what a caller with no key of their own may run. */
 const FREE_MODEL = "poolside/laguna-s-2.1:free";
+
+/** Every line on a version, and a free tier, so no route here is refused for want of a model. */
+const MODELS: ModelPolicy = {
+  versionOf: (line) => `vendor/${line}-1`,
+  freeModel: FREE_MODEL,
+  freeEffort: "medium",
+};
 
 /** The signed-in user everything below belongs to. */
 export const OWNER = FAKE_OWNER;
@@ -367,17 +375,11 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       encryptionKey: encryptionKeyFrom(Buffer.alloc(32).toString("base64")),
       verify: async () => ({ ok: true }),
     },
-    models: {
-      allowed: ["openai/gpt-5.6-luna", FREE_MODEL],
-      fallback: "openai/gpt-5.6-luna",
-      freeModel: FREE_MODEL,
-    },
+    models: { policy: MODELS, isNew: () => false },
     turns: {
       queue: new InMemoryTurnQueue(),
       registry: new TurnRegistry(),
-      freeModel: FREE_MODEL,
-      defaultModel: "openai/gpt-5.6-luna",
-      allowedModels: ["openai/gpt-5.6-luna"],
+      models: MODELS,
       sessions,
       projects,
     },
@@ -393,11 +395,7 @@ export function fullyWiredDeps(seeded?: SeededSandbox): Omit<AppDeps, "logger"> 
       },
       // Never actually reached, for the same reason the turn routes' queue is not.
       queue: new InMemoryTurnQueue(),
-      models: {
-        allowedModels: ["openai/gpt-5.6-luna", FREE_MODEL],
-        freeModel: FREE_MODEL,
-        defaultModel: "openai/gpt-5.6-luna",
-      },
+      models: { policy: MODELS },
       events: { events: new InMemoryEventStore(), bus: new InMemoryEventBus() },
       isBusy: async () => false,
     },

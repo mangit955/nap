@@ -44,8 +44,8 @@ describe("createDeploymentProvider", () => {
       NAP_PLATFORM: "anthropic",
       ANTHROPIC_API_KEY: "ollama",
       NAP_MODEL_BASE_URL: endpoint.url,
-      NAP_MODEL: "qwen3.5:9b",
-      NAP_ALLOWED_MODELS: "qwen3.5:9b",
+      // The free tier's model is the deployment's own; nothing else reaches this host.
+      NAP_FREE_MODEL: "qwen3.5:9b",
     });
 
     expect(endpoint.seen.map((request) => request.path)).toEqual(["/v1/messages"]);

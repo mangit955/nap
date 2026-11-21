@@ -57,9 +57,7 @@ import { createSharedSandboxTable, PostgresSharedSandboxStore } from "./loadgen-
 export function loadgenConfig(users: number): NapConfig {
   return {
     NAP_WEB_ORIGIN: "http://localhost:3000",
-    NAP_MODEL: "loadgen/fake",
     NAP_FREE_MODEL: "loadgen/fake",
-    NAP_ALLOWED_MODELS: ["loadgen/fake"],
     NAP_MAX_STEPS: 8,
     NAP_CONTEXT_BUDGET_TOKENS: 80_000,
     NAP_MAX_SANDBOXES_PER_USER: 2,

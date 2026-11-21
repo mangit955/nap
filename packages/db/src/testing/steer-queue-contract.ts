@@ -108,6 +108,27 @@ export function steerQueueContract(name: string, harness: () => SteerQueueHarnes
       });
     });
 
+    it("keeps a turn's effort beside its model, whichever way it reaches the queue", async () => {
+      const { queue, session } = harness();
+      const seed = await session();
+      // Queued as a turn, because nothing runs yet.
+      const direct = { ...steer(seed, "direct"), effort: "max" as const };
+      await queue.steer(direct);
+      expect(await queue.claim("worker-a")).toMatchObject({ id: direct.id, effort: "max" });
+      // Joins that turn, then is deferred into a turn of its own when it closes unread.
+      const deferred = { ...steer(seed, "deferred"), effort: "low" as const };
+      await expect(queue.steer(deferred)).resolves.toMatchObject({ as: "steer" });
+      await queue.close(direct.id, "worker-a", "defer");
+      await queue.settle(direct.id, "worker-a", "done");
+      expect(await queue.claim("worker-b")).toMatchObject({ id: deferred.id, effort: "low" });
+      await queue.settle(deferred.id, "worker-b", "done");
+
+      // A row queued with none carries none, and runs at the deployment's effort.
+      const plain = steer(seed, "plain");
+      await queue.steer(plain);
+      expect(await queue.claim("worker-c")).not.toHaveProperty("effort");
+    });
+
     it("answers a retried id with what the first attempt did, and writes nothing twice", async () => {
       const { queue, session } = harness();
       const seed = await session();

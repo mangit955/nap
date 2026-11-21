@@ -132,7 +132,7 @@ function start(
     cancels?: Pick<CancelChannel, "listen">;
     listenTimeoutMs?: number;
     steers?: Pick<SteerQueue, "take" | "close">;
-    paysForCallers?: boolean;
+    paysFor?: (model: string) => boolean;
   } = {},
 ): TurnWorker {
   const worker = startTurnWorker({
@@ -153,7 +153,7 @@ function start(
     ...(overrides.onClaimTick === undefined ? {} : { onClaimTick: overrides.onClaimTick }),
     ...(overrides.publish === undefined ? {} : { publish: overrides.publish }),
     ...(overrides.steers === undefined ? {} : { steers: overrides.steers }),
-    ...(overrides.paysForCallers === undefined ? {} : { paysForCallers: overrides.paysForCallers }),
+    ...(overrides.paysFor === undefined ? {} : { paysFor: overrides.paysFor }),
   });
   workers.push(worker);
   return worker;
@@ -452,7 +452,7 @@ describe("who pays", () => {
       // admitted before it stopped, which would otherwise run on the deployment's own account.
       const queue = new InMemoryTurnQueue();
       const runtime = new RecordingRuntime();
-      start(queue, runtime, { paysForCallers: false });
+      start(queue, runtime, { paysFor: () => false });
       const turn = await enqueueTurn(queue);
       const resume = await enqueueRequest(queue, {
         sessionId: "session-b",
@@ -469,11 +469,33 @@ describe("who pays", () => {
       expect(runtime.resumes).toEqual([]);
     });
 
+    it("fails a request on a model other than the free one, and runs the free one", async () => {
+      // An older API could queue another `:free` model on the deployment's key, and a free tier
+      // can be moved to a cheaper model with rows still queued on the dearer one.
+      const queue = new InMemoryTurnQueue();
+      const runtime = new RecordingRuntime();
+      start(queue, runtime, { paysFor: (model) => model === "vendor/free:free" });
+      const other = await enqueueTurn(queue);
+      const free = await enqueueRequest(queue, {
+        sessionId: "session-b",
+        userId: "user-1",
+        kind: "turn",
+        message: "build me a thing",
+        model: "vendor/free:free",
+        billsToUser: false,
+      });
+
+      await vi.waitFor(() => expect(queue.stateOf(other.id)).toBe("failed"));
+      await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
+      expect(runtime.turns[0]?.model).toBe("vendor/free:free");
+      expect(queue.stateOf(free.id)).not.toBe("failed");
+    });
+
     it("still runs a request billed to its asker", async () => {
       const queue = new InMemoryTurnQueue();
       const runtime = new RecordingRuntime();
       const credentials: ModelCredentials = { platform: "openrouter", apiKey: "sk-or-test" };
-      start(queue, runtime, { paysForCallers: false, credentialsFor: async () => credentials });
+      start(queue, runtime, { paysFor: () => false, credentialsFor: async () => credentials });
       await enqueueTurn(queue, { billsToUser: true });
 
       await vi.waitFor(() => expect(runtime.turns).toHaveLength(1));
@@ -484,7 +506,7 @@ describe("who pays", () => {
       const queue = new InMemoryTurnQueue();
       const runtime = new RecordingRuntime();
       const publish = vi.fn(async () => true);
-      start(queue, runtime, { paysForCallers: false, publish });
+      start(queue, runtime, { paysFor: () => false, publish });
       await enqueueRequest(queue, {
         sessionId: "session-a",
         userId: "user-1",

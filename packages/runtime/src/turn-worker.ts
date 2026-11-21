@@ -134,15 +134,16 @@ export type TurnWorkerOptions = {
   drainTimeoutMs?: number;
   credentialsFor?: CredentialsFor;
   /**
-   * Whether this deployment runs anything on its own account. False means a turn, test or resume
-   * not billed to its asker is failed without running.
+   * Which model this deployment runs on its own account: the free tier's, or none. A turn, test or
+   * resume not billed to its asker on any other model is failed without running.
    *
-   * Admission already refuses such requests when there is no free tier; this is for the rows it
-   * admitted before that, which a worker would otherwise run on the deployment's key and in a
-   * sandbox it pays for. A publish is exempt: it calls no model, and runs in the sandbox the
-   * owner's own work is already in. Absent means true, the behaviour before the switch existed.
+   * Admission already refuses such requests; this is for rows admitted before the free tier
+   * changed or closed, and for rows an older API queued on some other `:free` model, which a
+   * worker would otherwise run on the deployment's key and in a sandbox it pays for. A publish is
+   * exempt: it calls no model, and runs in the sandbox the owner's own work is already in. Absent
+   * means the deployment pays for whatever it is handed, which is what scripts and tests compose.
    */
-  paysForCallers?: boolean;
+  paysFor?: ((model: string) => boolean) | undefined;
   running?: RunningTurns;
   /**
    * What makes a cancel felt before the next renewal. Only the listening half, because the route is
@@ -366,10 +367,10 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
     // Read here rather than carried on the row: the queue stores *whether* the asker pays, never
     // their key, so plaintext credentials never touch the table, a query log, or a backup.
     let credentials: ModelCredentials | undefined;
-    if (!request.billsToUser && options.paysForCallers === false) {
+    if (!request.billsToUser && options.paysFor?.(request.model) === false) {
       logger.warn(
-        { requestId: request.id, userId: request.userId, kind: request.kind },
-        "refused a request nobody pays for: this deployment has no free tier",
+        { requestId: request.id, userId: request.userId, kind: request.kind, model: request.model },
+        "refused a request nobody pays for: it is not on this deployment's free model",
       );
       return false;
     }
@@ -395,6 +396,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
         turnId: request.id,
         lease: { requestId: request.id, owner },
         model: request.model,
+        ...(request.effort === undefined ? {} : { effort: request.effort }),
         // A resume that continues a job runs turns, so it answers to the lease exactly as a turn
         // does. Without the signal the `AbortController` above would be wired to nothing on this
         // branch, and a worker that lost its lease mid-continuation would keep writing.
@@ -429,6 +431,7 @@ export function startTurnWorker(options: TurnWorkerOptions): TurnWorker {
           }),
       signal,
       model: request.model,
+      ...(request.effort === undefined ? {} : { effort: request.effort }),
       ...(credentials === undefined ? {} : { credentials }),
     });
     logger.info({ requestId: request.id, turnId: outcome.turnId, outcome }, "turn settled");

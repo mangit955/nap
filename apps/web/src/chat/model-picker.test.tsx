@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ModelPicker, modelInUse } from "./model-picker.tsx";
+import { modelOption } from "../testing/model-options.ts";
+import { modelInUse } from "./model-options.ts";
+import { ModelPicker } from "./model-picker.tsx";
 
 /**
  * What a caller may run is the server's decision; this only draws it. The cases worth pinning
@@ -9,9 +11,21 @@ import { ModelPicker, modelInUse } from "./model-picker.tsx";
  */
 
 const MODELS = [
-  { id: "openai/gpt-5.6-luna", label: "Gpt 5.6 Luna", free: false, available: false },
-  { id: "anthropic/claude-opus-5", label: "Claude Opus 5", free: false, available: false },
-  { id: "openai/gpt-oss-20b:free", label: "Gpt Oss 20b", free: true, available: true },
+  modelOption({ id: "openai/gpt-5.6-luna", label: "Gpt 5.6 Luna", free: false, available: false }),
+  modelOption({
+    id: "anthropic/claude-opus-5",
+    label: "Claude Opus 5",
+    free: false,
+    available: false,
+  }),
+  modelOption({
+    id: "openai/gpt-oss-20b:free",
+    label: "Gpt Oss 20b",
+    free: true,
+    available: true,
+    images: false,
+    vendor: null,
+  }),
 ];
 
 function open(props: Partial<Parameters<typeof ModelPicker>[0]> = {}) {

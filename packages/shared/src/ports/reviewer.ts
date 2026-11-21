@@ -6,6 +6,7 @@
  * it proved it by running something; see docs/adr/0036.
  */
 
+import type { Effort } from "../model-lines.ts";
 import type { ModelCredentials, TokenUsage } from "./llm-provider.ts";
 import type { SandboxManager } from "./sandbox-manager.ts";
 
@@ -63,6 +64,8 @@ export type ReviewRequest = {
   /** Files the agent changed, when the composition knows them. */
   changedFiles: readonly string[];
   model?: string | undefined;
+  /** The turn's effort: a review on the person's model thinks as hard as they asked it to. */
+  effort?: Effort | undefined;
   /** The turn's account: the review is billed to whoever pays for the turn. */
   credentials?: ModelCredentials | undefined;
   signal?: AbortSignal | undefined;

@@ -83,6 +83,7 @@ import { GitHubIntegration } from "./github/integration.ts";
 import { GitHubEventProcessor } from "./github/webhook.ts";
 import type { HealthProbe } from "./health.ts";
 import { createMetrics, type Metrics } from "./metrics.ts";
+import { composeModels } from "./models/model-catalog.ts";
 import type { CreatedProject } from "./projects/routes.ts";
 import { SessionTitler } from "./projects/session-titler.ts";
 import { resolveTitleAccess } from "./turns/model-access.ts";
@@ -99,11 +100,9 @@ import { createSessionListHub } from "./ws/session-list-hub.ts";
 export type NapConfig = Pick<
   Env,
   | "NAP_WEB_ORIGIN"
-  | "NAP_MODEL"
   | "NAP_FALLBACK_MODEL"
   | "NAP_SUBAGENT_MODEL"
   | "NAP_FREE_MODEL"
-  | "NAP_ALLOWED_MODELS"
   | "NAP_MAX_STEPS"
   | "NAP_CONTEXT_BUDGET_TOKENS"
   | "NAP_MAX_SANDBOXES_PER_USER"
@@ -118,7 +117,9 @@ export type NapConfig = Pick<
   | "NAP_VIEWER_KEEP_WARM_MINUTES"
   | "NAP_REAP_INTERVAL_SECONDS"
   | "NAP_JANITOR_INTERVAL_SECONDS"
->;
+> &
+  // Optional here, defaulted below, so a composition with no environment need not spell them.
+  Partial<Pick<Env, "NAP_EFFORT" | "NAP_MODEL_PINS" | "NAP_MODEL_BASE_URL">>;
 
 /**
  * Which part of the deployment this process is.
@@ -161,6 +162,13 @@ export type NapDeps = {
   role?: NapRole;
   /** Where this composition reports from. Also installed as the root logger by boot, not here. */
   logger: Logger;
+  /**
+   * Reads OpenRouter's model catalog. Given, a composition that serves refreshes the lines from it
+   * at once and hourly; absent, the lines stay on the committed snapshot, which is what a test or a
+   * script with no network wants. Only a serving role reads it: admission is where a line becomes a
+   * version, and a worker runs the version its row already names.
+   */
+  fetchCatalog?: () => Promise<unknown>;
 
   sessions: SessionStore;
   projects: ProjectStore;
@@ -320,6 +328,8 @@ const NOT_CLAIMING: TurnWorker = { stop: async () => {} };
 
 export type ComposedNap = {
   github: { stop: () => void };
+  /** Refreshing the model catalog, in a composition that serves and was given a way to read it. */
+  catalog: { stop: () => void };
   app: Hono<{ Variables: AuthVariables }>;
   runtime: SingleAgentRuntime;
   /**
@@ -361,6 +371,19 @@ export function composeNap(deps: NapDeps): ComposedNap {
   const executes = role === "worker" || role === "all";
   /** The part that tidies: both timers, and nothing else. */
   const sweeps = role === "reaper" || role === "all";
+
+  /** The part that admits: routes, and the catalog that turns a line into a version. */
+  const serves = role === "api" || role === "all";
+
+  const {
+    catalog,
+    policy: models,
+    refresh: catalogRefresh,
+  } = composeModels({
+    config,
+    logger,
+    ...(serves && deps.fetchCatalog !== undefined ? { fetchCatalog: deps.fetchCatalog } : {}),
+  });
 
   const registry = new TurnRegistry();
   // Absent means refuse, not allow — see `requireUser`. Boot always has an auth instance, and a
@@ -496,11 +519,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
           events: deps.events,
           bus: deps.bus,
           access: async (userId) =>
-            resolveTitleAccess({
-              key: await openCallerKey(userId),
-              allowed: config.NAP_ALLOWED_MODELS,
-              freeModel: config.NAP_FREE_MODEL,
-            }),
+            resolveTitleAccess({ key: await openCallerKey(userId), policy: models }),
         });
 
   // Built for every role, and served by whichever one serves. A worker's copy counts nothing
@@ -568,9 +587,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
                 : { integration: github, app: deps.github.app },
             admission: {
               keys: openCallerKey,
-              allowedModels: config.NAP_ALLOWED_MODELS,
-              freeModel: config.NAP_FREE_MODEL,
-              defaultModel: config.NAP_MODEL,
+              models,
               limits: {
                 ...deps.rateLimits,
                 projects: deps.projects,
@@ -598,9 +615,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
             webOrigin: config.NAP_WEB_ORIGIN,
             admission: {
               keys: openCallerKey,
-              allowedModels: config.NAP_ALLOWED_MODELS,
-              freeModel: config.NAP_FREE_MODEL,
-              defaultModel: config.NAP_MODEL,
+              models,
               limits: {
                 ...deps.rateLimits,
                 projects: deps.projects,
@@ -644,9 +659,8 @@ export function composeNap(deps: NapDeps): ComposedNap {
       verify: deps.verifyKey,
     },
     models: {
-      allowed: config.NAP_ALLOWED_MODELS,
-      fallback: config.NAP_MODEL,
-      freeModel: config.NAP_FREE_MODEL,
+      policy: models,
+      isNew: (line) => catalog.isNew(line),
       // The stored record, not the opened key: the picker needs the platform and the hint, and
       // nothing on that route spends anything.
       keys: (userId) => deps.userKeys.get(userId),
@@ -659,12 +673,10 @@ export function composeNap(deps: NapDeps): ComposedNap {
       // Who pays for each turn, which is also what decides the models they may name.
       keys: openCallerKey,
       titles: titler,
-      freeModel: config.NAP_FREE_MODEL,
-      defaultModel: config.NAP_MODEL,
+      models,
       // The same store the project routes list from, so a project named on its first turn and one
       // renamed by hand are written through one code path.
       projects: deps.projects,
-      allowedModels: config.NAP_ALLOWED_MODELS,
       // What one person, and everybody together, may have running at once. This endpoint is the
       // only place either ceiling is applied *early* — the sandbox one is applied for real when a
       // sandbox is created, and `sandbox-quota.ts` says why the cheap refusal is worth keeping.
@@ -697,12 +709,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
       queue: deps.queue,
       // Opening a project can continue a job a restart left open, which spends tokens — so it is
       // billed exactly as a turn is, to whoever is standing in front of it.
-      models: {
-        keys: openCallerKey,
-        allowedModels: config.NAP_ALLOWED_MODELS,
-        freeModel: config.NAP_FREE_MODEL,
-        defaultModel: config.NAP_MODEL,
-      },
+      models: { keys: openCallerKey, policy: models },
       // The same store and bus the socket subscribes to, or a close would append `preview.stopped`
       // to a log nobody is listening on.
       events: { events: deps.events, bus: deps.bus },
@@ -876,7 +883,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
         credentialsFor: openCallerKey,
         // No free model named, no free tier: what admission refuses, the worker refuses too, for
         // the rows admitted before this deployment stopped paying for anyone.
-        paysForCallers: config.NAP_FREE_MODEL !== undefined,
+        paysFor: (model) => model === config.NAP_FREE_MODEL,
         running: registry,
         ...(deps.cancels === null ? {} : { cancels: deps.cancels }),
         // Messages sent to a turn this worker runs are read from the same queue it was claimed from.
@@ -964,6 +971,7 @@ export function composeNap(deps: NapDeps): ComposedNap {
         });
   return {
     github: githubSchedule,
+    catalog: catalogRefresh,
     app,
     runtime,
     registry,
