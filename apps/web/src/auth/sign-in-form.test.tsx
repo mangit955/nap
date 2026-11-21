@@ -219,6 +219,19 @@ describe("the page around the form", () => {
     }
   });
 
+  it("keeps a focus outline for forced colours on every field", () => {
+    // Read from the class list because jsdom has no forced-colors mode to render. The fields'
+    // focus is a border colour, which High Contrast repaints away; `outline-none` would leave
+    // them with no focus indicator there at all, where `outline-hidden` restores one.
+    setup({ mode: "sign-up" });
+
+    for (const field of ["Name", "Email", "Password"]) {
+      const classes = screen.getByLabelText(field).className.split(/\s+/);
+      expect(classes).toContain("outline-hidden");
+      expect(classes).not.toContain("outline-none");
+    }
+  });
+
   it("offers the other mode exactly once, wherever the layout puts it", () => {
     // It sits top right on a wide screen and under the form on a phone. Drawing it twice and
     // hiding one would leave a screen reader with two "Sign in" buttons on a sign-up page, and

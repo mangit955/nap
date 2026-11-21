@@ -96,10 +96,14 @@ const COPY: Record<SignInMode, { title: string; sub: string }> = {
  * 16px on the input is not a style choice: below it, iOS zooms the page in on focus and does not
  * zoom back out, which leaves somebody halfway through signing up looking at a form twice the
  * width of their screen.
+ *
+ * Focus is the border turning warm, and `outline-hidden` rather than `outline-none`: forced-colors
+ * mode (Windows High Contrast) repaints every border in one system colour, so the warm border
+ * vanishes there, and `outline-hidden` is the one that gives the outline back in that mode.
  */
 const FIELD =
   "h-[46px] w-full rounded-xl border border-[#ffffff0f] bg-[#ffffff06] px-3.5 text-[16px] " +
-  "text-(--lp-ink) outline-none transition-colors placeholder:text-[#858180] " +
+  "text-(--lp-ink) outline-hidden transition-colors placeholder:text-[#858180] " +
   "focus-visible:border-[#d6b89e8c] focus-visible:bg-[#ffffff09]";
 
 const GHOST_BUTTON =
