@@ -22,7 +22,7 @@ is a strip above the form and the switch sits under it.
 ## Driving it with verify-nap
 
 Preconditions: signed **out**. A fresh fixture starts signed out, so run these before `signin`.
-Signed in, both routes redirect to `/dashboard`.
+Signed in, both routes redirect to `/dashboard`, and the driver has no sign-out command.
 
 ```bash
 goto /sign-up
@@ -32,15 +32,28 @@ url                                          # /sign-in
 click --role button --name "Create one"
 wait  --role heading --name "Start a nap."
 shot  --label "auth: sign-up"
+
+# A refused sign-in, then the expired-session notice. Neither signs anybody in.
+goto /sign-in
+fill  --role textbox --name Email --value "verify@nap.test"
+fill  --role textbox --name Password --value "not-the-password"
+click --role button --name "Sign in"
+wait  --text "Invalid email or password"
+goto "/sign-in?expired=1"
+wait  --text "Your session expired"
+```
+
+**Run sign-up last, or on a fixture you will throw away.** It signs the driver's browser in as
+the new account. After that, every `/sign-in` visit redirects, and `signin` reports "already
+signed in" and keeps the new account, so no later recipe sees **Seeded notes app**.
+
+```bash
+goto /sign-up
 fill  --role textbox --name Name --value "Ada Lovelace"
 fill  --role textbox --name Email --value "ada-<unique>@nap.test"
 fill  --role textbox --name Password --value "a-long-test-password-123"
 click --role button --name "Create account"  # to /welcome (the key step), which in the fixture forwards to /dashboard
 ```
-
-A refused sign-in: on `/sign-in`, fill `Email` with `verify@nap.test` and `Password` with anything
-wrong, click `Sign in`, then `wait --text "Invalid email or password"`. The notice:
-`goto "/sign-in?expired=1"` and `wait --text "Your session expired"`.
 
 ## Gotchas
 
