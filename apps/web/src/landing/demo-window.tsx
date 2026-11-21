@@ -1,14 +1,23 @@
 "use client";
 
+import type { GitComparison } from "@nap/shared/git-protocol";
 import type { SessionSummary } from "@nap/shared/session-navigation";
 import { Files, GitPullRequest, Globe } from "lucide-react";
-import { type CSSProperties, type ReactNode, useRef } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { ChatInput } from "../chat/chat-input.tsx";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
 import type { TranscriptItem } from "../chat/transcript.ts";
 import { Sidebar } from "../dashboard/sidebar.tsx";
 import { SHOWCASE, type Showcase, ShowcaseContext } from "../ui/showcase.ts";
+import { DiffFile } from "../workspace/changes-panel.tsx";
 import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { DEMO_MODELS } from "./demo-sessions.ts";
 import { type SpaceChoice, useSpaceScale } from "./use-space-scale.ts";
@@ -175,7 +184,7 @@ export function DemoWorkspace({
   );
 }
 
-export function WindowDots() {
+function WindowDots() {
   return (
     <span className="lp-window-dots">
       <i />
@@ -234,6 +243,46 @@ export function Panel({
         {aside && <span className="lp-panel-aside">{aside}</span>}
       </div>
       <div className="lp-panel-body">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A diff that stays invisible until it has drawn, then fades in.
+ *
+ * The product draws a diff on the client only, after its highlighter loads, and says "Loading
+ * diff…" until then: honest in the app, but on the landing page it is the first thing the hero
+ * shows and then a hard cut. Drawn means no `t3-diff-notice` is left inside, the product's class
+ * for every placeholder a diff shows. `onDrawn` lets the hero start its clock from here.
+ */
+export function DrawnDiff({
+  file,
+  onDrawn,
+}: {
+  file: GitComparison["files"][number];
+  onDrawn?: (() => void) | undefined;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [drawn, setDrawn] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element === null) return;
+    const observer = new MutationObserver(() => check());
+    const check = () => {
+      if (element.querySelector(".t3-diff-notice") !== null) return;
+      setDrawn(true);
+      observer.disconnect();
+    };
+    observer.observe(element, { childList: true, subtree: true });
+    check();
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (drawn) onDrawn?.();
+  }, [drawn, onDrawn]);
+  return (
+    <div ref={ref} className="lp-drawn-diff" data-drawn={drawn}>
+      <DiffFile file={file} split={false} />
     </div>
   );
 }

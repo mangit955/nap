@@ -10,6 +10,16 @@
     container-type: inline-size;
     text-align: left;
   }
+  /* Nothing is shown until the space has been measured (`useSpaceScale` writes `data-space`):
+     the server's HTML has no width to scale by, and would draw the window at its full design
+     size and then snap to the column. The demos are the product's components, which need the
+     page's script to draw at all, so a page without it loses nothing it could have shown. */
+  .lp-demo > * {
+    transition: opacity 320ms ease-out;
+  }
+  .lp-demo:not([data-space]) > * {
+    opacity: 0;
+  }
   /* The window's visible part. Its height is the design's `visible` height at the same scale, so
      the rest of the window runs off the bottom of the backdrop. */
   .lp-demo-crop {
@@ -148,6 +158,12 @@
     display: grid;
     flex: 1;
     min-height: 0;
+  }
+  .lp-drawn-diff {
+    transition: opacity 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .lp-drawn-diff[data-drawn="false"] {
+    opacity: 0;
   }
   /* Fade through rather than dissolve: two panes of text at half opacity read as a smudge, so
      the one leaving is gone quickly and the one arriving comes in just after it. */

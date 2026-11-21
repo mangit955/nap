@@ -1,7 +1,8 @@
 import { act, render } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useArrivals } from "./use-arrivals.ts";
+import { ChatTranscript } from "../chat/chat-transcript.tsx";
+import { ARRIVING, useArrivals } from "./use-arrivals.ts";
 
 /**
  * The demos move by easing in what is new, and only that. Each case is one way it could look
@@ -103,5 +104,22 @@ describe("easing in what arrives", () => {
     const view = render(<Demo beat={0} items={["plan"]} from="shown" />);
     view.rerender(<Demo beat={1} items={["plan", "step"]} from="shown" />);
     expect(animated).toHaveLength(0);
+  });
+
+  it("finds each row of a real transcript, which it knows only by structure", () => {
+    // The transcript belongs to the product and carries no hook for the landing page; if its rows
+    // were ever wrapped differently, they would stop arriving without a word.
+    const { container } = render(
+      <ChatTranscript
+        items={[
+          { kind: "message", key: 1, from: "user", text: "Build a ledger." },
+          { kind: "message", key: 2, from: "agent", text: "Starting with the schema." },
+        ]}
+      />,
+    );
+    const rows = [...container.querySelectorAll(ARRIVING)];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Build a ledger.");
+    expect(rows[1]).toHaveTextContent("Starting with the schema.");
   });
 });

@@ -32,6 +32,11 @@ export type Showcase = {
    * of that name would put a stranger's picture on the page. A letter mark is drawn instead.
    */
   remoteAvatars: boolean;
+  /**
+   * The sidebar scrolling its selected row into view. `scrollIntoView` moves every scrolling
+   * ancestor, and on the landing page that is the page itself, pulled down under a reader.
+   */
+  revealSelection: boolean;
   /** Which tab a pull request opens on. */
   pullRequestView: "Summary" | "Timeline" | "Code" | "Settings";
 };
@@ -42,6 +47,7 @@ export const SHOWCASE: Showcase = {
   vendorLogos: false,
   openFailedSteps: true,
   remoteAvatars: false,
+  revealSelection: false,
   pullRequestView: "Summary",
 };
 

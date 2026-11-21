@@ -1,12 +1,13 @@
 import type { ProjectGitHub, PullRequestInspection } from "@nap/shared/github-protocol";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatTranscript } from "../chat/chat-transcript.tsx";
 import type { ModelOption } from "../chat/model-options.ts";
 import { ModelPicker } from "../chat/model-picker.tsx";
 import type { TranscriptItem } from "../chat/transcript.ts";
 import { SourceMark } from "../dashboard/session-row.tsx";
+import { Sidebar } from "../dashboard/sidebar.tsx";
 import { PullRequestsPanel } from "../github/pull-requests-panel.tsx";
 import { SHOWCASE, ShowcaseContext } from "./showcase.ts";
 
@@ -102,6 +103,11 @@ const panel = (
   />
 );
 
+const realScrollIntoView = Element.prototype.scrollIntoView;
+afterEach(() => {
+  Element.prototype.scrollIntoView = realScrollIntoView;
+});
+
 describe("the showcase", () => {
   it("drops the copy button under each message", () => {
     const { unmount } = render(<ChatTranscript items={ITEMS} />);
@@ -155,6 +161,39 @@ describe("the showcase", () => {
     const showcased = render(inShowcase(<SourceMark source={source} />));
     expect(showcased.container.querySelector("img")).toBeNull();
     expect(showcased.container).toHaveTextContent("s");
+  });
+
+  it("leaves the page where it is rather than scrolling the selected row into view", () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    const sidebar = (
+      <Sidebar
+        name="You"
+        email={undefined}
+        recents={[
+          {
+            projectId: ID,
+            name: "Personal ledger",
+            status: "ready",
+            sandboxId: null,
+            updatedAt: "2026-10-19T10:00:00.000Z",
+            sessionIds: [],
+          },
+        ]}
+        activeProjectId={ID}
+        keyHint={undefined}
+        persistScroll={false}
+        onNewProject={() => {}}
+        onApiKey={() => {}}
+        onSignOut={() => {}}
+      />
+    );
+    const { unmount } = render(sidebar);
+    expect(scrolled).toHaveBeenCalled();
+    unmount();
+    scrolled.mockClear();
+    render(inShowcase(sidebar));
+    expect(scrolled).not.toHaveBeenCalled();
   });
 
   it("opens a pull request on the tab it names", async () => {

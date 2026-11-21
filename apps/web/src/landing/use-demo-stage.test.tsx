@@ -1,6 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useDemoStage, VERIFIED_AFTER_MS, VERIFYING_AFTER_MS } from "./use-demo-stage.ts";
+import {
+  READY_WAIT_MS,
+  useDemoStage,
+  VERIFIED_AFTER_MS,
+  VERIFYING_AFTER_MS,
+} from "./use-demo-stage.ts";
 
 /**
  * The hero's session plays its run once, when somebody can see it. Every test is one of the
@@ -51,8 +56,8 @@ function intersect(isIntersecting = true, { queued = false, ratio = isIntersecti
   });
 }
 
-function Stage() {
-  const { ref, stage } = useDemoStage<HTMLDivElement>();
+function Stage({ ready }: { ready?: boolean }) {
+  const { ref, stage } = useDemoStage<HTMLDivElement>(ready);
   return <div ref={ref}>{stage}</div>;
 }
 
@@ -112,6 +117,27 @@ describe("the hero session's run", () => {
     expect(screen.getByText("working")).toBeInTheDocument();
     intersect(true, { ratio: 0.5 });
     advance(VERIFYING_AFTER_MS);
+    expect(screen.getByText("verifying")).toBeInTheDocument();
+  });
+
+  it("waits for its first frame to be drawn before it starts the clock", () => {
+    // The first beat's diff draws a moment after the page does. Starting before it would spend
+    // the beat on "Loading diff…".
+    const view = render(<Stage ready={false} />);
+    intersect();
+    advance(VERIFYING_AFTER_MS);
+    expect(screen.getByText("working")).toBeInTheDocument();
+    view.rerender(<Stage ready />);
+    advance(VERIFYING_AFTER_MS - 1);
+    expect(screen.getByText("working")).toBeInTheDocument();
+    advance(1);
+    expect(screen.getByText("verifying")).toBeInTheDocument();
+  });
+
+  it("starts anyway when the first frame never draws", () => {
+    render(<Stage ready={false} />);
+    intersect();
+    advance(READY_WAIT_MS + VERIFYING_AFTER_MS);
     expect(screen.getByText("verifying")).toBeInTheDocument();
   });
 

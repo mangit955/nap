@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { chooseSpace } from "./demo-window.tsx";
+import type { GitComparison } from "@nap/shared/git-protocol";
+import { act, render, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { chooseSpace, DrawnDiff } from "./demo-window.tsx";
 
 /**
  * Which space a demo draws at a given column width. The bar is the product's 14px text drawn no
@@ -36,5 +38,33 @@ describe("choosing a demo's space", () => {
   it("never lays the narrow space out narrower than it was designed for", () => {
     expect(chooseSpace(300, ROW.wide, ROW.narrow).width).toBe(380);
     expect(chooseSpace(500, ROW.wide, ROW.narrow).width).toBe(500);
+  });
+});
+
+const FILE: GitComparison["files"][number] = {
+  path: "db/schema.ts",
+  previousPath: null,
+  status: "added",
+  additions: 1,
+  deletions: 0,
+  binary: false,
+  truncated: false,
+  patch: "@@ -0,0 +1,1 @@\n+export const accounts = pgTable('accounts', {})",
+};
+
+describe("a diff that waits until it has drawn", () => {
+  it("stays hidden while the product says it is loading, then shows and says so", async () => {
+    const drawn = vi.fn();
+    const { container } = render(<DrawnDiff file={FILE} onDrawn={drawn} />);
+    const box = container.querySelector(".lp-drawn-diff");
+    const notice = container.querySelector(".t3-diff-notice");
+    // The product's placeholder is what the first paint holds; it must not count as drawn.
+    expect(notice).not.toBeNull();
+    expect(box).toHaveAttribute("data-drawn", "false");
+    expect(drawn).not.toHaveBeenCalled();
+    // Whatever replaces the placeholder, its leaving is what counts.
+    act(() => notice?.remove());
+    await waitFor(() => expect(box).toHaveAttribute("data-drawn", "true"));
+    expect(drawn).toHaveBeenCalledTimes(1);
   });
 });

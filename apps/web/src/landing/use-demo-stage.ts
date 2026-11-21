@@ -18,7 +18,7 @@
  * `verified`: a run that never starts would leave the visitor looking at work half done.
  */
 
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 export type DemoStage = "working" | "verifying" | "verified";
 
 /** When the plan is three steps in, the app is in Preview and the checks are running. */
@@ -28,14 +28,34 @@ export const VERIFIED_AFTER_MS = 5000;
 /** Enough of the window showing that the run is not playing to the top of the fold. */
 const THRESHOLD = 0.35;
 
-export function useDemoStage<T extends HTMLElement>(): {
+/** How long a seen hero waits for its first frame to draw before it starts without it. */
+export const READY_WAIT_MS = 4000;
+
+/**
+ * `ready` says the first beat has drawn: its diff is drawn on the client, a moment after the page,
+ * and a clock started before it would spend the beat on "Loading diff…". It is only waited for so
+ * long (`READY_WAIT_MS`), so a chunk that never loads cannot hold the hero at its first beat.
+ */
+export function useDemoStage<T extends HTMLElement>(
+  ready = true,
+): {
   ref: RefObject<T | null>;
   stage: DemoStage;
 } {
   const ref = useRef<T>(null);
   const [stage, setStage] = useState<DemoStage>("working");
-
+  // Read from the observer's callback, which outlives the render that set it.
+  const isReady = useRef(ready);
+  const startWhenReady = useRef<(() => void) | null>(null);
   useEffect(() => {
+    isReady.current = ready;
+    if (ready) startWhenReady.current?.();
+  }, [ready]);
+
+  // A layout effect, so under reduced motion the verified result is in place before the first
+  // paint after hydration. The demo is hidden until it has been measured (`demo.css`), so the
+  // server's first beat is never what such a visitor sees.
+  useLayoutEffect(() => {
     const element = ref.current;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (motion.matches || typeof IntersectionObserver !== "function" || element === null) {
@@ -46,10 +66,23 @@ export function useDemoStage<T extends HTMLElement>(): {
     // Set once the run may no longer start. An observer can still deliver an entry it queued
     // before `disconnect`, so the callback asks this rather than trusting the disconnect.
     let stopped = false;
+    let started = false;
+    // Set once the run is over or abandoned, so a start still waiting for the frame does nothing.
+    let finished = false;
+    const play = () => {
+      if (started || finished) return;
+      started = true;
+      startWhenReady.current = null;
+      timers.push(
+        setTimeout(() => setStage("verifying"), VERIFYING_AFTER_MS),
+        setTimeout(() => setStage("verified"), VERIFIED_AFTER_MS),
+      );
+    };
     // Turning reduced motion on mid-visit ends the run where it would have finished.
     const still = (event: MediaQueryListEvent) => {
       if (!event.matches) return;
       stopped = true;
+      finished = true;
       observer.disconnect();
       for (const timer of timers) clearTimeout(timer);
       setStage("verified");
@@ -64,10 +97,11 @@ export function useDemoStage<T extends HTMLElement>(): {
         if (stopped || !seen) return;
         stopped = true;
         observer.disconnect();
-        timers.push(
-          setTimeout(() => setStage("verifying"), VERIFYING_AFTER_MS),
-          setTimeout(() => setStage("verified"), VERIFIED_AFTER_MS),
-        );
+        if (isReady.current) play();
+        else {
+          startWhenReady.current = play;
+          timers.push(setTimeout(play, READY_WAIT_MS));
+        }
       },
       { threshold: THRESHOLD },
     );
@@ -75,6 +109,8 @@ export function useDemoStage<T extends HTMLElement>(): {
     motion.addEventListener("change", still);
     return () => {
       stopped = true;
+      finished = true;
+      startWhenReady.current = null;
       observer.disconnect();
       motion.removeEventListener("change", still);
       for (const timer of timers) clearTimeout(timer);

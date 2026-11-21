@@ -54,9 +54,12 @@
 
   // The demos draw the product's 14px text at the scale `useSpaceScale` measured.
   for (const demo of document.querySelectorAll(".lp-demo")) {
-    const text = 14 * Number(demo.style.getPropertyValue("--space-k") || 1);
+    // Unmeasured, a demo is still hidden (`demo.css`) and its scale means nothing.
+    check(demo.hasAttribute("data-space"), `${demo.getAttribute("aria-label")} was measured`);
+    // An empty ratio is a demo nothing measured, drawn at its full design size: a failure too.
+    const text = 14 * Number(demo.style.getPropertyValue("--space-k") || Number.NaN);
     check(
-      text >= 9 && text <= 14.01,
+      text >= 9 && text <= 14,
       `${demo.getAttribute("aria-label")} is readable (text at ${text.toFixed(1)}px)`,
     );
   }

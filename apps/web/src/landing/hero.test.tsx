@@ -54,34 +54,47 @@ describe("the front page's hero", () => {
 });
 
 describe("the hero's three beats", () => {
-  const text = () => document.body.textContent ?? "";
+  // Each beat is read where it is drawn: the bar's phase, the plan's count, the ledger's row in
+  // the sidebar, and the pane on show. The sidebar's other rows say "Working" and "Done" at every
+  // beat, so nothing here reads the page's text as a whole.
+  const bar = () => document.querySelector(".lp-window-header");
+  const chat = () => document.querySelector(".lp-window-chat");
+  const ledgerRow = () =>
+    screen.getByRole("link", { name: /Personal ledger/, hidden: true }).closest("li") ??
+    screen.getByRole("link", { name: /Personal ledger/, hidden: true });
+  const shownTab = () =>
+    document.querySelector(".lp-pane[data-shown='true'] .lp-pane-tabs [data-active='true']");
 
   it("starts a minute in, working, with the schema open in Code", () => {
     render(<HeroDemo stage="working" />);
-    expect(text()).toContain("Working");
-    expect(text()).toContain("db/schema.ts");
-    expect(
-      document.querySelector(".lp-pane[data-shown='true'] .lp-pane-tabs [data-active='true']"),
-    ).toHaveTextContent("Code");
-    expect(document.querySelector(".lp-pane[data-shown='true'] .ps-ledger")).toBeNull();
+    expect(bar()).toHaveTextContent("Working");
+    expect(chat()).toHaveTextContent("Plan · 0 of 4 done");
+    expect(ledgerRow()).toHaveTextContent(/Working\s*1m/);
+    expect(shownTab()).toHaveTextContent("Code");
+    expect(document.querySelector(".lp-pane[data-shown='true'] .lp-pane-code")).toHaveTextContent(
+      "db/schema.ts",
+    );
     expect(document.querySelector(".lp-hero-changes")).toBeNull();
   });
 
   it("then verifies, with three of four steps done and the app in Preview", () => {
     render(<HeroDemo stage="verifying" />);
-    expect(text()).toContain("Verifying");
-    expect(
-      document.querySelector(".lp-pane[data-shown='true'] .lp-pane-tabs [data-active='true']"),
-    ).toHaveTextContent("Preview");
+    expect(bar()).toHaveTextContent("Verifying");
+    expect(chat()).toHaveTextContent("Plan · 3 of 4 done");
+    expect(ledgerRow()).toHaveTextContent(/Working\s*9m/);
+    expect(shownTab()).toHaveTextContent("Preview");
     expect(document.querySelector(".lp-pane[data-shown='true'] .ps-ledger")).not.toBeNull();
     expect(document.querySelector(".lp-hero-changes")).toBeNull();
   });
 
-  it("ends verified, with the Changes panel over the corner", () => {
+  it("ends verified and done, with the Changes panel over the corner", () => {
     render(<HeroDemo stage="verified" />);
-    expect(text()).toContain("Verified");
-    expect(text()).toContain("Migrations, tests and the build all passed.");
+    expect(bar()).toHaveTextContent("Verified");
+    expect(chat()).toHaveTextContent("Plan · 4 of 4 done");
+    expect(chat()).toHaveTextContent("Migrations, tests and the build all passed.");
+    expect(ledgerRow()).toHaveTextContent(/Done.*\+358/);
     expect(document.querySelector(".lp-hero-changes")).toHaveTextContent("3 files · +358");
+    expect(document.querySelector(".lp-demo-overlay")).toHaveAttribute("inert");
     // Arriving is the hero's own short fade; the transcript's streaming fade would type it out.
     expect(document.querySelector("[data-streaming]")).toBeNull();
   });
@@ -92,6 +105,19 @@ describe("the hero's sidebar", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     sessionStorage.clear();
+  });
+
+  it("never scrolls the page to show its selected row", () => {
+    // `scrollIntoView` on the selected row moves the landing page itself, under the reader.
+    const scrolled = vi.fn();
+    const real = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrolled;
+    try {
+      render(<HeroDemo stage="working" />);
+      expect(scrolled).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = real;
+    }
   });
 
   it("does not read or write the real app's saved session-list scroll", () => {

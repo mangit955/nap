@@ -10,9 +10,8 @@ import type { TranscriptItem } from "../chat/transcript.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { ProjectGitHubControl } from "../github/project-github.tsx";
 import { SHOWCASE } from "../ui/showcase.ts";
-import { DiffFile } from "../workspace/changes-panel.tsx";
 import { STOREFRONT_ID } from "./demo-sessions.ts";
-import { DemoFrame, DemoWorkspace, Panel, PaneTabs } from "./demo-window.tsx";
+import { DemoFrame, DemoWorkspace, DrawnDiff, Panel, PaneTabs } from "./demo-window.tsx";
 
 /**
  * The three feature rows' pictures, all one story: a change to somebody's existing repository,
@@ -130,7 +129,18 @@ const PULL_REQUEST: PullRequestInspection = {
       binary: false,
       truncated: false,
       patch:
-        "@@ -0,0 +1,2 @@\n+ALTER TYPE order_status ADD VALUE 'past_due';\n+CREATE INDEX emails_customer_day ON emails (customer_id, sent_on);",
+        "@@ -0,0 +1,6 @@\n+-- An order a failed payment has left unpaid.\n+ALTER TYPE order_status ADD VALUE 'past_due';\n+\n+-- One past-due email per customer per day.\n+CREATE INDEX emails_customer_day\n+  ON emails (customer_id, sent_on);",
+    },
+    {
+      path: "emails/past-due.tsx",
+      previousPath: null,
+      status: "added",
+      additions: 58,
+      deletions: 0,
+      binary: false,
+      truncated: false,
+      patch:
+        "@@ -0,0 +1,3 @@\n+export function PastDueEmail({ order }: { order: Order }) {\n+  return <Email subject={`Payment failed for order ${order.number}`} />\n+}",
     },
   ],
 };
@@ -208,7 +218,7 @@ const TASK: TranscriptItem[] = [
     input: { command: "bun run typecheck && bun test && bun run build" },
     status: "ok",
     output: "All passed",
-    streamed: "✓ Typecheck passed\n✓ 214 tests passed\n✓ Production build completed",
+    streamed: "✓ Typecheck passed\n✓ 212 tests passed\n✓ Production build completed",
     files: [],
   },
   {
@@ -262,7 +272,7 @@ const CHECKS: TranscriptItem[] = [
     status: "failed",
     output: "1 failed",
     streamed:
-      "✓ 211 passed\n✗ webhooks › retries send one email\n  expected 1 email, received 4\n  at server/webhooks.test.ts:9",
+      "✓ 211 passed\n✗ webhooks › sends one email per customer per day\n  expected 1 email, received 4\n  at server/webhooks.test.ts:8",
     files: [],
   },
   {
@@ -364,8 +374,8 @@ export function ChecksArt() {
           <div className="lp-pane" data-arrive>
             <PaneTabs tabs={["Preview", "Code"]} active="Code" />
             <div className="lp-pane-code">
-              <DiffFile file={FIX_DIFF} split={false} />
-              <DiffFile file={TEST_DIFF} split={false} />
+              <DrawnDiff file={FIX_DIFF} />
+              <DrawnDiff file={TEST_DIFF} />
             </div>
           </div>
         }

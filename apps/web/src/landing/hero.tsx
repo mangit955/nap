@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { ArrowRightIcon } from "../ui/icons.tsx";
 import { HeroDemo } from "./hero-demo.tsx";
 import { useArrivals } from "./use-arrivals.ts";
@@ -15,7 +16,10 @@ const BEATS: readonly DemoStage[] = ["working", "verifying", "verified"];
  * nothing is drawn in front of it but the product's own Changes panel.
  */
 export function Hero() {
-  const { ref, stage } = useDemoStage<HTMLDivElement>();
+  // The clock waits for the first beat's diff to draw (`use-demo-stage.ts`).
+  const [drawn, setDrawn] = useState(false);
+  const firstFrame = useCallback(() => setDrawn(true), []);
+  const { ref, stage } = useDemoStage<HTMLDivElement>(drawn);
   useArrivals(ref, BEATS.indexOf(stage), "shown");
   return (
     <section aria-labelledby="hero-title" className="lp-hero lp-container">
@@ -36,7 +40,7 @@ export function Hero() {
         </a>
       </div>
       <div ref={ref} className="lp-wall lp-hero-wall" data-stage={stage}>
-        <HeroDemo stage={stage} />
+        <HeroDemo stage={stage} onFirstFrame={firstFrame} />
       </div>
     </section>
   );

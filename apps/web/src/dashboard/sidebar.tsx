@@ -3,11 +3,12 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
 import { SquarePen } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { useSessionSearch } from "../projects/use-session-search.ts";
 import { ConnectionsIcon, SpinnerIcon } from "../ui/icons.tsx";
+import { ShowcaseContext } from "../ui/showcase.ts";
 import { DraftRows } from "./draft-rows.tsx";
 import { preloadDrag, SessionList } from "./session-list.tsx";
 import { SEARCH_LISTBOX_ID, SessionSearchResults, searchOptionId } from "./session-search.tsx";
@@ -105,6 +106,7 @@ export function Sidebar({
   const restoredScroll = useRef(false);
   const revealedSelection = useRef<HTMLAnchorElement | null>(null);
   const navigationStatus = navigation?.status;
+  const revealSelection = use(ShowcaseContext)?.revealSelection ?? true;
   const onListLayout = useCallback(
     (selected: HTMLAnchorElement | null) => {
       const element = scroll.current;
@@ -117,12 +119,12 @@ export function Sidebar({
         }
         restoredScroll.current = true;
       }
-      if (selected && revealedSelection.current !== selected) {
+      if (revealSelection && selected && revealedSelection.current !== selected) {
         selected.scrollIntoView?.({ block: "nearest" });
       }
       revealedSelection.current = selected;
     },
-    [loading, navigationStatus, persistScroll],
+    [loading, navigationStatus, persistScroll, revealSelection],
   );
   const sessions: readonly SessionSummary[] =
     navigation?.projects ??

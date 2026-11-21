@@ -1,6 +1,8 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Features } from "./features.tsx";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("what nap does", () => {
   it("gives each row one heading and a link onward", () => {
@@ -29,6 +31,8 @@ describe("what nap does", () => {
   });
 
   it("shows the pull request from the sample data, and asks nothing of the network", async () => {
+    const network = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", network);
     render(<Features />);
     const [repo, , review] = screen.getAllByRole("article");
     if (repo === undefined || review === undefined) throw new Error("rows are missing");
@@ -38,6 +42,7 @@ describe("what nap does", () => {
       ),
     );
     await waitFor(() => expect(review).toHaveTextContent(/Stripe retries up to four times/));
+    expect(network).not.toHaveBeenCalled();
   });
 
   it("draws no raw timestamps, copy buttons or avatars in the pictures", async () => {

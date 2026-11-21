@@ -6,10 +6,9 @@ import { useState } from "react";
 import type { JobSummary } from "../chat/job-summary.ts";
 import type { TranscriptItem } from "../chat/transcript.ts";
 import { BrowserToolbar } from "../workspace/browser-toolbar.tsx";
-import { DiffFile } from "../workspace/changes-panel.tsx";
 import { AppPreview } from "./app-preview.tsx";
 import { demoSessions, LEDGER_ID } from "./demo-sessions.ts";
-import { DemoFrame, DemoWorkspace, PaneTabs } from "./demo-window.tsx";
+import { DemoFrame, DemoWorkspace, DrawnDiff, PaneTabs } from "./demo-window.tsx";
 import type { DemoStage } from "./use-demo-stage.ts";
 import "./ledger-app.css";
 import "./ledger-night.css";
@@ -17,9 +16,10 @@ import "./ledger-night.css";
 /**
  * The hero: a person's own Nap, coming back to a session that worked while they were away.
  *
- * Three beats, each a state the real app reaches: working a minute in with the schema open in
+ * Three beats, drawn from the states the app shows: working a minute in with the schema open in
  * Code; nine minutes in, verifying, with the app running in Preview; then verified, done, and the
- * Changes panel easing in over the corner. Only what changes between beats moves
+ * Changes panel easing in over the corner. One liberty: the app enters Verifying once the agent's
+ * turn has ended, and the second beat shows the agent's own checks still running beside it. Only what changes between beats moves
  * (`use-arrivals.ts`); the rest holds still so the eye goes to what is new.
  */
 
@@ -118,7 +118,7 @@ const JOBS: Record<DemoStage, JobSummary> = {
 /** How long the ledger's row has been running at each beat; null once it is done. */
 const MINUTES: Record<DemoStage, number | null> = { working: 1, verifying: 9, verified: null };
 
-export const SCHEMA_DIFF: GitComparison["files"][number] = {
+const SCHEMA_DIFF: GitComparison["files"][number] = {
   path: "db/schema.ts",
   previousPath: null,
   status: "added",
@@ -146,9 +146,20 @@ export const SCHEMA_DIFF: GitComparison["files"][number] = {
 
 const noop = () => {};
 
-export function HeroDemo({ stage }: { stage: DemoStage }) {
-  // The reader's clock, read once: the sidebar's timers count from it.
-  const [now] = useState(() => Date.now());
+export function HeroDemo({
+  stage,
+  onFirstFrame,
+}: {
+  stage: DemoStage;
+  /** The first beat has drawn: its schema is on screen. */
+  onFirstFrame?: (() => void) | undefined;
+}) {
+  // The reader's clock, read again at each beat, so "Working 9m" is nine minutes however long
+  // the page was open before the hero played. Updated during render, React's way of deriving
+  // state from a prop, so no frame draws a beat against the previous beat's clock.
+  const [clock, setClock] = useState(() => ({ stage, now: Date.now() }));
+  if (clock.stage !== stage) setClock({ stage, now: Date.now() });
+  const now = clock.now;
   return (
     <DemoFrame
       label="Nap's workspace: a personal finance app built from a prompt, checked, and verified"
@@ -166,7 +177,7 @@ export function HeroDemo({ stage }: { stage: DemoStage }) {
               <span className="lp-panel-aside">3 files · +358</span>
             </div>
             <div className="lp-hero-changes-body">
-              <DiffFile file={SCHEMA_DIFF} split={false} />
+              <DrawnDiff file={SCHEMA_DIFF} />
             </div>
           </div>
         )
@@ -185,7 +196,7 @@ export function HeroDemo({ stage }: { stage: DemoStage }) {
             <div className="lp-pane" data-shown={stage === "working"}>
               <PaneTabs tabs={["Preview", "Code"]} active="Code" />
               <div className="lp-pane-code">
-                <DiffFile file={SCHEMA_DIFF} split={false} />
+                <DrawnDiff file={SCHEMA_DIFF} onDrawn={onFirstFrame} />
               </div>
             </div>
             <div className="lp-pane" data-shown={stage !== "working"}>
