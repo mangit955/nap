@@ -35,7 +35,7 @@ const ROWS: readonly {
   {
     id: "review",
     title: "Review it like a teammate's work.",
-    body: "Review the pull request on GitHub the way you always do. When you want a change, comment /nap with what to do and approve it in nap. It makes the fix and runs your checks, and the verified commit goes to the same pull request.",
+    body: "Review the pull request on GitHub the way you always do. When you want a change, comment /nap with what to do from the account you connected, and approve it in nap. It makes the fix and runs your checks, and the verified commit goes to the same pull request, by itself if you turned on publishing.",
     link: { label: "Try it on your repo", href: "/sign-up" },
     Art: ReviewArt,
   },

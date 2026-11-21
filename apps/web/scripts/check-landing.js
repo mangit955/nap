@@ -4,6 +4,7 @@
  *
  * - the backdrop is behind the product, never in front of it: the hero's session and each
  *   feature's window receive the hit at their own centre;
+ * - the repo row's crop shows the pull request's passing checks;
  * - every window of the product is drawn large enough to read: the text that tells its story
  *   (the transcript, the plan's count, the pane's tabs, a panel's title) renders at 9px or more
  *   on any screen from a 360px phone up, and none of it larger than the product draws it;
@@ -68,6 +69,19 @@
     const smallest = Math.min(...sizes);
     check(smallest >= 9, `${name} is readable (its smallest text at ${smallest.toFixed(1)}px)`);
     check(scale <= 1.0001, `${name} is not drawn larger than the product (scale ${scale})`);
+  }
+
+  // The repo row is about a pull request whose checks pass: its crop must show them.
+  const repo = document.querySelector(".lp-repo-demo");
+  if (repo) {
+    const crop = repo.querySelector(".lp-demo-crop").getBoundingClientRect();
+    const build = [...repo.querySelectorAll(".lp-pane-pr *")].find(
+      (text) => text.children.length === 0 && text.textContent.trim() === "build",
+    );
+    check(
+      build !== undefined && build.getBoundingClientRect().bottom <= crop.bottom,
+      "the repo demo shows its passing checks",
+    );
   }
 
   for (const anchor of document.querySelectorAll('.landing a[href^="#"]')) {

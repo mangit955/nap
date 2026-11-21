@@ -145,7 +145,7 @@ const PULL_REQUEST: PullRequestInspection = {
       binary: false,
       truncated: false,
       patch:
-        "@@ -0,0 +1,3 @@\n+export function PastDueEmail({ order }: { order: Order }) {\n+  return <Email subject={`Payment failed for order ${order.number}`} />\n+}",
+        "@@ -0,0 +1,3 @@\n+export function PastDueEmail({ order }: { order: Order }) {\n+  return <Email subject='Your payment failed' order={order} />\n+}",
     },
   ],
 };
@@ -240,8 +240,8 @@ export function RepoArt() {
       label="A task on the acme/storefront repository ending in a draft pull request with its checks passing"
       className="lp-repo-demo"
       narrowShows="pane"
-      wide={{ width: ROW_WIDTH, height: 840, visible: 640 }}
-      narrow={{ width: 360, height: 760, visible: 600 }}
+      wide={{ width: ROW_WIDTH, height: 840, visible: 690 }}
+      narrow={{ width: 360, height: 860, visible: 790 }}
     >
       <DemoWorkspace
         title="acme/storefront"
