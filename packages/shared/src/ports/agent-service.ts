@@ -12,6 +12,7 @@
 import type { ComputerAnnotation } from "../computer.ts";
 import type { PromptSource } from "../events.ts";
 import type { DiffStat } from "../git-protocol.ts";
+import type { Effort } from "../model-lines.ts";
 import type { Result } from "../result.ts";
 import type { BuiltContext } from "./context-engine.ts";
 import type { PendingEvent } from "./event-store.ts";
@@ -73,10 +74,13 @@ export type AgentTurnRequest = {
   /**
    * Which model to run this turn on. Absent is the deployment's default.
    *
-   * Validated long before it arrives here — the route checks it against an allowlist, because
-   * an unchecked model id from a request body is somebody else spending your money.
+   * Resolved long before it arrives here — the route turns the line somebody picked into a
+   * version, because an unchecked model id from a request body is somebody else spending your
+   * money.
    */
   model?: string | undefined;
+  /** How hard the model thinks on this turn, and on any helper that runs on the turn's model. */
+  effort?: Effort | undefined;
   /**
    * Whose account pays for this turn. Absent is the deployment's own.
    *

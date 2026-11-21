@@ -191,9 +191,7 @@ for (let i = 0; i < 115; i++) {
 const config = {
   ...loadgenConfig(2),
   NAP_WEB_ORIGIN: WEB,
-  NAP_MODEL: "openai/gpt-5.6-luna",
   NAP_FREE_MODEL: "openai/gpt-5.6-luna",
-  NAP_ALLOWED_MODELS: ["openai/gpt-5.6-luna", "deepseek/deepseek-chat-v3.1"],
   NAP_WORKER_CONCURRENCY: 1,
 };
 const composed = composeNap({

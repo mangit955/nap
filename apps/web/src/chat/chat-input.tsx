@@ -1,8 +1,8 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
-import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
-import type { ModelChoice } from "@nap/shared/models-protocol";
+import { MODEL_MEDIA_UNSUPPORTED } from "@nap/shared/model-capabilities";
+import type { Effort } from "@nap/shared/model-lines";
 import { Paperclip } from "lucide-react";
 import {
   type ReactNode,
@@ -25,6 +25,7 @@ import { ComposerAddMenu } from "./composer-add-menu.tsx";
 import { AttachmentTray, DictationButton, PlanModeButton } from "./composer-controls.tsx";
 import { applyPick, menuRows, parseToken } from "./composer-menu.ts";
 import type { FirstPrompt } from "./first-prompt.ts";
+import { imagesFor, type ModelOption } from "./model-options.ts";
 import { ModelPicker } from "./model-picker.tsx";
 import { useComposerScroll } from "./use-composer-scroll.ts";
 import { useFileDrop } from "./use-file-drop.ts";
@@ -51,6 +52,9 @@ export function ChatInput({
   models = [],
   model,
   onModelChange,
+  effort,
+  defaultEffort,
+  onEffortChange,
   onAddKey,
   dropZone,
 }: {
@@ -81,10 +85,15 @@ export function ChatInput({
    * What this deployment will run a turn on. Empty hides the control entirely — a deployment
    * with one model has no choice to offer, and a menu with a single row is furniture.
    */
-  models?: readonly ModelChoice[];
+  models?: readonly ModelOption[];
   /** The chosen model. Absent means the server's default, which is what most turns run on. */
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
+  /** The effort chosen; absent is `defaultEffort`. */
+  effort?: Effort | undefined;
+  defaultEffort?: Effort | undefined;
+  /** Absent hides the effort column. */
+  onEffortChange?: ((effort: Effort) => void) | undefined;
   /** Opening the key form, for a model this caller cannot reach. */
   onAddKey?: (() => void) | undefined;
   /**
@@ -138,6 +147,8 @@ export function ChatInput({
   const draftProject = draftIdentity?.projectId;
   const restoreModel = useRef(onModelChange);
   restoreModel.current = onModelChange;
+  const restoreEffort = useRef(onEffortChange);
+  restoreEffort.current = onEffortChange;
   useEffect(() => {
     if (!draftOwner || !draftProject) return;
     draftStore.current.resumeOwner(draftOwner);
@@ -159,6 +170,7 @@ export function ChatInput({
             })),
           );
           if (saved.model) restoreModel.current?.(saved.model);
+          if (saved.effort) restoreEffort.current?.(saved.effort);
         }
         setDraftReady(true);
       })
@@ -179,6 +191,7 @@ export function ChatInput({
       operationId: draftProject,
       text,
       model,
+      ...(effort === undefined ? {} : { effort }),
       source: null,
       attachments: media.attachments.map((item) => item.media),
       expiresAt: Date.now() + 7 * 86400_000,
@@ -196,7 +209,7 @@ export function ChatInput({
     };
     const timer = setTimeout(save, 250);
     return () => clearTimeout(timer);
-  }, [text, model, media.attachments, draftReady]);
+  }, [text, model, effort, media.attachments, draftReady]);
   useEffect(
     () => () => {
       const value = latestDraft.current;
@@ -221,7 +234,7 @@ export function ChatInput({
     enabled: !running && draftReady,
     onFiles: (dropped) => void media.add(dropped),
   });
-  const images = modelSupportsImages(model);
+  const images = imagesFor(models, model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) =>
     setText((current) => appendDictation(current, spoken)),
@@ -576,6 +589,9 @@ export function ChatInput({
               model={model}
               disabled={!draftReady || (running && !queueing)}
               onChange={(choice) => onModelChange?.(choice)}
+              effort={effort}
+              defaultEffort={defaultEffort}
+              onEffortChange={onEffortChange}
               onAddKey={onAddKey}
               onPick={() => box.current?.focus()}
               closeWhen={`${visible}:${text}`}

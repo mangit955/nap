@@ -1,5 +1,6 @@
 import { PlanIntentSchema } from "@nap/shared/agent-plan";
 import { MediaAttachmentsSchema } from "@nap/shared/media";
+import { EffortSchema } from "@nap/shared/model-lines";
 /**
  * The turn queue in Postgres — one in-flight request per session, cluster-wide.
  *
@@ -157,6 +158,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
       plan: request.plan ?? null,
       fixesTest: request.fixesTest ?? null,
       model: request.model,
+      effort: request.effort ?? null,
       billsToUser: request.billsToUser,
     });
     this.#claims?.announce();
@@ -326,6 +328,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
           ...(leased.plan === null ? {} : { plan: PlanIntentSchema.parse(leased.plan) }),
           ...(leased.fixesTest === null ? {} : { fixesTest: leased.fixesTest }),
           model: leased.model,
+          ...(leased.effort === null ? {} : { effort: EffortSchema.parse(leased.effort) }),
           billsToUser: leased.billsToUser,
         },
         skip: null,
@@ -573,6 +576,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
               message: request.message,
               plan: request.plan ?? null,
               model: request.model,
+              effort: request.effort ?? null,
               billsToUser: request.billsToUser,
             });
             return { as: "steer", requestId: target.id } as const;
@@ -587,6 +591,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
           message: request.message,
           plan: request.plan ?? null,
           model: request.model,
+          effort: request.effort ?? null,
           billsToUser: request.billsToUser,
         });
         queued = true;
@@ -688,6 +693,7 @@ export class PostgresTurnQueue implements TurnQueue, SteerQueue {
             message: steer.message,
             plan: steer.plan,
             model: steer.model,
+            effort: steer.effort,
             billsToUser: steer.billsToUser,
             createdAt: steer.createdAt,
           })),

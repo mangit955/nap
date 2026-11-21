@@ -103,9 +103,7 @@ describe("parseEnv", () => {
       NAP_PLATFORM: "anthropic",
       ANTHROPIC_API_KEY: "ollama",
       NAP_MODEL_BASE_URL: "http://localhost:11434",
-      NAP_MODEL: "qwen3.5:9b",
       NAP_FREE_MODEL: "qwen3.5:9b",
-      NAP_ALLOWED_MODELS: "qwen3.5:9b",
     });
     expect(env.NAP_MODEL_BASE_URL).toBe("http://localhost:11434");
     expect(env.NAP_FREE_MODEL).toBe("qwen3.5:9b");
@@ -175,20 +173,13 @@ describe("parseEnv", () => {
     );
   });
 
-  it("refuses a free-tier model that is not on the allowlist", () => {
-    expect(() => parseEnv({ ...REQUIRED, NAP_FREE_MODEL: "vendor/absent-model" })).toThrow(
-      /NAP_FREE_MODEL/,
-    );
-  });
-
-  it.each(["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL"] as const)(
-    "refuses a %s that is not on the allowlist, and accepts one that is",
+  it.each(["NAP_FREE_MODEL", "NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL"] as const)(
+    "takes %s as one exact id, with no list for it to be on",
     (key) => {
-      expect(() => parseEnv({ ...REQUIRED, [key]: "vendor/absent-model" })).toThrow(
-        new RegExp(key),
-      );
-      expect(parseEnv({ ...REQUIRED, [key]: "openai/gpt-5.6-terra" })[key]).toBe(
-        "openai/gpt-5.6-terra",
+      // The deployment's own models are its decision; there is no allowlist left to check
+      // them against, and a line would move them to a new version and price unasked.
+      expect(parseEnv({ ...REQUIRED, [key]: "vendor/any-model:free" })[key]).toBe(
+        "vendor/any-model:free",
       );
     },
   );
@@ -222,24 +213,9 @@ describe("parseEnv", () => {
     );
   });
 
-  it("defaults the model to the cheap one", () => {
-    // Every message typed into the box spends money. What it spends by default is a decision,
-    // and the default is the same model `harness --real` uses.
-    const env = parseEnv(REQUIRED);
-
-    expect(env.NAP_MODEL).toBe("openai/gpt-5.6-luna");
-    expect(env.NAP_EFFORT).toBe("medium");
-  });
-
-  it("takes a different model when one is asked for", () => {
-    const env = parseEnv({
-      ...REQUIRED,
-      NAP_MODEL: "anthropic/claude-opus-5",
-      NAP_EFFORT: "xhigh",
-    });
-
-    expect(env.NAP_MODEL).toBe("anthropic/claude-opus-5");
-    expect(env.NAP_EFFORT).toBe("xhigh");
+  it("runs the deployment's own turns at medium effort unless told otherwise", () => {
+    expect(parseEnv(REQUIRED).NAP_EFFORT).toBe("medium");
+    expect(parseEnv({ ...REQUIRED, NAP_EFFORT: "xhigh" }).NAP_EFFORT).toBe("xhigh");
   });
 
   it("rejects an effort level the provider would refuse", () => {
@@ -409,59 +385,43 @@ describe("what one person may spend", () => {
   });
 });
 
-describe("NAP_ALLOWED_MODELS", () => {
-  it("puts Luna first, since that is what demo visitors and keyed users both run on", () => {
-    // The picker's fallback is the first model, and the first model is the one the product is
-    // built around. Free alternatives follow for visitors who prefer them.
-    expect(parseEnv(VALID).NAP_ALLOWED_MODELS).toEqual([
-      "openai/gpt-5.6-luna",
-      "openai/gpt-5.6-terra",
-      "openai/gpt-5.6-sol",
-      "poolside/laguna-s-2.1:free",
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "anthropic/claude-sonnet-5",
-      "anthropic/claude-opus-5",
-    ]);
+describe("model settings that lines replaced", () => {
+  it.each([
+    ["NAP_ALLOWED_MODELS", "openai/gpt-5.6-luna,anthropic/claude-opus-5"],
+    ["NAP_MODEL", "openai/gpt-5.6-luna"],
+  ])("refuses to boot while %s is still set, rather than ignore it", (key, value) => {
+    // A deployment that sets one expects it to decide something; read by nothing, it would decide
+    // nothing, silently. Even an empty value is a deployment that has not caught up.
+    expect(() => parseEnv({ ...VALID, [key]: value })).toThrow(
+      new RegExp(`${key}: is no longer read`),
+    );
+    expect(() => parseEnv({ ...VALID, [key]: "" })).toThrow(new RegExp(key));
+  });
+});
+
+describe("NAP_MODEL_PINS", () => {
+  it("pins nothing by default", () => {
+    expect(parseEnv(VALID).NAP_MODEL_PINS).toEqual({});
   });
 
-  it("starts the default the model every turn falls back to", () => {
-    // The boot check below refuses a default that is not allowed, so this is not about
-    // reachability — it is that the first model in the list should be the one a fresh checkout runs on.
-    const allowed = parseEnv(VALID).NAP_ALLOWED_MODELS;
-
-    expect(allowed[0]).toBe(parseEnv(VALID).NAP_MODEL);
-  });
-
-  it("offers models that cost nothing, since trying the thing should not need a balance", () => {
-    expect(parseEnv(VALID).NAP_ALLOWED_MODELS.filter((id) => id.endsWith(":free"))).toHaveLength(2);
-  });
-
-  it("splits a list and forgives the spaces people type after commas", () => {
+  it("reads line=id pairs and forgives the spaces people type", () => {
     const env = parseEnv({
       ...VALID,
-      NAP_MODEL: "a/one",
-      NAP_FREE_MODEL: "c/three:free",
-      NAP_ALLOWED_MODELS: "a/one, b/two ,c/three:free",
+      NAP_MODEL_PINS: "sol=openai/gpt-6.1-sol , opus = anthropic/claude-opus-5,",
     });
-
-    expect(env.NAP_ALLOWED_MODELS).toEqual(["a/one", "b/two", "c/three:free"]);
+    expect(env.NAP_MODEL_PINS).toEqual({
+      sol: "openai/gpt-6.1-sol",
+      opus: "anthropic/claude-opus-5",
+    });
   });
 
-  it("refuses to boot when the default is not one of the allowed models", () => {
-    // Otherwise every turn that names no model — which is all of them, by default — is refused
-    // by the allowlist meant to protect it: a server that starts cleanly and answers nothing.
-    expect(() =>
-      parseEnv({
-        ...VALID,
-        NAP_MODEL: "a/one",
-        NAP_FREE_MODEL: "b/two:free",
-        NAP_ALLOWED_MODELS: "b/two:free",
-      }),
-    ).toThrow(/NAP_ALLOWED_MODELS/);
-  });
-
-  it("refuses an empty list rather than allowing everything", () => {
-    expect(() => parseEnv({ ...VALID, NAP_ALLOWED_MODELS: " , " })).toThrow(/NAP_ALLOWED_MODELS/);
+  it.each([
+    ["a line that does not exist", "terra=openai/gpt-6-terra"],
+    ["another line's version", "sol=anthropic/claude-opus-5"],
+    ["a variant no line claims", "sol=openai/gpt-6.2-sol-pro"],
+    ["no id at all", "sol"],
+  ])("refuses %s", (_, pins) => {
+    expect(() => parseEnv({ ...VALID, NAP_MODEL_PINS: pins })).toThrow(/NAP_MODEL_PINS/);
   });
 });
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PlanIntent } from "../agent-plan.ts";
 import type { MediaAttachment } from "../media.ts";
+import type { Effort } from "../model-lines.ts";
 /**
  * The durable queue of turn requests, and the per-session leases that make one of them exclusive.
  *
@@ -96,6 +97,11 @@ export type EnqueueTurnRequest = {
   fixesTest?: string | undefined;
   /** Resolved at admission, because which models somebody may name is the route's fact. */
   model: string;
+  /**
+   * Resolved at admission beside the model. Absent on a request queued before effort was chosen
+   * per turn, which runs at the deployment's configured effort.
+   */
+  effort?: Effort | undefined;
   /**
    * Whether the asker's own account pays.
    *

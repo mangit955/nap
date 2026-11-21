@@ -1,4 +1,5 @@
 import type { MediaAttachment } from "../media.ts";
+import type { Effort } from "../model-lines.ts";
 import type { QueueLeaseIdentity } from "./project-computer-access.ts";
 /**
  * Turn orchestration: acquire a sandbox, build context, run the agent, persist each
@@ -37,6 +38,8 @@ type TurnRequestBase = {
   signal?: AbortSignal;
   /** Which model to run on. Absent is the deployment's default; the route validates it. */
   model?: string | undefined;
+  /** How hard it thinks. Absent is the deployment's default; the route resolves it with the model. */
+  effort?: Effort | undefined;
   /**
    * Whose account pays. Absent is the deployment's own, which is what a turn on the free
    * models runs on.
@@ -136,6 +139,7 @@ export type ContinueOptions = {
    */
   turnId: string;
   model?: string | undefined;
+  effort?: Effort | undefined;
   credentials?: ModelCredentials | undefined;
   /**
    * How to stop the work a continuation turns out to involve.

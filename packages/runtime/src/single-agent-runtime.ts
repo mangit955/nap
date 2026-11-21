@@ -47,6 +47,7 @@ import type { DiffStat } from "@nap/shared/git-protocol";
 import { foldJobs, MAX_REPAIR_ATTEMPTS, openJob } from "@nap/shared/job-state";
 import { addLogContext, getLogger, withLogContext } from "@nap/shared/logging";
 import { modelSupportsImages } from "@nap/shared/model-capabilities";
+import type { Effort } from "@nap/shared/model-lines";
 import { approvedPlanOfJob, pendingPlan } from "@nap/shared/plan-mode";
 import type { AgentService, AgentTurnRequest } from "@nap/shared/ports/agent-service";
 import type { ContextEngine, FailedAttempt, JobContext } from "@nap/shared/ports/context-engine";
@@ -132,6 +133,7 @@ type TurnSettings = {
   sessionId: string;
   signal?: AbortSignal | undefined;
   model?: string | undefined;
+  effort?: Effort | undefined;
   credentials?: ModelCredentials | undefined;
   workspace?: "repository";
 };
@@ -1356,6 +1358,7 @@ export class SingleAgentRuntime implements Runtime {
                   reviewer: this.#options.reviewer,
                   objective: run.objective,
                   model: settings.model,
+                  effort: settings.effort,
                   credentials: settings.credentials,
                 }
               : null,
@@ -1630,6 +1633,7 @@ export class SingleAgentRuntime implements Runtime {
             }),
         ...(settings.signal === undefined ? {} : { signal: settings.signal }),
         ...(settings.model === undefined ? {} : { model: settings.model }),
+        ...(settings.effort === undefined ? {} : { effort: settings.effort }),
         // Passed straight through and read nowhere here: the runtime decides *when* a turn
         // runs, never who pays for it.
         ...(settings.credentials === undefined ? {} : { credentials: settings.credentials }),
@@ -1795,7 +1799,10 @@ export class SingleAgentRuntime implements Runtime {
     previewPort: number | null;
     signal: AbortSignal | undefined;
     /** What the review, if this job may have one, is asked about and billed to. */
-    review: Pick<JobReviewRequest, "reviewer" | "objective" | "model" | "credentials"> | null;
+    review: Pick<
+      JobReviewRequest,
+      "reviewer" | "objective" | "model" | "effort" | "credentials"
+    > | null;
   }): Promise<CheckFailure | null> {
     const { scope, jobId, sandboxId, commitSha, announce } = options;
     const { sink, emit } = scope;

@@ -34,7 +34,7 @@ if (!process.env.OPENROUTER_API_KEY) {
 }
 
 /**
- * Pinned to Claude rather than to whatever `NAP_MODEL` currently is, because *this* is the
+ * Pinned to Claude rather than to whichever line a turn picks, because *this* is the
  * claim being tested: explicit `cache_control` breakpoints, whose minimum prefix and 5-minute
  * TTL are Anthropic's semantics. Other vendors cache automatically and by their own rules, so
  * pointing this at one would leave the breakpoints unexercised and still pass.

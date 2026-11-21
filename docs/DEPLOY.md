@@ -528,11 +528,27 @@ Optionally `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` and the Google pair — bot
 neither, or boot refuses. Without them those buttons are not offered and email sign-in and
 the demo door still work.
 
+**Before deploying the model-lines release, remove `NAP_ALLOWED_MODELS` and `NAP_MODEL` from every
+service in the Render dashboard.** People now pick a model line and each turn runs its newest
+working version from OpenRouter's catalog, which the API process refreshes hourly from a snapshot
+in the repo (`apps/api/src/models/model-catalog.ts`); a process with either variable still set
+refuses to boot rather than ignore it. `NAP_MODEL_PINS` holds a line on one version without a
+deploy. Moves, lines with no usable version, and new families OpenRouter lists are logged by the
+API process. The release adds a nullable `effort` column to `turn_requests` and `turn_steers`
+(`0025`), and its `/models` answer has a new shape, so deploy the API and the web app together.
+Roll the worker before the API: rows this API admits name new
+versions (`anthropic/claude-opus-5.5`) and an effort, and an older worker would spell the first
+wrong for an Anthropic key, treat it as text-only, and drop the second. The reaper can follow the
+API because it does not use the model or effort columns. Deploy the API before the
+web app: the new API reads an older tab's exact model ids as their lines, while the new web app
+sends an `effort` the older API's steer route refuses. Between the two, a tab whose `/models`
+answer did not parse hides the picker and runs on the server's default until it is reloaded.
+
 `NAP_MODEL_BASE_URL` stays unset in production, which keeps model calls on OpenRouter's own host.
 It exists to point a deployment's own model client at another Messages endpoint — a local Ollama,
 or a proxy — without changing code; `apps/api/.env.example` shows the Ollama settings. It moves
 only the turns the deployment pays for, which in the web app are the free tier's (`NAP_FREE_MODEL`);
-a key a user saved to their account always goes to its own vendor. It must be the API root (a
+a key a user saved to their account always goes to its own vendor. With it set, the API never asks OpenRouter's catalog, so model lines stay on the versions the committed snapshot names. It must be the API root (a
 trailing `/v1` fails boot), and the boot line names it when it is set.
 
 Two ways to get this wrong, both quiet:
@@ -658,8 +674,8 @@ was queued before. The demo door (`NAP_ALLOW_DEMO=true`) still hands out a throw
 what it can run is this variable's question. Callers with their own key pay their own model
 bill; their sandbox time is still this deployment's, which is what the ceilings below bound.
 
-Setting `NAP_FREE_MODEL` opens a free tier on that model, paid for by this deployment — a
-`:free` model costs no tokens but still costs the sandbox it runs in. Then these ceilings are
+Setting `NAP_FREE_MODEL` opens a free tier on that one exact model, never a line, paid for by this
+deployment at `NAP_EFFORT` — a `:free` model costs no tokens but still costs the sandbox it runs in. Then these ceilings are
 the reason it is affordable, and they are worth setting deliberately rather than inheriting.
 Demo identities cost nothing to mint, so only the total below bounds the bill:
 

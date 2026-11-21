@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { RepositoryImportSchema } from "./github-protocol.ts";
 import { MediaAttachmentsSchema } from "./media.ts";
+import { EffortSchema } from "./model-lines.ts";
 
 export const InitialPromptSchema = z.object({
   message: z.string().trim().min(1).max(100_000),
   model: z.string().min(1).optional(),
+  effort: EffortSchema.optional(),
   attachments: MediaAttachmentsSchema.optional(),
 });
 

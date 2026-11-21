@@ -89,9 +89,7 @@ const preview = Bun.serve({
 const config = {
   ...loadgenConfig(2),
   NAP_WEB_ORIGIN: WEB,
-  NAP_MODEL: "anthropic/claude-sonnet-5",
   NAP_FREE_MODEL: "anthropic/claude-sonnet-5",
-  NAP_ALLOWED_MODELS: ["anthropic/claude-sonnet-5"],
   NAP_WORKER_CONCURRENCY: 1,
   NAP_MAX_STEPS: 40,
   NAP_CONTEXT_BUDGET_TOKENS: 80_000,
@@ -146,7 +144,7 @@ await queue.enqueue({
   userId: owner.id,
   kind: "turn",
   message: "Save notes and find them in the list",
-  model: config.NAP_MODEL,
+  model: config.NAP_FREE_MODEL,
   billsToUser: false,
 });
 const seedDeadline = Date.now() + 60_000;

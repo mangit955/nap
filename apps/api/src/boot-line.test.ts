@@ -40,7 +40,8 @@ const ENV = {
   NODE_ENV: "production",
   NAP_PLATFORM: "openrouter",
   NAP_EVENT_BUS: "postgres",
-  NAP_MODEL: "openai/gpt-5.6-luna",
+  NAP_FREE_MODEL: "openai/gpt-6-luna",
+  NAP_MODEL_PINS: {},
   NAP_EFFORT: "medium",
   NAP_API_DB_POOL_SIZE: 10,
   NAP_REAPER_DB_POOL_SIZE: 4,
@@ -60,11 +61,20 @@ describe("the boot line", () => {
       platform: "openrouter",
       // The one that turns "the chat stopped moving" into a five-second diagnosis.
       eventBus: "postgres",
-      model: "openai/gpt-5.6-luna",
-      effort: "medium",
+      freeModel: "openai/gpt-6-luna",
+      freeEffort: "medium",
       // Whatever the entrypoint added, alongside rather than instead of the shared fields.
       concurrency: 25,
     });
+  });
+
+  it("names pinned lines, and says nothing of pins when there are none", () => {
+    const logger = recorder();
+    const pinned = { ...ENV, NAP_MODEL_PINS: { sol: "openai/gpt-6.1-sol" } } as Env;
+    announce({ env: ENV, role: "api", logger }, "listening", {});
+    announce({ env: pinned, role: "api", logger }, "listening", {});
+    expect(logger.lines[0]?.fields).not.toHaveProperty("modelPins");
+    expect(logger.lines[1]?.fields).toMatchObject({ modelPins: { sol: "openai/gpt-6.1-sol" } });
   });
 
   it("names a moved model host, and says nothing of one that was not moved", () => {

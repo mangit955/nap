@@ -39,9 +39,7 @@ const TOKEN = "server-only-installation-token";
 const MODEL = "openai/gpt-5.6-luna";
 const config: NapDeps["config"] = {
   NAP_WEB_ORIGIN: ORIGIN,
-  NAP_MODEL: MODEL,
   NAP_FREE_MODEL: MODEL,
-  NAP_ALLOWED_MODELS: [MODEL],
   NAP_MAX_STEPS: 4,
   NAP_CONTEXT_BUDGET_TOKENS: 10_000,
   NAP_MAX_SANDBOXES_PER_USER: 3,

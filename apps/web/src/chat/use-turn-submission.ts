@@ -49,20 +49,27 @@ import { inFlightTurn } from "./working-state.ts";
 const UNREACHABLE =
   "That message didn't reach the server. Check your connection, then send it again.";
 
+import type { Effort } from "@nap/shared/model-lines";
 import type { FetchJson } from "../files/use-project-files.ts";
+
+/**
+ * The line (or free model) and effort a request names. Either absent leaves it to the server's
+ * default for this caller.
+ */
+export type TurnChoice = { model?: string | undefined; effort?: Effort | undefined };
 
 export type TurnSubmission = {
   /** True means admission succeeded; the turn itself runs on past this response. */
   submit: (
     message: string,
-    model?: string,
+    choice?: TurnChoice,
     attachments?: MediaAttachment[],
     /** Asking for a plan, or approving one (ADR-0025). Absent is an ordinary turn. */
     plan?: PlanIntent,
     /** The app test this prompt fixes, by turn id: what Fix it sends. */
     fixesTest?: string,
   ) => Promise<boolean>;
-  startTest: (jobId: string, model?: string) => Promise<boolean>;
+  startTest: (jobId: string, choice?: TurnChoice) => Promise<boolean>;
   cancel: () => Promise<void>;
   /** The message the user sent that the log has not caught up with yet. */
   pending: string | undefined;
@@ -389,8 +396,9 @@ export function useTurnSubmission(options: {
           fixesTest?: string | undefined;
         }
       | { kind: "test"; jobId: string },
-    model?: string,
+    choice: TurnChoice = {},
   ): Promise<boolean> => {
+    const { model, effort } = choice;
     const text = intent.kind === "test" ? "Test the app" : intent.message.trim();
     const attachments = intent.kind === "message" ? intent.attachments : undefined;
     if (sessionId === undefined || text === "") return false;
@@ -442,12 +450,13 @@ export function useTurnSubmission(options: {
           // something, and no test could tell the two apart.
           body: JSON.stringify(
             intent.kind === "test"
-              ? { jobId: intent.jobId, model }
+              ? { jobId: intent.jobId, model, effort }
               : steer
-                ? { id, message: text, model, plan: intent.plan }
+                ? { id, message: text, model, effort, plan: intent.plan }
                 : {
                     message: text,
                     model,
+                    effort,
                     attachments,
                     plan: intent.plan,
                     fixesTest: intent.fixesTest,
@@ -498,10 +507,10 @@ export function useTurnSubmission(options: {
     }
   };
 
-  const submit: TurnSubmission["submit"] = (message, model, attachments, plan, fixesTest) =>
-    admit({ kind: "message", message, attachments, plan, fixesTest }, model);
-  const startTest: TurnSubmission["startTest"] = (jobId, model) =>
-    admit({ kind: "test", jobId }, model);
+  const submit: TurnSubmission["submit"] = (message, choice, attachments, plan, fixesTest) =>
+    admit({ kind: "message", message, attachments, plan, fixesTest }, choice);
+  const startTest: TurnSubmission["startTest"] = (jobId, choice) =>
+    admit({ kind: "test", jobId }, choice);
 
   const cancel = async (): Promise<void> => {
     if (sessionId === undefined) return;

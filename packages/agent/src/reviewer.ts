@@ -135,7 +135,11 @@ export class NapReviewer implements Reviewer {
       usage,
     });
 
-    const turn = provider.startTurn({ model: request.model, credentials: request.credentials });
+    const turn = provider.startTurn({
+      model: request.model,
+      effort: request.effort,
+      credentials: request.credentials,
+    });
     const tools = TOOL_DEFINITIONS.filter((tool) => REVIEW_TOOL_NAMES.includes(tool.name));
     const offered = new Set(REVIEW_TOOL_NAMES);
     const ledger = new FileLedger();

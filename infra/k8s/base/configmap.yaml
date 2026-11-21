@@ -32,8 +32,7 @@ data:
   NAP_EVENT_BUS: "postgres"
 
   NAP_PLATFORM: "openrouter"
-  NAP_MODEL: "openai/gpt-5.6-luna"
-  NAP_FREE_MODEL: "openai/gpt-5.6-luna"
+  NAP_FREE_MODEL: "openai/gpt-6-luna"
   NAP_EFFORT: "medium"
   NAP_MAX_STEPS: "24"
   NAP_CONTEXT_BUDGET_TOKENS: "80000"

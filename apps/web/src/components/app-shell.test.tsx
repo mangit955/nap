@@ -5,6 +5,7 @@ import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
+import { modelList } from "../testing/model-list.ts";
 import { AppShell } from "./app-shell.tsx";
 
 /**
@@ -329,14 +330,7 @@ describe("AppShell", () => {
       removeListener() {},
       dispatchEvent: () => false,
     }));
-    const models = {
-      models: [
-        { id: "openai/gpt-5.6-luna", label: "Luna", free: false, available: true },
-        { id: "anthropic/claude-opus-5", label: "Opus", free: false, available: true },
-      ],
-      fallback: "openai/gpt-5.6-luna",
-      key: { configured: false },
-    };
+    const models = modelList();
     const net = sockets();
     const view = render(
       <AppShell
@@ -356,7 +350,10 @@ describe("AppShell", () => {
         target: { value: "Keep this draft" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Model" }));
+      fireEvent.click(screen.getByRole("button", { name: "Anthropic" }));
       fireEvent.click(screen.getByRole("button", { name: /Opus/ }));
+      // A line picked keeps the popup open for its effort; the level closes it.
+      fireEvent.click(screen.getByRole("radio", { name: "High" }));
       fireEvent.change(screen.getByLabelText("Attach images or videos"), {
         target: { files: [new File(["small"], "reference.png", { type: "image/png" })] },
       });
@@ -364,12 +361,12 @@ describe("AppShell", () => {
       const preview = screen.getByRole("img", { name: "reference.png" }).getAttribute("src");
 
       fireEvent.click(screen.getByRole("button", { name: "Model" }));
-      expect(screen.getByRole("button", { name: /Opus/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Opus, Anthropic, in use/ })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
       fireEvent.click(screen.getByRole("tab", { name: "Files" }));
       expect(screen.queryByRole("region", { name: "Chat" })).toBeNull();
       expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
-      expect(screen.queryByRole("button", { name: /Opus/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Opus, Anthropic/ })).toBeNull();
       expect(media.revokeObjectURL).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
 

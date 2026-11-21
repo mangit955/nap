@@ -1,7 +1,6 @@
 "use client";
 
 import { appTestTarget } from "@nap/shared/app-testing";
-import { modelSupportsImages } from "@nap/shared/model-capabilities";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
 import { use } from "react";
 import type { TurnSubmission } from "../chat/use-turn-submission.ts";
@@ -13,20 +12,21 @@ export function AppTestCards({
   events,
   running,
   testPhase = "idle",
-  model,
+  images,
   onTest,
 }: {
   events: readonly StoredEvent[];
   running: boolean;
   testPhase?: TurnSubmission["testPhase"];
-  model: string | undefined;
+  /** Whether the model a test would run on can see the screenshots it is made of. */
+  images: boolean;
   onTest?: ((jobId: string) => void) | undefined;
 }) {
   const openComputer = use(ComputerNavigation);
   const target = appTestTarget(events);
   const reason = running
     ? "Wait for the current turn to finish."
-    : !modelSupportsImages(model)
+    : !images
       ? "Choose a model that can view images."
       : !onTest
         ? "Computer tests are unavailable."

@@ -1,12 +1,13 @@
 "use client";
 
 import type { MediaAttachment } from "@nap/shared/media";
-import { MODEL_MEDIA_UNSUPPORTED, modelSupportsImages } from "@nap/shared/model-capabilities";
-import type { ModelChoice } from "@nap/shared/models-protocol";
+import { MODEL_MEDIA_UNSUPPORTED } from "@nap/shared/model-capabilities";
+import type { Effort } from "@nap/shared/model-lines";
 import { type ReactNode, useEffect, useRef } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ComposerAddMenu } from "../chat/composer-add-menu.tsx";
 import { AttachmentTray, DictationButton } from "../chat/composer-controls.tsx";
+import { imagesFor, type ModelOption } from "../chat/model-options.ts";
 import { ModelPicker } from "../chat/model-picker.tsx";
 import { useMediaAttachments } from "../chat/use-media-attachments.ts";
 
@@ -26,6 +27,9 @@ export function DashboardHero({
   modelsLoading = false,
   model,
   onModelChange,
+  effort,
+  defaultEffort,
+  onEffortChange,
   onAddKey,
   onChange,
   onSubmit,
@@ -39,10 +43,15 @@ export function DashboardHero({
   canOpenWorkspace?: boolean;
   busy?: boolean;
   error?: string | undefined;
-  models?: readonly ModelChoice[];
+  models?: readonly ModelOption[];
   modelsLoading?: boolean;
   model?: string | undefined;
   onModelChange?: ((model: string) => void) | undefined;
+  /** The effort chosen; absent is `defaultEffort`. */
+  effort?: Effort | undefined;
+  defaultEffort?: Effort | undefined;
+  /** Absent hides the effort column. */
+  onEffortChange?: ((effort: Effort) => void) | undefined;
   onAddKey?: (() => void) | undefined;
   onChange: (value: string) => void;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
@@ -50,7 +59,7 @@ export function DashboardHero({
   const box = useRef<HTMLTextAreaElement>(null);
   const localMedia = useMediaAttachments();
   const media = mediaState ?? localMedia;
-  const images = modelSupportsImages(model);
+  const images = imagesFor(models, model);
   const incompatibleMedia = media.attachments.length > 0 && !images;
   const dictation = useDictation((spoken) => onChange(appendDictation(value, spoken)));
   const disabled = busy || media.processing;
@@ -138,6 +147,9 @@ export function DashboardHero({
                 disabled={disabled}
                 loading={modelsLoading}
                 onChange={(choice) => onModelChange?.(choice)}
+                effort={effort}
+                defaultEffort={defaultEffort}
+                onEffortChange={onEffortChange}
                 onAddKey={onAddKey}
                 onPick={() => box.current?.focus()}
               />

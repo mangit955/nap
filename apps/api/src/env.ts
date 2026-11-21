@@ -16,6 +16,13 @@
  */
 
 import { ModelBaseUrlSchema } from "@nap/agent/model-endpoint";
+import {
+  EffortSchema,
+  LINE_KEYS,
+  type LineKey,
+  LineKeySchema,
+  lineOf,
+} from "@nap/shared/model-lines";
 import { z } from "zod";
 import { isCrossSite } from "./auth/cross-site.ts";
 
@@ -142,78 +149,62 @@ const BaseSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
   /**
-   * What a turn is allowed to spend, and on what.
+   * How hard the deployment's own free-tier turns think. Somebody with a key chooses per turn and
+   * defaults to `medium`; this is for the turns the deployment pays for.
    *
-   * Every message typed into the chat box is a real model call and a real sandbox. The default
-   * is GPT-5.6 Luna — the model this project runs everywhere, including for demo visitors.
-   * Raising the ceiling for something people will watch is `NAP_MODEL` and `NAP_EFFORT` on
-   * that run, which is one line rather than a code change.
-   *
-   * It supports tool calls and reasoning, and is a *fully namespaced* OpenRouter id — a bare
-   * name is assumed to be Anthropic's, which is how this codebase has always spelled a model,
-   * so a namespace is what keeps the default pointed where it says.
-   */
-  NAP_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
-  /**
    * `medium` because it was measured, not guessed — fifteen turns over five prompts at three
-   * levels found it cheapest, fastest, and no worse in what the agent produced. It matches
-   * `DEFAULT_MODEL_CONFIG`, which used to disagree with it.
+   * levels found it cheapest, fastest, and no worse in what the agent produced.
    */
-  NAP_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
+  NAP_EFFORT: EffortSchema.default("medium"),
   /**
    * A model a turn continues on when its own model refuses, or stays unavailable through every
    * retry, on the deployment's account only — a person's own key is never moved to a model they
-   * did not pick. Once per turn. Unset, either ends the turn. Must be on the allowlist.
+   * did not pick. Once per turn. Unset, either ends the turn. An exact id.
    */
   NAP_FALLBACK_MODEL: z.string().min(1).optional(),
   /**
    * What an `explore` helper runs on when the deployment pays — searching is the work a cheaper
-   * model does as well as a dear one. Unset, helpers run on the turn's own model. Must be on the
-   * allowlist. Helpers are offered to imported repositories only (ADR-0020).
+   * model does as well as a dear one. Unset, helpers run on the turn's own model. An exact id.
+   * Helpers are offered to imported repositories only (ADR-0020).
    */
   NAP_SUBAGENT_MODEL: z.string().min(1).optional(),
-
   /**
-   * Which models a request may ask for, as a comma-separated list.
+   * A version per model line that wins over the catalog, as `line=id` pairs separated by commas:
+   * `sol=openai/gpt-6.1-sol,opus=anthropic/claude-opus-5`.
    *
-   * This exists because the turn endpoint accepts a model, and a model id taken from a request
-   * body and passed to the provider is a stranger choosing what you pay per token. The
-   * allowlist is the whole defence: anything not named here is refused before a sandbox is
-   * touched or a single token is spent.
-   *
-   * The default includes the default model (Luna) up front, `:free` models, and paid choices
-   * for people using their own keys. Which of them a caller may reach is
-   * `apps/api/src/turns/model-access.ts`: a caller with no key reaches none of them unless
-   * `NAP_FREE_MODEL` opens a free tier.
-   *
-   * **Every id here was read from OpenRouter's live catalogue and every one supports tool
-   * calling.** That second filter is not a nicety — this agent *is* a tool loop, so a model
-   * without tools cannot take a single step and every turn on it fails identically.
+   * Every line otherwise runs the newest version OpenRouter lists that passes the shape check in
+   * `@nap/shared/model-lines`, and moves the hour a new one is listed. A pin is how a deployment
+   * holds a line back — a new version that misbehaves in a way no check can see — without a
+   * deploy. The id must be one of that line's, or the pin would move a turn to another line.
    */
-  NAP_ALLOWED_MODELS: z
+  NAP_MODEL_PINS: z
     .string()
-    .default(
-      [
-        // The default for an OpenRouter key that names no model.
-        "openai/gpt-5.6-luna",
-        "openai/gpt-5.6-terra",
-        "openai/gpt-5.6-sol",
-        // No token cost. Keyless callers reach them only when NAP_FREE_MODEL opens a free
-        // tier, and then the deployment still pays for the sandbox.
-        "poolside/laguna-s-2.1:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        // Paid choices for people who bring their own keys.
-        "anthropic/claude-sonnet-5",
-        "anthropic/claude-opus-5",
-      ].join(","),
-    )
-    .transform((list) =>
-      list
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter((entry) => entry !== ""),
-    )
-    .refine((models) => models.length > 0, { message: "must name at least one model" }),
+    .optional()
+    .transform((value, ctx) => {
+      const pins: Partial<Record<LineKey, string>> = {};
+      for (const pair of (value ?? "").split(",")) {
+        if (pair.trim() === "") continue;
+        const [line = "", model = ""] = pair.split("=").map((part) => part.trim());
+        const key = LineKeySchema.safeParse(line);
+        if (!key.success || lineOf(model)?.key !== key.data) {
+          ctx.addIssue({
+            code: "custom",
+            message: `"${pair.trim()}" must be line=id with an id of that line (lines: ${LINE_KEYS.join(", ")})`,
+          });
+          continue;
+        }
+        pins[key.data] = model;
+      }
+      return pins;
+    }),
+  /**
+   * Settings this deployment no longer reads, refused rather than ignored: a deployment that still
+   * sets one expects it to decide something, and it decides nothing. People pick a model line, and
+   * each turn runs its newest working version (`NAP_MODEL_PINS` holds one back); an OpenRouter key
+   * defaults to Sol and an Anthropic key to Opus; the free tier is `NAP_FREE_MODEL`.
+   */
+  NAP_ALLOWED_MODELS: z.string().optional(),
+  NAP_MODEL: z.string().optional(),
   /** Model calls in one turn, and the ceiling on the context assembled for each of them. */
   NAP_MAX_STEPS: z.coerce.number().int().positive().default(24),
   NAP_CONTEXT_BUDGET_TOKENS: z.coerce.number().int().positive().default(80_000),
@@ -258,6 +249,10 @@ const BaseSchema = z.object({
    * instead (`apps/api/src/turns/model-access.ts`). Setting it opens a free tier on this model,
    * paid for by the deployment and bounded by the two ceilings above. It may be a paid model on
    * purpose; even a `:free` one costs the sandbox it runs in.
+   *
+   * One exact id, never a line: a deployment that pays decides exactly what it pays for, and a
+   * line would move it onto a new version, at a new price, without anybody choosing to. With
+   * `NAP_MODEL_BASE_URL` set it is the id that host serves, such as an Ollama model.
    */
   NAP_FREE_MODEL: z.string().min(1).optional(),
 
@@ -514,35 +509,15 @@ export const EnvSchema = BaseSchema.superRefine((env, ctx) => {
     }
   }
 
-  // The default has to be reachable, or every turn that names no model is refused by the
-  // allowlist that was meant to protect it — a server that boots fine and answers nothing.
-  if (!env.NAP_ALLOWED_MODELS.includes(env.NAP_MODEL)) {
+  for (const key of ["NAP_ALLOWED_MODELS", "NAP_MODEL"] as const) {
+    if (env[key] === undefined) continue;
     ctx.addIssue({
       code: "custom",
-      path: ["NAP_ALLOWED_MODELS"],
-      message: `must include NAP_MODEL (${env.NAP_MODEL})`,
-    });
-  }
-
-  // A model the deployment would switch a turn to has passed the same check a person's choice
-  // does, or the allowlist has a side door.
-  for (const key of ["NAP_FALLBACK_MODEL", "NAP_SUBAGENT_MODEL"] as const) {
-    const model = env[key];
-    if (model !== undefined && !env.NAP_ALLOWED_MODELS.includes(model))
-      ctx.addIssue({
-        code: "custom",
-        path: [key],
-        message: `must be one of NAP_ALLOWED_MODELS (${model} is not)`,
-      });
-  }
-
-  // A free-tier model, when there is one, has to be reachable too, or every turn by somebody
-  // without a key is refused by the allowlist after the deployment said it would pay for them.
-  if (env.NAP_FREE_MODEL !== undefined && !env.NAP_ALLOWED_MODELS.includes(env.NAP_FREE_MODEL)) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["NAP_ALLOWED_MODELS"],
-      message: `must include NAP_FREE_MODEL (${env.NAP_FREE_MODEL})`,
+      path: [key],
+      message:
+        "is no longer read: people pick a model line and each turn runs its newest working " +
+        "version. Remove it; NAP_MODEL_PINS holds a line on one version, and NAP_FREE_MODEL " +
+        "names the free tier's model — docs/DEPLOY.md",
     });
   }
 

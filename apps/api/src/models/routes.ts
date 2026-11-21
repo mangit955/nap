@@ -1,29 +1,24 @@
 /**
- * Which models this deployment will run a turn on.
+ * The model lines this deployment runs, and which of them this caller may.
  *
  * The picker in the browser is populated from here rather than from a list compiled into it,
- * because the two would drift the moment `NAP_ALLOWED_MODELS` changed — and they would drift
- * silently, into a menu offering a model every turn is then refused for naming. One source,
- * and it is the same list the turn route enforces.
- *
- * Labels are derived rather than configured. A second environment variable pairing ids with
- * display names is a second thing to keep in step with the first, and the id already carries
- * everything a person needs to tell two models apart.
+ * because a line's version moves with the catalog and the browser cannot know it — and because
+ * which lines a caller may run is the turn route's rule, answered here by the same function. A
+ * menu built from anything else offers lines every turn is then refused for naming.
  */
 
-import { isFreeModel } from "@nap/shared/model-capabilities";
+import { modelSupportsImages } from "@nap/shared/model-capabilities";
+import { DEFAULT_EFFORT, type LineKey, MODEL_LINES } from "@nap/shared/model-lines";
 import { ModelListSchema } from "@nap/shared/models-protocol";
 import type { StoredKeyRecord } from "@nap/shared/ports/user-key-store";
 import type { Hono } from "hono";
 import type { AuthVariables } from "../auth/require-user.ts";
-import { availableModels, resolveTurnAccess } from "../turns/model-access.ts";
+import { defaultLine, type ModelPolicy, reachableWith } from "../turns/model-access.ts";
 
 export type ModelRouteDeps = {
-  allowed: readonly string[];
-  /** What a turn runs on when the asker has a key and names nothing. */
-  fallback: string;
-  /** What a turn runs on when the asker has no key. Absent means there is no free tier. */
-  freeModel: string | undefined;
+  policy: ModelPolicy;
+  /** Which lines' versions were listed recently enough to be called new. */
+  isNew: (line: LineKey) => boolean;
   /**
    * The key this caller brought, if any. Absent means nobody has one — which is what an app
    * assembled without a key store means, and is the answer that offers least.
@@ -39,29 +34,38 @@ export function registerModelRoutes(
     const stored = (await deps.keys?.(c.get("userId"))) ?? null;
     // Only the platform matters here; the key itself is never opened for this, because
     // nothing on this route needs to spend it.
-    const key = stored === null ? null : { platform: stored.platform, apiKey: "" };
-    const available = new Set(availableModels(deps.allowed, key, deps.freeModel));
-    const access = resolveTurnAccess({
-      requested: undefined,
-      key,
-      allowed: deps.allowed,
-      freeModel: deps.freeModel,
-      defaultModel: deps.fallback,
-    });
+    const platform = stored?.platform;
+    const { policy } = deps;
+    const freeModel = stored === null ? policy.freeModel : undefined;
 
     return c.json(
       ModelListSchema.parse({
-        models: deps.allowed.map((id) => ({
-          id,
-          label: modelLabel(id),
-          // OpenRouter's convention. Worth saying in the menu, because it is the difference
-          // between a turn that costs money and one that does not.
-          free: isFreeModel(id),
-          available: available.has(id),
-        })),
+        lines: MODEL_LINES.map((line) => {
+          const version = policy.versionOf(line.key);
+          return {
+            key: line.key,
+            label: line.label,
+            vendor: line.vendor,
+            version,
+            isNew: deps.isNew(line.key),
+            images: line.images,
+            efforts: [...line.efforts],
+            available:
+              platform !== undefined && version !== null && reachableWith(line.key, platform),
+          };
+        }),
+        free:
+          freeModel === undefined
+            ? null
+            : {
+                id: freeModel,
+                label: modelLabel(freeModel),
+                images: modelSupportsImages(freeModel),
+              },
         // Whichever default this caller's turns would actually take, so the tick in the menu
         // is on the model a message would really run on.
-        fallback: access.ok ? access.model : deps.fallback,
+        fallback: platform === undefined ? (freeModel ?? null) : defaultLine(platform, policy),
+        effort: platform === undefined ? policy.freeEffort : DEFAULT_EFFORT,
         key:
           stored === null
             ? { configured: false }
