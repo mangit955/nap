@@ -47,7 +47,7 @@ function inView(entry: IntersectionObserverEntry): boolean {
   return viewport !== undefined && entry.intersectionRect.height >= viewport * FILLS_WINDOW;
 }
 
-/** How long a seen hero waits for its first frame to draw before it starts without it. */
+/** How long after mounting the hero stops waiting for its first frame to draw. */
 export const READY_WAIT_MS = 4000;
 
 /**

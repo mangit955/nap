@@ -81,11 +81,11 @@ export const TREE_READERS = [
     test: "apps/web/src/testing/react-compiler.test.tsx",
     reads: /^(?:apps\/web\/)?package\.json$|^apps\/web\/src\//,
   },
-  // Holds the landing demos' narrow-layout widths in demo.css to `narrowBelow` in
-  // demo-window.tsx, so a frame's height is right before any script runs.
+  // Holds the landing demos' narrow-layout widths in demo.css and features.css to `narrowBelow`
+  // in demo-window.tsx, so a frame's height is right before any script runs.
   {
     test: "apps/web/src/landing/demo-window.test.tsx",
-    reads: /^apps\/web\/src\/landing\/demo\.css$/,
+    reads: /^apps\/web\/src\/landing\/(?:demo|features)\.css$/,
   },
   // Hashes DESKTOP_SOURCES (packages/sandbox/src/desktop-template.ts) and fails on any edit to one
   // until DESKTOP_BUILD is bumped. A superset of that list, held to it by test/check-changed.test.ts;

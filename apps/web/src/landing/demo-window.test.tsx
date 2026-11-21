@@ -14,7 +14,6 @@ import { HERO_SPACE } from "./hero-demo.tsx";
  */
 const HERO = HERO_SPACE;
 const ROW = { wide: { width: ROW_WIDTH, height: 840 }, narrow: { width: 360, height: 760 } };
-/** The workspace's smallest labels, 12px, as drawn at a column width in a given space. */
 /** The plan's 11.5px count, the smallest text that tells a demo's story, as drawn. */
 const label = (column: number, space: { width: number }) => (11.5 * column) / space.width;
 
@@ -127,10 +126,11 @@ describe("a diff that waits until it has drawn", () => {
     const drawn = vi.fn();
     const { container } = render(<DrawnDiff file={FILE} onDrawn={drawn} />);
     const box = container.querySelector(".lp-drawn-diff");
-    if (box?.querySelector(".t3-diff-notice")?.textContent === "Loading diff…") {
-      expect(box).toHaveAttribute("data-drawn", "false");
-      expect(drawn).not.toHaveBeenCalled();
-    }
+    // The product's placeholder is what the first render holds. Asserted, not assumed: if the
+    // product rewords it, `isDrawn` would take the placeholder for a drawn diff, and this fails.
+    expect(box?.querySelector(".t3-diff-notice")).toHaveTextContent("Loading diff…");
+    expect(box).toHaveAttribute("data-drawn", "false");
+    expect(drawn).not.toHaveBeenCalled();
     await waitFor(() => expect(isDrawn(box ?? document.body)).toBe(true));
     await waitFor(() => expect(box).toHaveAttribute("data-drawn", "true"));
     expect(drawn).toHaveBeenCalledTimes(1);
