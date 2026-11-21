@@ -25,10 +25,12 @@
 
 import type { Database } from "@nap/db/client";
 import { accounts, authSessions, users, verifications } from "@nap/db/schema";
+import { getLogger } from "@nap/shared/logging";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { anonymous } from "better-auth/plugins/anonymous";
 import { z } from "zod";
+import { withoutQueryParams } from "../redact-query-params.ts";
 import { isCrossSite } from "./cross-site.ts";
 import { asPublicRequest, authBaseUrl } from "./public-url.ts";
 import { createStreamTickets, type StreamTickets } from "./stream-ticket.ts";
@@ -140,6 +142,30 @@ export type AuthConfig = {
  */
 const SessionUserSchema = z.object({ isAnonymous: z.boolean().optional() });
 
+/**
+ * Where Better Auth's own lines go: the app's logger, under the request's ids, rather than the
+ * library's default of `console`.
+ *
+ * The default is how a session token reached the production log (#283): a failed session
+ * lookup is logged with the whole Drizzle error, whose message carries the query's parameters.
+ * Redacted here as well as by pino's hook in `logger.ts`, so the guarantee holds whichever
+ * logger is installed as the root.
+ */
+function logFromBetterAuth(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  args: unknown[],
+): void {
+  const [first, ...rest] = args;
+  const fields =
+    first instanceof Error
+      ? { err: first, ...(rest.length > 0 ? { args: rest } : {}) }
+      : args.length > 0
+        ? { args }
+        : {};
+  getLogger()[level](withoutQueryParams(fields), `[Better Auth] ${withoutQueryParams(message)}`);
+}
+
 export function createAuth(db: Db, config: AuthConfig): AuthInstance {
   const auth = betterAuth({
     secret: config.secret,
@@ -153,6 +179,11 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
     // so a failed OAuth round trip ends on `{"error":"not signed in"}` at an address the
     // person never typed. The app's sign-in page can at least say what happened.
     onAPIError: { errorURL: `${config.webOrigin}/sign-in` },
+
+    // The library's own lines, which default to `console`; see `logFromBetterAuth`.
+    logger: {
+      log: (level, message, ...args: unknown[]) => logFromBetterAuth(level, message, args),
+    },
 
     // Left entirely to the library unless a caller says otherwise — see
     // `authRequestsPerWindow`. Naming the window as well as the maximum because the library's

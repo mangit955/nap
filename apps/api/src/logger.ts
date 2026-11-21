@@ -13,7 +13,8 @@
  */
 
 import type { Logger } from "@nap/shared/logging";
-import { type DestinationStream, pino } from "pino";
+import { type DestinationStream, type LoggerOptions, pino } from "pino";
+import { withoutQueryParams } from "./redact-query-params.ts";
 
 export type CreateLoggerOptions = {
   level: string;
@@ -27,7 +28,16 @@ export type CreateLoggerOptions = {
  * site. No cast, because a cast would assert the compatibility instead of proving it.
  */
 export function createLogger(options: CreateLoggerOptions, stream?: DestinationStream): Logger {
-  return stream === undefined
-    ? pino({ level: options.level })
-    : pino({ level: options.level }, stream);
+  const settings: LoggerOptions = {
+    level: options.level,
+    // Every argument of every line, children included, before pino serializes it: a failed
+    // query's parameters are user data and must never reach the log. See
+    // `redact-query-params.ts`.
+    hooks: {
+      logMethod(args, method) {
+        Reflect.apply(method, this, args.map(withoutQueryParams));
+      },
+    },
+  };
+  return stream === undefined ? pino(settings) : pino(settings, stream);
 }
