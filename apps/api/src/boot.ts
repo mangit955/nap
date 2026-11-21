@@ -70,6 +70,7 @@ import { githubConfigFromEnv } from "./github/config.ts";
 import { createHealthProbe } from "./health.ts";
 import { createLogger } from "./logger.ts";
 import { createDeploymentProvider } from "./model-provider.ts";
+import { redactConsole } from "./redact-query-params.ts";
 import { createHeartbeatWriter } from "./worker-heartbeat.ts";
 
 export type NapProcess = {
@@ -148,6 +149,9 @@ export async function bootNap(role: NapRole): Promise<NapProcess> {
   // So that anything logging outside a request — the reaper's sweep, a component reporting from
   // deep in a turn — reaches this stream rather than the discarding default.
   setRootLogger(logger);
+  // For libraries that print to `console` directly, beside any logger they are given: a failed
+  // query's parameters are user data and must not reach stdout that way either.
+  redactConsole();
 
   // One pool for the process; the stores are handed a database rather than opening their own.
   // Sized by role, because a worker running many turns and an API serving short requests need

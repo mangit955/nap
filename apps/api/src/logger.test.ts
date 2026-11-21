@@ -1,4 +1,7 @@
+import { createDatabase } from "@nap/db/client";
+import { authSessions } from "@nap/db/schema";
 import { getLogger, withLogContext } from "@nap/shared/logging";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { createLogger } from "./logger.ts";
 
@@ -73,6 +76,56 @@ describe("createLogger", () => {
       userId: "u1",
       step: 2,
       msg: "deep in the stack",
+    });
+  });
+});
+
+describe("a failed database query, logged", () => {
+  /**
+   * A real `DrizzleQueryError`, not a hand-built one: what leaks is the library's own message
+   * (`params:` and the values), its enumerable `params` field and its stack, and a copy could
+   * drift from all three. Port 1 refuses at once, so no database is needed.
+   */
+  async function aFailedQuery(secret: string): Promise<unknown> {
+    const unreachable = createDatabase("postgres://nap:nap@127.0.0.1:1/nap", { max: 1 });
+    try {
+      await unreachable.db.select().from(authSessions).where(eq(authSessions.token, secret));
+    } catch (error) {
+      return error;
+    } finally {
+      await unreachable.close();
+    }
+    throw new Error("the query against a closed port succeeded");
+  }
+
+  it("keeps the query and the cause, and drops the parameters wherever the error is put", async () => {
+    const secret = `secret-${crypto.randomUUID()}`;
+    const error = await aFailedQuery(secret);
+    const sink = capture();
+    const logger = createLogger({ level: "info" }, sink.stream);
+
+    // Every way this repo hands an error to the logger: the `err` key pino serializes, an error
+    // inside a typed result (`{ failure }`), one wrapped as another's cause, and its message
+    // used as the line itself.
+    logger.error({ err: error }, "as err");
+    logger.error({ failure: { ok: false, error } }, "inside a result");
+    logger.error({ err: new Error("could not sweep", { cause: error }) }, "as a cause");
+    logger.child({ turnId: "t1" }).warn({}, error instanceof Error ? error.message : "");
+
+    expect(sink.lines).toHaveLength(4);
+    const written = sink.lines.join("\n");
+    expect(written).not.toContain(secret);
+    expect(written).not.toContain("params:");
+    // What a reader needs is still there: which query, and why it failed.
+    for (const line of sink.lines) expect(line).toContain("auth_sessions");
+    // pino folds the cause into the serialized error's message and stack.
+    expect(sink.records()[0]).toMatchObject({
+      err: {
+        type: "DrizzleQueryError",
+        message: expect.stringContaining("ECONNREFUSED"),
+        // The failed query's own frame, not only the cause's: the copy keeps its stack.
+        stack: expect.stringContaining("queryWithCache"),
+      },
     });
   });
 });

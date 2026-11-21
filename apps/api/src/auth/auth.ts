@@ -29,6 +29,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { anonymous } from "better-auth/plugins/anonymous";
 import { z } from "zod";
+import { logFromBetterAuth } from "./better-auth-log.ts";
 import { isCrossSite } from "./cross-site.ts";
 import { asPublicRequest, authBaseUrl } from "./public-url.ts";
 import { createStreamTickets, type StreamTickets } from "./stream-ticket.ts";
@@ -153,6 +154,11 @@ export function createAuth(db: Db, config: AuthConfig): AuthInstance {
     // so a failed OAuth round trip ends on `{"error":"not signed in"}` at an address the
     // person never typed. The app's sign-in page can at least say what happened.
     onAPIError: { errorURL: `${config.webOrigin}/sign-in` },
+
+    // The library's own lines, which default to `console`; see `logFromBetterAuth`.
+    logger: {
+      log: (level, message, ...args: unknown[]) => logFromBetterAuth(level, message, args),
+    },
 
     // Left entirely to the library unless a caller says otherwise — see
     // `authRequestsPerWindow`. Naming the window as well as the maximum because the library's
