@@ -148,6 +148,32 @@ export function continuationFor(state: SessionJobs, evidence: WorkspaceEvidence)
 }
 
 /**
+ * What a job still open when a message opens a new one is closed as, or `null` if none is open.
+ *
+ * The job has to close here or never: `openJob` reads only the newest job, so once the message's
+ * `job.started` is written, nothing would continue or close the older one. The answers that cost
+ * nothing are kept as they are, since the log already holds them. A job that would cost work to
+ * finish (checks against an unchecked commit, or a repair) is `superseded` instead: the message is
+ * the person's newest intent, and its job's checks run across the whole workspace, which still
+ * holds the older job's commit.
+ */
+export function closingForNewJob(
+  state: SessionJobs,
+  evidence: WorkspaceEvidence,
+): { jobId: string; outcome: JobOutcome } | null {
+  const continuation = continuationFor(state, evidence);
+  switch (continuation.kind) {
+    case "none":
+      return null;
+    case "close":
+      return { jobId: continuation.jobId, outcome: continuation.outcome };
+    case "verify":
+    case "repair":
+      return { jobId: continuation.jobId, outcome: "superseded" };
+  }
+}
+
+/**
  * The newest round's failure as an attempt already made.
  *
  * Only reached on a job that is verifying again, which means a repair turn has already answered

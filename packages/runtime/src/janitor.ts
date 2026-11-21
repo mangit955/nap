@@ -44,15 +44,16 @@ import { EventSink } from "./event-sink.ts";
  * `internal` rather than `cancelled`: nobody asked for this to stop. And the notice says where
  * the work went, because the honest answer — it is all still there and Resume picks it up — is
  * not one anybody would guess from a failed turn. It names Resume rather than opening the project,
- * because opening one starts nothing (ADR-0037), and a message sent instead starts new work and
- * leaves this job where it stopped. It says to put the project away first because the worker died,
- * not the sandbox: the project is usually still running, Resume is only offered on a put-away one,
- * and opening a running one continues nothing.
+ * because opening one starts nothing (ADR-0037). It says to put the project away first because the
+ * worker died, not the sandbox: the project is usually still running, Resume is only offered on a
+ * put-away one, and opening a running one continues nothing. And it says what a message does
+ * instead, since that is what most people will do: it closes this job as superseded and starts new
+ * work, whose checks cover what this job left (`closingForNewJob`).
  */
 const INTERRUPTED_MESSAGE =
   "This turn was interrupted: the worker running it stopped responding, so it never finished.";
 const RESUME_NOTICE =
-  "Nothing was lost — the work so far is saved. To pick it up from where it stopped, put the project away and press Resume.";
+  "Nothing was lost — the work so far is saved. To finish it as it was, put the project away and press Resume. Or send a message: that starts new work in its place, and the checks after your next change cover what was saved.";
 /** A publish ran no turn, so there is nothing to reopen — what is left to do is publish again. */
 const PUBLISH_INTERRUPTED_NOTICE =
   "Publishing was interrupted. Your saved work is safe; retry publishing from this project.";

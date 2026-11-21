@@ -1,6 +1,8 @@
 # ADR-0006 — A completed turn is a claim, not a fact
 
 **Status:** Accepted — 2026-08-16. Amended by [ADR-0037](0037-opening-a-project-starts-nothing.md): navigating to a project no longer starts it, so "a person opening the project" is a press of Resume.
+Amended 2026-11-21 (#294): a message sent to a session with an open job closes that job before its own
+opens, as *superseded* unless the log already answers it. Only Resume continues a job.
 
 ## Context
 

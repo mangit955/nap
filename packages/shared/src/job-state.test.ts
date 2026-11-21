@@ -265,6 +265,14 @@ describe("isJobFailed", () => {
     expect(isJobFailed(phased("unverified")!)).toBe(false);
     expect(isJobFailed(foldJobs(log(started(JOB_A))).jobs[0]!)).toBe(false);
   });
+
+  it("is false for a superseded job, whose work is unchecked rather than found broken", () => {
+    expect(isJobFailed(phased("superseded")!)).toBe(false);
+  });
+
+  it("closes a superseded job, so nothing continues it", () => {
+    expect(isJobOpen(phased("superseded")!)).toBe(false);
+  });
 });
 
 describe("foldJobs per-job facts", () => {

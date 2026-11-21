@@ -16,7 +16,8 @@ const PHASES = `open        working ──► verifying ──► repairing ─�
 closed      verified     checks passed — the commit is a checkpoint
             unverified   the turn changed no files, so there was nothing to check
             exhausted    3 repairs spent, checks still red
-            abandoned    the turn was cancelled or refused, or its checks learned nothing`;
+            abandoned    the turn was cancelled or refused, or its checks learned nothing
+            superseded   left open by a restart, then replaced by a message`;
 
 export function DurableJobs() {
   return (
@@ -34,7 +35,7 @@ export function DurableJobs() {
         request and a six-turn build need no decision in advance about which they are.
       </P>
 
-      <Figure label="Three phases while open, four ways to close.">{PHASES}</Figure>
+      <Figure label="Three phases while open, five ways to close.">{PHASES}</Figure>
 
       <P>
         <Term>Unverified</Term> is the one worth pausing on: a turn that changed no files has not
@@ -49,8 +50,16 @@ export function DurableJobs() {
         A process restart leaves a job <em>open</em> rather than failing it. When somebody next
         presses Resume on the project, the open job is continued — and nothing continues a job while
         nobody is watching, which is deliberate: an unattended sandbox is a sandbox being paid for.
-        Opening the project alone starts nothing, and a message sent instead starts new work,
-        leaving the interrupted job where it stopped.
+        Opening the project alone starts nothing.
+      </P>
+
+      <P>
+        A message sent instead of Resume closes the interrupted job before its own job opens. If the
+        log already holds the answer, the job closes as that answer. Otherwise it closes as{" "}
+        <Term>superseded</Term>, and a notice in the chat says so: its work stays in the project,
+        unchecked, and the checks after your next change run across the whole project and cover it.
+        Superseding spends nothing, where continuing first could spend repair turns on an objective
+        the message has moved on from.
       </P>
 
       <P>

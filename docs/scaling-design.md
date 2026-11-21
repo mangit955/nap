@@ -288,10 +288,12 @@ the request's own `turnId`, appends:
 - `turn.failed { reason: "internal", message: "…interrupted…" }` — so the chat pane shows a terminal
   state instead of spinning forever. `openEventStream` has no timeout; without this the client waits
   on an event that will never come.
-- `system.notice { level: "warning", text: "…reopen the project to resume…" }`
+- `system.notice { level: "warning", text: "…put the project away and press Resume…" }`
 
 **The Job is left open. No `job.completed` is written.** Recovery is §6's continuation path,
-triggered by a human.
+triggered by a human pressing Resume. A message sent instead closes the open job as `superseded`
+before its own job opens, unless the log already answers it (`closingForNewJob` in
+`packages/runtime/src/continue-job.ts`).
 
 **Orphaning and announcing are two steps, because they are two systems.** One is a row in
 Postgres and the other is an append plus a fanout, and no transaction spans them. The row is taken

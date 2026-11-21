@@ -99,8 +99,18 @@ export type TurnFailureReason = z.infer<typeof TurnFailureReasonSchema>;
  * went away. Distinct from `exhausted`, which is the loop running to the end of its rope with
  * checks still red; that one leaves committed code behind and a `HEAD` that has diverged from
  * the last checkpoint, and says so (docs/adr/0006).
+ *
+ * `superseded` is a job a dead worker left open, closed because a message opened a new job over
+ * it before anybody pressed Resume. Its work is still in the workspace, unchecked; the next job's
+ * checks run across the whole project and cover it. Not a failure, since nothing found it broken.
  */
-export const JobOutcomeSchema = z.enum(["verified", "unverified", "exhausted", "abandoned"]);
+export const JobOutcomeSchema = z.enum([
+  "verified",
+  "unverified",
+  "exhausted",
+  "abandoned",
+  "superseded",
+]);
 export type JobOutcome = z.infer<typeof JobOutcomeSchema>;
 
 /**

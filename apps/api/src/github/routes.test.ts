@@ -8,6 +8,7 @@ import { InMemorySnapshotStore } from "@nap/db/testing/in-memory-snapshot-store"
 import { InMemoryTurnQueue } from "@nap/db/testing/in-memory-turn-queue";
 import { InMemorySandboxManager } from "@nap/sandbox/testing/in-memory-sandbox-manager";
 import { SignInRequiredSchema } from "@nap/shared/api-error";
+import type { PendingEvent } from "@nap/shared/ports/event-store";
 import type { ModelCredentials } from "@nap/shared/ports/llm-provider";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { describe, expect, it } from "vitest";
@@ -457,6 +458,50 @@ describe("repository import and access", () => {
       repositories: [],
     });
   });
+  it.each(["abandoned", "exhausted", "unverified", "superseded"] as const)(
+    "reports a job whose log says %s as failed, not still working",
+    async (outcome) => {
+      // The fallback for a repository job its finish hook never settled: whatever the log says
+      // closed it without a verified commit, nothing will be published for it.
+      const f = fixture();
+      await f.bind();
+      const ids = z
+        .object({ projectId: z.string(), sessionId: z.string() })
+        .parse(await (await f.request("/github/import", input)).json());
+      const jobId = randomUUID();
+      await f.store.createJob({
+        jobId,
+        projectId: ids.projectId,
+        sessionId: ids.sessionId,
+        baseBranch: "main",
+        headBranch: "nap/job",
+        baseSha: "b".repeat(40),
+        headSha: null,
+        pushedSha: null,
+        pullRequestNumber: null,
+        pullRequestUrl: null,
+        pullRequestState: "none",
+        publishState: "working",
+        checkState: "unknown",
+        reviewState: "unknown",
+        error: null,
+        updatedAt: new Date().toISOString(),
+      });
+      for (const event of [
+        { type: "job.started", payload: { jobId, objective: "add a delete button" } },
+        { type: "job.completed", payload: { jobId, outcome } },
+      ])
+        await f.events.append({
+          ...event,
+          sessionId: ids.sessionId,
+          turnId: randomUUID(),
+          createdAt: new Date().toISOString(),
+        } as PendingEvent);
+
+      const body = await (await f.app.request(`/projects/${ids.projectId}/github`)).json();
+      expect(body).toMatchObject({ jobs: [{ jobId, publishState: "failed" }] });
+    },
+  );
   it("checks permission on the imported repository alone, however many the installation holds", async () => {
     const f = fixture();
     await f.bind();

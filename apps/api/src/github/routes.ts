@@ -6,7 +6,7 @@ import {
   RepositoryEnvironmentSchema,
   RepositoryImportSchema,
 } from "@nap/shared/github-protocol";
-import { foldJobs } from "@nap/shared/job-state";
+import { foldJobs, isJobOpen } from "@nap/shared/job-state";
 import type { GitHubStore } from "@nap/shared/ports/github-store";
 import type { ProjectStore } from "@nap/shared/ports/project-store";
 import type { TurnQueue } from "@nap/shared/ports/turn-queue";
@@ -312,7 +312,8 @@ export function registerGitHubRoutes(
       if (
         job.publishState === "working" &&
         state !== undefined &&
-        ["abandoned", "exhausted", "unverified"].includes(state.phase)
+        !isJobOpen(state) &&
+        state.phase !== "verified"
       ) {
         job.publishState = "failed";
         job.error = "This job ended without a verified commit. No changes were published.";

@@ -46,13 +46,16 @@ phase.
   continues on its own. The janitor's notice, `/docs` (durable jobs) and `CONTEXT.md` (**Continue**)
   now say Resume. The notice says to put the project away first: the worker died, not the sandbox,
   so the project is usually still running, and Resume is only offered on a put-away one.
-- **A message sent instead of Resume leaves an interrupted job behind.** A turn writes its own
+- **A message sent instead of Resume left an interrupted job behind.** A turn writes its own
   `job.started` and never continues an open job, so the interrupted one stays where it stopped, its
   last commit unverified. This already happened while the sandbox was still running, because `/open`
   answers "already running" and continues nothing, and the Resume button only appears once the
-  project is put away. What this decision adds is the put-away case. Making a message continue an
-  open job first would close the gap; it changes what sending does, so it is left for its own
-  change.
+  project is put away. What this decision adds is the put-away case. *Since closed (#294):* a
+  message now closes the open job before its own job opens. Where the log already holds the job's
+  answer it closes as that; otherwise it closes as `superseded`, with a notice in the chat, and the
+  new job's checks, which run across the whole workspace, cover its commit. Continuing it first was
+  rejected: it would run up to three repair turns of an old objective under the person's new
+  message, before that message, and would leave steers sent meanwhile with two turns to land in.
 - **Seeing the running app takes one more action.** That is the cost the earlier commit was avoiding.
   It is accepted because the alternative spends the person's sandbox ceiling on every project they
   look at.
