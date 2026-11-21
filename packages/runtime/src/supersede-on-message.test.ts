@@ -31,6 +31,7 @@ import { SingleAgentRuntime } from "./single-agent-runtime.ts";
 const SESSION_ID = "2a3f8a24-6c1b-4e0e-9b6f-3a5c0a1d9e77";
 const PROJECT_ID = "4d5e6f70-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const OLD_JOB = "3f9a1c2d-5e6b-4f7a-8b9c-0d1e2f3a4b5c";
+const EARLIER_JOB = "8c7b6a59-4d3e-4f21-9a8b-7c6d5e4f3a2b";
 const DEAD_TURN = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
 const MESSAGE_TURN = "b1e5c0de-2222-4333-8444-555566667777";
 /** `scriptGit`'s own sha, so the workspace is sitting on the commit the dead turn announced. */
@@ -75,9 +76,9 @@ async function seedLog(
   }
 }
 
-const started = () => ({
+const started = (jobId = OLD_JOB) => ({
   type: "job.started" as const,
-  payload: { jobId: OLD_JOB, objective: "add a delete button" },
+  payload: { jobId, objective: "add a delete button" },
 });
 const turnStarted = () => ({ type: "turn.started" as const, payload: { source: "user" } });
 const committed = (commitSha: string | null) => ({
@@ -92,9 +93,17 @@ const red = () => ({
     checks: [{ name: "typecheck", outcome: "failed", output: "src/App.tsx: error TS2304" }],
   },
 });
-const checkpointed = () => ({
+const checkpointed = (jobId = OLD_JOB) => ({
   type: "job.checkpointed" as const,
-  payload: { jobId: OLD_JOB, commitSha: COMMIT_SHA },
+  payload: { jobId, commitSha: COMMIT_SHA },
+});
+const green = (jobId = OLD_JOB) => ({
+  type: "verification.completed" as const,
+  payload: { jobId, checks: [{ name: "typecheck", outcome: "passed", output: null }] },
+});
+const closed = (jobId: string) => ({
+  type: "job.completed" as const,
+  payload: { jobId, outcome: "verified" },
 });
 
 function runtime(): SingleAgentRuntime {
@@ -110,8 +119,13 @@ function runtime(): SingleAgentRuntime {
   });
 }
 
-async function send(message = "make the header sticky") {
-  return await runtime().runTurn({ sessionId: SESSION_ID, turnId: MESSAGE_TURN, message });
+async function send(message = "make the header sticky", signal?: AbortSignal) {
+  return await runtime().runTurn({
+    sessionId: SESSION_ID,
+    turnId: MESSAGE_TURN,
+    message,
+    ...(signal === undefined ? {} : { signal }),
+  });
 }
 
 async function log(): Promise<StoredEvent[]> {
@@ -152,7 +166,9 @@ describe("a message on a session whose job was interrupted with an unchecked com
       .map((event) => event.type);
     const closedAt = types.indexOf("job.completed");
     expect(closedAt).toBeGreaterThan(types.indexOf("user.message"));
-    expect(closedAt).toBeLessThan(types.indexOf("job.started"));
+    // The notice too: it explains the close, and belongs before the work that replaces the job.
+    expect(types.indexOf("system.notice")).toBe(closedAt + 1);
+    expect(closedAt + 1).toBeLessThan(types.indexOf("job.started"));
 
     const closing = await closingOfOldJob();
     expect(closing.map((event) => event.type)).toEqual(["job.completed", "system.notice"]);
@@ -166,8 +182,23 @@ describe("a message on a session whose job was interrupted with an unchecked com
     expect(agent.calls).toBe(1);
     const state = foldJobs(await log());
     expect(state.jobs.map((job) => job.phase)).toEqual(["superseded", "verified"]);
-    // The new job's checks ran against the workspace, which holds the old job's commit too.
-    expect(state.checkpointSha).toBe(COMMIT_SHA);
+  });
+
+  it("leaves it open for Resume when the message is stopped before its work starts", async () => {
+    // Stopped while the runtime asks the workspace what it is sitting on: after the sandbox is in
+    // hand, before anything has replaced the old job.
+    const stop = new AbortController();
+    sandbox.script(/git rev-parse HEAD/, () => {
+      stop.abort();
+      return { exitCode: 0, stdout: `${COMMIT_SHA}\n`, stderr: "" };
+    });
+
+    const outcome = await send("make the header sticky", stop.signal);
+
+    expect(outcome).toMatchObject({ ok: false, reason: "cancelled" });
+    expect(agent.calls).toBe(0);
+    expect((await oldJob())?.phase).toBe("working");
+    expect(foldJobs(await log()).jobs).toHaveLength(1);
   });
 });
 
@@ -187,13 +218,22 @@ describe("a message on a session whose job was interrupted mid-repair", () => {
 });
 
 describe("a message on a session whose interrupted job the log already answers", () => {
-  it("closes it as what the log says, with no notice, when its commit is a checkpoint", async () => {
-    // The checkpoint was written and the job's closing event was not: the answer is in the log.
-    await seedLog(started(), turnStarted(), committed(COMMIT_SHA), verifying(), checkpointed());
+  it("closes it unverified, with no notice, when it died before committing anything", async () => {
+    // An earlier job left the project at a checkpoint; the interrupted one never moved HEAD off
+    // it. Nothing is unchecked, so there is nothing to supersede: continuing would say the same.
+    await seedLog(
+      started(EARLIER_JOB),
+      committed(COMMIT_SHA),
+      green(EARLIER_JOB),
+      checkpointed(EARLIER_JOB),
+      closed(EARLIER_JOB),
+      started(),
+      turnStarted(),
+    );
 
     await send();
 
-    expect((await oldJob())?.phase).toBe("verified");
+    expect((await oldJob())?.phase).toBe("unverified");
     const closing = await closingOfOldJob();
     expect(closing.map((event) => event.type)).toEqual(["job.completed"]);
   });

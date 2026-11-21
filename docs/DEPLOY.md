@@ -937,6 +937,26 @@ Stop new repair submissions and roll forward with compatible readers. Old logs r
 but already-contaminated test goals are not backfilled or recovered from prompt text. See
 [Fix it](computer-use.md#fix-it) for the structured repair path.
 
+## Superseded job outcome rollout
+
+The worker now writes `job.completed` with `outcome: "superseded"` when a message opens a job over
+one a dead worker left open (`closingForNewJob`). Any session can produce one on an ordinary turn,
+and only the worker writes it. Old rows parse in the new readers, but an old API, reaper or worker
+rejects the new row. An old API fails to read that session's log until it is replaced. An old
+reaper's janitor fails on it and retries the session on its next tick. There is no database
+migration.
+
+So the order is reader first, as in the [usage cache split rollout](#usage-cache-split-rollout),
+and with the same steps: hold the automatic release with `[skip ci]` in the merge commit's message,
+deploy the commit to `nap-api` and then `nap-reaper` from Render, then to `nap-worker`, and then run
+the **CI** workflow on `main` to publish the web at the same SHA. Merge nothing else to `main` until
+it has finished.
+
+Browser tabs need no frame stripping. An old tab drops the frame it cannot parse, so it draws the
+superseded job as still open in its job history until it is reloaded. The workspace bar describes
+the newest job, and that job is unaffected. Once a `superseded` row is durable, do not roll an event
+reader back to a version that rejects it.
+
 ## Dependency archive rollout
 
 A reopen that has to install now stores an archive at `projects/<projectId>/dependencies.tar.gz`

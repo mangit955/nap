@@ -54,12 +54,13 @@ export function DurableJobs() {
       </P>
 
       <P>
-        A message sent instead of Resume closes the interrupted job before its own job opens. If the
-        log already holds the answer, the job closes as that answer. Otherwise it closes as{" "}
-        <Term>superseded</Term>, and a notice in the chat says so: its work stays in the project,
-        unchecked, and the checks after your next change run across the whole project and cover it.
-        Superseding spends nothing, where continuing first could spend repair turns on an objective
-        the message has moved on from.
+        A message sent instead of Resume closes the interrupted job before its own job opens. A plan
+        proposal opens no job, so it leaves the interrupted one for Resume. If the log already holds
+        the answer, the job closes as that answer. Otherwise it closes as <Term>superseded</Term>,
+        and a notice in the chat says so: whatever it saved is left unchecked, and the checks after
+        your next change run across the whole project and cover it. Superseding spends nothing,
+        where continuing first could spend repair turns on an objective the message has moved on
+        from.
       </P>
 
       <P>

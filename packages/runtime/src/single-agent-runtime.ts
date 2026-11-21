@@ -260,13 +260,15 @@ function resumeFailureNotice(error: SandboxError): string {
 /**
  * What a person is told when their message closes a job a dead worker left open.
  *
- * Says that the work is kept and unchecked, and what will check it. "The next change" rather than
- * "this message", because a message that changes no files runs no checks.
+ * Says the work is unchecked and what will check it. It does not promise the work survived: a
+ * restore from an older snapshot can have lost some of it, and acquiring the sandbox says so
+ * separately. "The next change" rather than "this message", because a message that changes no
+ * files runs no checks.
  */
 function supersededNotice(objective: string): string {
   return (
     `The interrupted job "${commitMessage(objective)}" was closed so this message could start. ` +
-    "Its work is still in the project, not yet checked; the checks after your next change cover it."
+    "Whatever it saved has not been checked; the checks after your next change cover the whole project."
   );
 }
 
@@ -731,6 +733,10 @@ export class SingleAgentRuntime implements Runtime {
       workspaceHeadSha: await this.#workspaceHead(sandboxId),
     });
     if (closing === null) return;
+    // A message stopped before it ran must not take the job away from Resume: superseding is only
+    // honest when new work actually replaces it. Checked after the HEAD read, which can be slow
+    // and does not itself listen for the abort.
+    request.signal?.throwIfAborted();
 
     const notice = closing.outcome === "superseded" ? supersededNotice(job.objective) : undefined;
     await this.#closeLeftOpen(scope, sandboxId, closing, request, notice);
