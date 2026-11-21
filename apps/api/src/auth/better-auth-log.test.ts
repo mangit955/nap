@@ -1,4 +1,5 @@
-import { withLogContext } from "@nap/shared/logging";
+import { format } from "node:util";
+import { type Logger, withLogContext } from "@nap/shared/logging";
 import { describe, expect, it } from "vitest";
 import { createLogger } from "../logger.ts";
 import { logFromBetterAuth } from "./better-auth-log.ts";
@@ -70,5 +71,28 @@ describe("logFromBetterAuth", () => {
     );
 
     expect(line).toMatchObject({ level: 40, args: [{ provider: "github" }] });
+  });
+
+  it("redacts on its own, under a root logger that does not", () => {
+    // The guarantee does not lean on pino's hook: a recorder that prints whatever it is handed,
+    // as `console` would, is still given nothing to leak.
+    const written: string[] = [];
+    const recorder: Logger = {
+      child: () => recorder,
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: (fields: object | string, message?: string) => {
+        written.push(format(fields, message));
+      },
+    };
+
+    withLogContext(recorder, {}, () =>
+      logFromBetterAuth("error", "INTERNAL_SERVER_ERROR", [queryError()]),
+    );
+
+    expect(written).toHaveLength(1);
+    expect(written[0]).toContain("Failed query:");
+    expect(written[0]).not.toContain("user-123");
   });
 });

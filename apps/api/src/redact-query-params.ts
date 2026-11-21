@@ -18,7 +18,8 @@
  */
 
 const QUERY_MARKER = "Failed query: ";
-const PARAMS_MARKER = "\nparams: ";
+/** As Drizzle writes it, and as it reads once the message has been JSON-encoded into a string. */
+const PARAMS_MARKERS = ["\nparams: ", "\\nparams: "];
 const WITHHELD = "\n[query parameters withheld from the log]";
 
 /** Drizzle's field for a query's values, on whatever error carries it. */
@@ -129,8 +130,8 @@ function redactObject<T extends object>(value: T, depth: number, walk: Walk): T 
 function redactText(text: string): string {
   const query = text.indexOf(QUERY_MARKER);
   if (query === -1) return text;
-  const params = text.indexOf(PARAMS_MARKER, query);
-  return params === -1 ? text : text.slice(0, params) + WITHHELD;
+  const found = PARAMS_MARKERS.map((marker) => text.indexOf(marker, query)).filter((i) => i !== -1);
+  return found.length === 0 ? text : text.slice(0, Math.min(...found)) + WITHHELD;
 }
 
 /**

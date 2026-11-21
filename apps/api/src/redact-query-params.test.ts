@@ -58,6 +58,13 @@ describe("withoutQueryParams", () => {
     expect(text).not.toContain("params:");
   });
 
+  it("finds the parameters in a message that was JSON-encoded into a string", () => {
+    const text = withoutQueryParams(JSON.stringify({ message: DRIZZLE_MESSAGE }));
+
+    expect(text).toContain("Failed query:");
+    expect(text).not.toContain("s3cret");
+  });
+
   it("copies the error without its parameters, keeping type, query, frames and cause", () => {
     const original = aQueryError();
     const copy = asError(withoutQueryParams(original));

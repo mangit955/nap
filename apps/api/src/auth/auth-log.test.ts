@@ -4,9 +4,12 @@
  *
  * Production did exactly that during a database restart (#283): the session lookup failed,
  * Drizzle's error carried the query's parameters — the bearer token — in its message and in an
- * enumerable `params` field, and Better Auth printed the whole error to `console`. Two writers
- * are in play and both are captured here: Better Auth's own logger, which defaults to
- * `console`, and the app's pino logger, which records the same error as the request's 500.
+ * enumerable `params` field, and Better Auth printed the whole error to `console`. Both writers
+ * are captured here. pino gets Better Auth's own lines, through the bridge in
+ * `better-auth-log.ts`, and the app's `unhandled error` line for the request's 500 (which holds
+ * only Better Auth's "Failed to get session"). `console` gets whatever a library prints there
+ * directly, as better-call's router does for a failure no route caught; boot routes `console`
+ * through `redactConsole`, and so does this file.
  *
  * No database is needed to make the lookup fail: the auth instance is pointed at a port nothing
  * listens on, so every query is refused exactly as it was during the restart. The cookie is
@@ -18,13 +21,15 @@ import { format } from "node:util";
 import { createDatabase } from "@nap/db/client";
 import { InMemoryEventBus } from "@nap/db/testing/in-memory-event-bus";
 import { InMemoryEventStore } from "@nap/db/testing/in-memory-event-store";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.ts";
 import { createLogger } from "../logger.ts";
+import { redactConsole } from "../redact-query-params.ts";
 import { createAuth } from "./auth.ts";
 
 const SECRET = "a-test-secret-that-is-long-enough-to-be-a-secret";
 const API_ORIGIN = "http://localhost:3001";
+const WEB_ORIGIN = "http://localhost:3000";
 const TOKEN = `tok-${crypto.randomUUID()}`;
 
 /** Better Auth's signed cookie: `token.base64(hmac-sha256(secret, token))`, URI-encoded. */
@@ -42,8 +47,9 @@ const consoleLines: string[] = [];
 const auth = createAuth(unreachable.db, {
   secret: SECRET,
   baseUrl: API_ORIGIN,
-  webOrigin: "http://localhost:3000",
-  allowAnonymous: false,
+  webOrigin: WEB_ORIGIN,
+  github: { clientId: "test-client-id", clientSecret: "test-client-secret" },
+  allowAnonymous: true,
 });
 
 const app = createApp({
@@ -57,18 +63,20 @@ const app = createApp({
   },
 });
 
+const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "trace"] as const;
+const originalConsole = Object.fromEntries(CONSOLE_METHODS.map((m) => [m, console[m]]));
+
 beforeEach(() => {
   pinoLines.length = 0;
   consoleLines.length = 0;
-  for (const method of ["log", "info", "warn", "error", "debug"] as const) {
-    vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
-      consoleLines.push(format(...args));
-    });
+  for (const m of CONSOLE_METHODS) {
+    console[m] = (...args: unknown[]) => consoleLines.push(format(...args));
   }
+  redactConsole();
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  for (const m of CONSOLE_METHODS) console[m] = originalConsole[m] as Console[typeof m];
 });
 
 afterAll(async () => {
@@ -107,5 +115,32 @@ describe("a session lookup against an unreachable database", () => {
     });
     expect(consoleLines).toEqual([]);
     expect(pinoLines.some((line) => line.includes("Better Auth"))).toBe(true);
+  });
+
+  it.each([
+    ["an email sign-in", "/api/auth/sign-in/email", { password: "a-long-enough-password" }],
+    [
+      "an email sign-up",
+      "/api/auth/sign-up/email",
+      { password: "a-long-enough-password", name: "N" },
+    ],
+    ["a GitHub sign-in", "/api/auth/sign-in/social", { provider: "github", callbackURL: "/" }],
+  ])("via %s, which no route catches, writes no parameter anywhere", async (_name, path, body) => {
+    const email = `victim-${crypto.randomUUID()}@example.com`;
+
+    const response = await app.request(`${API_ORIGIN}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: WEB_ORIGIN },
+      body: JSON.stringify({ email, ...body }),
+    });
+
+    expect(response.status).toBe(500);
+    const logged = everythingLogged();
+    // The router's own line is the path under test: it reached console, and was redacted there.
+    expect(consoleLines.join("\n")).toContain("SERVER_ERROR");
+    expect(logged).toContain("Failed query:");
+    expect(logged).not.toContain(email);
+    expect(logged).not.toContain("params:");
+    expect(logged).not.toContain("codeVerifier");
   });
 });
