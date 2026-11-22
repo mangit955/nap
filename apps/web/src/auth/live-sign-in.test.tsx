@@ -179,10 +179,12 @@ describe("when it works", () => {
         target: { value: "a good password" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Create account" }));
-      await act(() => vi.advanceTimersByTimeAsync(0));
-      expect(push).not.toHaveBeenCalled();
 
-      await act(() => vi.advanceTimersByTimeAsync(5000));
+      // Just short of the bound it is still asking, which is what keeps the cookie check
+      // meaningful: a bound short enough to beat the network would wave every browser through.
+      await act(() => vi.advanceTimersByTimeAsync(4999));
+      expect(push).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(1));
 
       expect(push).toHaveBeenCalledWith("/welcome");
     } finally {
