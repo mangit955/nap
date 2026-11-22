@@ -1221,76 +1221,18 @@ body {
 }
 
 /*
- * The stage: a light surface the box stands on, and a *fixed* one.
+ * The key form's ramp, in the dark.
  *
- * It used to drift through the same arc that lit the rim, on the theory that a surface changing
- * colour with the light reads as being lit by it. It does not. It reads as the page tinting
- * itself every few seconds for no reason a reader can see, and it takes every neutral on the
- * page with it — the borders, the card's own face. The light is the event; the
- * room it happens in should hold still. The three registered `--ai-bg*` properties that made
- * the drift interpolate went with it.
+ * `ApiKeyForm` is written once and shown in two places: on `/welcome`, which wears the sign-up
+ * page's dark ground, and in a dialog over the workspace. It names its surfaces and text weights
+ * as `--s-*` variables rather than as colours, and this is where they get values. A placement
+ * without it resolves every `--s-*` to nothing: a form with no surface, no border and inherited
+ * text, which is to say a transparent one with the page legible straight through it. The failure
+ * is silent, because an undefined custom property is not an error; it just paints nothing.
  *
- * **Its design tokens are scoped here rather than to `:root`.** The rest of this app is a dark
- * frame around somebody's project; a light ramp declared globally would restyle all of it by
- * accident. Everything inside the stage reads these, and nothing outside it can.
- *
- * The ramp is deliberately deeper than a flat light theme needs — several greys each with a
- * job, and a border heavier than the usual hairline. That is what makes a flat surface read as
- * layered without adding a single shadow. No accent colour: a saturated hue fights a rainbow
- * rim, and the rim is the point.
- */
-.ai-stage {
-  --s-surface-1: #ffffff;
-  --s-surface-2: #fbfbfc;
-  --s-surface-3: #f1f2f4;
-  --s-border-1: #dedede;
-  --s-text-primary: #16171a;
-  --s-text-body: #3c3f45;
-  --s-text-muted: #6a6e76;
-  --s-text-subtle: #9aa0a8;
-  --s-text-inverse: #ffffff;
-
-  /*
-   * The colours the rim is painted in, before any pulse has rolled a palette. They live on the
-   * stage rather than on the box because the roll is written here — a copy on the box would be
-   * an own declaration, which beats an inherited one, and the rim would never change colour at
-   * all. That failure is silent and looks like the palette code not running.
-   */
-  --ai-c1: #005bf6;
-  --ai-c2: #b0c6e9;
-  --ai-c3: #feca00;
-  --ai-c4: #ff1c11;
-  --ai-c5: #ff00ea;
-  --ai-c6: #ffa2fbcc;
-  --ai-tail: #95c1ffa1;
-
-  color: var(--s-text-body);
-}
-
-/*
- * Three stops of one neutral rather than a flat fill: a large pale area with no gradation at all
- * reads as unpainted, and the barely-there fall from top to bottom is what makes it read as a
- * surface. Neutral means *neutral* — these are greys with no hue in them, because anything
- * tinted here would be a second colour on a page whose one colour is the rim.
- */
-.ai-stage {
-  background: linear-gradient(180deg, #fcfcfd 0%, #f7f7f9 55%, #f2f2f5 100%);
-}
-
-/*
- * The same ramp again, this time in the dark.
- *
- * `ApiKeyForm` is written once and shown in two places: on `/welcome`, which is a light stage,
- * and in a dialog over the workspace, which is not. Because the ramp above is scoped to
- * `.ai-stage`, that second placement resolved every `--s-*` to nothing — a dialog with no
- * surface, no border and inherited text, which is to say a transparent one with the page
- * legible straight through it. The failure is silent: an undefined custom property is not an
- * error, it just paints nothing.
- *
- * So rather than fork the form or hard-code a light card into a dark frame, this maps the same
- * variable names onto the workspace palette. The form keeps naming surfaces and text weights;
- * which ramp it gets is a fact about where it is mounted. Every value here is a `--color-*`
- * token, so the two palettes cannot drift apart into two different dark greys.
+ * So rather than fork the form, both placements mount it inside this class, which maps the names
+ * onto the app's palette. Every value here is a `--color-*` token, so the form cannot drift into
+ * a dark grey of its own.
  */
 .ai-stage-dark {
   /* Inputs and inset rows. A step above the panel they sit on, so a field reads as a well. */
@@ -1303,8 +1245,8 @@ body {
   --s-text-muted: var(--color-muted);
   --s-text-subtle: var(--color-gutter);
   /*
-   * What sits *on* `--s-text-primary`, which the shared pill uses as a fill. Near-black on the
-   * near-white pill: the light ramp's white would be white on white, an invisible button.
+   * What sits *on* `--s-text-primary`, which the shared pill uses as a fill: near-black on the
+   * near-white pill. A white label there would be an invisible button.
    */
   --s-text-inverse: var(--color-surface);
 
