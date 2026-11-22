@@ -1,5 +1,6 @@
 import { FakeSandboxDesktop } from "@nap/sandbox/testing/fake-sandbox-desktop";
 import { FakeSandboxRecordings } from "@nap/sandbox/testing/fake-sandbox-recordings";
+import { type Logger, withLogContext } from "@nap/shared/logging";
 import { InMemoryObjectStore } from "@nap/storage/testing/in-memory-object-store";
 import { expect, it, vi } from "vitest";
 import { withAppTestRecording } from "./app-test-recording.ts";
@@ -275,4 +276,111 @@ it("notices lease loss after a cancellation has already fixed the abort reason",
   expect(f.entries.at(-1)).toMatchObject({
     payload: { recording: { state: "unavailable", reason: "lease_lost" } },
   });
+});
+
+type LogLine = { level: string; fields: Record<string, unknown>; message: string };
+function logRecorder(bindings: Record<string, unknown> = {}, lines: LogLine[] = []) {
+  const at =
+    (level: string) =>
+    (first: object | string, second?: string): void => {
+      lines.push(
+        typeof first === "string"
+          ? { level, fields: { ...bindings }, message: first }
+          : { level, fields: { ...bindings, ...first }, message: second ?? "" },
+      );
+    };
+  const logger: Logger = {
+    child: (extra) => logRecorder({ ...bindings, ...extra }, lines).logger,
+    debug: at("debug"),
+    info: at("info"),
+    warn: at("warn"),
+    error: at("error"),
+  };
+  return { logger, lines };
+}
+const unavailable = { code: "unavailable", message: "Nap's computer is unavailable." } as const;
+
+it("logs which capture step failed, under the turn's log context, without publishing it", async () => {
+  const f = fixture();
+  vi.spyOn(f.desktop, "start").mockResolvedValue({ ok: false, error: unavailable });
+  const log = logRecorder();
+  await withLogContext(log.logger, { turnId: identity.turnId }, () =>
+    withAppTestRecording(f.options, async () => ({ ok: true })),
+  );
+  const failures = log.lines.filter((line) => line.message === "test recording could not start");
+  expect(failures.map((line) => line.fields)).toEqual([
+    expect.objectContaining({ turnId: identity.turnId, step: "desktop_start", attempt: 1 }),
+    expect.objectContaining({ turnId: identity.turnId, step: "desktop_start", attempt: 2 }),
+  ]);
+  expect(failures[0]?.fields).toMatchObject({
+    code: "unavailable",
+    error: unavailable.message,
+    elapsedMs: expect.any(Number),
+  });
+  expect(f.recordings.calls).toHaveLength(1);
+  expect(f.entries.at(-1)).toEqual({
+    type: "test.recording",
+    payload: { recording: { state: "unavailable", reason: "capture_failed" } },
+  });
+});
+
+it("logs a thrown capture failure with its error", async () => {
+  const f = fixture();
+  const error = new Error("exec transport closed");
+  vi.spyOn(f.recordings, "begin").mockRejectedValue(error);
+  const log = logRecorder();
+  await withLogContext(log.logger, {}, () =>
+    withAppTestRecording(f.options, async () => ({ ok: true })),
+  );
+  expect(log.lines.find((line) => line.level === "warn")?.fields).toMatchObject({
+    step: "recording_begin",
+    attempt: 1,
+    err: error,
+  });
+});
+
+it("records the test when the second capture attempt begins", async () => {
+  const f = fixture();
+  const begin = vi.mocked(f.recordings.begin).getMockImplementation();
+  if (!begin) throw new Error("Missing capture implementation.");
+  vi.mocked(f.recordings.begin)
+    .mockResolvedValueOnce({ ok: false, error: unavailable })
+    .mockImplementation(begin);
+  const log = logRecorder();
+  await withLogContext(log.logger, {}, () =>
+    withAppTestRecording(f.options, async (clock) => {
+      expect(clock).toBeDefined();
+      return { ok: true };
+    }),
+  );
+  expect(f.recordings.begin).toHaveBeenCalledTimes(2);
+  expect(log.lines.filter((line) => line.level === "warn")).toHaveLength(1);
+  expect(f.entries.map((entry) => entry.payload)).toContainEqual({
+    recording: { state: "started" },
+  });
+  expect(f.entries.at(-1)).toMatchObject({ payload: { recording: { state: "available" } } });
+});
+
+it.each([
+  ["cancelled", { code: "cancelled", message: "Desktop operation cancelled." }],
+  ["outdated", { code: "outdated", message: "Nap's computer is unavailable in this workspace." }],
+] as const)("does not retry a %s capture", async (_name, error) => {
+  const f = fixture();
+  vi.spyOn(f.desktop, "start").mockResolvedValue({ ok: false, error });
+  await withAppTestRecording(f.options, async () => ({ ok: true }));
+  expect(f.desktop.start).toHaveBeenCalledTimes(1);
+});
+
+it("does not retry capture once the turn is aborted", async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  vi.spyOn(f.recordings, "begin").mockImplementation(async () => {
+    controller.abort();
+    return { ok: false, error: unavailable };
+  });
+  const start = vi.spyOn(f.desktop, "start");
+  await withAppTestRecording({ ...f.options, signal: controller.signal }, async () => ({
+    ok: false,
+  }));
+  expect(start).toHaveBeenCalledTimes(1);
 });
