@@ -81,7 +81,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={display.variable}>
+    // `data-scroll-behavior` asks Next to suspend CSS smooth scrolling while it moves between
+    // routes. The landing page and the docs scroll smoothly to an anchor on the same page; without
+    // it, Next 16 lets that smoothness apply to a route change too, and following "Next" at the
+    // foot of a long docs page visibly scrolls the new page up from where the old one ended.
+    <html lang="en" className={display.variable} data-scroll-behavior="smooth">
       <body>{children}</body>
     </html>
   );

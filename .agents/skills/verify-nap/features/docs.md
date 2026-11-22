@@ -35,7 +35,7 @@ press --key ArrowDown
 shot  --label "docs: search"
 press --key Enter                                 # opens the highlighted result
 wait  --role dialog --name "Search the docs" --state hidden
-click --role button --name "Search docs… ⌘ K"
+click --role button --name "Search docs…" --loose  # ⌘ K on a Mac, Ctrl K elsewhere
 press --key Escape
 wait  --role dialog --name "Search the docs" --state hidden
 
@@ -61,6 +61,9 @@ resize --width 1440 --height 900
   page" and once as the heading. `click --role link` on it fails as ambiguous. Open the list, then
   `press --key Tab` to the entry and `press --key Enter`.
 - `resize` sets a viewport that every later command reapplies, because an emulated viewport lapses
-  when a command detaches. Set it back to 1440×900 before a recipe that expects the default width.
+  when a command detaches. Between commands the page is briefly back at the window's width, which
+  can move its scroll position, so check the "On this page" mark within one command's view (open
+  the list after the jump and `shot`), not by comparing two. Set it back to 1440×900 before a
+  recipe that expects the default width.
 - The fixture serves a copy of `apps/web/src` taken at startup. An edit made after `verify-nap:up`
   does not reach it until it is copied into `.scratch/verify-nap-<id>/web/src`.

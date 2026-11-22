@@ -27,6 +27,7 @@ import {
   RunFileSchema,
   StartedFileSchema,
   type Target,
+  ViewportSchema,
 } from "./verify-nap-cli.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -318,8 +319,11 @@ const VIEWPORT_FILE = "viewport.json";
 async function applyViewport(page: Page, directory: string) {
   const raw = await readFile(join(directory, VIEWPORT_FILE), "utf8").catch(() => null);
   if (raw === null) return;
-  const { width, height } = JSON.parse(raw) as { width: number; height: number };
-  await page.setViewportSize({ width, height });
+  const viewport = ViewportSchema.safeParse(JSON.parse(raw));
+  if (!viewport.success) {
+    throw new Error(`${VIEWPORT_FILE} is not a viewport; run resize again to replace it.`);
+  }
+  await page.setViewportSize(viewport.data);
 }
 
 async function act(page: Page, run: RunFile, command: Command) {

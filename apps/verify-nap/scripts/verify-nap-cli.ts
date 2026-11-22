@@ -25,6 +25,12 @@ export const RunFileSchema = z.object({
 });
 export type RunFile = z.infer<typeof RunFileSchema>;
 
+/** What `resize` saves in the run directory, for every command after it to apply again. */
+export const ViewportSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+
 /**
  * What the fixture has started so far, rewritten as each thing comes up. It exists for the
  * fixture that was killed (SIGKILL, a closed session) and never ran its own cleanup: `stop` reads

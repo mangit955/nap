@@ -13,6 +13,7 @@
  * state; a section may not (see `outline.ts`).
  */
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { CopyButton } from "./copy-button.tsx";
 import { hrefOf, type SectionId } from "./pages.ts";
@@ -32,7 +33,7 @@ export function P({ children }: { children: ReactNode }) {
  * because the page's own title is the first.
  *
  * Its id is derived from its words, so a link to it is a link to what it says. Rewording one
- * changes its anchor; nothing in the repo links to one by hand, and `docs-page.test.tsx` fails if
+ * changes its anchor; nothing in the repo links to one by hand, and `outline.test.tsx` fails if
  * two on a page would collide.
  */
 export function Sub({ children }: { children: ReactNode }) {
@@ -122,7 +123,8 @@ export function Recording({
 
 /**
  * A pointer at another page of the docs, by id, so a renamed or removed page is a type error
- * rather than a link to nowhere.
+ * rather than a link to nowhere. A client-side link, like the sidebar's, so following it keeps the
+ * docs' frame mounted rather than reloading it.
  *
  * Separate from `Source` rather than a prop on it, because the two differ in the one way that
  * matters to a reader: `Source` opens a new tab, and doing that for a page of these same docs is
@@ -130,9 +132,9 @@ export function Recording({
  */
 export function Jump({ to, children }: { to: SectionId; children: ReactNode }) {
   return (
-    <a href={hrefOf(to)} className="docs-link">
+    <Link href={hrefOf(to)} className="docs-link">
       {children}
-    </a>
+    </Link>
   );
 }
 

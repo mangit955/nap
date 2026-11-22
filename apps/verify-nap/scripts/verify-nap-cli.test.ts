@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chooseRun, evidenceName, parseCommand, RunFileSchema } from "./verify-nap-cli.ts";
+import {
+  chooseRun,
+  evidenceName,
+  parseCommand,
+  RunFileSchema,
+  ViewportSchema,
+} from "./verify-nap-cli.ts";
 
 describe("parseCommand", () => {
   it("reads a role and an accessible name for click", () => {
@@ -191,6 +197,14 @@ describe("chooseRun", () => {
     expect(chooseRun(found, "stop")).toEqual({ ok: true, value: "dead" });
     const click = chooseRun(found, "click");
     expect(!click.ok && click.error).toContain("stop");
+  });
+});
+
+describe("ViewportSchema", () => {
+  it("takes what resize saves and refuses anything else", () => {
+    expect(ViewportSchema.safeParse({ width: 390, height: 844 }).success).toBe(true);
+    expect(ViewportSchema.safeParse({ width: "390", height: 844 }).success).toBe(false);
+    expect(ViewportSchema.safeParse({ width: 390 }).success).toBe(false);
   });
 });
 

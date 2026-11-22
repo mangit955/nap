@@ -2,8 +2,8 @@
  * The search index, built from the prose itself: one entry per page (its lede and the text before
  * its first subheading) and one per subheading (the text under it).
  *
- * Built on the server and handed to the search box as data, so the prose ships once, as HTML, and
- * the index is the only copy of it the browser holds.
+ * Built on the server and handed to the search box as data. It is part of the docs' layout, which
+ * stays mounted between pages, so the browser receives it once per visit rather than once a page.
  */
 
 import { HOME_INTRO } from "./home-copy.ts";
