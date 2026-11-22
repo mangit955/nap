@@ -1,0 +1,102 @@
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+ RUN  v4.1.10 <repo>
+
+ ❯ |web| apps/web/src/landing/landing.test.tsx (23 tests | 3 failed) 714ms
+     × lead to the page's own sections and to the docs 30ms
+     × carries the page's story under the hero, in order 18ms
+     × offers these links, and each one on this page leads to a section that is here 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |web| apps/web/src/landing/landing.test.tsx > the bar's links > lead to the page's own sections and to the docs
+AssertionError: expected [ [ 'Product', '#product' ], …(3) ] to deeply equal [ [ 'Product', '#product' ], …(2) ]
+
+- Expected
++ Received
+
+@@ -2,10 +2,14 @@
+    [
+      "Product",
+      "#product",
+    ],
+    [
++     "Built with nap",
++     "#built",
++   ],
++   [
+      "Changelog",
+      "#changelog",
+    ],
+    [
+      "Docs",
+
+ ❯ apps/web/src/landing/landing.test.tsx:159:19
+    157|       .getAllByRole("link")
+    158|       .map((link) => [link.textContent, link.getAttribute("href")]);
+    159|     expect(links).toEqual([
+       |                   ^
+    160|       ["Product", "#product"],
+    161|       ["Changelog", "#changelog"],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |web| apps/web/src/landing/landing.test.tsx > the frame > carries the page's story under the hero, in order
+AssertionError: expected [ 'product', 'built', …(2) ] to deeply equal [ 'product', 'changelog', 'start' ]
+
+- Expected
++ Received
+
+  [
+    "product",
++   "built",
+    "changelog",
+    "start",
+  ]
+
+ ❯ apps/web/src/landing/landing.test.tsx:201:22
+    199|       (section) => section.id,
+    200|     );
+    201|     expect(sections).toEqual(["product", "changelog", "start"]);
+       |                      ^
+    202|   });
+    203|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |web| apps/web/src/landing/landing.test.tsx > the footer > offers these links, and each one on this page leads to a section that is here
+AssertionError: expected [ …(10) ] to deeply equal [ [ 'Changelog', '#changelog' ], …(8) ]
+
+- Expected
++ Received
+
+@@ -1,7 +1,11 @@
+  [
+    [
++     "Built with nap",
++     "#built",
++   ],
++   [
+      "Changelog",
+      "#changelog",
+    ],
+    [
+      "Watch a real session",
+
+ ❯ apps/web/src/landing/landing.test.tsx:233:19
+    231|       .getAllByRole("link")
+    232|       .map((link) => [link.textContent, link.getAttribute("href")]);
+    233|     expect(links).toEqual([
+       |                   ^
+    234|       ["Changelog", "#changelog"],
+    235|       ["Watch a real session", FEATURED_REPLAY_PATH],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 20 passed (23)
+Type Errors  no errors
+   Start at  15:48:39
+   Duration  3.79s (transform 2.36s, setup 200ms, import 2.46s, tests 714ms, environment 212ms)
