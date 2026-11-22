@@ -1238,7 +1238,6 @@ body {
   /* Inputs and inset rows. A step above the panel they sit on, so a field reads as a well. */
   --s-surface-1: var(--color-field);
   --s-surface-2: var(--color-bubble);
-  --s-surface-3: var(--color-edge);
   --s-border-1: var(--color-edge);
   --s-text-primary: var(--color-ink);
   --s-text-body: var(--color-ink-2);

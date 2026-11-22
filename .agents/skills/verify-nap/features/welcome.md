@@ -43,21 +43,21 @@ shot  --label "welcome: save error"
 # The key the fixture accepts.
 fill  --role textbox --name "API key" --value "sk-or-v1-verify-nap-fixture-key-FAKE"
 click --role button --name "Save key"
-wait  --role button --name "New session"       # url: /dashboard; the composer's model reads Sol
+wait  --role textbox --name "Describe the app you want"  # /dashboard; the model reads Sol
 goto  /welcome                                 # sent straight back to /dashboard
 ```
 
 The skip path needs a second new account, so a second fixture (or the first one before saving):
-after `Create account`, `click --role button --name "Continue to dashboard"`, then `wait --role
-button --name "New session"`. The composer's model reads `Scripted`, since no key was saved, and
-`goto /welcome` sends this browser straight back to `/dashboard`.
+after `Create account`, `click --role button --name "Continue to dashboard"`, then
+`wait --role textbox --name "Describe the app you want"`. The composer's model reads `Scripted`,
+since no key was saved, and `goto /welcome` sends this browser straight back to `/dashboard`.
 
 ## Gotchas
 
 - **The page is only reachable once per account and browser.** A saved key or a skip sends every
   later visit to `/dashboard`, so capture every state you need before saving or skipping.
-- At 390 wide the dashboard's sidebar is hidden, so `wait --role button --name "New session"`
-  fails there. Use `url` to see where the save landed.
+- Wait for the dashboard's composer ("Describe the app you want"), not "New session": at 390 wide
+  the sidebar holding "New session" is hidden, so that wait fails on a save that worked.
 - Sign-up used to skip this page in the fixture: the sign-in page's "already signed in" redirect
   caught the new session after sign-up had already set off for `/welcome`. If `Create account`
   lands on `/dashboard` again, that race is back (`auth/live-sign-in.test.tsx`).
