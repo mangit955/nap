@@ -54,9 +54,18 @@ export function SearchProvider({
 }) {
   const [open, setOpen] = useState(false);
   const onChoose = useRef<(() => void) | undefined>(undefined);
+  const isOpen = useRef(false);
   const show = useCallback<Open>((options) => {
+    // Already open — ⌘K pressed again inside it — changes nothing, and in particular keeps the
+    // opener's `onChoose`: losing the menu's would leave it over the result it opened.
+    if (isOpen.current) return;
+    isOpen.current = true;
     onChoose.current = options?.onChoose;
     setOpen(true);
+  }, []);
+  const hide = useCallback(() => {
+    isOpen.current = false;
+    setOpen(false);
   }, []);
 
   useEffect(() => {
@@ -79,11 +88,7 @@ export function SearchProvider({
     <OpenSearch.Provider value={show}>
       {children}
       {open && (
-        <SearchDialog
-          entries={entries}
-          onChoose={() => onChoose.current?.()}
-          onClose={() => setOpen(false)}
-        />
+        <SearchDialog entries={entries} onChoose={() => onChoose.current?.()} onClose={hide} />
       )}
     </OpenSearch.Provider>
   );
@@ -277,7 +282,11 @@ function Group({
             onMouseMove={() => {
               if (position !== active) setActive(position);
             }}
-            onClick={chosen}
+            onClick={(event) => {
+              // A result opened in a new tab or window leaves this one where it was.
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              chosen();
+            }}
           >
             <Icon aria-hidden="true" size={17} />
             <span>

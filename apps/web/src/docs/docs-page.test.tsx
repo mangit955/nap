@@ -232,6 +232,39 @@ describe("the phone menu", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("still closes on the chosen result after ⌘K is pressed again inside its search", () => {
+    const toggle = openMenu();
+    fireEvent.click(
+      within(document.getElementById("docs-menu") as HTMLElement).getByRole("button", {
+        name: /search docs/i,
+      }),
+    );
+    act(() => {
+      fireEvent.keyDown(window, { key: "k", metaKey: true });
+    });
+    const input = screen.getByRole("combobox", { name: /search the docs/i });
+    fireEvent.change(input, { target: { value: "repair is a turn" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("stays open, as does search, when a result is opened in a new tab", () => {
+    const toggle = openMenu();
+    fireEvent.click(
+      within(document.getElementById("docs-menu") as HTMLElement).getByRole("button", {
+        name: /search docs/i,
+      }),
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: /search the docs/i }), {
+      target: { value: "repair" },
+    });
+    fireEvent.click(screen.getAllByRole("option")[0] as HTMLElement, { metaKey: true });
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: /search the docs/i })).toBeInTheDocument();
+  });
+
   it("stays open when Escape is closing the search opened from it", () => {
     const toggle = openMenu();
     fireEvent.click(
