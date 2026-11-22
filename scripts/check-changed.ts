@@ -93,6 +93,12 @@ export const TREE_READERS = [
     test: "apps/web/src/landing/demo-window.test.tsx",
     reads: /^apps\/web\/src\/landing\/(?:demo|features)\.css$/,
   },
+  // Reads the theme's colour names from globals.css, to tell `text-ink-2` (a colour) from
+  // `text-[13px]` (a size) when it checks a menu item for two colours in one state.
+  {
+    test: "apps/web/src/dashboard/session-context-menu.test.tsx",
+    reads: /^apps\/web\/src\/app\/globals\.css$/,
+  },
   // Hashes DESKTOP_SOURCES (packages/sandbox/src/desktop-template.ts) and fails on any edit to one
   // until DESKTOP_BUILD is bumped. A superset of that list, held to it by test/check-changed.test.ts;
   // importing the list itself would load the E2B SDK on every run.

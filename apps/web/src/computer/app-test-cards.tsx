@@ -2,7 +2,8 @@
 
 import { appTestTarget } from "@nap/shared/app-testing";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { use } from "react";
+import { MonitorPlay } from "lucide-react";
+import { use, useId } from "react";
 import type { TurnSubmission } from "../chat/use-turn-submission.ts";
 import { type AppTestState, appTestRepairPrompt } from "./app-test-state.ts";
 import { ComputerNavigation } from "./navigation.tsx";
@@ -23,6 +24,7 @@ export function AppTestCards({
   onTest?: ((jobId: string) => void) | undefined;
 }) {
   const openComputer = use(ComputerNavigation);
+  const line = useId();
   const target = appTestTarget(events);
   const reason = running
     ? "Wait for the current turn to finish."
@@ -39,28 +41,43 @@ export function AppTestCards({
         ? "Testing the app…"
         : null;
   return (
-    <div className="app-test-cards">
-      <section className="app-test-card" aria-label="Test the app">
-        <h3>Test the app</h3>
-        <p>Let Nap try the most important flow in its computer.</p>
+    <div className="mx-auto max-w-[46rem] px-5 pb-4">
+      {/*
+        One line in the changed-files card's style: an offer, not a result. It keeps one shape in
+        every state. The sentence says why a test cannot run, and the button stays in place,
+        disabled, so the action is still there to find.
+      */}
+      <section
+        aria-label="Test the app"
+        className="flex items-center gap-2.5 rounded-lg bg-field py-2 pr-2 pl-3"
+      >
+        <MonitorPlay aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
+        {progress ? (
+          <p
+            id={line}
+            role="status"
+            aria-label="App test progress"
+            className="min-w-0 flex-1 text-ink-2 text-xs"
+          >
+            {progress} The plan, computer actions and results will appear in this conversation.
+          </p>
+        ) : (
+          <p id={line} className="min-w-0 flex-1 text-muted text-xs">
+            {reason ?? "Let Nap try the most important flow in its computer."}
+          </p>
+        )}
         <button
           type="button"
-          className="app-test-primary"
-          disabled={reason !== null}
+          aria-describedby={line}
+          disabled={reason !== null || progress !== null}
           onClick={() => {
             openComputer?.(null);
             onTest?.(target.jobId);
           }}
+          className="h-6 shrink-0 rounded-md bg-accent px-2.5 font-medium text-white text-xs transition-colors enabled:cursor-pointer enabled:hover:bg-accent/90 disabled:bg-hover disabled:text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          {progress ?? "Test the app"}
+          Test the app
         </button>
-        {progress ? (
-          <p className="app-test-reason" role="status" aria-label="App test progress">
-            {progress} The plan, computer actions and results will appear in this conversation.
-          </p>
-        ) : (
-          reason && <p className="app-test-reason">{reason}</p>
-        )}
       </section>
     </div>
   );

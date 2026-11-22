@@ -1,6 +1,6 @@
 import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
 import { buildTranscript } from "./transcript.ts";
@@ -822,6 +822,41 @@ describe("taking what the agent said away with you", () => {
     fireEvent.click(screen.getByRole("button", { name: /copy/i }));
 
     expect(written).toEqual(["Added App.tsx."]);
+  });
+
+  it("turns into a check once the passage is on the clipboard, and back after a moment", async () => {
+    vi.useFakeTimers();
+    try {
+      stubClipboard();
+      show(ev("agent.message", { text: "Added App.tsx." }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
+      await act(async () => {});
+
+      expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1599));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy response" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("claims nothing was copied when the clipboard refuses", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () => Promise.reject(new DOMException("Not focused", "NotAllowedError")),
+      },
+    });
+    show(ev("agent.message", { text: "Added App.tsx." }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
+    await act(async () => {});
+
+    expect(screen.getByRole("button", { name: "Copy response" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copied" })).not.toBeInTheDocument();
   });
 
   it("copies the passage you asked for and not the machinery around it", () => {

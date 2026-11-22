@@ -163,7 +163,7 @@ export function SessionContextMenu({
                 // Opens rather than toggles: the pointer that clicks has already opened it on the
                 // way in, and a tap opens it on touch, so a toggle would shut it under the finger.
                 onClick={() => setSubmenu(item.id)}
-                className={ITEM}
+                className={`${ITEM} ${TONE.plain}`}
               >
                 <span className="flex-1">{item.label}</span>
                 <ChevronRight aria-hidden className="size-3.5 text-muted" />
@@ -245,7 +245,7 @@ function Item({
       role="menuitem"
       onClick={() => onSelect(item.id)}
       onPointerEnter={onPointerEnter}
-      className={`${ITEM} ${item.destructive ? "text-danger hover:text-danger focus-visible:text-danger" : ""}`}
+      className={`${ITEM} ${item.destructive ? TONE.destructive : TONE.plain}`}
     >
       <span className="flex-1">{item.label}</span>
       {/* The space keeps "In 1 hour" and "1:00 PM" apart in the accessible name. */}
@@ -271,5 +271,21 @@ function WithSeparator({
   );
 }
 
+/**
+ * An item's shape. Its colours are in `TONE`, never here: when one element carries two Tailwind
+ * utilities for the same property, the one later in the generated stylesheet wins, whatever order
+ * the class list gives them. `text-ink-2` comes after `text-danger` there, so Delete was drawn grey
+ * for as long as this string carried a text colour of its own.
+ *
+ * `outline-hidden` rather than `outline-none`: focus shows as a background wash, which forced
+ * colours (Windows High Contrast) paints over, and `outline-hidden` gives the outline back there.
+ */
 const ITEM =
-  "flex w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] text-ink-2 outline-none hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink";
+  "flex w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-hidden";
+
+const TONE = {
+  plain: "text-ink-2 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink",
+  // Red at rest as well as under the pointer, so the one item that cannot be undone reads as
+  // different before anyone reaches for it.
+  destructive: "text-danger hover:bg-danger/10 focus-visible:bg-danger/10",
+} as const;

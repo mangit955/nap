@@ -641,7 +641,7 @@ export function ChatInput({
                 aria-label={
                   queueing ? "Queue message" : running ? "Send to the running turn" : "Send"
                 }
-                className="composer-send relative isolate flex size-9 items-center justify-center overflow-hidden rounded-full bg-accent text-white transition-all duration-150 enabled:cursor-pointer disabled:pointer-events-none disabled:opacity-64 sm:size-8 focus-visible:outline-accent [&_svg]:pointer-events-none"
+                className="composer-send relative isolate flex size-9 items-center justify-center overflow-hidden rounded-full bg-accent text-white transition-all duration-150 enabled:cursor-pointer disabled:pointer-events-none disabled:bg-hover disabled:text-muted sm:size-8 focus-visible:outline-accent [&_svg]:pointer-events-none"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                   <path

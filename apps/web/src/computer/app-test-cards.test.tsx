@@ -107,8 +107,24 @@ it("offers app testing only after the latest completed job and respects busy/mod
   expect(onTest).toHaveBeenCalledWith("job");
   view.rerender(<AppTestCards events={verified} running images onTest={onTest} />);
   expect(screen.getByRole("button", { name: "Test the app" })).toBeDisabled();
-  expect(screen.getByText(/Wait for the current turn/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Test the app" })).toHaveAccessibleDescription(
+    "Wait for the current turn to finish.",
+  );
   view.rerender(<AppTestCards events={verified} running={false} images={false} onTest={onTest} />);
+  // Still there to find, with the reason it cannot be pressed read out beside it.
+  expect(screen.getByRole("button", { name: "Test the app" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Test the app" })).toHaveAccessibleDescription(
+    "Choose a model that can view images.",
+  );
+});
+it("keeps its name and cannot be pressed twice while a test starts", () => {
+  const onTest = vi.fn();
+  render(
+    <AppTestCards events={verified} running={false} testPhase="starting" images onTest={onTest} />,
+  );
+  expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
+    "Starting app test…",
+  );
   expect(screen.getByRole("button", { name: "Test the app" })).toBeDisabled();
 });
 it("keeps a failed assertion as data until Fix it is clicked and labels unavailable recordings", () => {
