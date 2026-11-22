@@ -8,12 +8,13 @@ import {
   GLIDE_MS,
   glideOffset,
 } from "./send-glide.ts";
-import { WorkspacePanes } from "./workspace-panes.tsx";
+import { StartingWorkspace } from "./starting-workspace.tsx";
 
 /**
- * The glide from the dashboard into the workspace. jsdom lays nothing out and runs no animations,
- * so these pin what the frame asks of the browser — which elements move, from where, and at what
- * point of the glide — and leave how it looks to the screencast in the PR.
+ * The glide from the dashboard into the workspace, played by the real starting workspace (the
+ * project's own draws the same panes). jsdom lays nothing out and runs no animations, so these pin
+ * what the frame asks of the browser — which elements move, from where, and at what point of the
+ * glide — and leave how it looks to the screencast in the PR.
  */
 
 /** What the frame asked one element to do, and what it re-aimed it at after. */
@@ -40,6 +41,8 @@ let now = 10_000;
 let reduce = false;
 
 beforeEach(() => {
+  // The dashboard's way in, where the starting workspace and then the project's first draw.
+  window.history.replaceState(null, "", "/p/new");
   now = 10_000;
   reduce = false;
   calls.length = 0;
@@ -58,6 +61,7 @@ beforeEach(() => {
       observe(element: Element) {
         this.entry.watched.push(element);
       }
+      unobserve() {}
       disconnect() {
         this.entry.disconnected = true;
       }
@@ -103,9 +107,10 @@ afterEach(() => {
   vi.restoreAllMocks();
   Element.prototype.animate = realAnimate;
   window.matchMedia = realMatchMedia;
+  window.history.replaceState(null, "", "/");
 });
 
-/** A composer on the dashboard at this box, sent now. */
+/** A composer on the dashboard at this box, sent now; returns what forgets this send's glide. */
 function send(box: { left: number; top: number; right: number; bottom: number }) {
   const composer = document.createElement("fieldset");
   composer.getBoundingClientRect = () =>
@@ -115,50 +120,32 @@ function send(box: { left: number; top: number; right: number; bottom: number })
       width: box.right - box.left,
       height: box.bottom - box.top,
     });
-  departFrom(composer);
+  return departFrom(composer);
 }
 
-/** The workspace as both its starting view and the project's own draw it, at jsdom's zero box. */
-function Workspace() {
-  return (
-    <WorkspacePanes
-      panelOpen
-      maximized={false}
-      chatHidden={false}
-      onDismissPanel={() => {}}
-      chat={
-        <>
-          <div className="chat-user-message" data-turn-prompt="">
-            Build a calendar
-          </div>
-          <div className="chat-composer-dock">
-            <div className="workspace-composer" role="status">
-              Starting your project…
-            </div>
-          </div>
-        </>
-      }
-      workbench={<section className="t3-workbench" aria-label="Right panel" />}
-    />
-  );
-}
-
+const Workspace = () => <StartingWorkspace prompt={{ text: "Build a calendar" }} />;
 const moved = (selector: string) => calls.filter((call) => call.element.matches(selector));
+const fade = [{ opacity: 0 }, { opacity: 1 }];
 
 describe("the glide into the workspace", () => {
-  it("moves the composer from where it was sent, and eases in the prompt and the right panel", () => {
+  it("moves the composer from where it was sent, and fades in the conversation and the panel", () => {
     send({ left: 100, top: 50, right: 500, bottom: 250 });
     render(<Workspace />);
 
-    const [composer] = moved(".workspace-composer");
+    const [composer] = moved(".chat-composer-dock .workspace-composer");
     // Centred across (300 against 0) and level at the bottom (250 against 0).
     expect(composer?.keyframes).toEqual([
       { transform: "translate(300px, 250px)" },
       { transform: "none" },
     ]);
     expect(composer?.timing).toMatchObject({ duration: GLIDE_MS, delay: 0 });
-    expect(moved("[data-turn-prompt]")).toHaveLength(1);
-    expect(moved(".t3-workbench")).toHaveLength(1);
+    const [conversation] = moved(".chat-scroller");
+    expect(conversation?.keyframes).toEqual(fade);
+    expect(conversation?.timing).toMatchObject({ duration: GLIDE_MS - 60, delay: 60 });
+    const [panel] = moved(".t3-workbench");
+    expect(panel?.keyframes).toEqual(fade);
+    expect(panel?.timing).toMatchObject({ duration: GLIDE_MS - 40, delay: 40 });
+    expect(calls).toHaveLength(3);
     // Held invisible until each starts, so nothing shows, vanishes and fades back.
     for (const call of calls) expect(call.timing.fill).toBe("backwards");
   });
@@ -177,15 +164,56 @@ describe("the glide into the workspace", () => {
     const [composer] = moved(".workspace-composer");
     expect(composer?.keyframes[0]).toEqual({ transform: "translate(300px, 250px)" });
     expect(composer?.timing.delay).toBe(-120);
+    expect(moved(".chat-scroller")[0]?.timing.delay).toBe(60 - 120);
+  });
+
+  it("keeps the composer inside the column it is drawn in", () => {
+    // The column and the composer where a 1440px window lays them out with the panel open.
+    const boxes: [string, DOMRect][] = [
+      [".t3-chat-column", DOMRect.fromRect({ x: 256, y: 0, width: 640, height: 900 })],
+      [
+        ".chat-composer-dock .workspace-composer",
+        DOMRect.fromRect({ x: 272, y: 830, width: 608, height: 54 }),
+      ],
+    ];
+    const boxOf = (element: Element) =>
+      boxes.find(([selector]) => element.matches(selector))?.[1] ?? new DOMRect();
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      return boxOf(this);
+    });
+    vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(function (this: Element) {
+      return boxOf(this).width;
+    });
+    vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
+      return boxOf(this).height;
+    });
+    // Tailwind and right-panel.css do not load in jsdom; the column clips, as it does there.
+    const style = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+      const computed = style(element, pseudo);
+      if (!element.matches(".t3-chat-column")) return computed;
+      return { overflowX: "hidden", overflowY: "hidden", transform: "none" } as CSSStyleDeclaration;
+    });
+    send({ left: 380, top: 384, right: 1116, bottom: 530 });
+    render(<Workspace />);
+
+    // Wanted 172px right, which would put it under the panel; the column leaves 16px.
+    expect(moved(".workspace-composer")[0]?.keyframes[0]).toEqual({
+      transform: "translate(16px, -354px)",
+    });
   });
 
   it("aims again when the frame is laid out again before it lands, then stops watching", async () => {
     send({ left: 100, top: 50, right: 500, bottom: 250 });
     const { container } = render(<Workspace />);
-    const composer = container.querySelector<HTMLElement>(".workspace-composer");
+    const composer = container.querySelector<HTMLElement>(
+      ".chat-composer-dock .workspace-composer",
+    );
     if (composer === null) throw new Error("no composer drawn");
     const [glide] = moved(".workspace-composer");
-    const [watching] = observers;
+    const watching = observers.find((observer) => observer.watched.includes(composer));
     expect(watching?.watched).toEqual([composer, container.querySelector(".t3-chat-column")]);
 
     // A saved panel, restored by an effect after the glide began, moves the composer 200 across.
@@ -214,12 +242,23 @@ describe("the glide into the workspace", () => {
     await vi.waitFor(() => expect(watching?.disconnected).toBe(true));
   });
 
+  it("plays only on the way in: a switch or Forward into a project mid-glide does not move", () => {
+    send({ left: 100, top: 50, right: 500, bottom: 250 });
+    render(<Workspace />).unmount();
+    now += 100;
+    calls.length = 0;
+    // The sidebar's switch and Forward both land on a project's own address, never `/p/new`.
+    window.history.replaceState(null, "", "/p/00000000-0000-4000-8000-000000000002");
+    render(<Workspace />);
+    expect(calls).toEqual([]);
+  });
+
   it("plays once, so coming back to the project later does not move it again", () => {
     send({ left: 100, top: 50, right: 500, bottom: 250 });
     render(<Workspace />).unmount();
     now += GLIDE_MS;
     calls.length = 0;
-    // Back to the dashboard and Forward into the project, or a switch from the sidebar.
+    // Opened again from the dashboard, through the same way in.
     render(<Workspace />);
     expect(calls).toEqual([]);
   });
@@ -238,6 +277,17 @@ describe("the glide into the workspace", () => {
     now += 100;
     render(<Workspace />);
     expect(calls).toEqual([]);
+  });
+
+  it("forgets a refused send's glide, and never a later send's", () => {
+    const forgetFirst = send({ left: 0, top: 0, right: 100, bottom: 100 });
+    send({ left: 100, top: 50, right: 500, bottom: 250 });
+    // The first start is refused after the second was sent.
+    forgetFirst();
+    render(<Workspace />);
+    expect(moved(".workspace-composer")[0]?.keyframes[0]).toEqual({
+      transform: "translate(300px, 250px)",
+    });
   });
 
   it("moves nothing in a workspace opened without a send", () => {

@@ -25,7 +25,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
 
 /** The workspace before it knows its project. Never a project id: those are UUIDs. */
-const WORKSPACE_ENTRY = "/p/new";
+export const WORKSPACE_ENTRY = "/p/new";
 
 /**
  * How often, at most, the dashboard asks for the entry page again while somebody is using it.

@@ -19,7 +19,7 @@ import {
   isBlankDraft,
 } from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
-import { departFrom, forgetSendGlide } from "../workspace/send-glide.ts";
+import { departFrom } from "../workspace/send-glide.ts";
 import type { DraftSource } from "../workspace/thread-details.tsx";
 import {
   beginStart,
@@ -284,6 +284,7 @@ export function NewSessionComposer({
     setBusy(true);
     setError(undefined);
     let entered: StartHandle | undefined;
+    let forgetGlide: (() => void) | undefined;
     try {
       const pending = { ...value, pendingStart: parsed.data };
       setDraft(pending);
@@ -301,7 +302,7 @@ export function NewSessionComposer({
       // and the project's page has been fetched. See `workspace-entry.ts`.
       const sent = parsed.data.prompt;
       // Measured as it is left, so the workspace's composer can glide in from here.
-      departFrom(composer.current);
+      forgetGlide = departFrom(composer.current);
       entered = beginStart(router, {
         ownerId,
         prompt: sent === undefined ? undefined : { text: sent.message },
@@ -352,7 +353,7 @@ export function NewSessionComposer({
       setBusy(false);
       // Back on the dashboard, a new composer shows this with the draft saved above. A refusal
       // that beat the workspace there leaves its glide unplayed; the next project opened is not it.
-      forgetSendGlide();
+      forgetGlide?.();
       entered?.failed(message);
     }
   };

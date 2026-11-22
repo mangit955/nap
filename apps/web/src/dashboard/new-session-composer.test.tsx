@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import { peekStartedPrompt } from "../chat/started-prompt.ts";
 import { type ComposerDraft, ComposerDraftStore } from "../projects/composer-draft.ts";
 import * as draftNavigation from "../projects/use-draft-navigation.ts";
-import { claimGlide, forgetSendGlide } from "../workspace/send-glide.ts";
 import { forgetWorkspaceEntry, useWorkspaceEntry } from "../workspace/workspace-entry.ts";
 import { NewSessionComposer } from "./new-session-composer.tsx";
 
@@ -22,7 +21,6 @@ afterEach(() => {
   push.mockClear();
   replace.mockClear();
   forgetWorkspaceEntry();
-  forgetSendGlide();
   vi.restoreAllMocks();
 });
 
@@ -829,61 +827,6 @@ it("enters the workspace with the prompt on screen before the server has answere
   await waitFor(() => expect(entered()).toHaveTextContent("00000000-0000-4000-8000-000000000002"));
   expect(push.mock.calls).toEqual([["/p/new"]]);
   expect(fetchJson).toHaveBeenCalledOnce();
-});
-
-it("measures its composer for the glide as it enters the workspace, and not before", async () => {
-  vi.stubGlobal("indexedDB", new IDBFactory());
-  const fetchJson = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>(() => {}));
-  render(
-    <NewSessionComposer
-      ownerId="00000000-0000-4000-8000-000000000001"
-      models={[]}
-      modelsLoading={false}
-      onAddKey={vi.fn()}
-      fetchJson={fetchJson}
-    />,
-  );
-  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
-  await waitFor(() => expect(box).toBeEnabled());
-  const composer = screen.getByRole("group", { name: "New session composer" });
-  composer.getBoundingClientRect = () =>
-    DOMRect.fromRect({ x: 380, y: 384, width: 736, height: 146 });
-  // Writing measures nothing: only entering the workspace does.
-  fireEvent.change(box, { target: { value: "Build a calendar" } });
-  expect(claimGlide(performance.now())).toBeUndefined();
-
-  fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(push).toHaveBeenCalledWith("/p/new"));
-  expect(claimGlide(performance.now())?.from).toEqual({
-    left: 380,
-    top: 384,
-    right: 1116,
-    bottom: 530,
-  });
-});
-
-it("forgets the glide of a start the server refused", async () => {
-  vi.stubGlobal("indexedDB", new IDBFactory());
-  const fetchJson = vi.fn(async (_url: string, _init?: RequestInit) =>
-    Response.json({ error: "Rate limit" }, { status: 429 }),
-  );
-  render(
-    <NewSessionComposer
-      ownerId="00000000-0000-4000-8000-000000000001"
-      models={[]}
-      modelsLoading={false}
-      onAddKey={vi.fn()}
-      fetchJson={fetchJson}
-    />,
-  );
-  const box = screen.getByRole("textbox", { name: "Describe the app you want" });
-  await waitFor(() => expect(box).toBeEnabled());
-  fireEvent.change(box, { target: { value: "Build a calendar" } });
-  fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  // Refused before any workspace drew: a project opened next must not glide in from here.
-  expect(await screen.findByText("Rate limit")).toBeInTheDocument();
-  expect(push).toHaveBeenCalledWith("/p/new");
-  expect(claimGlide(performance.now())).toBeUndefined();
 });
 
 it("sends a refused start back to the dashboard, where the composer shows why and holds the prompt", async () => {
