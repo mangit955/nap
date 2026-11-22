@@ -448,6 +448,39 @@ it("does not log a capture failure caused by the turn being stopped", async () =
   expect(log.lines).toEqual([]);
 });
 
+it("ends the warm-up as soon as the turn is stopped, without waiting for its deadline", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const f = fixture();
+    const controller = new AbortController();
+    let warmup: AbortSignal | undefined;
+    vi.spyOn(f.desktop, "screenshot").mockImplementation((_sandboxId, signal) => {
+      warmup = signal;
+      return new Promise((resolve) =>
+        signal?.addEventListener("abort", () =>
+          resolve({
+            ok: false,
+            error: { code: "cancelled", message: "Desktop operation cancelled." },
+          }),
+        ),
+      );
+    });
+    const pending = withAppTestRecording({ ...f.options, signal: controller.signal }, async () => ({
+      ok: false,
+    }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(warmup?.aborted).toBe(false);
+    controller.abort();
+    await pending;
+    expect(warmup?.aborted).toBe(true);
+    expect(f.entries.at(-1)).toMatchObject({
+      payload: { recording: { state: "unavailable", reason: "capture_failed" } },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("gives up on a stalled warm-up after ten seconds and still begins the recording", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   try {

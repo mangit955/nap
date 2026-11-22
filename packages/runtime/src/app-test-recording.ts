@@ -23,7 +23,11 @@ const FINAL_START_FAILURES: ReadonlySet<DesktopError["code"]> = new Set([
   "timeout",
 ]);
 
-/** The warm-up is optional, so it must never cost a test the driver's whole deadline. */
+/**
+ * The warm-up is optional, so it must never cost a test the driver's whole deadline. Aborting it
+ * makes the E2B adapter send the machine a cancel and wait up to five seconds for that to land,
+ * so a stalled warm-up holds the test for about fifteen seconds, not ten.
+ */
 const WARMUP_DEADLINE_MS = 10_000;
 
 type CaptureStep = "desktop_start" | "encoder_warmup" | "recording_begin";
