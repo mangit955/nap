@@ -31,10 +31,17 @@ import {
 import { pageById } from "./pages.ts";
 import { type Hit, highlight, type SearchEntry, search, termsOf } from "./search.ts";
 
-const OpenSearch = createContext<() => void>(() => {});
+/**
+ * `onChoose` runs when a result is followed. The phone menu passes its own close: a result on the
+ * page already open changes only the fragment, which no route change reports, and the menu would
+ * otherwise stay drawn over the heading the reader just asked for.
+ */
+type Open = (options?: { onChoose?: () => void }) => void;
+
+const OpenSearch = createContext<Open>(() => {});
 
 /** Opens the search dialog. Every search field in the docs is a button that calls this. */
-export function useOpenSearch(): () => void {
+export function useOpenSearch(): Open {
   return useContext(OpenSearch);
 }
 
@@ -46,28 +53,38 @@ export function SearchProvider({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const show = useCallback(() => setOpen(true), []);
+  const onChoose = useRef<(() => void) | undefined>(undefined);
+  const show = useCallback<Open>((options) => {
+    onChoose.current = options?.onChoose;
+    setOpen(true);
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setOpen(true);
+        show();
         return;
       }
       if (event.key === "/" && !event.metaKey && !event.ctrlKey && !isTyping(event.target)) {
         event.preventDefault();
-        setOpen(true);
+        show();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [show]);
 
   return (
     <OpenSearch.Provider value={show}>
       {children}
-      {open && <SearchDialog entries={entries} onClose={() => setOpen(false)} />}
+      {open && (
+        <SearchDialog
+          entries={entries}
+          onChoose={() => onChoose.current?.()}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </OpenSearch.Provider>
   );
 }
@@ -79,9 +96,11 @@ function isTyping(target: EventTarget | null): boolean {
 
 function SearchDialog({
   entries,
+  onChoose,
   onClose,
 }: {
   entries: readonly SearchEntry[];
+  onChoose: () => void;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -111,11 +130,15 @@ function SearchDialog({
   });
 
   const close = () => dialog.current?.close();
+  const chosen = () => {
+    onChoose();
+    close();
+  };
 
   const open = (hit: Hit | undefined) => {
     if (!hit) return;
     router.push(hit.entry.href);
-    close();
+    chosen();
   };
 
   return (
@@ -187,13 +210,13 @@ function SearchDialog({
             name={query.trim() ? "Pages" : "All pages"}
             hits={results.pages}
             offset={0}
-            {...{ active, terms, optionId, setActive, close }}
+            {...{ active, terms, optionId, setActive, chosen }}
           />
           <Group
             name="Sections"
             hits={results.sections}
             offset={results.pages.length}
-            {...{ active, terms, optionId, setActive, close }}
+            {...{ active, terms, optionId, setActive, chosen }}
           />
         </div>
       )}
@@ -220,7 +243,7 @@ function Group({
   terms,
   optionId,
   setActive,
-  close,
+  chosen,
 }: {
   name: string;
   hits: readonly Hit[];
@@ -229,7 +252,7 @@ function Group({
   terms: readonly string[];
   optionId: (index: number) => string;
   setActive: (index: number) => void;
-  close: () => void;
+  chosen: () => void;
 }) {
   if (hits.length === 0) return null;
   return (
@@ -254,7 +277,7 @@ function Group({
             onMouseMove={() => {
               if (position !== active) setActive(position);
             }}
-            onClick={close}
+            onClick={chosen}
           >
             <Icon aria-hidden="true" size={17} />
             <span>

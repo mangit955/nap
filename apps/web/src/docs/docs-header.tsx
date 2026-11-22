@@ -43,10 +43,11 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
 
   useEffect(() => {
     if (!menu) return;
-    // The menu covers the page, so the page goes inert under it: Tab cannot wander into links
-    // the reader cannot see, and the finger scrolling the menu does not scroll the page.
-    const page = document.querySelector<HTMLElement>("[data-docs-body]");
-    page?.setAttribute("inert", "");
+    // The menu covers the page, so the page goes inert under it — and the skip link, which points
+    // into the page: Tab cannot wander into links the reader cannot see, and the finger
+    // scrolling the menu does not scroll the page.
+    const under = document.querySelectorAll<HTMLElement>("[data-docs-under-menu]");
+    for (const element of under) element.setAttribute("inert", "");
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     // Widened past the menu's breakpoint, the sidebar is back and the menu would cover it.
@@ -56,7 +57,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
     };
     wide.addEventListener("change", onWide);
     return () => {
-      page?.removeAttribute("inert");
+      for (const element of under) element.removeAttribute("inert");
       document.body.style.overflow = overflow;
       wide.removeEventListener("change", onWide);
     };
@@ -79,7 +80,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
           type="button"
           className="docs-search-trigger"
           aria-keyshortcuts="Meta+K Control+K"
-          onClick={openSearch}
+          onClick={() => openSearch()}
         >
           <Search aria-hidden="true" size={16} />
           <span>Search docs…</span>
@@ -107,7 +108,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
             type="button"
             className="lp-button lp-button-ghost lp-menu-toggle"
             aria-label="Search docs"
-            onClick={openSearch}
+            onClick={() => openSearch()}
           >
             <Search aria-hidden="true" size={17} />
           </button>
@@ -132,7 +133,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
           <button
             type="button"
             className="docs-search-trigger docs-search-field"
-            onClick={openSearch}
+            onClick={() => openSearch({ onChoose: closeMenu })}
           >
             <Search aria-hidden="true" size={16} />
             <span>Search docs…</span>

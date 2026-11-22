@@ -205,6 +205,8 @@ describe("ViewportSchema", () => {
     expect(ViewportSchema.safeParse({ width: 390, height: 844 }).success).toBe(true);
     expect(ViewportSchema.safeParse({ width: "390", height: 844 }).success).toBe(false);
     expect(ViewportSchema.safeParse({ width: 390 }).success).toBe(false);
+    // A size resize refuses is never replayed from an older saved file either.
+    expect(ViewportSchema.safeParse({ width: 10000001, height: 844 }).success).toBe(false);
   });
 });
 

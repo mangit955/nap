@@ -25,11 +25,15 @@ export const RunFileSchema = z.object({
 });
 export type RunFile = z.infer<typeof RunFileSchema>;
 
-/** What `resize` saves in the run directory, for every command after it to apply again. */
-export const ViewportSchema = z.object({
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
-});
+/** Up to an 8K screen: past that Chrome refuses the size, and nothing real is that wide. */
+const MAX_VIEWPORT = 7680;
+const viewportSide = z.number().int().positive().max(MAX_VIEWPORT);
+
+/**
+ * A viewport `resize` accepts, and the one it saves in the run directory for every command after
+ * it to apply again. One schema for both, so a size the command refuses is never replayed.
+ */
+export const ViewportSchema = z.object({ width: viewportSide, height: viewportSide });
 
 /**
  * What the fixture has started so far, rewritten as each thing comes up. It exists for the
@@ -163,7 +167,6 @@ const VALUE_FLAGS = new Set([
   "frame",
 ]);
 const BOOLEAN_FLAGS = new Set(["loose", "full", "right"]);
-const MAX_VIEWPORT = 7680;
 
 function flags(
   args: readonly string[],
@@ -293,12 +296,12 @@ export function parseCommand(args: readonly string[]): Result<Command, string> {
         : named;
     }
     case "resize": {
-      const [width, height] = [values.get("width"), values.get("height")].map(Number);
-      // Up to an 8K screen: past that Chrome refuses the size, and nothing real is that wide.
-      const valid = (n: number | undefined): n is number =>
-        n !== undefined && Number.isInteger(n) && n > 0 && n <= MAX_VIEWPORT;
-      return valid(width) && valid(height)
-        ? { ok: true, value: { kind: "resize", width, height } }
+      const viewport = ViewportSchema.safeParse({
+        width: Number(values.get("width")),
+        height: Number(values.get("height")),
+      });
+      return viewport.success
+        ? { ok: true, value: { kind: "resize", ...viewport.data } }
         : {
             ok: false,
             error: `resize needs --width and --height, whole pixels up to ${MAX_VIEWPORT}, e.g. 390 and 844`,

@@ -199,7 +199,9 @@ describe("the phone menu", () => {
 
   it("makes the page under it inert, and gives it back when closed", () => {
     const toggle = openMenu();
-    const page = screen.getByRole("main", { hidden: true }).closest("[data-docs-body]");
+    const page = screen.getByRole("main", { hidden: true }).closest(".docs-body");
+    const skip = screen.getByRole("link", { name: "Skip to content", hidden: true });
+    expect(skip).toHaveAttribute("inert");
     expect(page).toHaveAttribute("inert");
 
     fireEvent.click(toggle);
@@ -213,6 +215,21 @@ describe("the phone menu", () => {
     expect(toggle).toHaveAccessibleName("Menu");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle).toHaveFocus();
+  });
+
+  it("closes when a result chosen from its search is on the page already open", () => {
+    const toggle = openMenu();
+    fireEvent.click(
+      within(document.getElementById("docs-menu") as HTMLElement).getByRole("button", {
+        name: /search docs/i,
+      }),
+    );
+    const input = screen.getByRole("combobox", { name: /search the docs/i });
+    fireEvent.change(input, { target: { value: "repair is a turn" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(router.push).toHaveBeenCalledWith(expect.stringMatching(/^\/docs\/verification(#|$)/));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
   it("stays open when Escape is closing the search opened from it", () => {

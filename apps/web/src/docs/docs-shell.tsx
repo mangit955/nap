@@ -30,12 +30,12 @@ export function DocsShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="landing docs" data-docs>
-      <a href="#docs-content" className="docs-skip">
+      <a href="#docs-content" className="docs-skip" data-docs-under-menu>
         Skip to content
       </a>
       <SearchProvider entries={buildSearchIndex()}>
         <DocsHeader headings={headings} />
-        <div className="docs-body" data-docs-body>
+        <div className="docs-body" data-docs-under-menu>
           {/* The aside runs the full height of the page and draws the rule; the sidebar inside it
               is what sticks, so the rule does not end where the first screen did. */}
           <aside className="docs-side">
