@@ -14,18 +14,17 @@ AssertionError: expected [ …(3) ] to deeply equal []
      73|   );
      74|   expect(conflicts).toEqual([]);
        |                     ^
-     75|   const atRest = (name: string) =>
-     76|     colours(screen.getByRole("menuitem", { name }).className).get("|te…
+     75|   const textColours = (name: string) =>
+     76|     Object.fromEntries(
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
- FAIL  |web| apps/web/src/dashboard/session-context-menu.test.tsx > keeps an outline for forced colours, where the focus wash is painted over
-AssertionError: expected [ 'flex', 'w-full', …(14) ] to include 'outline-hidden'
- ❯ apps/web/src/dashboard/session-context-menu.test.tsx:85:41
-     83| it("keeps an outline for forced colours, where the focus wash is paint…
-     84|   for (const item of open()) {
-     85|     expect(item.className.split(/\s+/)).toContain("outline-hidden");
-       |                                         ^
-     86|     expect(item.className.split(/\s+/)).not.toContain("outline-none");
-     87|   }
+ FAIL  |web| apps/web/src/dashboard/session-context-menu.test.tsx > outlines only the focused item under forced colours, where the focus wash is painted over
+AssertionError: expected [ 'flex', 'w-full', …(14) ] to include 'focus-visible:outline-hidden'
+ ❯ apps/web/src/dashboard/session-context-menu.test.tsx:93:21
+     91|   for (const item of open()) {
+     92|     const classes = item.className.split(/\s+/);
+     93|     expect(classes).toContain("focus-visible:outline-hidden");
+       |                     ^
+     94|     // Unprefixed, either one acts on every item: `outline-none` leave…
+     95|     // mode, and `outline-hidden` outlines every item, focused or not.
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
  Test Files  1 failed (1)
-      Tests  2 failed (2)
