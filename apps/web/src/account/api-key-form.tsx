@@ -36,11 +36,15 @@ const WHERE: Record<"openrouter" | "anthropic", { name: string; url: string }> =
  * Monospaced, like the hint a saved key is shown as — a credential is machine output, and this
  * app sets machine output in one typeface everywhere. It also keeps the password bullets on an
  * even pitch instead of the ragged proportional ones.
+ *
+ * Focus is `outline-solid`, not the bare `outline`: in Tailwind 4 `outline-none` sets
+ * `--tw-outline-style: none` and bare `outline` reads it back, so that pair draws nothing, and the
+ * border's colour, which forced colours repaints away, was the only sign of focus left.
  */
 const FIELD =
   "w-full rounded-[10px] border border-[var(--s-border-1)] bg-[var(--s-surface-1)] px-3.5 py-2.5 " +
   "font-mono text-[16px] text-[var(--s-text-primary)] outline-none placeholder:text-[var(--s-text-subtle)] " +
-  "focus-visible:border-[var(--s-text-subtle)] focus-visible:outline focus-visible:outline-2 " +
+  "focus-visible:border-[var(--s-text-subtle)] focus-visible:outline-solid focus-visible:outline-2 " +
   "focus-visible:outline-[var(--s-text-primary)] focus-visible:outline-offset-1";
 
 const PILL =

@@ -59,6 +59,18 @@ describe("with nothing saved", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("That key was refused.");
   });
 
+  it("draws a focus outline on the field, in forced colours too", () => {
+    // Read from the class list because jsdom computes no outline. In Tailwind 4 `outline-none`
+    // sets `--tw-outline-style: none` and the bare `outline` utility reads that variable back,
+    // so the pair drew no outline at all: focus was only the border's colour, which forced
+    // colours (Windows High Contrast) repaints away. `outline-solid` sets the style outright.
+    setup();
+
+    const classes = screen.getByLabelText("API key").className.split(/\s+/);
+    expect(classes).toContain("focus-visible:outline-solid");
+    expect(classes).not.toContain("focus-visible:outline");
+  });
+
   it("says it is working while a key is being checked", () => {
     setup({ busy: true });
 
