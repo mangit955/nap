@@ -843,6 +843,15 @@ describe("taking what the agent said away with you", () => {
     }
   });
 
+  it("reads Copy before the reply's speaker, so the speaker runs straight into the words", () => {
+    show(ev("agent.message", { text: "Added App.tsx." }));
+
+    const copy = screen.getByRole("button", { name: "Copy response" });
+    const speaker = screen.getByText("Agent:");
+    // Copy first, then "Agent:" — nothing read between the speaker and what was said.
+    expect(copy.compareDocumentPosition(speaker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("keeps the check for the full moment after a second copy", async () => {
     vi.useFakeTimers();
     try {

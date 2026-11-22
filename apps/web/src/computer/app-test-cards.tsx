@@ -47,6 +47,10 @@ export function AppTestCards({
         every state. The sentence says why a test cannot run, and the button stays in place,
         disabled, so the action is still there to find. The sentence is `ink-2`, not `muted`:
         muted text at this size sits under 4.5:1 on the workspace's field colour.
+
+        The button's description points at a span, never at the status paragraph: a described-by
+        element's own `aria-label` is read instead of its text, so the button would be described
+        as "App test progress".
       */}
       <section
         aria-label="Test the app"
@@ -55,16 +59,19 @@ export function AppTestCards({
         <MonitorPlay aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
         {progress ? (
           <p
-            id={line}
             role="status"
             aria-label="App test progress"
             className="min-w-0 flex-1 text-ink-2 text-xs"
           >
-            {progress} The plan, computer actions and results will appear in this conversation.
+            <span id={line}>
+              {progress} The plan, computer actions and results will appear in this conversation.
+            </span>
           </p>
         ) : (
-          <p id={line} className="min-w-0 flex-1 text-ink-2 text-xs">
-            {reason ?? "Let Nap try the most important flow in its computer."}
+          <p className="min-w-0 flex-1 text-ink-2 text-xs">
+            <span id={line}>
+              {reason ?? "Let Nap try the most important flow in its computer."}
+            </span>
           </p>
         )}
         <button

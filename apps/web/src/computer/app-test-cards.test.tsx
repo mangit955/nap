@@ -125,7 +125,14 @@ it("keeps its name and cannot be pressed twice while a test starts", () => {
   expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
     "Starting app test…",
   );
-  expect(screen.getByRole("button", { name: "Test the app" })).toBeDisabled();
+  const button = screen.getByRole("button", { name: "Test the app" });
+  expect(button).toBeDisabled();
+  expect(button).toHaveAccessibleDescription(/^Starting app test…/);
+  // jsdom's description reads the text, but a browser reads a described-by element's own
+  // `aria-label` first. Chrome described this button as "App test progress" while the id sat on
+  // the labelled status paragraph, so the element it points at must carry no label.
+  const described = document.getElementById(button.getAttribute("aria-describedby") ?? "");
+  expect(described).not.toHaveAttribute("aria-label");
 });
 it("keeps a failed assertion as data until Fix it is clicked and labels unavailable recordings", () => {
   const fix = vi.fn();

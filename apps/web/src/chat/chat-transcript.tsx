@@ -396,9 +396,11 @@ function Item({
         </div>
       ) : (
         // `flow-root` holds the copy button's float, so a one-line reply is never shorter than it.
+        // The button comes before "Agent:", which a screen reader then reads straight into the
+        // words it labels.
         <div className="group/reply flow-root">
-          <span className="sr-only">Agent: </span>
           <CopyButton text={item.text} />
+          <span className="sr-only">Agent: </span>
           <ChatMarkdown text={item.text} streaming={live} />
         </div>
       );
@@ -523,8 +525,11 @@ function Item({
  *
  * Floated to the reply's top right and drawn only while the pointer is over the reply, so a long
  * session is not a column of identical icons, and hiding it leaves no empty row under each reply.
- * Only the first line gives up room to it. It stays drawn where nothing can hover (a touch
- * screen), while it has keyboard focus, and for a moment after it copies, as a check.
+ * Prose gives up room on its first line only. A reply that opens with a code block or a table
+ * loses the button's width along that whole block, because a box that scrolls its own overflow
+ * keeps clear of a float rather than wrapping around it. Both scroll sideways, so nothing is cut.
+ * It stays drawn where nothing can hover (a touch screen), while it has keyboard focus, and for a
+ * moment after it copies, as a check.
  */
 function CopyButton({ text }: { text: string }) {
   // Counts copies rather than holding a flag, so a second copy while the check shows starts the
