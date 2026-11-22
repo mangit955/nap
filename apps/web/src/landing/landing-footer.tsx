@@ -6,7 +6,6 @@ const COLUMNS = [
   {
     title: "Product",
     links: [
-      { label: "Built with nap", href: "#built" },
       { label: "Changelog", href: "#changelog" },
       { label: "Watch a real session", href: FEATURED_REPLAY_PATH },
       { label: "Get started", href: "/sign-up" },

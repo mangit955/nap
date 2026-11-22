@@ -1,6 +1,5 @@
 /*
- * The ledger example app's styles: a finance dashboard served on its own at `/demo/ledger` and
- * shown in the landing page's "Built with nap" gallery.
+ * The ledger example app's styles: a finance dashboard served on its own at `/demo/ledger`.
  */
 @layer components {
   :where(.ps-generated-app) {

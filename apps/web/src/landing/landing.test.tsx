@@ -158,11 +158,10 @@ describe("the bar's links", () => {
       .map((link) => [link.textContent, link.getAttribute("href")]);
     expect(links).toEqual([
       ["Product", "#product"],
-      ["Built with nap", "#built"],
       ["Changelog", "#changelog"],
       ["Docs", "/docs"],
     ]);
-    for (const [, href] of links.slice(0, 3)) {
+    for (const [, href] of links.slice(0, 2)) {
       expect(document.getElementById(String(href).slice(1))).not.toBeNull();
     }
   });
@@ -199,13 +198,13 @@ describe("the frame", () => {
     const sections = [...screen.getByRole("main").querySelectorAll(":scope > section")].map(
       (section) => section.id,
     );
-    expect(sections).toEqual(["product", "built", "changelog", "start"]);
+    expect(sections).toEqual(["product", "changelog", "start"]);
   });
 
   it("names every section, and keeps the serif for the closing line alone", () => {
     show("signed-out");
     expect(screen.getByRole("region", { name: "Product" })).toBeInTheDocument();
-    for (const name of [/^built with nap$/i, /^changelog$/i, /^build your first app\.$/i]) {
+    for (const name of [/^changelog$/i, /^build your first app\.$/i]) {
       expect(screen.getByRole("heading", { level: 2, name })).toBeInTheDocument();
     }
     const serif = [...document.querySelectorAll("main h2.lp-serif")].map((h) => h.textContent);
@@ -225,6 +224,28 @@ describe("the frame", () => {
 });
 
 describe("the footer", () => {
+  it("offers these links, and each one on this page leads to a section that is here", () => {
+    show("signed-out");
+    const nav = within(within(screen.getByRole("contentinfo")).getByRole("navigation"));
+    const links = nav
+      .getAllByRole("link")
+      .map((link) => [link.textContent, link.getAttribute("href")]);
+    expect(links).toEqual([
+      ["Changelog", "#changelog"],
+      ["Watch a real session", FEATURED_REPLAY_PATH],
+      ["Get started", "/sign-up"],
+      ["How it works", "/docs"],
+      ["Architecture", "/docs/architecture"],
+      ["Engineering reports", `${REPO_URL}/blob/main/docs/scaling-cluster.md`],
+      ["GitHub", REPO_URL],
+      ["License", `${REPO_URL}/blob/main/LICENSE`],
+      ["Sign in", "/sign-in"],
+    ]);
+    for (const [, href] of links.filter(([, href]) => href?.startsWith("#"))) {
+      expect(document.getElementById(String(href).slice(1))).not.toBeNull();
+    }
+  });
+
   it("links the engineering reports, which the page itself no longer quotes", () => {
     show("signed-out");
     const footer = within(screen.getByRole("contentinfo"));

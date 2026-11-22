@@ -19,7 +19,6 @@ const SCROLLED_AT = 24;
 
 const LINKS = [
   { href: "#product", label: "Product" },
-  { href: "#built", label: "Built with nap" },
   { href: "#changelog", label: "Changelog" },
   { href: "/docs", label: "Docs" },
 ] as const;
