@@ -14,7 +14,7 @@ import {
   useState,
 } from "react";
 import type { ApplyOptions, NavigationStep } from "../projects/use-session-navigation.ts";
-import { toasts } from "../ui/toast.tsx";
+import { showToast } from "../ui/toasts.ts";
 import { SessionContextMenu } from "./session-context-menu.tsx";
 import { SessionDialog, type SessionDialogRequest } from "./session-dialog.tsx";
 import { type MenuItemId, sessionMenuItems } from "./session-menu.ts";
@@ -345,13 +345,12 @@ export function SessionList({
     async copy(text: string, what: string) {
       try {
         await navigator.clipboard.writeText(text);
-        toasts.add({ title: `${what} copied`, description: text });
+        showToast({ title: `${what} copied`, description: text });
       } catch {
-        toasts.add({
+        showToast({
           title: "Could not copy",
           description: "Check clipboard access and try again.",
-          type: "error",
-          priority: "high",
+          tone: "error",
         });
       }
     },

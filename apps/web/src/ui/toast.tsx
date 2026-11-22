@@ -2,27 +2,32 @@
 
 import { Toast } from "@base-ui/react/toast";
 import { Check, CircleAlert } from "lucide-react";
+import { useEffect } from "react";
+import { subscribeToToasts } from "./toasts.ts";
+
+const manager = Toast.createToastManager();
 
 /**
- * The app's one toast queue, reachable from any code without a hook: `toasts.add({ title })`.
+ * Draws the toasts `showToast` raises: the bottom right, over everything but a modal dialog.
+ * Mount it once, in the frame every signed-in page shares.
  *
- * A module-level manager rather than Base UI's `useToastManager`, because that hook throws
- * outside its provider, and the components that raise toasts are also drawn where no provider
- * is: the landing page's demos and the tests that render a sidebar alone. Added with nothing
- * listening, a toast is simply not shown.
- *
- * Give an error `type: "error"` and `priority: "high"`: it is drawn in the danger colour and
- * announced at once rather than when the reader is idle.
- */
-export const toasts = Toast.createToastManager();
-
-/**
- * Where toasts are drawn: the bottom right, over everything but a modal dialog. Mount it once,
- * in the frame every signed-in page shares.
+ * An error is high priority, which Base UI reads out at once through an alert of its own rather
+ * than waiting for the reader to be idle.
  */
 export function Toaster() {
+  useEffect(
+    () =>
+      subscribeToToasts(({ title, description, tone }) => {
+        manager.add({
+          title,
+          description,
+          ...(tone === "error" && { type: "error", priority: "high" as const }),
+        });
+      }),
+    [],
+  );
   return (
-    <Toast.Provider toastManager={toasts} timeout={4000} limit={3}>
+    <Toast.Provider toastManager={manager} timeout={4000} limit={3}>
       <Toast.Portal>
         <Toast.Viewport className="fixed right-4 bottom-4 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col-reverse gap-2 outline-none">
           <ToastList />
