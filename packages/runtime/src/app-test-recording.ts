@@ -9,41 +9,88 @@ import { TurnAbortError } from "@nap/shared/turn-abort";
 
 export type AppTestRecordingClock = () => Promise<number | null>;
 
-const CAPTURE_ATTEMPTS = 2;
+/**
+ * The desktop start script holds a lock for its whole run, so a second start waits for the first
+ * and then finds it ready. The encoder has no such guard: a begin whose reply was lost may still
+ * be spawning ffmpeg in the machine, and a second begin for the same recording would spawn
+ * another. So only the start is retried, and never after a failure a retry cannot fix or that
+ * already spent the transport's whole deadline.
+ */
+const DESKTOP_START_ATTEMPTS = 2;
+const FINAL_START_FAILURES: ReadonlySet<DesktopError["code"]> = new Set([
+  "cancelled",
+  "outdated",
+  "timeout",
+]);
 
-type CaptureFailure = {
-  step: "desktop_start" | "recording_begin";
-  code?: DesktopError["code"];
-  error?: string;
-  err?: unknown;
-};
+type CaptureStep = "desktop_start" | "encoder_warmup" | "recording_begin";
+type StepFailure = { code?: DesktopError["code"]; error?: string; err?: unknown };
 
-/** Starts the desktop, then the encoder. Both are safe to repeat: each joins what is running. */
+/**
+ * Runs one capture step and logs its failure under the turn's context. A capture failure never
+ * fails the test, so this line is the only place its step and code are kept.
+ */
+async function captureStep(
+  step: CaptureStep,
+  attempt: number,
+  call: () => Promise<{ ok: true } | { ok: false; error: DesktopError }>,
+): Promise<StepFailure | undefined> {
+  const began = Date.now();
+  let failure: StepFailure;
+  try {
+    const result = await call();
+    if (result.ok) return undefined;
+    failure = { code: result.error.code, error: result.error.message };
+  } catch (err) {
+    failure = { err };
+  }
+  getLogger().warn(
+    { step, attempt, ...failure, elapsedMs: Date.now() - began },
+    step === "encoder_warmup" ? "test recording warm-up failed" : "test recording could not start",
+  );
+  return failure;
+}
+
+/** True once the encoder has its first frame. */
 async function beginCapture(
   options: {
     sandboxId: string;
     devServerUrl: string;
-    desktop: Pick<SandboxDesktop, "start">;
+    desktop: Pick<SandboxDesktop, "start" | "screenshot">;
     signal?: AbortSignal | undefined;
   },
   recordings: SandboxRecordings,
   ref: SandboxRecording,
-): Promise<CaptureFailure | undefined> {
+): Promise<boolean> {
   const signal = options.signal ? { signal: options.signal } : {};
-  let step: CaptureFailure["step"] = "desktop_start";
-  try {
-    const desktop = await options.desktop.start({
-      sandboxId: options.sandboxId,
-      devServerUrl: options.devServerUrl,
-      ...signal,
-    });
-    if (!desktop.ok) return { step, code: desktop.error.code, error: desktop.error.message };
-    step = "recording_begin";
-    const begun = await recordings.begin({ ...ref, ...signal });
-    return begun.ok ? undefined : { step, code: begun.error.code, error: begun.error.message };
-  } catch (err) {
-    return { step, err };
+  for (let attempt = 1; ; attempt++) {
+    const failure = await captureStep("desktop_start", attempt, () =>
+      options.desktop.start({
+        sandboxId: options.sandboxId,
+        devServerUrl: options.devServerUrl,
+        ...signal,
+      }),
+    );
+    if (!failure) break;
+    if (
+      attempt >= DESKTOP_START_ATTEMPTS ||
+      options.signal?.aborted ||
+      (failure.code !== undefined && FINAL_START_FAILURES.has(failure.code))
+    )
+      return false;
   }
+  // A fresh VM pages programs in from a lazily loaded disk (start-desktop.sh), and the recorder
+  // allows ffmpeg two seconds to appear and five to give a frame. Starting the desktop runs no
+  // ffmpeg, so a test whose build turn never looked at the screen is ffmpeg's first run on the
+  // machine, under that deadline. A screenshot runs the same binary and leaves no recording
+  // state behind, so it pays most of that first load beforehand. A failed one is only logged.
+  await captureStep("encoder_warmup", 1, () =>
+    options.desktop.screenshot(options.sandboxId, options.signal),
+  );
+  return (
+    (await captureStep("recording_begin", 1, () => recordings.begin({ ...ref, ...signal }))) ===
+    undefined
+  );
 }
 
 /** The test start is the deletion index even if capture or its upload announcement fails. */
@@ -55,7 +102,7 @@ export async function withAppTestRecording<T extends { ok: boolean }>(
     sandboxId: string;
     devServerUrl: string;
     started: NapEventOf<"test.started">["payload"];
-    desktop: Pick<SandboxDesktop, "start">;
+    desktop: Pick<SandboxDesktop, "start" | "screenshot">;
     recordings?: SandboxRecordings | undefined;
     objects: ObjectStore;
     signal?: AbortSignal | undefined;
@@ -78,24 +125,7 @@ export async function withAppTestRecording<T extends { ok: boolean }>(
   const leaseLost = () =>
     options.signal?.reason instanceof TurnAbortError && options.signal.reason.leaseLost;
   try {
-    // A capture failure never fails the test: its assertions still run and are reported, so the
-    // log line is the only place the failing step and its code are kept. One retry, because a
-    // failure has been seen to pass: a production test lost its video, and a retest on the same
-    // machine minutes later recorded.
-    for (let attempt = 1; attempt <= CAPTURE_ATTEMPTS; attempt++) {
-      const began = Date.now();
-      const failure = await beginCapture(options, recordings, ref);
-      if (!failure) {
-        captured = true;
-        break;
-      }
-      getLogger().warn(
-        { ...failure, attempt, elapsedMs: Date.now() - began },
-        "test recording could not start",
-      );
-      if (options.signal?.aborted || failure.code === "cancelled" || failure.code === "outdated")
-        break;
-    }
+    captured = await beginCapture(options, recordings, ref);
     if (captured) options.emit("test.recording", { recording: { state: "started" } });
     const clock: AppTestRecordingClock = async () => {
       if (lostClock) return null;

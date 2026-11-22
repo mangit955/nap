@@ -339,13 +339,12 @@ it("logs a thrown capture failure with its error", async () => {
   });
 });
 
-it("records the test when the second capture attempt begins", async () => {
+it("records the test when the desktop starts on its second attempt", async () => {
   const f = fixture();
-  const begin = vi.mocked(f.recordings.begin).getMockImplementation();
-  if (!begin) throw new Error("Missing capture implementation.");
-  vi.mocked(f.recordings.begin)
+  const start = f.desktop.start.bind(f.desktop);
+  vi.spyOn(f.desktop, "start")
     .mockResolvedValueOnce({ ok: false, error: unavailable })
-    .mockImplementation(begin);
+    .mockImplementation(start);
   const log = logRecorder();
   await withLogContext(log.logger, {}, () =>
     withAppTestRecording(f.options, async (clock) => {
@@ -353,7 +352,7 @@ it("records the test when the second capture attempt begins", async () => {
       return { ok: true };
     }),
   );
-  expect(f.recordings.begin).toHaveBeenCalledTimes(2);
+  expect(f.desktop.start).toHaveBeenCalledTimes(2);
   expect(log.lines.filter((line) => line.level === "warn")).toHaveLength(1);
   expect(f.entries.map((entry) => entry.payload)).toContainEqual({
     recording: { state: "started" },
@@ -361,24 +360,71 @@ it("records the test when the second capture attempt begins", async () => {
   expect(f.entries.at(-1)).toMatchObject({ payload: { recording: { state: "available" } } });
 });
 
+it("never begins a recording twice, since a lost reply may still be spawning its encoder", async () => {
+  const f = fixture();
+  vi.mocked(f.recordings.begin).mockResolvedValue({ ok: false, error: unavailable });
+  const log = logRecorder();
+  await withLogContext(log.logger, {}, () =>
+    withAppTestRecording(f.options, async () => ({ ok: true })),
+  );
+  expect(f.recordings.begin).toHaveBeenCalledTimes(1);
+  expect(log.lines.map((line) => line.fields)).toEqual([
+    expect.objectContaining({ step: "recording_begin", code: "unavailable" }),
+  ]);
+});
+
+it("runs ffmpeg once for a screenshot after the desktop starts and before the encoder", async () => {
+  const f = fixture();
+  const calls: string[] = [];
+  const start = f.desktop.start.bind(f.desktop);
+  const screenshot = f.desktop.screenshot.bind(f.desktop);
+  vi.spyOn(f.desktop, "start").mockImplementation(async (request) => {
+    calls.push("start");
+    return start(request);
+  });
+  vi.spyOn(f.desktop, "screenshot").mockImplementation(async (sandboxId, signal) => {
+    calls.push("screenshot");
+    return screenshot(sandboxId, signal);
+  });
+  vi.mocked(f.recordings.begin).mockImplementation(async () => {
+    calls.push("begin");
+    return { ok: true, value: undefined };
+  });
+  await withAppTestRecording(f.options, async () => ({ ok: true }));
+  expect(calls).toEqual(["start", "screenshot", "begin"]);
+});
+
+it("still begins the recording when the warm-up screenshot fails", async () => {
+  const f = fixture();
+  vi.spyOn(f.desktop, "screenshot").mockRejectedValue(new Error("ffmpeg exited"));
+  const log = logRecorder();
+  await withLogContext(log.logger, {}, () =>
+    withAppTestRecording(f.options, async () => ({ ok: true })),
+  );
+  expect(log.lines.map((line) => [line.message, line.fields.step])).toEqual([
+    ["test recording warm-up failed", "encoder_warmup"],
+  ]);
+  expect(f.entries.at(-1)).toMatchObject({ payload: { recording: { state: "available" } } });
+});
+
 it.each([
   ["cancelled", { code: "cancelled", message: "Desktop operation cancelled." }],
   ["outdated", { code: "outdated", message: "Nap's computer is unavailable in this workspace." }],
-] as const)("does not retry a %s capture", async (_name, error) => {
+  ["timed out", { code: "timeout", message: "Nap's computer is unavailable." }],
+] as const)("does not retry a %s desktop start", async (_name, error) => {
   const f = fixture();
   vi.spyOn(f.desktop, "start").mockResolvedValue({ ok: false, error });
   await withAppTestRecording(f.options, async () => ({ ok: true }));
   expect(f.desktop.start).toHaveBeenCalledTimes(1);
 });
 
-it("does not retry capture once the turn is aborted", async () => {
+it("does not retry the desktop start once the turn is aborted", async () => {
   const f = fixture();
   const controller = new AbortController();
-  vi.spyOn(f.recordings, "begin").mockImplementation(async () => {
+  const start = vi.spyOn(f.desktop, "start").mockImplementation(async () => {
     controller.abort();
     return { ok: false, error: unavailable };
   });
-  const start = vi.spyOn(f.desktop, "start");
   await withAppTestRecording({ ...f.options, signal: controller.signal }, async () => ({
     ok: false,
   }));
