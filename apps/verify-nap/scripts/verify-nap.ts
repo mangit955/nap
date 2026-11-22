@@ -312,9 +312,29 @@ async function stopRun(directory: string) {
 /**
  * The viewport `resize` chose, kept in the run directory. An emulated viewport belongs to the
  * DevTools connection that set it and lapses when a command detaches, and headless Chrome will not
- * size its window below 500 pixels, so a phone width is set again at the start of every command.
+ * size its window below 500 pixels, so a phone width is set again at the start of every command
+ * (and the window is sized as close to it as Chrome allows, by `sizeWindow`).
  */
 const VIEWPORT_FILE = "viewport.json";
+
+/**
+ * The window itself, which unlike the emulated viewport keeps its size after a command detaches.
+ * Headless Chrome will not make it narrower than 500 pixels, so a phone width still needs the
+ * emulation; but between two commands the page then sits at 500 rather than snapping back to the
+ * fixture's 1440, which would cross every layout breakpoint in between and close anything a page
+ * closes when the window widens (the docs' phone menu does).
+ */
+async function sizeWindow(page: Page, width: number, height: number) {
+  const session = await page.context().newCDPSession(page);
+  const { windowId } = await session.send("Browser.getWindowForTarget");
+  await session.send("Browser.setWindowBounds", {
+    windowId,
+    bounds: { width: Math.max(width, MIN_WINDOW_WIDTH), height, windowState: "normal" },
+  });
+  await session.detach();
+}
+
+const MIN_WINDOW_WIDTH = 500;
 
 async function applyViewport(page: Page, directory: string) {
   const raw = await readFile(join(directory, VIEWPORT_FILE), "utf8").catch(() => null);
@@ -426,6 +446,7 @@ async function main() {
       if (command.kind === "resize") {
         // Applied before it is saved, so a size Chrome refuses never reaches the commands after.
         await page.setViewportSize({ width: command.width, height: command.height });
+        await sizeWindow(page, command.width, command.height);
         await writeFile(
           join(directory, VIEWPORT_FILE),
           JSON.stringify({ width: command.width, height: command.height }),

@@ -19,14 +19,20 @@ function rawText(node: ReactNode): string {
   if (Array.isArray(node)) return node.map(rawText).join("");
   if (isValidElement<{ children?: ReactNode }>(node)) {
     const inner = rawText(node.props.children);
+    if (typeof node.type !== "string" || INLINE.has(node.type)) return inner;
     // A paragraph or list item ends a word even when the markup puts the next one flush
-    // against it; an inline element such as `em` does not.
-    return typeof node.type === "string" && !INLINE.has(node.type) ? ` ${inner} ` : inner;
+    // against it, and a sentence when its text has no stop of its own: a title and the line under
+    // it read as two, not as one run-on sentence, in a search result's snippet.
+    const text = inner.trim();
+    return SENTENCE.has(node.type) && text && !/[.!?:;,…—-]$/.test(text)
+      ? ` ${text}. `
+      : ` ${inner} `;
   }
   return "";
 }
 
 const INLINE = new Set(["a", "b", "code", "em", "i", "span", "strong"]);
+const SENTENCE = new Set(["p", "li", "dt", "dd", "td", "th"]);
 
 /**
  * A heading's anchor: lower case, ASCII letters and digits, hyphens between words. Apostrophes

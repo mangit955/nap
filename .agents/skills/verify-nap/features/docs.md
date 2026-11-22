@@ -61,9 +61,11 @@ resize --width 1440 --height 900
   page" and once as the heading. `click --role link` on it fails as ambiguous. Open the list, then
   `press --key Tab` to the entry and `press --key Enter`.
 - `resize` sets a viewport that every later command reapplies, because an emulated viewport lapses
-  when a command detaches. Between commands the page is briefly back at the window's width, which
-  can move its scroll position, so check the "On this page" mark within one command's view (open
-  the list after the jump and `shot`), not by comparing two. Set it back to 1440×900 before a
-  recipe that expects the default width.
+  when a command detaches. It also sizes the window as near as headless Chrome allows (500 pixels
+  wide at least), so between commands a phone-width page sits at 500, not the fixture's 1440, and
+  the menu, which closes when the window widens past 1024, stays open. The brief width change can
+  still move the scroll position, so check the "On this page" mark within one command's view (open
+  the list after the jump and `shot`). Set it back to 1440×900 before a recipe that expects the
+  default width.
 - The fixture serves a copy of `apps/web/src` taken at startup. An edit made after `verify-nap:up`
   does not reach it until it is copied into `.scratch/verify-nap-<id>/web/src`.

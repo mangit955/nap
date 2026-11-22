@@ -37,10 +37,11 @@ describe("a section's outline", () => {
 
   it("separates words that sit in separate elements", () => {
     // The decisions list puts a title and its sentence in two paragraphs with no space between
-    // them in the markup; read naively they become one run-on word.
+    // them in the markup; read naively they become one run-on word, and with only a space, one
+    // run-on sentence in a search snippet.
     const decisions = SECTIONS.find((section) => section.id === "decisions");
     const text = decisions ? outlineOf(decisions.Body).blocks.map((block) => block.text) : [];
-    expect(text.join(" ")).toContain("pure package and an app Tasks, scoring");
+    expect(text.join(" ")).toContain("pure package and an app. Tasks, scoring");
   });
 
   it("collapses the whitespace that JSX source carries across lines", () => {
