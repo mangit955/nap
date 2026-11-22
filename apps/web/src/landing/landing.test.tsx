@@ -1,5 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FEATURED_REPLAY_PATH } from "../replay/featured.ts";
 import { REPO_URL } from "./github-button.tsx";
 import { type AuthState, Landing } from "./landing.tsx";
@@ -9,6 +9,50 @@ function show(auth: AuthState) {
 }
 
 const bar = () => within(screen.getByRole("banner"));
+
+it("eases a wheel gesture over several frames and releases the frame on unmount", () => {
+  vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+  const now = vi.spyOn(performance, "now");
+  let position = 0;
+  const scrollY = vi.spyOn(window, "scrollY", "get").mockImplementation(() => position);
+  const scrollHeight = vi
+    .spyOn(document.documentElement, "scrollHeight", "get")
+    .mockReturnValue(4000);
+  const scrollTo = vi
+    .spyOn(window, "scrollTo")
+    .mockImplementation((options?: ScrollToOptions | number) => {
+      if (typeof options === "object") position = Math.round(options.top ?? 0);
+    });
+  const { unmount } = show("signed-out");
+  try {
+    const main = screen.getByRole("main");
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 });
+    now.mockReturnValueOnce(20);
+    main.dispatchEvent(wheel);
+
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(position).toBe(0);
+    vi.advanceTimersToNextFrame();
+    expect(position).toBe(0);
+    vi.advanceTimersToNextFrame();
+    expect(position).toBeGreaterThan(0);
+    expect(position).toBeLessThan(240);
+    vi.advanceTimersByTime(500);
+    expect(position).toBe(240);
+
+    main.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 }));
+    unmount();
+    vi.advanceTimersByTime(500);
+    expect(position).toBe(240);
+  } finally {
+    unmount();
+    now.mockRestore();
+    scrollY.mockRestore();
+    scrollHeight.mockRestore();
+    scrollTo.mockRestore();
+    vi.useRealTimers();
+  }
+});
 
 describe("before the session has resolved", () => {
   it("offers no way in from the bar", () => {

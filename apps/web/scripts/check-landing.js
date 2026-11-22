@@ -49,7 +49,7 @@
   );
 
   for (const window of document.querySelectorAll(".lp-wall > *")) {
-    window.scrollIntoView({ block: "center" });
+    window.scrollIntoView({ block: "center", behavior: "instant" });
     await settle();
     check(owns(window, centre(window)), `nothing drawn over ${window.className}`);
   }
@@ -128,12 +128,14 @@
     if (control.closest("[inert], [aria-hidden='true']")) continue;
     if (control.getBoundingClientRect().width === 0) continue;
     if (control.closest("details:not([open])") && !control.matches("summary")) continue;
-    if (!control.closest(".lp-nav")) control.scrollIntoView({ block: "center" });
+    if (!control.closest(".lp-nav")) {
+      control.scrollIntoView({ block: "center", behavior: "instant" });
+    }
     await settle();
     const name = (control.textContent || control.getAttribute("aria-label") || "").trim();
     check(owns(control, centre(control)), `"${name.slice(0, 40)}" gets its own clicks`);
   }
 
-  scrollTo(0, 0);
+  scrollTo({ top: 0, behavior: "instant" });
   return checks;
 })();

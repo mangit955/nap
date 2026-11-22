@@ -16,19 +16,23 @@
  * `landing.css`, so nothing here can restyle the workspace or the docs, which keep their own.
  */
 
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { BuiltWithNap } from "./built-with-nap.tsx";
 import { Changelog } from "./changelog.tsx";
 import { Features } from "./features.tsx";
 import { LandingFooter } from "./landing-footer.tsx";
 import { LandingNav } from "./landing-nav.tsx";
 import { StartNow } from "./start-now.tsx";
+import { useSmoothScroll } from "./use-smooth-scroll.ts";
 
 export type AuthState = "pending" | "signed-out";
 
 export function Landing({ auth, hero }: { auth: AuthState; hero: ReactNode }) {
+  const page = useRef<HTMLDivElement>(null);
+  useSmoothScroll(page);
+
   return (
-    <div className="landing relative min-h-dvh overflow-x-clip">
+    <div ref={page} data-landing-page className="landing relative min-h-dvh overflow-x-clip">
       <LandingNav auth={auth} />
       {/* Without script nothing measures the demos, which then stay hidden (`demo.css`); this
           shows them at their design size instead, cropped by their frames. */}
