@@ -71,15 +71,28 @@ const COOKIE_BLOCKED =
  * a second gate on getting in: a blip while asking must not strand somebody whose cookie was
  * stored perfectly well. If it really was dropped, the destination bounces them back here anyway,
  * which is the behaviour this replaces rather than something worse.
+ *
+ * A check that never answers is a blip too, so it is bounded. It matters more than it looks: the
+ * "already signed in" redirect stands aside while a submission is under way, so this check is the
+ * only thing that moves a successful submission on.
  */
 async function sessionSurvived(): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stalled = new Promise<"stalled">((resolve) => {
+    timer = setTimeout(() => resolve("stalled"), SESSION_CHECK_MS);
+  });
   try {
-    const { data } = await authClient.getSession();
-    return data != null;
+    const answer = await Promise.race([authClient.getSession(), stalled]);
+    return answer === "stalled" || answer.data != null;
   } catch {
     return true;
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+/** How long `sessionSurvived` waits for the server before it fails open. */
+const SESSION_CHECK_MS = 5000;
 
 /** How long the form's controls wait for the providers lookup before they are shown anyway. */
 const PROVIDERS_WAIT_MS = 4000;

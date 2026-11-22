@@ -162,6 +162,33 @@ describe("when it works", () => {
 
     expect(replace).not.toHaveBeenCalled();
   });
+
+  it("still goes on when asking whether the cookie stuck never answers", async () => {
+    // The redirect above stands aside while a submission is under way, so the submission's own
+    // check is the only way on. A check that hangs must fail open like one that throws, or the
+    // button sits on "One moment…" for as long as the page is open.
+    signUpEmail.mockResolvedValue({ data: {} });
+    getSession.mockReturnValue(new Promise(() => {}));
+    window.history.replaceState(null, "", "/sign-up");
+    await renderReady(<LiveSignIn initialMode="sign-up" />);
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ada" } });
+      fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
+      fireEvent.change(screen.getByLabelText("Password"), {
+        target: { value: "a good password" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(push).not.toHaveBeenCalled();
+
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+
+      expect(push).toHaveBeenCalledWith("/welcome");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("the address bar", () => {
