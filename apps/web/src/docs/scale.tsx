@@ -30,6 +30,7 @@ const LEASE = `queued ──claim──► leased ──settle──► succeede
   no path back to queued — a redelivered turn is a second model run somebody pays for`;
 
 export function Scale() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>

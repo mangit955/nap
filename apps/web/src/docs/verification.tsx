@@ -26,6 +26,7 @@ run the project's checks, cheapest first, stopping at the first failure
       └── errored ──► nothing was learned; job closes: abandoned`;
 
 export function Verification() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>

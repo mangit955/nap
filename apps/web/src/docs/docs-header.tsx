@@ -1,0 +1,151 @@
+"use client";
+
+/**
+ * The docs' bar: the landing page's links on the right, so a reader who came from there is still
+ * on the same site, and the search field where Cursor-style docs keep it.
+ *
+ * **No Sign in and no account state.** The docs never resolve a session; anything that depended on
+ * one would be guessed, and the landing page's rule is that a late control beats a wrong one. Get
+ * started is right for a visitor, and somebody already signed in is sent on from it.
+ *
+ * Below a laptop's width the links fold into a menu that holds the sidebar, and the search field
+ * becomes an icon beside it.
+ */
+
+import { Menu, Search, X } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { NapMark } from "../brand/nap-mark.tsx";
+import { REPO_URL } from "../landing/github-button.tsx";
+import { useOpenSearch } from "./docs-search.tsx";
+import { DocsSidebar, type HeadingsByPage } from "./docs-sidebar.tsx";
+import { DOCS_HOME } from "./pages.ts";
+
+const MENU_ID = "docs-menu";
+
+export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
+  const openSearch = useOpenSearch();
+  const pathname = usePathname();
+  const [menu, setMenu] = useState(false);
+  const shortcut = useShortcutLabel();
+
+  // A followed link closes the menu through `onNavigate`; this catches the back button too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the path changing is the event.
+  useEffect(() => setMenu(false), [pathname]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(false);
+    };
+    // The page under an open menu must not scroll with the finger that is scrolling the menu.
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = overflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
+  return (
+    <>
+      <header className="docs-header">
+        <div className="docs-header-brand">
+          <a href="/" className="docs-brand">
+            <NapMark className="size-[28px]" />
+            nap
+          </a>
+          <Link href={DOCS_HOME} className="docs-brand-tag">
+            Docs
+          </Link>
+        </div>
+
+        <button
+          type="button"
+          className="docs-search-trigger"
+          aria-keyshortcuts="Meta+K Control+K"
+          onClick={openSearch}
+        >
+          <Search aria-hidden="true" size={16} />
+          <span>Search docs…</span>
+          <kbd className="docs-kbd">{shortcut}</kbd>
+        </button>
+
+        <nav aria-label="Site" className="docs-header-links">
+          <a href="/#product">Product</a>
+          <a href="/#changelog">Changelog</a>
+          <Link href={DOCS_HOME} aria-current="page">
+            Docs
+          </Link>
+          <a href={REPO_URL} target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+          <a href="/sign-up" className="lp-button lp-button-light">
+            Get started
+          </a>
+        </nav>
+
+        <div className="docs-header-compact">
+          <button
+            type="button"
+            className="lp-button lp-button-ghost lp-menu-toggle"
+            aria-label="Search docs"
+            onClick={openSearch}
+          >
+            <Search aria-hidden="true" size={17} />
+          </button>
+          <button
+            type="button"
+            className="lp-button lp-button-ghost lp-menu-toggle"
+            aria-label={menu ? "Close menu" : "Menu"}
+            aria-expanded={menu}
+            aria-controls={MENU_ID}
+            onClick={() => setMenu((value) => !value)}
+          >
+            {menu ? <X aria-hidden="true" size={18} /> : <Menu aria-hidden="true" size={18} />}
+          </button>
+        </div>
+      </header>
+
+      {/* A sibling of the bar rather than inside it: the bar's backdrop blur makes it the box
+          that fixed descendants are positioned against, which would pin the menu to the bar. */}
+      {menu && (
+        <div id={MENU_ID} className="docs-drawer">
+          <button
+            type="button"
+            className="docs-search-trigger docs-search-field"
+            onClick={openSearch}
+          >
+            <Search aria-hidden="true" size={16} />
+            <span>Search docs…</span>
+          </button>
+          <DocsSidebar headings={headings} onNavigate={() => setMenu(false)} />
+          <nav aria-label="Site" className="docs-drawer-links">
+            <a href="/#product">Product</a>
+            <a href="/#changelog">Changelog</a>
+            <a href={REPO_URL} target="_blank" rel="noreferrer">
+              GitHub
+            </a>
+            <a href="/sign-up" className="lp-button lp-button-light">
+              Get started
+            </a>
+          </nav>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * "⌘ K" on a Mac and "Ctrl K" elsewhere. The server cannot know which, so it renders the Mac form
+ * and the browser corrects it once mounted.
+ */
+function useShortcutLabel(): string {
+  const [label, setLabel] = useState("⌘ K");
+  useEffect(() => {
+    if (!/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) setLabel("Ctrl K");
+  }, []);
+  return label;
+}

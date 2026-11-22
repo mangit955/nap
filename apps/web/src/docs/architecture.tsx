@@ -76,6 +76,7 @@ const OWNERSHIP = [
 ] as const;
 
 export function Architecture() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>
@@ -99,16 +100,16 @@ export function Architecture() {
       <div className="mt-5 max-w-2xl overflow-x-auto">
         <table className="w-full border-collapse text-left text-[14px]">
           <thead>
-            <tr className="border-[var(--s-border-1)] border-b">
-              <th className="py-2 pr-4 font-medium text-[var(--s-text-primary)]">Component</th>
-              <th className="py-2 pr-4 font-medium text-[var(--s-text-primary)]">Owns</th>
-              <th className="py-2 font-medium text-[var(--s-text-primary)]">Never does</th>
+            <tr className="border-[var(--lp-line)] border-b">
+              <th className="py-2 pr-4 font-medium text-[var(--lp-ink)]">Component</th>
+              <th className="py-2 pr-4 font-medium text-[var(--lp-ink)]">Owns</th>
+              <th className="py-2 font-medium text-[var(--lp-ink)]">Never does</th>
             </tr>
           </thead>
-          <tbody className="text-[var(--s-text-muted)]">
+          <tbody className="text-[var(--lp-ink-2)]">
             {OWNERSHIP.map((row) => (
-              <tr key={row.component} className="border-[var(--s-border-1)] border-b align-top">
-                <td className="py-3 pr-4 font-medium text-[var(--s-text-body)] leading-[1.6]">
+              <tr key={row.component} className="border-[var(--lp-line)] border-b align-top">
+                <td className="py-3 pr-4 font-medium text-[var(--lp-ink)] leading-[1.6]">
                   {row.component}
                 </td>
                 <td className="py-3 pr-4 leading-[1.6]">{row.owns}</td>

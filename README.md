@@ -16,7 +16,7 @@ A model saying "done" is a claim. A passing checkpoint is evidence.
 [![CI](https://github.com/mangit955/nap/actions/workflows/ci.yml/badge.svg)](https://github.com/mangit955/nap/actions/workflows/ci.yml)
 
 [Live demo](https://nap-tawny.vercel.app) · [Docs](https://nap-tawny.vercel.app/docs) ·
-[Architecture](https://nap-tawny.vercel.app/docs#architecture)
+[Architecture](https://nap-tawny.vercel.app/docs/architecture)
 
 ![A prompt for a finance dashboard, the agent reading files and running the project's checks, the verdict "Verified successfully with both npm run typecheck and npm run build", and the app it built](docs/demo.gif)
 
@@ -73,7 +73,7 @@ durable job → worker → agent in sandbox → commit
 
 The job and its transcript come from the same append-only event log. That gives nap one answer to
 what happened, what was verified, and where to continue. The full event model, job lifecycle, and
-verification rules are in the [technical docs](https://nap-tawny.vercel.app/docs#verification).
+verification rules are in the [technical docs](https://nap-tawny.vercel.app/docs/verification).
 
 ## Evidence, with scope
 
@@ -217,7 +217,7 @@ Reaper process: snapshots idle projects, reconciles capacity, and closes orphane
 
 The API serves and admits work. The worker executes turns. The reaper handles cleanup. They share
 one composition but have separate responsibilities, which lets a deployment scale and drain them
-independently. The [architecture docs](https://nap-tawny.vercel.app/docs#architecture) explain the
+independently. The [architecture docs](https://nap-tawny.vercel.app/docs/architecture) explain the
 package boundaries and invariants. The [ADRs](docs/adr) explain decisions that are expensive to
 reverse.
 

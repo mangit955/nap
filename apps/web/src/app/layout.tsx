@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 /**
- * The display face: the few headings the app sets apart from its system sans — `/welcome`, the
- * `/docs` page, and the preview pane's empty states.
+ * The display face: the few headings the app sets apart from its system sans — `/welcome` and
+ * the preview pane's empty states.
  *
  * A grotesque with deliberately odd details — a wide, low-waisted `a`, a flat-topped `t`, a
  * tail on the `l` — which is exactly what a system stack cannot give a first sentence. It is

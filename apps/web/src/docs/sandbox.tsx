@@ -23,6 +23,7 @@ file, search and command tools proxy to SandboxManager.
 a helper is a second loop over the same ports, inside the turn's budget.`;
 
 export function Sandbox() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>

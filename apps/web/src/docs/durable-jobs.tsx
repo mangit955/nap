@@ -20,6 +20,7 @@ closed      verified     checks passed — the commit is a checkpoint
             superseded   left open by a restart, then replaced by a message`;
 
 export function DurableJobs() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>

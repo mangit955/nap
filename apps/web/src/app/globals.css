@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "../workspace/right-panel.css";
 @import "../landing/landing.css";
+@import "../docs/docs.css";
+@import "../docs/docs-home.css";
+@import "../docs/docs-search.css";
 
 .computer-screenshot-card {
   display: block;
@@ -1236,8 +1239,7 @@ body {
  * layered without adding a single shadow. No accent colour: a saturated hue fights a rainbow
  * rim, and the rim is the point.
  */
-.ai-stage,
-.ai-stage-ink {
+.ai-stage {
   --s-surface-1: #ffffff;
   --s-surface-2: #fbfbfc;
   --s-surface-3: #f1f2f4;
@@ -1265,11 +1267,6 @@ body {
   color: var(--s-text-body);
 }
 
-/*
- * `.ai-stage-ink` above is the same ramp with no surface of its own — for the page header,
- * which is drawn *over* the stage and therefore needs its light-theme ink, but must not paint a
- * second gradient behind itself. One declaration block for both, so the two can never drift.
- */
 /*
  * Three stops of one neutral rather than a flat fill: a large pale area with no gradation at all
  * reads as unpainted, and the barely-there fall from top to bottom is what makes it read as a

@@ -29,7 +29,7 @@ const ROWS: readonly {
     id: "verification",
     title: "It checks its own work.",
     body: "Your project's tests, typecheck and build decide when a change is done. When one fails, nap reads the error, fixes the code, and runs them again.",
-    link: { label: "How verification works", href: "/docs#verification" },
+    link: { label: "How verification works", href: "/docs/verification" },
     Art: ChecksArt,
   },
   {

@@ -18,6 +18,7 @@ publish to the bus  (whoever is listening, if anybody is)
 never the other way round.`;
 
 export function EventModel() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>

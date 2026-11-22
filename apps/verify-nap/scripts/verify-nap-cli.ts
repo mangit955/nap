@@ -136,7 +136,9 @@ export type Command =
   | { kind: "press"; key: string }
   | { kind: "wait"; target: Target; state: "visible" | "hidden"; timeoutMs: number }
   | ({ kind: "snapshot"; label: string } & InFrame)
-  | { kind: "shot"; label: string; fullPage: boolean };
+  | { kind: "shot"; label: string; fullPage: boolean }
+  /** The viewport in CSS pixels; every command after it in the run uses it too. */
+  | { kind: "resize"; width: number; height: number };
 
 const DEFAULT_WAIT_MS = 30_000;
 
@@ -145,6 +147,8 @@ const VALUE_FLAGS = new Set([
   "role",
   "name",
   "value",
+  "width",
+  "height",
   "key",
   "text",
   "state",
@@ -281,10 +285,18 @@ export function parseCommand(args: readonly string[]): Result<Command, string> {
         ? { ok: true, value: { kind: "shot", label: named.value, fullPage: values.has("full") } }
         : named;
     }
+    case "resize": {
+      const [width, height] = [values.get("width"), values.get("height")].map(Number);
+      const valid = (n: number | undefined): n is number =>
+        n !== undefined && Number.isInteger(n) && n > 0;
+      return valid(width) && valid(height)
+        ? { ok: true, value: { kind: "resize", width, height } }
+        : { ok: false, error: "resize needs --width and --height, whole pixels, e.g. 390 and 844" };
+    }
     default:
       return {
         ok: false,
-        error: `unknown command "${name ?? ""}"; one of: doctor, signin, goto, click, hover, fill, press, wait, snapshot, shot, url, stop`,
+        error: `unknown command "${name ?? ""}"; one of: doctor, signin, goto, click, hover, fill, press, wait, snapshot, shot, resize, url, stop`,
       };
   }
 }

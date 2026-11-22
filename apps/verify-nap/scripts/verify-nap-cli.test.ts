@@ -91,6 +91,16 @@ describe("parseCommand", () => {
     });
   });
 
+  it("reads resize with a width and a height, for a phone or a tablet", () => {
+    expect(parseCommand(["resize", "--width", "390", "--height", "844"])).toEqual({
+      ok: true,
+      value: { kind: "resize", width: 390, height: 844 },
+    });
+    expect(parseCommand(["resize", "--width", "390"]).ok).toBe(false);
+    expect(parseCommand(["resize", "--width", "0", "--height", "844"]).ok).toBe(false);
+    expect(parseCommand(["resize", "--width", "39.5", "--height", "844"]).ok).toBe(false);
+  });
+
   it("reads goto with a path, and refuses an absolute URL elsewhere", () => {
     expect(parseCommand(["goto", "/dashboard"])).toEqual({
       ok: true,

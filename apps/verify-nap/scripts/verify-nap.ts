@@ -308,6 +308,20 @@ async function stopRun(directory: string) {
   );
 }
 
+/**
+ * The viewport `resize` chose, kept in the run directory. An emulated viewport belongs to the
+ * DevTools connection that set it and lapses when a command detaches, and headless Chrome will not
+ * size its window below 500 pixels, so a phone width is set again at the start of every command.
+ */
+const VIEWPORT_FILE = "viewport.json";
+
+async function applyViewport(page: Page, directory: string) {
+  const raw = await readFile(join(directory, VIEWPORT_FILE), "utf8").catch(() => null);
+  if (raw === null) return;
+  const { width, height } = JSON.parse(raw) as { width: number; height: number };
+  await page.setViewportSize({ width, height });
+}
+
 async function act(page: Page, run: RunFile, command: Command) {
   switch (command.kind) {
     case "url":
@@ -369,6 +383,10 @@ async function act(page: Page, run: RunFile, command: Command) {
     case "shot":
       console.log((await capture(page, run, command.label, command.fullPage)).join("\n"));
       return;
+    case "resize":
+      // Applied in `main` before every command, from the file it writes.
+      console.log(`viewport ${command.width}×${command.height}`);
+      return;
     case "doctor":
     case "stop":
       throw new Error(`${command.kind} does not use the browser`);
@@ -395,6 +413,13 @@ async function main() {
     if (context === undefined) throw new Error("The fixture's Chrome has no browser context.");
     const page = context.pages()[0] ?? (await context.newPage());
     try {
+      if (command.kind === "resize") {
+        await writeFile(
+          join(directory, VIEWPORT_FILE),
+          JSON.stringify({ width: command.width, height: command.height }),
+        );
+      }
+      await applyViewport(page, directory);
       await act(page, run, command);
     } catch (error) {
       // A failed action is evidence too: save what the page looked like when it failed.

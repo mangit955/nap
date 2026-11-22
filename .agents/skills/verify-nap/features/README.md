@@ -59,6 +59,8 @@ starts with `Preconditions:`), and `Gotchas`.
   with the previewed app.
 - [File tree](./file-tree.md): the Files tab, filtering, opening a file, and the changed-files card
   in the chat.
+- [Docs](./docs.md): the docs home, a page, its sidebar and "On this page", search, old
+  `/docs#<id>` links, and the phone layout.
 - [Model picker](./model-picker.md): the line and effort a turn runs on, the key form a locked line
   opens, and the version a turn is queued on.
 
