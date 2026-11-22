@@ -13,6 +13,13 @@ const manager = Toast.createToastManager();
  *
  * An error is high priority, which Base UI reads out at once through an alert of its own rather
  * than waiting for the reader to be idle.
+ *
+ * A toast takes no pointer events: it says something and goes, and never takes a click meant for
+ * what it covers. On a phone the stack spans the screen's foot, which is where the open sidebar
+ * keeps Settings and Help, so a copy made from the sidebar would otherwise leave both untappable
+ * until it went. The cost is Base UI's pause on hover and its swipe to dismiss, neither of which a
+ * four-second line with nothing to press needs. A toast that gains an action gives that action
+ * `pointer-events-auto`, and only it.
  */
 export function Toaster() {
   useEffect(
@@ -29,7 +36,7 @@ export function Toaster() {
   return (
     <Toast.Provider toastManager={manager} timeout={4000} limit={3}>
       <Toast.Portal>
-        <Toast.Viewport className="fixed right-4 bottom-4 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col-reverse gap-2 outline-none">
+        <Toast.Viewport className="pointer-events-none fixed right-4 bottom-4 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col-reverse gap-2 outline-none">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>
@@ -61,9 +68,9 @@ function ToastList() {
  * The menus' raised panel, without their glass: a toast can land over the white preview of the
  * user's app, where a translucent surface would take on the page behind it.
  *
- * It arrives up 8px from transparent over 200ms and leaves the same way; a swipe moves it with
- * the finger (`--toast-swipe-movement-*`). Reduced motion keeps only the appearing and the
- * leaving, with no movement and no fade. Past the limit of three the oldest is hidden.
+ * It arrives up 8px from transparent over 200ms and leaves the same way. Reduced motion keeps only
+ * the appearing and the leaving, with no movement and no fade. Past the limit of three the oldest
+ * is hidden.
  */
 const ROOT =
-  "relative rounded-[10px] bg-panel px-3 py-2.5 shadow-raised outline-none focus-visible:ring-1 focus-visible:ring-accent [transform:translate(var(--toast-swipe-movement-x,0px),var(--toast-swipe-movement-y,0px))] transition-[opacity,translate] duration-200 ease-out data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 data-[ending-style]:translate-y-2 data-[ending-style]:opacity-0 data-[swiping]:transition-none data-[limited]:hidden motion-reduce:transition-none";
+  "pointer-events-none relative rounded-[10px] bg-panel px-3 py-2.5 shadow-raised outline-none focus-visible:ring-1 focus-visible:ring-accent transition-[opacity,translate] duration-200 ease-out data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 data-[ending-style]:translate-y-2 data-[ending-style]:opacity-0 data-[limited]:hidden motion-reduce:transition-none";

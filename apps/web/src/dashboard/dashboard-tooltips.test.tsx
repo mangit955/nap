@@ -151,12 +151,22 @@ describe("the dashboard's icon-only controls", () => {
     ["Settings", "Settings"],
     ["Filter by source", "Filter by source"],
     ["Snooze Plain", "Snooze"],
-  ])("%s keeps its tooltip shut while its own menu is open", async (name, text) => {
-    const { container } = await mount();
-    const target = control(name);
-    fireEvent.click(target);
-    expect(target).toHaveAttribute("aria-expanded", "true");
-    rest(target);
-    expect(tooltip(container, text)).toBeNull();
-  });
+  ])(
+    "%s clears its tooltip when its menu opens, and keeps it shut while open",
+    async (name, text) => {
+      const { container } = await mount();
+      const target = control(name);
+      rest(target);
+      expect(tooltip(container, text)).not.toBeNull();
+      fireEvent.pointerDown(target, { pointerType: "mouse" });
+      fireEvent.click(target);
+      expect(target).toHaveAttribute("aria-expanded", "true");
+      // Leaving and coming back is a fresh hover, which the open menu must not let through.
+      fireEvent.mouseLeave(target);
+      act(() => vi.advanceTimersByTime(TOOLTIP_DELAY_MS));
+      expect(tooltip(container, text)).toBeNull();
+      rest(target);
+      expect(tooltip(container, text)).toBeNull();
+    },
+  );
 });

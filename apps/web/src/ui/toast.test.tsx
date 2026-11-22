@@ -35,11 +35,14 @@ describe("showToast and Toaster", () => {
   // Base UI's `Toast` is one namespace the bundler cannot split: any module that imports it
   // ships all of it. Measured in a production build, importing only its manager from the session
   // list put the toast's whole drawing code on the landing page, whose sidebar never shows one.
+  // The package root is matched too: it re-exports the toast, and every other part with it.
   it("only Toaster imports Base UI's toast, so raising one stays free of it", () => {
     const src = join(import.meta.dirname, "..");
     const importers = readdirSync(src, { recursive: true, encoding: "utf8" })
       .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file))
-      .filter((file) => readFileSync(join(src, file), "utf8").includes('"@base-ui/react/toast"'))
+      .filter((file) =>
+        /["']@base-ui\/react(?:\/toast)?["']/.test(readFileSync(join(src, file), "utf8")),
+      )
       .map((file) => relative(src, join(src, file)));
     expect(importers).toEqual(["ui/toast.tsx"]);
   });

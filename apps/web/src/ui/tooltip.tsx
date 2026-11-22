@@ -45,8 +45,16 @@ export function Tooltip({
     <Base.Root disabled={disabled}>
       <Base.Trigger delay={TOOLTIP_DELAY_MS} render={children} />
       <Base.Portal>
-        {/* Above the sidebar's menus (50) and its resize handle (45), which it can overhang. */}
-        <Base.Positioner side={side} sideOffset={6} className="z-[70]">
+        {/*
+          Above the sidebar's menus (50) and its resize handle (45), which it can overhang. Hidden
+          while Base UI marks its control scrolled out of view: a tooltip opened by keyboard focus
+          stays open when the list scrolls, and would float over whatever the row was clipped by.
+        */}
+        <Base.Positioner
+          side={side}
+          sideOffset={6}
+          className="z-[70] data-[anchor-hidden]:invisible"
+        >
           <Base.Popup className={POPUP}>
             {label}
             {shortcut && <kbd className="font-sans text-muted">{shortcut}</kbd>}
