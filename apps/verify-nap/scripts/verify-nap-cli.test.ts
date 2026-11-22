@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chooseRun, evidenceName, parseCommand, RunFileSchema } from "./verify-nap-cli.ts";
+import {
+  chooseRun,
+  evidenceName,
+  parseCommand,
+  RunFileSchema,
+  ViewportSchema,
+} from "./verify-nap-cli.ts";
 
 describe("parseCommand", () => {
   it("reads a role and an accessible name for click", () => {
@@ -91,6 +97,17 @@ describe("parseCommand", () => {
     });
   });
 
+  it("reads resize with a width and a height, for a phone or a tablet", () => {
+    expect(parseCommand(["resize", "--width", "390", "--height", "844"])).toEqual({
+      ok: true,
+      value: { kind: "resize", width: 390, height: 844 },
+    });
+    expect(parseCommand(["resize", "--width", "390"]).ok).toBe(false);
+    expect(parseCommand(["resize", "--width", "0", "--height", "844"]).ok).toBe(false);
+    expect(parseCommand(["resize", "--width", "39.5", "--height", "844"]).ok).toBe(false);
+    expect(parseCommand(["resize", "--width", "10000001", "--height", "844"]).ok).toBe(false);
+  });
+
   it("reads goto with a path, and refuses an absolute URL elsewhere", () => {
     expect(parseCommand(["goto", "/dashboard"])).toEqual({
       ok: true,
@@ -180,6 +197,16 @@ describe("chooseRun", () => {
     expect(chooseRun(found, "stop")).toEqual({ ok: true, value: "dead" });
     const click = chooseRun(found, "click");
     expect(!click.ok && click.error).toContain("stop");
+  });
+});
+
+describe("ViewportSchema", () => {
+  it("takes what resize saves and refuses anything else", () => {
+    expect(ViewportSchema.safeParse({ width: 390, height: 844 }).success).toBe(true);
+    expect(ViewportSchema.safeParse({ width: "390", height: 844 }).success).toBe(false);
+    expect(ViewportSchema.safeParse({ width: 390 }).success).toBe(false);
+    // A size resize refuses is never replayed from an older saved file either.
+    expect(ViewportSchema.safeParse({ width: 10000001, height: 844 }).success).toBe(false);
   });
 });
 

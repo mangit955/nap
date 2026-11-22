@@ -74,6 +74,7 @@ bun run verify-nap wait  --text "Read at this step"
 bun run verify-nap snapshot --label "chat after steer"     # prints the ARIA tree and saves it
 bun run verify-nap shot  --label "chat after steer" [--full]   # PNG + ARIA tree side by side
 bun run verify-nap click --role button --name "Add note" --frame "App preview"  # inside the preview
+bun run verify-nap resize --width 390 --height 844       # a phone; later commands keep it
 bun run verify-nap url
 ```
 

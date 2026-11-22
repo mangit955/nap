@@ -73,8 +73,14 @@ export const TREE_READERS = [
   // of each cross-language claim (harbor/README.md, "Gates").
   { test: "packages/runtime/src/harbor-task-args.test.ts", reads: /^harbor\/nap_harbor\// },
   { test: "packages/sandbox/src/exec-channel.test.ts", reads: /^harbor\/nap_harbor\// },
-  // Checks that the video the docs page points at is in apps/web/public.
-  { test: "apps/web/src/docs/docs-page.test.tsx", reads: /^apps\/web\/public\// },
+  // Checks that the video the docs point at is in apps/web/public, that each page's edit link
+  // names a file that exists, and that no docs source or stylesheet writes a colour literal.
+  {
+    test: "apps/web/src/docs/docs-page.test.tsx",
+    reads: /^apps\/web\/public\/|^apps\/web\/src\/docs\//,
+  },
+  // Counts each section's `<Sub>` headings in its source, against what the outline found.
+  { test: "apps/web/src/docs/outline.test.tsx", reads: /^apps\/web\/src\/docs\// },
   // Checks that the tests and the web build pin the same React Compiler release, and that no
   // browser code lives under app/ (which the tests leave uncompiled). It reads all of web's src.
   {

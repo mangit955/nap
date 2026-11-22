@@ -1,0 +1,331 @@
+"use client";
+
+/**
+ * The docs' search: ⌘K (Ctrl K elsewhere) or `/` from anywhere in the docs, or any of the search
+ * fields, opens one dialog over the page.
+ *
+ * **A real `<dialog>` opened with `showModal`**, for the reasons `docs/gotchas/web.md` gives: the
+ * focus trap, Escape, the inert page behind it and focus returning to whatever opened it all come
+ * from the browser. A click on the backdrop closes it through the native `closedby="any"`.
+ *
+ * **The typing never leaves the input.** It is a combobox: the arrow keys move the highlighted
+ * result by `aria-activedescendant`, Enter opens it, and a screen reader hears each result as it is
+ * highlighted. The results are links all the same, so a pointer, a middle-click or "open in new
+ * tab" behave as they would anywhere else.
+ */
+
+import { Hash, House, Search } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { pageById } from "./pages.ts";
+import { type Hit, highlight, type SearchEntry, search, termsOf } from "./search.ts";
+
+type SearchControls = {
+  open: () => void;
+  /** Runs `listener` whenever a result is followed, from whichever field opened search. */
+  onChosen: (listener: () => void) => () => void;
+};
+
+const SearchContext = createContext<SearchControls>({ open: () => {}, onChosen: () => () => {} });
+
+/** Opens the search dialog. Every search field in the docs is a button that calls this. */
+export function useOpenSearch(): () => void {
+  return useContext(SearchContext).open;
+}
+
+/**
+ * Calls `listener` when a search result is followed. The phone menu closes itself with it: a
+ * result on the page already open changes only the fragment, which no route change reports, and
+ * the menu would otherwise stay drawn over the heading the reader just asked for — however search
+ * was opened, from the menu's field, the bar's icon or the keyboard.
+ */
+export function useSearchChosen(listener: () => void) {
+  const { onChosen } = useContext(SearchContext);
+  useEffect(() => onChosen(listener), [onChosen, listener]);
+}
+
+export function SearchProvider({
+  entries,
+  children,
+}: {
+  entries: readonly SearchEntry[];
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const listeners = useRef(new Set<() => void>());
+  const search = useMemo<SearchControls>(
+    () => ({
+      open: () => setOpen(true),
+      onChosen: (listener) => {
+        listeners.current.add(listener);
+        return () => listeners.current.delete(listener);
+      },
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        search.open();
+        return;
+      }
+      if (event.key === "/" && !event.metaKey && !event.ctrlKey && !isTyping(event.target)) {
+        event.preventDefault();
+        search.open();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [search]);
+
+  return (
+    <SearchContext.Provider value={search}>
+      {children}
+      {open && (
+        <SearchDialog
+          entries={entries}
+          onChoose={() => {
+            for (const listener of listeners.current) listener();
+          }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </SearchContext.Provider>
+  );
+}
+
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+}
+
+function SearchDialog({
+  entries,
+  onChoose,
+  onClose,
+}: {
+  entries: readonly SearchEntry[];
+  onChoose: () => void;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const ids = useId();
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+
+  const results = useMemo(() => search(entries, query), [entries, query]);
+  const hits = useMemo(() => [...results.pages, ...results.sections], [results]);
+  const terms = useMemo(() => termsOf(query), [query]);
+  const optionId = (index: number) => `${ids}-option-${index}`;
+
+  useEffect(() => {
+    const element = dialog.current;
+    if (element && !element.open) element.showModal();
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new query starts at the top result.
+  useEffect(() => setActive(0), [query]);
+
+  useEffect(() => {
+    list.current
+      ?.querySelector(`[id="${optionId(active)}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  });
+
+  const close = () => dialog.current?.close();
+  const chosen = () => {
+    onChoose();
+    close();
+  };
+
+  const open = (hit: Hit | undefined) => {
+    if (!hit) return;
+    router.push(hit.entry.href);
+    chosen();
+  };
+
+  return (
+    <dialog
+      ref={dialog}
+      aria-label="Search the docs"
+      closedby="any"
+      onClose={onClose}
+      className="docs-search-dialog"
+    >
+      <div className="docs-search-query">
+        <Search aria-hidden="true" size={18} />
+        <input
+          autoFocus
+          type="text"
+          role="combobox"
+          aria-expanded={hits.length > 0}
+          aria-controls={hits.length > 0 ? `${ids}-results` : undefined}
+          aria-activedescendant={hits.length > 0 ? optionId(active) : undefined}
+          aria-autocomplete="list"
+          aria-label="Search the docs"
+          placeholder="Search docs…"
+          autoComplete="off"
+          spellCheck={false}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              if (hits.length === 0) return;
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              setActive((current) => (current + step + hits.length) % hits.length);
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              open(hits[active]);
+            }
+          }}
+          className="docs-search-input"
+        />
+        {/* A real button, so a touch screen reader has a way out that is not a gesture. */}
+        <button type="button" className="docs-kbd docs-search-close" onClick={close}>
+          <span aria-hidden="true">esc</span>
+          <span className="sr-only">Close search</span>
+        </button>
+      </div>
+
+      {/* Announced while focus stays in the field: how many results, or that there are none. The
+          options themselves are only read as the arrows reach them. */}
+      <p role="status" className={hits.length > 0 ? "sr-only" : "docs-search-empty"}>
+        {hits.length > 0
+          ? query.trim()
+            ? `${hits.length} ${hits.length === 1 ? "result" : "results"}`
+            : ""
+          : `No results for “${query.trim()}”.`}
+      </p>
+
+      {hits.length > 0 && (
+        <div
+          ref={list}
+          id={`${ids}-results`}
+          role="listbox"
+          aria-label="Results"
+          // Out of the tab order: Chrome makes a scrolling box focusable, and the arrows and Enter
+          // that work the list are the field's, so Tab landing here would strand them.
+          tabIndex={-1}
+          className="docs-search-results"
+        >
+          <Group
+            name={query.trim() ? "Pages" : "All pages"}
+            hits={results.pages}
+            offset={0}
+            {...{ active, terms, optionId, setActive, chosen }}
+          />
+          <Group
+            name="Sections"
+            hits={results.sections}
+            offset={results.pages.length}
+            {...{ active, terms, optionId, setActive, chosen }}
+          />
+        </div>
+      )}
+
+      <div className="docs-search-foot" aria-hidden="true">
+        <span>
+          <kbd className="docs-kbd">↵</kbd> to open
+        </span>
+        <span>
+          <kbd className="docs-kbd">↑</kbd>
+          <kbd className="docs-kbd">↓</kbd> to move
+        </span>
+        <span className="docs-search-foot-note">Searches every heading and paragraph</span>
+      </div>
+    </dialog>
+  );
+}
+
+function Group({
+  name,
+  hits,
+  offset,
+  active,
+  terms,
+  optionId,
+  setActive,
+  chosen,
+}: {
+  name: string;
+  hits: readonly Hit[];
+  offset: number;
+  active: number;
+  terms: readonly string[];
+  optionId: (index: number) => string;
+  setActive: (index: number) => void;
+  chosen: () => void;
+}) {
+  if (hits.length === 0) return null;
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a listbox's groups have no native element; `fieldset` is for form controls.
+    <div role="group" aria-label={name}>
+      <p className="docs-search-group" aria-hidden="true">
+        {name}
+      </p>
+      {hits.map((hit, index) => {
+        const position = offset + index;
+        const Icon =
+          hit.entry.kind === "section" ? Hash : (pageById(hit.entry.pageId ?? "")?.Icon ?? House);
+        return (
+          <Link
+            key={hit.entry.href}
+            id={optionId(position)}
+            href={hit.entry.href}
+            role="option"
+            aria-selected={position === active}
+            tabIndex={-1}
+            className="docs-search-hit"
+            onMouseMove={() => {
+              if (position !== active) setActive(position);
+            }}
+            onClick={(event) => {
+              // A result opened in a new tab or window leaves this one where it was.
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              chosen();
+            }}
+          >
+            <Icon aria-hidden="true" size={17} />
+            <span>
+              <span className="docs-search-path">{hit.entry.context}</span>
+              <span className="docs-search-title">
+                <Marked text={hit.entry.title} terms={terms} />
+              </span>
+              {hit.snippet && (
+                <span className="docs-search-snippet">
+                  <Marked text={hit.snippet} terms={terms} />
+                </span>
+              )}
+            </span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function Marked({ text, terms }: { text: string; terms: readonly string[] }) {
+  return (
+    <>
+      {highlight(text, terms).map((run, index) =>
+        // biome-ignore lint/suspicious/noArrayIndexKey: runs are a pure function of the text; their order is their identity.
+        run.match ? <mark key={index}>{run.text}</mark> : <span key={index}>{run.text}</span>,
+      )}
+    </>
+  );
+}

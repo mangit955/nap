@@ -16,7 +16,7 @@ const COLUMNS = [
     title: "Docs",
     links: [
       { label: "How it works", href: "/docs" },
-      { label: "Architecture", href: "/docs#architecture" },
+      { label: "Architecture", href: "/docs/architecture" },
       // The load and cluster runs: how the backend behaves at scale, measured with simulated
       // workloads. Proof for an engineer, which is why it lives here and not in the page.
       { label: "Engineering reports", href: `${REPO_URL}/blob/main/docs/scaling-cluster.md` },

@@ -13,7 +13,8 @@
  * the session has resolved, when the bar offers no way in rather than a wrong one.
  *
  * **It is dark, like the product.** Every colour it uses is declared on `.landing` in
- * `landing.css`, so nothing here can restyle the workspace or the docs, which keep their own.
+ * `landing.css`, so nothing here can restyle the workspace. The docs wear the same class, so they
+ * look like the same site.
  */
 
 import { type ReactNode, useRef } from "react";

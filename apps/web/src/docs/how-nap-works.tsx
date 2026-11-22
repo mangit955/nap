@@ -29,6 +29,7 @@ Runtime             persists → publishes → commits → verifies → snapshot
 you                 come back to it running`;
 
 export function HowNapWorks() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>

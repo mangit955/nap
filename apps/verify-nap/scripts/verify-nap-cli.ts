@@ -25,6 +25,16 @@ export const RunFileSchema = z.object({
 });
 export type RunFile = z.infer<typeof RunFileSchema>;
 
+/** Up to an 8K screen: past that Chrome refuses the size, and nothing real is that wide. */
+const MAX_VIEWPORT = 7680;
+const viewportSide = z.number().int().positive().max(MAX_VIEWPORT);
+
+/**
+ * A viewport `resize` accepts, and the one it saves in the run directory for every command after
+ * it to apply again. One schema for both, so a size the command refuses is never replayed.
+ */
+export const ViewportSchema = z.object({ width: viewportSide, height: viewportSide });
+
 /**
  * What the fixture has started so far, rewritten as each thing comes up. It exists for the
  * fixture that was killed (SIGKILL, a closed session) and never ran its own cleanup: `stop` reads
@@ -136,7 +146,9 @@ export type Command =
   | { kind: "press"; key: string }
   | { kind: "wait"; target: Target; state: "visible" | "hidden"; timeoutMs: number }
   | ({ kind: "snapshot"; label: string } & InFrame)
-  | { kind: "shot"; label: string; fullPage: boolean };
+  | { kind: "shot"; label: string; fullPage: boolean }
+  /** The viewport in CSS pixels; every command after it in the run uses it too. */
+  | { kind: "resize"; width: number; height: number };
 
 const DEFAULT_WAIT_MS = 30_000;
 
@@ -145,6 +157,8 @@ const VALUE_FLAGS = new Set([
   "role",
   "name",
   "value",
+  "width",
+  "height",
   "key",
   "text",
   "state",
@@ -281,10 +295,22 @@ export function parseCommand(args: readonly string[]): Result<Command, string> {
         ? { ok: true, value: { kind: "shot", label: named.value, fullPage: values.has("full") } }
         : named;
     }
+    case "resize": {
+      const viewport = ViewportSchema.safeParse({
+        width: Number(values.get("width")),
+        height: Number(values.get("height")),
+      });
+      return viewport.success
+        ? { ok: true, value: { kind: "resize", ...viewport.data } }
+        : {
+            ok: false,
+            error: `resize needs --width and --height, whole pixels up to ${MAX_VIEWPORT}, e.g. 390 and 844`,
+          };
+    }
     default:
       return {
         ok: false,
-        error: `unknown command "${name ?? ""}"; one of: doctor, signin, goto, click, hover, fill, press, wait, snapshot, shot, url, stop`,
+        error: `unknown command "${name ?? ""}"; one of: doctor, signin, goto, click, hover, fill, press, wait, snapshot, shot, resize, url, stop`,
       };
   }
 }

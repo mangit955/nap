@@ -72,7 +72,7 @@ function reachable(entry: string): Set<string> {
  */
 function drawing(files: Iterable<string>, classes: string[]): string[] {
   // Bounded the way a class list bounds it, so neither prose nor a path such as
-  // `../landing/site-header.tsx` counts.
+  // `../landing/landing-nav.tsx` counts.
   const token = new RegExp(`(?<=^.|\\s)(?:${classes.join("|")})(?=\\s|.$)`);
   const literals = /"[^"\n]*"|'[^'\n]*'|`[^`]*`/g;
   return [...files].filter((file) => {

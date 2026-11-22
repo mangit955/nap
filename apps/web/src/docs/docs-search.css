@@ -1,0 +1,156 @@
+/*
+ * The search dialog. Tokens as in `docs.css`.
+ */
+@layer components {
+  .docs-search-dialog {
+    width: min(680px, calc(100% - 32px));
+    max-width: none;
+    max-height: min(620px, calc(100dvh - 24vh));
+    margin: 12vh auto auto;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--docs-line-strong);
+    border-radius: 16px;
+    background: var(--lp-card);
+    box-shadow: 0 32px 96px -16px var(--lp-ground);
+    color: var(--lp-ink);
+    font-family: var(--font-inter), sans-serif;
+    letter-spacing: -0.015em;
+  }
+  .docs-search-dialog[open] {
+    display: flex;
+    flex-direction: column;
+  }
+  /* The backdrop inherits its custom properties from the dialog in every engine this site
+     supports; where one did not, the scrim would be clear and the page behind still inert. */
+  .docs-search-dialog::backdrop {
+    background: color-mix(in srgb, var(--lp-ground) 72%, transparent);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+  .docs-search-query {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--lp-line);
+    color: var(--lp-ink-3);
+  }
+  .docs-search-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    color: var(--lp-ink);
+    font-size: 17px;
+  }
+  .docs-search-input::placeholder {
+    color: var(--lp-ink-3);
+  }
+  /* The caret is the focus indicator in a dialog with one field. A transparent outline rather than
+     none, so forced-colours modes still draw one. */
+  .docs-search-input:focus-visible {
+    outline: 2px solid transparent;
+  }
+  .docs-search-close {
+    cursor: pointer;
+    transition: color 120ms ease;
+  }
+  .docs-search-close:hover {
+    color: var(--lp-ink);
+  }
+  .docs-search-results {
+    flex: 1;
+    scrollbar-width: thin;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 6px 10px 10px;
+  }
+  .docs-search-group {
+    padding: 12px 10px 6px;
+    color: var(--lp-ink-3);
+    font-size: 13px;
+  }
+  .docs-search-hit {
+    display: flex;
+    gap: 12px;
+    padding: 10px;
+    border-radius: 10px;
+    scroll-margin: 8px;
+  }
+  .docs-search-hit > svg {
+    flex: none;
+    margin-top: 2px;
+    color: var(--lp-ink-3);
+  }
+  .docs-search-hit[aria-selected="true"] {
+    background: var(--docs-selected);
+    box-shadow: inset 0 0 0 1px var(--lp-line);
+  }
+  .docs-search-hit > span {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .docs-search-path {
+    color: var(--lp-ink-3);
+    font-size: 12.5px;
+  }
+  .docs-search-title {
+    color: var(--lp-ink);
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .docs-search-snippet {
+    margin-top: 2px;
+    color: var(--lp-ink-2);
+    font-size: 13.5px;
+    line-height: 1.55;
+    letter-spacing: -0.005em;
+  }
+  .docs-search-hit mark {
+    padding: 0 2px;
+    border-radius: 4px;
+    background: var(--docs-mark);
+    color: var(--lp-ink);
+  }
+  .docs-search-empty {
+    padding: 40px 16px;
+    color: var(--lp-ink-3);
+    text-align: center;
+  }
+  .docs-search-foot {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 18px;
+    border-top: 1px solid var(--lp-line);
+    color: var(--lp-ink-3);
+    font-size: 12.5px;
+  }
+  .docs-search-foot > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .docs-search-foot .docs-kbd {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 4px;
+  }
+  .docs-search-foot-note {
+    margin-left: auto;
+  }
+  @media (max-width: 639px) {
+    .docs-search-dialog {
+      width: calc(100% - 16px);
+      max-height: calc(100dvh - 16px);
+      margin-top: 8px;
+    }
+    /* Keyboard hints, on a screen that is usually a touch screen. */
+    .docs-search-foot {
+      display: none;
+    }
+  }
+}

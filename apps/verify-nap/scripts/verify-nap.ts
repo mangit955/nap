@@ -27,6 +27,7 @@ import {
   RunFileSchema,
   StartedFileSchema,
   type Target,
+  ViewportSchema,
 } from "./verify-nap-cli.ts";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -122,6 +123,32 @@ async function hydrated(page: Page) {
     () => Object.keys(document.body).some((key) => key.startsWith("__reactFiber$")),
     undefined,
     { timeout: 120_000 },
+  );
+}
+
+/**
+ * Waits until the page has stopped moving: the same scroll position and viewport for ten frames
+ * running, or five seconds at most. A viewport just set again repaints and reflows, and a page
+ * opened at an anchor scrolls to it smoothly; evidence captured mid-way shows a frame the reader
+ * never sees, with the "On this page" mark matching a scroll position the page is passing through.
+ */
+async function settled(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const state = () => `${scrollX},${scrollY},${innerWidth},${innerHeight}`;
+        const start = performance.now();
+        let last = state();
+        let still = 0;
+        const tick = () => {
+          const now = state();
+          still = now === last ? still + 1 : 0;
+          last = now;
+          if (still >= 10 || performance.now() - start > 5000) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
   );
 }
 
@@ -308,6 +335,50 @@ async function stopRun(directory: string) {
   );
 }
 
+/**
+ * The viewport `resize` chose, kept in the run directory. An emulated viewport belongs to the
+ * DevTools connection that set it and lapses when a command detaches, and headless Chrome will not
+ * size its window below 500 pixels, so a phone width is set again at the start of every command
+ * (and the window is sized as close to it as Chrome allows, by `sizeWindow`).
+ */
+const VIEWPORT_FILE = "viewport.json";
+
+/**
+ * The window itself, which unlike the emulated viewport keeps its size after a command detaches.
+ * Headless Chrome will not make it narrower than 500 pixels, so a phone width still needs the
+ * emulation; but between two commands the page then sits at 500 rather than snapping back to the
+ * fixture's 1440, which would cross every layout breakpoint in between and close anything a page
+ * closes when the window widens (the docs' phone menu does).
+ */
+async function sizeWindow(page: Page, width: number, height: number) {
+  const session = await page.context().newCDPSession(page);
+  const { windowId } = await session.send("Browser.getWindowForTarget");
+  await session.send("Browser.setWindowBounds", {
+    windowId,
+    bounds: { width: Math.max(width, MIN_WINDOW_WIDTH), height, windowState: "normal" },
+  });
+  await session.detach();
+}
+
+const MIN_WINDOW_WIDTH = 500;
+
+async function applyViewport(page: Page, directory: string) {
+  const raw = await readFile(join(directory, VIEWPORT_FILE), "utf8").catch(() => null);
+  if (raw === null) return;
+  let saved: unknown;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    saved = null;
+  }
+  const viewport = ViewportSchema.safeParse(saved);
+  if (!viewport.success) {
+    throw new Error(`${VIEWPORT_FILE} is not a viewport; run resize again to replace it.`);
+  }
+  await page.setViewportSize(viewport.data);
+  await settled(page);
+}
+
 async function act(page: Page, run: RunFile, command: Command) {
   switch (command.kind) {
     case "url":
@@ -315,6 +386,7 @@ async function act(page: Page, run: RunFile, command: Command) {
     case "goto":
       await page.goto(`${run.web}${command.path}`);
       await hydrated(page);
+      await settled(page);
       return;
     case "signin":
       await page.goto(`${run.web}/sign-in`);
@@ -367,7 +439,12 @@ async function act(page: Page, run: RunFile, command: Command) {
       console.log(await scope(page, command.frame).locator("body").ariaSnapshot());
       return;
     case "shot":
+      await settled(page);
       console.log((await capture(page, run, command.label, command.fullPage)).join("\n"));
+      return;
+    case "resize":
+      // Applied in `main` before every command, from the file it writes.
+      console.log(`viewport ${command.width}×${command.height}`);
       return;
     case "doctor":
     case "stop":
@@ -395,6 +472,18 @@ async function main() {
     if (context === undefined) throw new Error("The fixture's Chrome has no browser context.");
     const page = context.pages()[0] ?? (await context.newPage());
     try {
+      if (command.kind === "resize") {
+        // Applied before it is saved, so a size Chrome refuses never reaches the commands after.
+        await page.setViewportSize({ width: command.width, height: command.height });
+        await sizeWindow(page, command.width, command.height);
+        await settled(page);
+        await writeFile(
+          join(directory, VIEWPORT_FILE),
+          JSON.stringify({ width: command.width, height: command.height }),
+        );
+      } else {
+        await applyViewport(page, directory);
+      }
       await act(page, run, command);
     } catch (error) {
       // A failed action is evidence too: save what the page looked like when it failed.

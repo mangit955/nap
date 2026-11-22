@@ -15,7 +15,7 @@ describe("what nap does", () => {
     ]);
     expect(rows.map((row) => within(row).getByRole("link").getAttribute("href"))).toEqual([
       "/sign-up",
-      "/docs#verification",
+      "/docs/verification",
       "/sign-up",
     ]);
   });

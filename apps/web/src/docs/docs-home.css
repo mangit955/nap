@@ -1,0 +1,185 @@
+/*
+ * The docs home: its title, the recorded session in the night-sky panel, and the cards. Tokens as
+ * in `docs.css`.
+ */
+@layer components {
+  .docs-home {
+    max-width: 1140px;
+    margin-inline: auto;
+    padding: 44px 56px 120px 72px;
+  }
+  .docs-home-title {
+    max-width: 900px;
+    margin-top: 16px;
+    font-size: clamp(44px, 5.4vw, 76px);
+    line-height: 1;
+  }
+  .docs-home-intro {
+    max-width: 600px;
+    margin-top: 22px;
+    color: var(--lp-ink-2);
+    font-size: 18px;
+    line-height: 1.6;
+    letter-spacing: -0.015em;
+  }
+  .docs-wall {
+    margin-top: 52px;
+    padding: 44px 56px;
+  }
+  .docs-wall-window {
+    overflow: hidden;
+    border-radius: 10px;
+    box-shadow:
+      0 0 0 1px var(--lp-line),
+      0 24px 64px -16px var(--lp-ground);
+    background: var(--lp-card);
+  }
+  .docs-wall-window > button {
+    position: relative;
+    display: block;
+    width: 100%;
+    cursor: pointer;
+  }
+  .docs-wall-window img,
+  .docs-wall-window video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  .docs-wall-cue {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 16px;
+    border: 1px solid var(--lp-line);
+    border-radius: 999px;
+    background: var(--docs-glass);
+    color: var(--lp-ink);
+    font-size: var(--lp-text-small);
+    letter-spacing: -0.01em;
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    transition: background-color 140ms ease;
+  }
+  .docs-wall-window > button:hover .docs-wall-cue {
+    background: var(--lp-ground);
+  }
+  .landing.docs .docs-wall-window > button:focus-visible {
+    outline-offset: -4px;
+  }
+
+  .docs-home-heading {
+    margin-top: 88px;
+    color: var(--lp-ink);
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+  }
+  .docs-home-lede {
+    margin-top: 10px;
+    color: var(--lp-ink-2);
+    line-height: 1.6;
+  }
+  .docs-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+    margin-top: 28px;
+  }
+  .docs-card {
+    display: flex;
+    flex-direction: column;
+    padding: 22px;
+    border: 1px solid var(--lp-line);
+    border-radius: 14px;
+    background: var(--lp-card);
+    transition: border-color 140ms ease;
+  }
+  .docs-card:hover {
+    border-color: var(--docs-line-strong);
+  }
+  .docs-card-icon {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--lp-line);
+    border-radius: 9px;
+    color: var(--lp-ink-2);
+  }
+  .docs-card-title {
+    margin-top: 20px;
+    color: var(--lp-ink);
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+  .docs-card-body {
+    margin-top: 6px;
+    color: var(--lp-ink-2);
+    font-size: var(--lp-text-small);
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+  }
+  .docs-card-more {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 18px;
+    color: var(--lp-ink);
+    font-size: var(--lp-text-small);
+  }
+  .docs-card-more svg {
+    transition: transform 160ms ease;
+  }
+  .docs-card:hover .docs-card-more svg {
+    transform: translateX(2px);
+  }
+
+  /* ---- Narrower windows ---------------------------------------------------------------- */
+
+  @media (max-width: 1279px) {
+    .docs-home {
+      padding-right: 48px;
+      padding-left: 56px;
+    }
+  }
+  @media (max-width: 1023px) {
+    .docs-home {
+      padding: 36px 20px 96px;
+    }
+    .docs-cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 639px) {
+    .docs-home-intro {
+      font-size: 17px;
+    }
+    .docs-wall {
+      margin-top: 36px;
+      padding: 16px;
+      border-radius: 12px;
+    }
+    .docs-wall-cue {
+      bottom: 12px;
+      left: 12px;
+      padding: 7px 12px;
+      font-size: 13px;
+    }
+    .docs-home-heading {
+      margin-top: 64px;
+      font-size: 26px;
+    }
+    .docs-cards {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

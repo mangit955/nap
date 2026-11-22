@@ -81,6 +81,7 @@ const DECISIONS = [
 ] as const;
 
 export function Decisions() {
+  "use no memo"; // `outline.ts` calls this as a plain function; see why there.
   return (
     <>
       <Lede>
@@ -96,14 +97,14 @@ export function Decisions() {
       <ol className="mt-7 max-w-2xl space-y-6">
         {DECISIONS.map((decision, index) => (
           <li key={decision.file} className="flex gap-4">
-            <span className="pt-0.5 font-mono text-[11px] text-[var(--s-text-subtle)] tabular-nums">
+            <span className="pt-0.5 font-mono text-[11px] text-[var(--lp-ink-3)] tabular-nums">
               {String(index + 1).padStart(4, "0")}
             </span>
             <div>
               <p className="text-[15px] leading-snug">
                 <Source href={`${ADR_DIR}/${decision.file}`}>{decision.title}</Source>
               </p>
-              <p className="mt-1.5 text-[14px] text-[var(--s-text-muted)] leading-[1.7]">
+              <p className="mt-1.5 text-[14px] text-[var(--lp-ink-2)] leading-[1.7]">
                 {decision.body}
               </p>
             </div>
