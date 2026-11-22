@@ -40,7 +40,9 @@ it("eases a wheel gesture over several frames and releases the frame on unmount"
     vi.advanceTimersByTime(500);
     expect(position).toBe(240);
 
+    const pending = vi.getTimerCount();
     main.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 }));
+    expect(vi.getTimerCount()).toBe(pending + 1);
     unmount();
     vi.advanceTimersByTime(500);
     expect(position).toBe(240);
