@@ -21,6 +21,9 @@ export function useDismiss(
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || document.querySelector("dialog[open]")) return;
+      // A disclosure under the open phone menu — the page's "On this page" list — is covered and
+      // inert; the menu on top is what this Escape is for.
+      if (opener.current?.closest("[inert]")) return;
       close();
       opener.current?.focus();
     };

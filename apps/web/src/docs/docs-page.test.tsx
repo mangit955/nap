@@ -49,7 +49,10 @@ beforeEach(() => {
   pathname = DOCS_HOME;
   window.location.hash = "";
 });
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
+});
 
 function renderPage(id: (typeof PAGES)[number]["id"]) {
   const section = SECTIONS.find((candidate) => candidate.id === id);
@@ -263,6 +266,43 @@ describe("the phone menu", () => {
 
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("dialog", { name: /search the docs/i })).toBeInTheDocument();
+  });
+
+  it("closes when the window widens to where the sidebar comes back", () => {
+    let wide = false;
+    const listeners = new Set<() => void>();
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          media: query,
+          get matches() {
+            return wide;
+          },
+          addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+          removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+        }) as unknown as MediaQueryList,
+    );
+    const toggle = openMenu();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    wide = true;
+    act(() => {
+      for (const listener of listeners) listener();
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector("[data-docs-under-menu][inert]")).toBeNull();
+  });
+
+  it("is the only thing one Escape closes when the page's On this page list is open under it", () => {
+    renderPage("verification");
+    const list = screen.getByRole("button", { name: "On this page" });
+    fireEvent.click(list);
+    const toggle = screen.getByRole("button", { name: "Menu" });
+    fireEvent.click(toggle);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(list).toHaveAttribute("aria-expanded", "true");
   });
 
   it("stays open when Escape is closing the search opened from it", () => {
