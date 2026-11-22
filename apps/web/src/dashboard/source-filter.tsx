@@ -2,6 +2,7 @@
 import { type SessionSummary, sessionSection } from "@nap/shared/session-navigation";
 import { ListFilter } from "lucide-react";
 import { useRef, useState } from "react";
+import { Tooltip } from "../ui/tooltip.tsx";
 import { SourceMark } from "./session-row.tsx";
 import { sessionSource } from "./session-rows.ts";
 
@@ -40,20 +41,22 @@ export function SourceFilter({
         }
       }}
     >
-      <button
-        ref={trigger}
-        type="button"
-        aria-label="Filter by source"
-        title="Filter by source"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-          setQuery("");
-        }}
-        className={`grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink ${value ? "text-info" : "text-sidebar-icon"}`}
-      >
-        <ListFilter aria-hidden className="size-4" />
-      </button>
+      {/* Shut while the list is open: it drops down over the place the tooltip would draw. */}
+      <Tooltip label="Filter by source" disabled={open}>
+        <button
+          ref={trigger}
+          type="button"
+          aria-label="Filter by source"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            setQuery("");
+          }}
+          className={`grid size-7 place-items-center rounded-md hover:bg-hover hover:text-ink ${value ? "text-info" : "text-sidebar-icon"}`}
+        >
+          <ListFilter aria-hidden className="size-4" />
+        </button>
+      </Tooltip>
       {open && (
         <div className="composer-surface nap-float absolute left-0 top-full z-40 mt-1 w-full rounded-[10px] p-1.5 [--float-origin:top]">
           <input

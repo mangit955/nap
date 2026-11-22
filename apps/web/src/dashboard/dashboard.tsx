@@ -10,6 +10,8 @@ import {
 } from "react";
 import { PanelIcon } from "../ui/icons.tsx";
 import { Splitter } from "../ui/splitter.tsx";
+import { Toaster } from "../ui/toast.tsx";
+import { Tooltip, TooltipProvider } from "../ui/tooltip.tsx";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
 
 export function Dashboard({
@@ -157,99 +159,105 @@ export function Dashboard({
   }, [navigationOpen, closeNavigation]);
 
   return (
-    <div
-      style={frameStyle}
-      aria-busy={fading}
-      className={`dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 ${fading ? "opacity-60" : "opacity-100"}`}
-      data-signing-out={fading}
-      data-sidebar-collapsed={collapsed}
-      data-navigation-open={navigationOpen}
-      data-details-card={detailsCard}
-    >
-      <button
-        type="button"
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        aria-expanded={!collapsed}
-        onClick={() => {
-          setCollapsed(!collapsed);
-          try {
-            localStorage.setItem("nap.sidebar.collapsed", String(!collapsed));
-          } catch {
-            /* Optional preference. */
-          }
-        }}
-        className="sidebar-toggle desktop-sidebar-toggle"
-        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+    // One tooltip group and one toast stack for every signed-in page: the dashboard and each
+    // project's workspace are both drawn in this frame.
+    <TooltipProvider>
+      <Toaster />
+      <div
+        style={frameStyle}
+        aria-busy={fading}
+        className={`dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 ${fading ? "opacity-60" : "opacity-100"}`}
+        data-signing-out={fading}
+        data-sidebar-collapsed={collapsed}
+        data-navigation-open={navigationOpen}
+        data-details-card={detailsCard}
       >
-        <PanelIcon open={!collapsed} />
-      </button>
-      <button
-        ref={mobileTrigger}
-        type="button"
-        aria-label={navigationOpen ? "Close sessions" : "Open sessions"}
-        aria-expanded={navigationOpen}
-        onClick={() => setNavigationOpen(!navigationOpen)}
-        className="sidebar-toggle mobile-sidebar-toggle"
-      >
-        <PanelIcon open={navigationOpen} />
-      </button>
-      {navigationOpen && (
-        <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={closeNavigation}
-          className="sidebar-backdrop"
-        />
-      )}
-      <div ref={navigation} className="dashboard-sidebar min-h-0">
-        {typeof sidebar === "function" ? sidebar({ closeNavigation }) : sidebar}
-      </div>
-      {!collapsed && (
-        <div className="sidebar-resize">
-          <Splitter
-            label="Sidebar width"
-            value={width}
-            onGrab={(event) => {
-              event.preventDefault();
-              const target = event.currentTarget;
-              if (target instanceof HTMLElement) target.focus();
-              target.setPointerCapture(event.pointerId);
-              const move = (next: Event) => {
-                if (next instanceof PointerEvent) resize(next.clientX);
-              };
-              const stop = () => {
-                target.removeEventListener("pointermove", move);
-                target.removeEventListener("lostpointercapture", stop);
-              };
-              target.addEventListener("pointermove", move);
-              target.addEventListener("lostpointercapture", stop, { once: true });
-            }}
-            onKeyDown={(event) => {
-              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
-                event.preventDefault();
-                resize(
-                  event.key === "Home"
-                    ? 208
-                    : event.key === "End"
-                      ? 420
-                      : width + (event.key === "ArrowLeft" ? -16 : 16),
-                );
+        <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
+          <button
+            type="button"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
+            onClick={() => {
+              setCollapsed(!collapsed);
+              try {
+                localStorage.setItem("nap.sidebar.collapsed", String(!collapsed));
+              } catch {
+                /* Optional preference. */
               }
             }}
+            className="sidebar-toggle desktop-sidebar-toggle"
+          >
+            <PanelIcon open={!collapsed} />
+          </button>
+        </Tooltip>
+        <button
+          ref={mobileTrigger}
+          type="button"
+          aria-label={navigationOpen ? "Close sessions" : "Open sessions"}
+          aria-expanded={navigationOpen}
+          onClick={() => setNavigationOpen(!navigationOpen)}
+          className="sidebar-toggle mobile-sidebar-toggle"
+        >
+          <PanelIcon open={navigationOpen} />
+        </button>
+        {navigationOpen && (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={closeNavigation}
+            className="sidebar-backdrop"
           />
+        )}
+        <div ref={navigation} className="dashboard-sidebar min-h-0">
+          {typeof sidebar === "function" ? sidebar({ closeNavigation }) : sidebar}
         </div>
-      )}
-      <Content
-        ref={contentRef}
-        inert={navigationOpen}
-        className="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
-      >
-        {hero}
-        {grid}
-      </Content>
-      <div inert={navigationOpen} style={{ display: navigationOpen ? "none" : "contents" }}>
-        {details}
+        {!collapsed && (
+          <div className="sidebar-resize">
+            <Splitter
+              label="Sidebar width"
+              value={width}
+              onGrab={(event) => {
+                event.preventDefault();
+                const target = event.currentTarget;
+                if (target instanceof HTMLElement) target.focus();
+                target.setPointerCapture(event.pointerId);
+                const move = (next: Event) => {
+                  if (next instanceof PointerEvent) resize(next.clientX);
+                };
+                const stop = () => {
+                  target.removeEventListener("pointermove", move);
+                  target.removeEventListener("lostpointercapture", stop);
+                };
+                target.addEventListener("pointermove", move);
+                target.addEventListener("lostpointercapture", stop, { once: true });
+              }}
+              onKeyDown={(event) => {
+                if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                  event.preventDefault();
+                  resize(
+                    event.key === "Home"
+                      ? 208
+                      : event.key === "End"
+                        ? 420
+                        : width + (event.key === "ArrowLeft" ? -16 : 16),
+                  );
+                }
+              }}
+            />
+          </div>
+        )}
+        <Content
+          ref={contentRef}
+          inert={navigationOpen}
+          className="dashboard-content nap-scroll-hidden relative min-h-0 min-w-0 overflow-y-auto"
+        >
+          {hero}
+          {grid}
+        </Content>
+        <div inert={navigationOpen} style={{ display: navigationOpen ? "none" : "contents" }}>
+          {details}
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

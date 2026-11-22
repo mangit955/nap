@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 import type { ApplyOptions, NavigationStep } from "../projects/use-session-navigation.ts";
+import { toasts } from "../ui/toast.tsx";
 import { SessionContextMenu } from "./session-context-menu.tsx";
 import { SessionDialog, type SessionDialogRequest } from "./session-dialog.tsx";
 import { type MenuItemId, sessionMenuItems } from "./session-menu.ts";
@@ -175,7 +176,6 @@ export function SessionList({
   const [hints, setHints] = useState(false);
   const [dragging, setDragging] = useState<string>();
   const [dropShelf, setDropShelf] = useState<DropShelf>();
-  const [notice, setNotice] = useState<{ alert: boolean; text: string }>();
   const [drag, setDrag] = useState<DragModule | undefined>(dragModule);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -204,11 +204,6 @@ export function SessionList({
     refocus.current = undefined;
     if (id && drag) linkFor(id)?.focus();
   }, [drag]);
-  useEffect(() => {
-    if (!notice || notice.alert) return;
-    const timer = setTimeout(() => setNotice(undefined), 2000);
-    return () => clearTimeout(timer);
-  }, [notice]);
 
   const { sorted, filtered, drawn, anyMatch, byId } = useMemo(() => {
     const shelves = shelveSessions(sessions, now);
@@ -350,9 +345,14 @@ export function SessionList({
     async copy(text: string, what: string) {
       try {
         await navigator.clipboard.writeText(text);
-        setNotice({ alert: false, text: `${what} copied` });
+        toasts.add({ title: `${what} copied`, description: text });
       } catch {
-        setNotice({ alert: true, text: "Could not copy. Check clipboard access and try again." });
+        toasts.add({
+          title: "Could not copy",
+          description: "Check clipboard access and try again.",
+          type: "error",
+          priority: "high",
+        });
       }
     },
   };
@@ -840,14 +840,6 @@ export function SessionList({
           );
         })}
       </div>
-      {notice && (
-        <p
-          role={notice.alert ? "alert" : "status"}
-          className={`p-3 text-xs ${notice.alert ? "text-danger" : "text-muted"}`}
-        >
-          {notice.text}
-        </p>
-      )}
       {menu && menuRow && (
         <SessionContextMenu
           label={`Actions for ${menuRow.name}`}

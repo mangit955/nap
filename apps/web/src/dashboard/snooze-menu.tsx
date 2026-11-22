@@ -3,6 +3,7 @@
 import { AlarmClock } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Tooltip } from "../ui/tooltip.tsx";
 import { snoozePresets } from "./session-rows.ts";
 
 /**
@@ -58,29 +59,31 @@ export function SnoozeMenu({
 
   return (
     <>
-      <button
-        ref={trigger}
-        disabled={disabled}
-        type="button"
-        aria-label={`Snooze ${name}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title="Snooze"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const rect = trigger.current?.getBoundingClientRect();
-          if (open || !rect) setPosition(undefined);
-          else
-            setPosition({
-              top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 260)),
-              left: Math.max(8, Math.min(rect.right - 224, window.innerWidth - 232)),
-            });
-        }}
-        className="inline-flex h-5 cursor-pointer items-center rounded-md px-1.5 text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
-      >
-        <AlarmClock aria-hidden className="size-3.5" />
-      </button>
+      {/* Shut while the presets are open: they drop down over the place the tooltip would draw. */}
+      <Tooltip label="Snooze" disabled={open}>
+        <button
+          ref={trigger}
+          disabled={disabled}
+          type="button"
+          aria-label={`Snooze ${name}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = trigger.current?.getBoundingClientRect();
+            if (open || !rect) setPosition(undefined);
+            else
+              setPosition({
+                top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 260)),
+                left: Math.max(8, Math.min(rect.right - 224, window.innerWidth - 232)),
+              });
+          }}
+          className="inline-flex h-5 cursor-pointer items-center rounded-md px-1.5 text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <AlarmClock aria-hidden className="size-3.5" />
+        </button>
+      </Tooltip>
       {open &&
         createPortal(
           <div
