@@ -102,6 +102,15 @@ function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(value, low), high);
 }
 
+/** Where the layout puts `element`: its box less the translate the glide is drawing it at. */
+function layoutBox(element: HTMLElement): Box {
+  const { left, top, right, bottom } = element.getBoundingClientRect();
+  const transform = getComputedStyle(element).transform;
+  if (transform === "none") return { left, top, right, bottom };
+  const { m41: x, m42: y } = new DOMMatrixReadOnly(transform);
+  return { left: left - x, top: top - y, right: right - x, bottom: bottom - y };
+}
+
 /**
  * The viewport of each ancestor below `root` (and of `root` itself) that clips its contents:
  * the padding box, which is where both clipping and a scroll container's overflow are measured.
@@ -152,18 +161,32 @@ export function useSendGlide(root: RefObject<HTMLElement | null>): void {
         fill: "backwards",
       });
       if (animation) playing.push(animation);
+      return animation;
     };
 
+    let observer: ResizeObserver | undefined;
     const composer = frame.querySelector<HTMLElement>(".chat-composer-dock .workspace-composer");
     if (composer !== null) {
-      const { x, y } = glideOffset(
-        from,
-        composer.getBoundingClientRect(),
-        clipsOf(composer, frame),
-      );
-      play(composer, [{ transform: `translate(${x}px, ${y}px)` }, { transform: "none" }], {
-        duration: GLIDE_MS,
-      });
+      const aim = (): Keyframe[] => {
+        const { x, y } = glideOffset(from, layoutBox(composer), clipsOf(composer, frame));
+        return [{ transform: `translate(${x}px, ${y}px)` }, { transform: "none" }];
+      };
+      const moving = play(composer, aim(), { duration: GLIDE_MS });
+      // The frame is laid out again after this runs: the panel's saved width, or a panel the last
+      // start closed, is restored by an effect, which moves the composer across its column. Aimed
+      // again on each resize of the composer or the column — after layout, before paint — so it
+      // still starts from where it was sent, until it lands.
+      const column = composer.closest(".t3-chat-column");
+      if (moving !== undefined) {
+        const watching = new ResizeObserver(() => {
+          if (moving.effect instanceof KeyframeEffect) moving.effect.setKeyframes(aim());
+        });
+        watching.observe(composer);
+        if (column !== null) watching.observe(column);
+        const stop = () => watching.disconnect();
+        moving.finished.then(stop, stop);
+        observer = watching;
+      }
     }
     play(
       frame.querySelector<HTMLElement>(".t3-chat-column [data-turn-prompt]"),
@@ -182,6 +205,7 @@ export function useSendGlide(root: RefObject<HTMLElement | null>): void {
       { duration: GLIDE_MS - 40, delay: 40 },
     );
     return () => {
+      observer?.disconnect();
       for (const animation of playing) animation.cancel();
     };
   }, [root]);

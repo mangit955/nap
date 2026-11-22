@@ -16,9 +16,24 @@ import { WorkspacePanes } from "./workspace-panes.tsx";
  * point of the glide — and leave how it looks to the screencast in the PR.
  */
 
-type Call = { element: Element; keyframes: Keyframe[]; timing: KeyframeAnimationOptions };
+/** What the frame asked one element to do, and what it re-aimed it at after. */
+class Effect {
+  aimed: Keyframe[][] = [];
+  setKeyframes(keyframes: Keyframe[]) {
+    this.aimed.push(keyframes);
+  }
+}
+type Call = {
+  element: Element;
+  keyframes: Keyframe[];
+  timing: KeyframeAnimationOptions;
+  effect: Effect;
+  land: () => void;
+};
 const calls: Call[] = [];
 const cancelled: Element[] = [];
+/** Every `ResizeObserver` the frame made, with what it watches; `resize` is a relayout. */
+const observers: { watched: Element[]; disconnected: boolean; resize: () => void }[] = [];
 const realAnimate = Element.prototype.animate;
 const realMatchMedia = window.matchMedia;
 let now = 10_000;
@@ -29,18 +44,46 @@ beforeEach(() => {
   reduce = false;
   calls.length = 0;
   cancelled.length = 0;
+  observers.length = 0;
   vi.spyOn(performance, "now").mockImplementation(() => now);
+  vi.stubGlobal("KeyframeEffect", Effect);
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      entry: (typeof observers)[number];
+      constructor(callback: () => void) {
+        this.entry = { watched: [], disconnected: false, resize: callback };
+        observers.push(this.entry);
+      }
+      observe(element: Element) {
+        this.entry.watched.push(element);
+      }
+      disconnect() {
+        this.entry.disconnected = true;
+      }
+    },
+  );
   Element.prototype.animate = function animate(keyframes, timing) {
+    const effect = new Effect();
+    let land = () => {};
+    const finished = new Promise<Animation>((resolve) => {
+      land = () => resolve(animation);
+    });
+    const animation = {
+      effect,
+      finished,
+      cancel: () => {
+        cancelled.push(this);
+      },
+    } as unknown as Animation;
     calls.push({
       element: this,
       keyframes: keyframes as Keyframe[],
       timing: timing as KeyframeAnimationOptions,
+      effect,
+      land,
     });
-    return {
-      cancel: () => {
-        cancelled.push(this);
-      },
-    } as Animation;
+    return animation;
   };
   window.matchMedia = ((query: string) => ({
     matches: query.includes("reduce") && reduce,
@@ -56,6 +99,7 @@ beforeEach(() => {
 
 afterEach(() => {
   forgetSendGlide();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   Element.prototype.animate = realAnimate;
   window.matchMedia = realMatchMedia;
@@ -133,6 +177,41 @@ describe("the glide into the workspace", () => {
     const [composer] = moved(".workspace-composer");
     expect(composer?.keyframes[0]).toEqual({ transform: "translate(300px, 250px)" });
     expect(composer?.timing.delay).toBe(-120);
+  });
+
+  it("aims again when the frame is laid out again before it lands, then stops watching", async () => {
+    send({ left: 100, top: 50, right: 500, bottom: 250 });
+    const { container } = render(<Workspace />);
+    const composer = container.querySelector<HTMLElement>(".workspace-composer");
+    if (composer === null) throw new Error("no composer drawn");
+    const [glide] = moved(".workspace-composer");
+    const [watching] = observers;
+    expect(watching?.watched).toEqual([composer, container.querySelector(".t3-chat-column")]);
+
+    // A saved panel, restored by an effect after the glide began, moves the composer 200 across.
+    // It is measured mid-glide, drawn where the glide has it, so its box includes the translate.
+    vi.stubGlobal(
+      "DOMMatrixReadOnly",
+      class {
+        m41: number;
+        m42: number;
+        constructor(transform: string) {
+          const [, x = "0", y = "0"] = /translate\((\S+)px, (\S+)px\)/.exec(transform) ?? [];
+          this.m41 = Number(x);
+          this.m42 = Number(y);
+        }
+      },
+    );
+    composer.style.transform = "translate(40px, 60px)";
+    composer.getBoundingClientRect = () => DOMRect.fromRect({ x: 240, y: 60, width: 0, height: 0 });
+    watching?.resize();
+    expect(glide?.effect.aimed).toEqual([
+      [{ transform: "translate(100px, 250px)" }, { transform: "none" }],
+    ]);
+
+    // Once it lands, a panel dragged wider has nothing left to aim.
+    glide?.land();
+    await vi.waitFor(() => expect(watching?.disconnected).toBe(true));
   });
 
   it("plays once, so coming back to the project later does not move it again", () => {
