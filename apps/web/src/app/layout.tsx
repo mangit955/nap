@@ -1,3 +1,5 @@
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque } from "next/font/google";
 import type { ReactNode } from "react";
@@ -79,6 +81,21 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
+/**
+ * Vercel Web Analytics (page views and visitors) and Speed Insights (Core Web Vitals from real
+ * visits), on every route because they sit in the root layout.
+ *
+ * Both are cookieless. Each sends the page's route and can send its full URL, query string and
+ * fragment included; Speed Insights adds the browser's timings and, where the browser gives one,
+ * the element a timing was measured on. So a page URL must never carry a secret. None does today:
+ * OAuth codes land on the API's callbacks under `/backend`, and stream tickets ride on WebSocket
+ * URLs, not page URLs.
+ *
+ * In a production build each loads a same-origin script that Vercel serves only once the feature
+ * is enabled for the project in its dashboard. Anywhere else, `next start` on a laptop included,
+ * that script 404s and nothing is counted. Under `next dev` each loads a debug script from
+ * Vercel's CDN that logs to the console and sends nothing.
+ */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     // `data-scroll-behavior` asks Next to suspend CSS smooth scrolling while it moves between
@@ -86,7 +103,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     // it, Next 16 lets that smoothness apply to a route change too, and following "Next" at the
     // foot of a long docs page visibly scrolls the new page up from where the old one ended.
     <html lang="en" className={display.variable} data-scroll-behavior="smooth">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+        <SpeedInsights />
+      </body>
     </html>
   );
 }
