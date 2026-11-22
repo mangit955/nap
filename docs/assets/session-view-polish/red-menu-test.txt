@@ -1,0 +1,31 @@
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |web| apps/web/src/dashboard/session-context-menu.test.tsx > draws Delete in the danger colour and every other item in grey, one colour per state
+AssertionError: expected [ …(3) ] to deeply equal []
+- Expected
++ Received
+- []
++ [
++   "Delete |text: ink-2 and danger",
++   "Delete hover|text: ink and danger",
++   "Delete focus-visible|text: ink and danger",
++ ]
+ ❯ apps/web/src/dashboard/session-context-menu.test.tsx:74:21
+     72|       .map(([key, values]) => `${item.textContent} ${key}: ${values.jo…
+     73|   );
+     74|   expect(conflicts).toEqual([]);
+       |                     ^
+     75|   const atRest = (name: string) =>
+     76|     colours(screen.getByRole("menuitem", { name }).className).get("|te…
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+ FAIL  |web| apps/web/src/dashboard/session-context-menu.test.tsx > keeps an outline for forced colours, where the focus wash is painted over
+AssertionError: expected [ 'flex', 'w-full', …(14) ] to include 'outline-hidden'
+ ❯ apps/web/src/dashboard/session-context-menu.test.tsx:85:41
+     83| it("keeps an outline for forced colours, where the focus wash is paint…
+     84|   for (const item of open()) {
+     85|     expect(item.className.split(/\s+/)).toContain("outline-hidden");
+       |                                         ^
+     86|     expect(item.className.split(/\s+/)).not.toContain("outline-none");
+     87|   }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
