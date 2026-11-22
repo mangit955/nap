@@ -127,6 +127,32 @@ async function hydrated(page: Page) {
 }
 
 /**
+ * Waits until the page has stopped moving: the same scroll position and viewport for ten frames
+ * running, or five seconds at most. A viewport just set again repaints and reflows, and a page
+ * opened at an anchor scrolls to it smoothly; evidence captured mid-way shows a frame the reader
+ * never sees, with the "On this page" mark matching a scroll position the page is passing through.
+ */
+async function settled(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const state = () => `${scrollX},${scrollY},${innerWidth},${innerHeight}`;
+        const start = performance.now();
+        let last = state();
+        let still = 0;
+        const tick = () => {
+          const now = state();
+          still = now === last ? still + 1 : 0;
+          last = now;
+          if (still >= 10 || performance.now() - start > 5000) resolve();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+}
+
+/**
  * The page, or the live iframe with this title. The preview pane can hold two frames with the
  * same title while one replaces the other; the outgoing one is aria-hidden, as it is to a reader.
  */
@@ -350,6 +376,7 @@ async function applyViewport(page: Page, directory: string) {
     throw new Error(`${VIEWPORT_FILE} is not a viewport; run resize again to replace it.`);
   }
   await page.setViewportSize(viewport.data);
+  await settled(page);
 }
 
 async function act(page: Page, run: RunFile, command: Command) {
@@ -359,6 +386,7 @@ async function act(page: Page, run: RunFile, command: Command) {
     case "goto":
       await page.goto(`${run.web}${command.path}`);
       await hydrated(page);
+      await settled(page);
       return;
     case "signin":
       await page.goto(`${run.web}/sign-in`);
@@ -411,6 +439,7 @@ async function act(page: Page, run: RunFile, command: Command) {
       console.log(await scope(page, command.frame).locator("body").ariaSnapshot());
       return;
     case "shot":
+      await settled(page);
       console.log((await capture(page, run, command.label, command.fullPage)).join("\n"));
       return;
     case "resize":
@@ -447,6 +476,7 @@ async function main() {
         // Applied before it is saved, so a size Chrome refuses never reaches the commands after.
         await page.setViewportSize({ width: command.width, height: command.height });
         await sizeWindow(page, command.width, command.height);
+        await settled(page);
         await writeFile(
           join(directory, VIEWPORT_FILE),
           JSON.stringify({ width: command.width, height: command.height }),
