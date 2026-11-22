@@ -167,7 +167,7 @@ export function SignInForm({
           page, without pushing the form below the fold.
         */}
         <div aria-hidden="true" className="relative -mx-6 h-[190px] lg:hidden">
-          <div className="absolute inset-0 bg-[url(/landing/heather.jpg)] bg-[70%_40%] bg-cover brightness-80 saturate-70" />
+          <div className="absolute inset-0 bg-[url(/landing/auth-midnight.webp)] bg-[center_44%] bg-cover" />
           <div className="absolute inset-0 bg-linear-to-b from-[#09090b80] via-[#09090b00] via-40% to-(--lp-ground)" />
         </div>
 
@@ -405,14 +405,13 @@ export function SignInForm({
       </div>
 
       {/*
-        The front page's photograph, dulled and darkened toward the line set over it. Decoration:
-        the line repeats the front page's own and nothing here needs to be read to sign in.
+        The caption repeats the front page's tagline, so the caption and image are decorative.
       */}
       <div
         aria-hidden="true"
         className="relative m-2.5 ml-0 hidden overflow-hidden rounded-[20px] lg:block"
       >
-        <div className="absolute inset-0 bg-[url(/landing/heather.jpg)] bg-[62%_50%] bg-cover brightness-80 saturate-70" />
+        <div className="absolute inset-0 bg-[url(/landing/auth-midnight.webp)] bg-[center_75%] bg-cover" />
         <div className="absolute inset-0 bg-linear-to-b from-[#09090b00] from-55% to-[#09090bb3]" />
         <p className="lp-serif absolute bottom-9 left-10 text-(--lp-ink) text-[34px] leading-[1.05]">
           Describe an app.
