@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { navigationServer } from "../testing/navigation-server.ts";
 import { TOOLTIP_DELAY_MS } from "../ui/tooltip.tsx";
+import { ThreadDetailsToggle } from "../workspace/thread-details.tsx";
 import { Dashboard } from "./dashboard.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
@@ -54,6 +55,7 @@ function Harness({ server }: { server: ReturnType<typeof navigationServer> }) {
   return (
     <Dashboard
       hero={<p>Hero</p>}
+      details={<ThreadDetailsToggle open={false} onToggle={vi.fn()} />}
       sidebar={
         <Sidebar
           navigation={navigation}
@@ -112,7 +114,7 @@ describe("the dashboard's icon-only controls", () => {
     const iconOnly = [...container.querySelectorAll(":is(a, button, summary)")].filter(
       (element) => element.textContent?.trim() === "",
     );
-    expect(iconOnly.length).toBeGreaterThanOrEqual(9);
+    expect(iconOnly.length).toBeGreaterThanOrEqual(10);
     expect(iconOnly.filter((element) => element.hasAttribute("title"))).toEqual([]);
   });
 
@@ -129,6 +131,7 @@ describe("the dashboard's icon-only controls", () => {
     ["Wake Sleeping", "Wake"],
     ["Un-settle Finished", "Un-settle"],
     ["Dismiss Woke for Awake", "Dismiss"],
+    ["Toggle thread details panel", "Thread details"],
   ])("%s shows “%s” once the pointer rests on it", async (name, text) => {
     const { container } = await mount();
     const target = control(name);
