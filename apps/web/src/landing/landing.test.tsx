@@ -161,9 +161,6 @@ describe("the bar's links", () => {
       ["Changelog", "#changelog"],
       ["Docs", "/docs"],
     ]);
-    for (const [, href] of links.slice(0, 2)) {
-      expect(document.getElementById(String(href).slice(1))).not.toBeNull();
-    }
   });
 });
 
@@ -201,6 +198,17 @@ describe("the frame", () => {
     expect(sections).toEqual(["product", "changelog", "start"]);
   });
 
+  it("sends every link within the page to something on it", () => {
+    show("signed-out");
+    const targets = [...document.querySelectorAll('a[href^="#"]')].map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(targets.length).toBeGreaterThan(0);
+    for (const href of targets) {
+      expect(document.getElementById(String(href).slice(1)), href ?? "").not.toBeNull();
+    }
+  });
+
   it("names every section, and keeps the serif for the closing line alone", () => {
     show("signed-out");
     expect(screen.getByRole("region", { name: "Product" })).toBeInTheDocument();
@@ -224,7 +232,7 @@ describe("the frame", () => {
 });
 
 describe("the footer", () => {
-  it("offers these links, and each one on this page leads to a section that is here", () => {
+  it("offers these links", () => {
     show("signed-out");
     const nav = within(within(screen.getByRole("contentinfo")).getByRole("navigation"));
     const links = nav
@@ -241,9 +249,6 @@ describe("the footer", () => {
       ["License", `${REPO_URL}/blob/main/LICENSE`],
       ["Sign in", "/sign-in"],
     ]);
-    for (const [, href] of links.filter(([, href]) => href?.startsWith("#"))) {
-      expect(document.getElementById(String(href).slice(1))).not.toBeNull();
-    }
   });
 
   it("links the engineering reports, which the page itself no longer quotes", () => {
