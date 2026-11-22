@@ -3,7 +3,7 @@
 import type { MediaAttachment } from "@nap/shared/media";
 import { MODEL_MEDIA_UNSUPPORTED } from "@nap/shared/model-capabilities";
 import type { Effort } from "@nap/shared/model-lines";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, type Ref, useEffect, useRef } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ComposerAddMenu } from "../chat/composer-add-menu.tsx";
 import { AttachmentTray, DictationButton } from "../chat/composer-controls.tsx";
@@ -32,6 +32,7 @@ export function DashboardHero({
   onAddKey,
   onChange,
   onSubmit,
+  composerRef,
 }: {
   value: string;
   source?: ReactNode;
@@ -53,6 +54,8 @@ export function DashboardHero({
   onAddKey?: (() => void) | undefined;
   onChange: (value: string) => void;
   onSubmit: (message: string, attachments?: MediaAttachment[]) => void;
+  /** The composer's box, for whoever measures where it was when it sent. */
+  composerRef?: Ref<HTMLFieldSetElement> | undefined;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   const localMedia = useMediaAttachments();
@@ -92,6 +95,7 @@ export function DashboardHero({
           </h1>
         </div>
         <fieldset
+          ref={composerRef}
           aria-label="New session composer"
           className="workspace-composer"
           onDragOver={(event) => event.preventDefault()}

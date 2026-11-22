@@ -1,8 +1,9 @@
 "use client";
 
-import type { CSSProperties, ReactNode, Ref } from "react";
+import { type CSSProperties, type ReactNode, type Ref, useRef } from "react";
 import { Splitter } from "../ui/splitter.tsx";
 import { useDocumentScrollLock } from "../ui/use-document-scroll-lock.ts";
+import { useSendGlide } from "./send-glide.ts";
 import { PANEL_SPLIT } from "./split.ts";
 import { usePaneWidth } from "./use-pane-width.ts";
 
@@ -41,9 +42,15 @@ export function WorkspacePanes({
 }) {
   const { width, containerRef, onGrab, onKeyDown } = usePaneWidth(PANEL_SPLIT, 540);
   useDocumentScrollLock();
+  // A prompt sent from the dashboard arrives here; this frame plays its glide. See `send-glide.ts`.
+  const frame = useRef<HTMLDivElement>(null);
+  useSendGlide(frame);
   const paneStyle: CSSProperties & { "--panel-width": string } = { "--panel-width": `${width}px` };
   return (
-    <div className="t3-workspace relative flex h-dvh flex-col overflow-hidden bg-surface">
+    <div
+      ref={frame}
+      className="t3-workspace relative flex h-dvh flex-col overflow-hidden bg-surface"
+    >
       <main
         ref={containerRef}
         className="t3-workspace-panes relative grid min-h-0 flex-1 overflow-hidden"

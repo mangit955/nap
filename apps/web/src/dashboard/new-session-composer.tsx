@@ -19,6 +19,7 @@ import {
   isBlankDraft,
 } from "../projects/composer-draft.ts";
 import { useDraftNavigation } from "../projects/use-draft-navigation.ts";
+import { departFrom, forgetSendGlide } from "../workspace/send-glide.ts";
 import type { DraftSource } from "../workspace/thread-details.tsx";
 import {
   beginStart,
@@ -63,6 +64,7 @@ export function NewSessionComposer({
   const [waiting, setWaiting] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const settings = useRef<HTMLDetailsElement>(null);
+  const composer = useRef<HTMLFieldSetElement>(null);
   const store = useRef(new ComposerDraftStore());
   const pointer = `nap.composer.${ownerId}`;
   const writes = useRef(new Map<string, { blank: boolean; tail: Promise<void> | undefined }>());
@@ -298,6 +300,8 @@ export function NewSessionComposer({
       // Into the workspace now, with the prompt on screen, rather than after the server answers
       // and the project's page has been fetched. See `workspace-entry.ts`.
       const sent = parsed.data.prompt;
+      // Measured as it is left, so the workspace's composer can glide in from here.
+      departFrom(composer.current);
       entered = beginStart(router, {
         ownerId,
         prompt: sent === undefined ? undefined : { text: sent.message },
@@ -346,7 +350,9 @@ export function NewSessionComposer({
       setError(message);
       sending.current = false;
       setBusy(false);
-      // Back on the dashboard, a new composer shows this with the draft saved above.
+      // Back on the dashboard, a new composer shows this with the draft saved above. A refusal
+      // that beat the workspace there leaves its glide unplayed; the next project opened is not it.
+      forgetSendGlide();
       entered?.failed(message);
     }
   };
@@ -369,6 +375,7 @@ export function NewSessionComposer({
   }, [settingsRequest]);
   return (
     <DashboardHero
+      composerRef={composer}
       value={draft?.text ?? ""}
       busy={busy || !draft || !!draft.pendingStart}
       error={error}
