@@ -18,7 +18,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { REPO_URL } from "../landing/github-button.tsx";
-import { useOpenSearch } from "./docs-search.tsx";
+import { useOpenSearch, useSearchChosen } from "./docs-search.tsx";
 import { DocsSidebar, type HeadingsByPage } from "./docs-sidebar.tsx";
 import { DOCS_HOME } from "./pages.ts";
 import { useDismiss } from "./use-dismiss.ts";
@@ -40,6 +40,18 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
   const toggle = useRef<HTMLButtonElement>(null);
   const closeMenu = useCallback(() => setMenu(false), []);
   useDismiss(menu, closeMenu, toggle);
+  // A followed search result closes the menu, and focus goes to the button that reopens it: the
+  // field that opened search was inside the menu, and focus would otherwise fall to the body.
+  const menuOpen = useRef(menu);
+  menuOpen.current = menu;
+  useSearchChosen(
+    useCallback(() => {
+      if (!menuOpen.current) return;
+      setMenu(false);
+      // After the dialog has handed focus back to the field it came from, which is going.
+      requestAnimationFrame(() => toggle.current?.focus());
+    }, []),
+  );
 
   useEffect(() => {
     if (!menu) return;
@@ -80,7 +92,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
           type="button"
           className="docs-search-trigger"
           aria-keyshortcuts="Meta+K Control+K"
-          onClick={() => openSearch()}
+          onClick={openSearch}
         >
           <Search aria-hidden="true" size={16} />
           <span>Search docs…</span>
@@ -108,7 +120,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
             type="button"
             className="lp-button lp-button-ghost lp-menu-toggle"
             aria-label="Search docs"
-            onClick={() => openSearch()}
+            onClick={openSearch}
           >
             <Search aria-hidden="true" size={17} />
           </button>
@@ -133,7 +145,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
           <button
             type="button"
             className="docs-search-trigger docs-search-field"
-            onClick={() => openSearch({ onChoose: closeMenu })}
+            onClick={openSearch}
           >
             <Search aria-hidden="true" size={16} />
             <span>Search docs…</span>

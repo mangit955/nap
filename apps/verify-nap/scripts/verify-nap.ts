@@ -319,7 +319,13 @@ const VIEWPORT_FILE = "viewport.json";
 async function applyViewport(page: Page, directory: string) {
   const raw = await readFile(join(directory, VIEWPORT_FILE), "utf8").catch(() => null);
   if (raw === null) return;
-  const viewport = ViewportSchema.safeParse(JSON.parse(raw));
+  let saved: unknown;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    saved = null;
+  }
+  const viewport = ViewportSchema.safeParse(saved);
   if (!viewport.success) {
     throw new Error(`${VIEWPORT_FILE} is not a viewport; run resize again to replace it.`);
   }

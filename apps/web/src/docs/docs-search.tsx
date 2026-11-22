@@ -20,7 +20,6 @@ import { useRouter } from "next/navigation";
 import {
   createContext,
   type ReactNode,
-  useCallback,
   useContext,
   useEffect,
   useId,
@@ -31,18 +30,28 @@ import {
 import { pageById } from "./pages.ts";
 import { type Hit, highlight, type SearchEntry, search, termsOf } from "./search.ts";
 
-/**
- * `onChoose` runs when a result is followed. The phone menu passes its own close: a result on the
- * page already open changes only the fragment, which no route change reports, and the menu would
- * otherwise stay drawn over the heading the reader just asked for.
- */
-type Open = (options?: { onChoose?: () => void }) => void;
+type SearchControls = {
+  open: () => void;
+  /** Runs `listener` whenever a result is followed, from whichever field opened search. */
+  onChosen: (listener: () => void) => () => void;
+};
 
-const OpenSearch = createContext<Open>(() => {});
+const SearchContext = createContext<SearchControls>({ open: () => {}, onChosen: () => () => {} });
 
 /** Opens the search dialog. Every search field in the docs is a button that calls this. */
-export function useOpenSearch(): Open {
-  return useContext(OpenSearch);
+export function useOpenSearch(): () => void {
+  return useContext(SearchContext).open;
+}
+
+/**
+ * Calls `listener` when a search result is followed. The phone menu closes itself with it: a
+ * result on the page already open changes only the fragment, which no route change reports, and
+ * the menu would otherwise stay drawn over the heading the reader just asked for — however search
+ * was opened, from the menu's field, the bar's icon or the keyboard.
+ */
+export function useSearchChosen(listener: () => void) {
+  const { onChosen } = useContext(SearchContext);
+  useEffect(() => onChosen(listener), [onChosen, listener]);
 }
 
 export function SearchProvider({
@@ -53,44 +62,47 @@ export function SearchProvider({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const onChoose = useRef<(() => void) | undefined>(undefined);
-  const isOpen = useRef(false);
-  const show = useCallback<Open>((options) => {
-    // Already open — ⌘K pressed again inside it — changes nothing, and in particular keeps the
-    // opener's `onChoose`: losing the menu's would leave it over the result it opened.
-    if (isOpen.current) return;
-    isOpen.current = true;
-    onChoose.current = options?.onChoose;
-    setOpen(true);
-  }, []);
-  const hide = useCallback(() => {
-    isOpen.current = false;
-    setOpen(false);
-  }, []);
+  const listeners = useRef(new Set<() => void>());
+  const search = useMemo<SearchControls>(
+    () => ({
+      open: () => setOpen(true),
+      onChosen: (listener) => {
+        listeners.current.add(listener);
+        return () => listeners.current.delete(listener);
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        show();
+        search.open();
         return;
       }
       if (event.key === "/" && !event.metaKey && !event.ctrlKey && !isTyping(event.target)) {
         event.preventDefault();
-        show();
+        search.open();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [show]);
+  }, [search]);
 
   return (
-    <OpenSearch.Provider value={show}>
+    <SearchContext.Provider value={search}>
       {children}
       {open && (
-        <SearchDialog entries={entries} onChoose={() => onChoose.current?.()} onClose={hide} />
+        <SearchDialog
+          entries={entries}
+          onChoose={() => {
+            for (const listener of listeners.current) listener();
+          }}
+          onClose={() => setOpen(false)}
+        />
       )}
-    </OpenSearch.Provider>
+    </SearchContext.Provider>
   );
 }
 

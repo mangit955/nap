@@ -235,20 +235,34 @@ describe("the phone menu", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("still closes on the chosen result after ⌘K is pressed again inside its search", () => {
+  it.each([
+    [
+      "the bar's search icon",
+      () => fireEvent.click(screen.getByRole("button", { name: "Search docs" })),
+    ],
+    [
+      "the keyboard shortcut",
+      () => act(() => void fireEvent.keyDown(window, { key: "k", metaKey: true })),
+    ],
+  ])("closes on a chosen result when search was opened from %s", (_how, openSearch) => {
     const toggle = openMenu();
-    fireEvent.click(
-      within(document.getElementById("docs-menu") as HTMLElement).getByRole("button", {
-        name: /search docs/i,
-      }),
-    );
-    act(() => {
-      fireEvent.keyDown(window, { key: "k", metaKey: true });
-    });
+    openSearch();
     const input = screen.getByRole("combobox", { name: /search the docs/i });
     fireEvent.change(input, { target: { value: "repair is a turn" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes search and itself when a result is clicked", () => {
+    const toggle = openMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Search docs" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /search the docs/i }), {
+      target: { value: "repair" },
+    });
+    fireEvent.click(screen.getAllByRole("option")[0] as HTMLElement);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
