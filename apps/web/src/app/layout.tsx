@@ -85,9 +85,9 @@ export const viewport: Viewport = {
  * Vercel Web Analytics (page views and visitors) and Speed Insights (Core Web Vitals from real
  * visits), on every route because they sit in the root layout.
  *
- * Both are cookieless. Each sends the page's full URL (query string and fragment included) and
- * its route; Speed Insights adds the browser's timings and which element they were measured on.
- * So a page URL must never carry a secret. None does today: OAuth codes land on the API's
+ * Both are cookieless. Each sends the page's route and can send its full URL, query string and
+ * fragment included; Speed Insights adds the browser's timings and, where the browser gives one,
+ * the element a timing was measured on. So a page URL must never carry a secret. None does today: OAuth codes land on the API's
  * callbacks under `/backend`, and stream tickets ride on WebSocket URLs, not page URLs.
  *
  * In a production build each loads a same-origin script that Vercel serves only once the feature
