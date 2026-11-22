@@ -288,11 +288,20 @@ export function LiveSignIn({
         setSubmitting(true);
         setError(undefined);
         // A full-page redirect to the provider, so nothing after this runs — unless it never
-        // gets that far, which leaves the same stuck button as a failed email sign-in.
-        authClient.signIn.social({ provider, callbackURL: returnTo(AFTER_SIGN_IN) }).catch(() => {
-          setError(UNREACHABLE);
-          setSubmitting(false);
-        });
+        // gets that far. Then it fails in the email path's two shapes: a refusal answered with
+        // a result, and a request that could not be sent at all. Either one left unhandled
+        // holds the button down, and with it the "already signed in" redirect.
+        authClient.signIn.social({ provider, callbackURL: returnTo(AFTER_SIGN_IN) }).then(
+          (result) => {
+            if (!result.error) return;
+            setError(result.error.message ?? UNKNOWN);
+            setSubmitting(false);
+          },
+          () => {
+            setError(UNREACHABLE);
+            setSubmitting(false);
+          },
+        );
       }}
       onDemo={() => void startDemo()}
       socialProviders={ways.social}

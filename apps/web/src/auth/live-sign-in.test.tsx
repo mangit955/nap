@@ -437,6 +437,21 @@ describe("the social buttons", () => {
     expect(screen.queryByRole("button", { name: "Continue with GitHub" })).toBeNull();
   });
 
+  it("says so and gives the form back when the provider is refused", async () => {
+    // The client answers a refusal (a 429, say) with a result rather than a rejection. Left
+    // unread, the button stayed on "One moment…" for good, and because the "already signed in"
+    // redirect stands aside while a submission is under way, a session that loaded meanwhile
+    // could not move the person on either.
+    ways.socialProviders = ["github"];
+    signInSocial.mockResolvedValue({ data: null, error: { message: "Too many requests." } });
+    await renderReady(<LiveSignIn />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with GitHub" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many requests.");
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  });
+
   it("lands a new account on the key step rather than the dashboard", async () => {
     // The one moment where asking about a key is not an interruption of something else.
     signInEmail.mockResolvedValue({});
