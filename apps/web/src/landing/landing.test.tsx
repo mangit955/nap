@@ -198,7 +198,9 @@ describe("the frame", () => {
     expect(sections).toEqual(["product", "changelog", "start"]);
   });
 
-  it("sends every link within the page to something on it", () => {
+  // The hero is a stub here, so this covers the frame around it: the bar, the sections and the
+  // footer. `scripts/check-landing.js` runs the same check on the real page in a browser.
+  it("sends every in-page link around the hero to something on it", () => {
     show("signed-out");
     const targets = [...document.querySelectorAll('a[href^="#"]')].map((link) =>
       link.getAttribute("href"),
