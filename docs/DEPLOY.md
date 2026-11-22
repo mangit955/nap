@@ -599,6 +599,12 @@ NEXT_PUBLIC_API_WS_URL  wss://nap-api.onrender.com
 
 `wss://`, not `ws://`: a page served over https may not open an insecure socket.
 
+**Web Analytics and Speed Insights each need turning on in the project's dashboard** (its
+Analytics and Speed Insights tabs, *Enable*). The root layout already renders both, but Vercel
+serves their `/_vercel/` scripts only once a feature is on. Until then the browser gets a 404
+there, the console says so, and nothing is counted. A deployment made before a feature was turned
+on serves no script for it either: deploy again afterwards.
+
 ### 3. OAuth callbacks
 
 better-auth builds redirect URIs from `NAP_API_URL`, so each provider's app needs
