@@ -1,4 +1,5 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
+import { SessionSummarySchema } from "@nap/shared/session-navigation";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./sidebar.tsx";
@@ -275,4 +276,28 @@ it("shows search immediately and filters Scratch through the searchable source p
     "/settings/archived",
   );
   expect(screen.queryByRole("menuitem", { name: "Providers" })).toBeNull();
+});
+
+describe("a sidebar drawn from a fixed list of sessions", () => {
+  it("shows each session's repository and pull request without a navigation hook", () => {
+    const session = SessionSummarySchema.parse({
+      ...project({ name: "Fix the flaky cart test" }),
+      createdAt: "2026-08-12T10:00:00.000Z",
+      navigation: {},
+      revision: 0,
+      activity: "ready",
+      activityAt: null,
+      requestedAt: null,
+      repository: "acme/storefront",
+      branch: "nap/flaky-cart-test",
+      pullRequest: {
+        number: 211,
+        url: "https://github.com/acme/storefront/pull/211",
+        state: "open",
+      },
+      pendingFeedback: 0,
+    });
+    show({ recents: [], sessions: [session] });
+    expect(screen.getByRole("link", { name: /Fix the flaky cart test/ })).toHaveTextContent("#211");
+  });
 });

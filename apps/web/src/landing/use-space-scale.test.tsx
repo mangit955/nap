@@ -32,7 +32,7 @@ function widthIs(width: number) {
   };
 }
 
-function Space({ design }: { design: number }) {
+function Space({ design }: { design: Parameters<typeof useSpaceScale>[1] }) {
   const ref = useRef<HTMLDivElement>(null);
   useSpaceScale(ref, design);
   return <div ref={ref} data-testid="space" />;
@@ -55,40 +55,59 @@ afterEach(() => {
   Element.prototype.getBoundingClientRect = realRect;
 });
 
+/** A space 880 wide, or 400 below a 600px column: one demo's two layouts. */
+const design = (width: number) =>
+  width < 600 ? { width: 400, layout: "narrow" } : { width: 880, layout: "wide" };
+
 describe("fitting a design space to its column", () => {
   it("writes the ratio of the width it got to the width it was drawn at", () => {
-    widthIs(440);
-    const view = render(<Space design={880} />);
+    widthIs(660);
+    const view = render(<Space design={design} />);
 
-    expect(scaleOf(view)).toBe("0.5");
+    expect(scaleOf(view)).toBe("0.75");
   });
 
   it("follows the column when it changes size", () => {
     widthIs(880);
-    const view = render(<Space design={880} />);
+    const view = render(<Space design={design} />);
 
     expect(scaleOf(view)).toBe("1");
 
-    widthIs(220);
+    widthIs(704);
     observed?.();
 
-    expect(scaleOf(view)).toBe("0.25");
+    expect(scaleOf(view)).toBe("0.8");
   });
 
   it("leaves the ratio alone for a box that has not been laid out", () => {
     // A zero width is a print, a hidden ancestor, a test — scaling to zero there would collapse
     // the section outright, where leaving the last known ratio costs nothing.
     widthIs(880);
-    const view = render(<Space design={880} />);
+    const view = render(<Space design={design} />);
     widthIs(0);
     observed?.();
 
     expect(scaleOf(view)).toBe("1");
+    expect(view.getByTestId("space")).toHaveAttribute("data-space", "wide");
+  });
+
+  it("names the layout it chose, so the stylesheet can lay the space out for it", () => {
+    // A phone gets a space of its own rather than the desktop one shrunk, and the ratio is only
+    // right for the layout it was computed for.
+    widthIs(500);
+    const view = render(<Space design={design} />);
+    expect(view.getByTestId("space")).toHaveAttribute("data-space", "narrow");
+    expect(scaleOf(view)).toBe("1.25");
+
+    widthIs(800);
+    observed?.();
+    expect(view.getByTestId("space")).toHaveAttribute("data-space", "wide");
+    expect(scaleOf(view)).toBe("0.9090909090909091");
   });
 
   it("stops measuring when the section goes away", () => {
     widthIs(880);
-    const view = render(<Space design={880} />);
+    const view = render(<Space design={design} />);
     view.unmount();
 
     expect(disconnected).toBeGreaterThan(0);

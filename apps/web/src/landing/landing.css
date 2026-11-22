@@ -78,235 +78,6 @@
       0 16px 48px -12px #0008,
       inset 0 1px 0 #ffffff05;
   }
-  .lp-session-container {
-    container-type: inline-size;
-  }
-  .lp-session-shell {
-    position: relative;
-    min-width: 0;
-    width: 100%;
-    aspect-ratio: 1440 / 900;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    border: 1px solid #ffffff24;
-    border-radius: 13px;
-    background: #18181a;
-    text-align: left;
-    box-shadow:
-      0 36px 100px #0008,
-      0 0 0 5px #ffffff03,
-      inset 0 1px 0 #ffffff15;
-  }
-  .lp-session-stage {
-    position: absolute;
-    inset: 0 auto auto 0;
-    width: 1440px;
-    height: 900px;
-    display: grid;
-    grid-template-columns: 232px minmax(0, 1fr);
-    transform: scale(var(--space-k, 1));
-    transform-origin: top left;
-    background: var(--color-panel);
-    color: var(--color-ink);
-    font-family: var(--font-sans), sans-serif;
-    font-size: 14px;
-    letter-spacing: -0.015em;
-  }
-  .lp-session-sidebar {
-    min-width: 0;
-    height: 100%;
-    overflow: hidden;
-    border-right: 1px solid var(--color-edge);
-  }
-  .lp-session-sidebar > * {
-    width: 100%;
-    height: 100%;
-  }
-  .lp-session-main {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-  }
-  .lp-session-header {
-    height: 56px;
-    flex: 0 0 auto;
-  }
-  .lp-session-header > * {
-    height: 100%;
-  }
-  .lp-session-mobile-tabs {
-    display: none;
-  }
-  .lp-session-panes {
-    display: grid;
-    grid-template-columns: 43% minmax(0, 1fr);
-    flex: 1;
-    min-height: 0;
-  }
-  .lp-session-chat {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    padding: 24px 20px 14px;
-    border-right: 1px solid var(--color-edge);
-  }
-  .lp-session-transcript {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    scrollbar-width: thin;
-  }
-  .lp-session-composer {
-    flex-shrink: 0;
-    margin-top: 18px;
-    padding: 16px 18px 12px;
-    border: 1px solid var(--color-edge);
-    border-radius: 22px;
-    background: var(--color-field);
-    color: var(--color-muted);
-    font-size: 13px;
-  }
-  .lp-session-composer > span {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 20px;
-    font-size: 20px;
-  }
-  .lp-session-composer > span > span {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--color-ink);
-    color: var(--color-panel);
-  }
-  .lp-session-replay {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-height: 36px;
-    margin-top: 6px;
-    color: var(--color-muted);
-    font-size: 11px;
-    cursor: pointer;
-  }
-  .lp-session-replay:hover {
-    color: var(--color-ink);
-  }
-  .lp-session-right {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-  }
-  .lp-session-preview-tabs {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    height: 44px;
-    gap: 4px;
-    padding: 0 12px;
-    border-bottom: 1px solid var(--color-edge);
-  }
-  .lp-session-preview-tabs > button {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    height: 30px;
-    padding: 0 11px;
-    border-radius: 6px;
-    color: var(--color-muted);
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .lp-session-preview-tabs > button[aria-pressed="true"] {
-    color: var(--color-ink);
-    background: var(--color-field);
-  }
-  .lp-session-preview-tabs > span {
-    margin-left: auto;
-    font-size: 8px;
-    letter-spacing: 0.12em;
-    color: var(--color-muted);
-  }
-  .lp-session-app {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    background: #eeeae2;
-    color: #263c31;
-    scrollbar-width: thin;
-  }
-  .lp-session-preview {
-    height: 100%;
-  }
-  .lp-session-app > [hidden] {
-    display: none;
-  }
-  .lp-session-building {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    align-items: center;
-    gap: 24px;
-    padding: 48px 32px;
-    background: #efede7;
-    text-align: center;
-  }
-  .lp-session-building > span {
-    font-size: 34px;
-  }
-  .lp-session-building > p {
-    font-size: 11px;
-    color: #778176;
-  }
-  .lp-booking-scaffold {
-    width: 100%;
-    max-width: 400px;
-    padding: 22px;
-    border: 1px solid #29423312;
-    border-radius: 8px;
-    background: #fff8;
-  }
-  .lp-booking-scaffold i {
-    display: block;
-    height: 12px;
-    border-radius: 3px;
-    background: #d9ddd3;
-  }
-  .lp-booking-scaffold > i:first-child {
-    height: 130px;
-    background: #c0cabc;
-    margin-bottom: 18px;
-  }
-  .lp-booking-scaffold > i:nth-child(2) {
-    width: 65%;
-    margin-bottom: 24px;
-  }
-  .lp-booking-scaffold > div {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-  }
-  .lp-booking-scaffold > div > i {
-    height: 48px;
-  }
-  .lp-booking-code {
-    height: 100%;
-    padding: 32px 24px;
-    background: #17191b;
-    color: #c2cdb8;
-    font-size: 12px;
-    line-height: 1.9;
-    white-space: pre-wrap;
-  }
   .lp-booking-app {
     color-scheme: light;
     min-height: 100%;
@@ -538,153 +309,6 @@
     border-radius: 5px;
     cursor: pointer;
   }
-  @container (max-width: 600px) {
-    .lp-session-shell {
-      height: min(620px, calc(100svh - 150px));
-      min-height: 440px;
-      aspect-ratio: auto;
-    }
-    .lp-session-stage {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      grid-template-columns: minmax(0, 1fr);
-      transform: none;
-    }
-    .lp-session-sidebar {
-      display: none;
-    }
-    .lp-session-header {
-      height: 44px;
-    }
-    .lp-session-mobile-tabs {
-      display: flex;
-      align-items: center;
-      height: 40px;
-      padding: 0 12px;
-      gap: 5px;
-      border-bottom: 1px solid var(--color-edge);
-      flex-shrink: 0;
-    }
-    .lp-session-mobile-tabs > button {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 32px;
-      padding: 0 10px;
-      border-radius: 5px;
-      color: var(--color-muted);
-      font-size: 11px;
-      cursor: pointer;
-    }
-    .lp-session-mobile-tabs > button[aria-pressed="true"] {
-      color: var(--color-ink);
-      background: var(--color-field);
-    }
-    .lp-session-mobile-tabs > button:last-child {
-      margin-left: auto;
-    }
-    .lp-session-panes {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .lp-session-stage[data-mobile-view="preview"] .lp-session-chat {
-      display: none;
-    }
-    .lp-session-stage[data-mobile-view="session"] .lp-session-right {
-      display: none;
-    }
-    .lp-session-chat {
-      padding: 15px 12px 8px;
-      border-right: 0;
-    }
-    .lp-session-preview-tabs {
-      height: 36px;
-      padding-inline: 6px;
-    }
-    .lp-session-preview-tabs > button {
-      height: 28px;
-      font-size: 10px;
-      padding-inline: 8px;
-    }
-    .lp-session-preview-tabs > span {
-      font-size: 6px;
-    }
-    .lp-booking-nav {
-      height: 42px;
-      padding-inline: 18px;
-    }
-    .lp-booking-nav > span:first-child {
-      font-size: 27px;
-    }
-    .lp-booking-nav > span:nth-child(2) {
-      display: none;
-    }
-    .lp-booking-photo {
-      height: 150px;
-      padding: 19px 18px 14px;
-    }
-    .lp-booking-photo p {
-      font-size: 35px;
-      margin-top: 12px;
-    }
-    .lp-booking-photo span {
-      font-size: 6px;
-    }
-    .lp-booking-content {
-      padding: 18px;
-    }
-    .lp-booking-intro {
-      padding-bottom: 16px;
-    }
-    .lp-booking-intro > div:first-child > span {
-      font-size: 6px;
-    }
-    .lp-booking-intro p {
-      font-size: 27px;
-    }
-    .lp-booking-intro small {
-      font-size: 8px;
-    }
-    .lp-booking-intro b {
-      font-size: 18px;
-    }
-    .lp-booking-intro > div:last-child > span {
-      font-size: 8px;
-    }
-    .lp-booking-date-label {
-      font-size: 10px;
-    }
-    .lp-booking-dates {
-      gap: 4px;
-    }
-    .lp-booking-dates > button {
-      min-height: 50px;
-      padding: 8px 0;
-      gap: 5px;
-    }
-    .lp-booking-dates > button > span {
-      font-size: 6px;
-    }
-    .lp-booking-dates > button > b {
-      font-size: 14px;
-    }
-    .lp-booking-options {
-      align-items: flex-start;
-      font-size: 10px;
-    }
-    .lp-booking-options > label {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .lp-booking-options select {
-      min-height: 38px;
-      font-size: 12px;
-    }
-    .lp-booking-confirmation p {
-      font-size: 27px;
-    }
-  }
   /* Buttons share the corner radius of the product's own windows rather than the pill of a
      marketing page. */
   .lp-button {
@@ -758,21 +382,18 @@
     border-color: var(--lp-ink);
   }
 
-  /* The page's one motif: a window of the product resting on the dusk photograph. The photograph
-     is always the backdrop and never drawn over the product. */
+  /* The page's one motif: a window of the product resting on a night sky drawn only from Nap's
+     own surface, accent and accent-ink (`public/landing/night-sky.jpg`). The sky is always the
+     backdrop and never drawn over the product. */
   .lp-wall {
     position: relative;
     isolation: isolate;
     overflow: hidden;
     border-radius: 16px;
-    background: #1a1418 url("/landing/dusk-hills.jpg") center 60% / cover;
-  }
-  .lp-wall::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background: linear-gradient(180deg, #0b0a0d55, #0b0a0d22 60%, #0b0a0d66);
+    background: #0a0a0a url("/landing/night-sky.jpg") center 22% / cover;
+    box-shadow:
+      inset 0 0 0 1px #ffffff0f,
+      inset 0 1px 0 #ffffff14;
   }
 
   .lp-hero {
@@ -791,14 +412,10 @@
     line-height: 1.55;
     letter-spacing: -0.015em;
   }
+  /* The window stands on the bottom edge of the sky, so only its top corners are round. */
   .lp-hero-wall {
     margin-top: 56px;
     padding: 56px 64px 0;
-  }
-  /* The window stands on the bottom edge of the photograph, so only its top corners are round. */
-  .lp-hero-wall .lp-session-shell {
-    border-bottom: 0;
-    border-radius: 12px 12px 0 0;
   }
 
   .lp-rows {
@@ -807,9 +424,9 @@
   }
   .lp-row {
     display: grid;
-    grid-template-columns: 380px minmax(0, 1fr);
+    grid-template-columns: 340px minmax(0, 1fr);
     align-items: center;
-    gap: 72px;
+    gap: 64px;
     padding-block: 56px;
     border-top: 1px solid var(--lp-line);
   }
@@ -818,7 +435,7 @@
     border-top: 0;
   }
   .lp-row:nth-child(even) {
-    grid-template-columns: minmax(0, 1fr) 380px;
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
   .lp-row-copy {
     max-width: 560px;
@@ -842,16 +459,19 @@
   .lp-row .lp-more {
     margin-top: 18px;
   }
+  /* Each window runs off the bottom of its backdrop, cropped to the part the row is about. */
   .lp-row-art {
-    display: grid;
-    place-items: center;
-    padding: 48px;
+    padding: 40px 40px 0;
+  }
+  .lp-row:nth-child(1) .lp-row-art {
+    background-position: 15% 20%;
   }
   .lp-row:nth-child(2) .lp-row-art {
-    background-position: 20% 80%;
+    background-position: 85% 60%;
   }
   .lp-row:nth-child(3) .lp-row-art {
-    background-position: 80% 40%;
+    padding-bottom: 40px;
+    background-position: 50% 10%;
   }
 
   /* Section headings are set in Inter: the serif is kept for the hero and the closing line. */
@@ -1026,6 +646,13 @@
     white-space: nowrap;
   }
 
+  /* Below a wide desktop the hero's window takes the backdrop's margin for itself, so the
+     workspace stays large enough to read. */
+  @media (max-width: 1279px) {
+    .lp-hero-wall {
+      padding: 40px 32px 0;
+    }
+  }
   @media (max-width: 1023px) {
     .lp-row,
     .lp-row:nth-child(even) {
@@ -1071,7 +698,10 @@
       padding-top: 96px;
     }
     .lp-row-art {
-      padding: 20px;
+      padding: 20px 16px 0;
+    }
+    .lp-row:nth-child(3) .lp-row-art {
+      padding-bottom: 20px;
     }
     .lp-heading {
       font-size: 30px;

@@ -44,6 +44,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { ComputerNavigation } from "../computer/navigation.tsx";
+import { ShowcaseContext } from "../ui/showcase.ts";
 import type { TimelineRow } from "./timeline.ts";
 import { WorkEntryBody } from "./tool-body.tsx";
 import { observeVisibleAnimation } from "./visible-animation.ts";
@@ -319,9 +320,10 @@ export function WorkEntryRow({
   entry: WorkEntry;
   displayLabel?: string | undefined;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const seekComputer = use(ComputerNavigation);
   const failed = entryFailed(entry);
+  const showcase = use(ShowcaseContext);
+  const [expanded, setExpanded] = useState(failed && showcase?.openFailedSteps === true);
+  const seekComputer = use(ComputerNavigation);
   const running = entry.kind === "step" && (entry.helper?.outcome ?? entry.status) === "running";
   const label = displayLabel ?? workEntryDisplayLabel(entry);
   const name = `${label}${running ? ", still running" : ""}${failed ? ", tool call failed" : ""}`;

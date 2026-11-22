@@ -1,0 +1,368 @@
+/* The landing page's windows of the product (`demo-window.tsx`).
+
+   Sizes are design pixels: each demo lays out at a fixed size and is scaled to its column by
+   `--space-k`, which `useSpaceScale` measures. The sizes come in as unitless custom properties
+   (`--wide-w` and the rest) because `calc()` multiplies by numbers and cannot divide a length by
+   one; see `docs/gotchas/web.md` on scaling a fixed design space. */
+@layer components {
+  .lp-demo {
+    position: relative;
+    container-type: inline-size;
+    text-align: left;
+  }
+  /* The contents are not shown until the space has been measured (`useSpaceScale` writes
+     `data-space`): the server's HTML has no width to scale by, and would draw the window at its
+     full design size and then snap to the column. The frame around them is shown, at its final
+     size, from the first paint (below). A page without script shows the contents unscaled
+     instead (`landing.tsx`). */
+  .lp-demo-space,
+  .lp-demo-overlay {
+    transition: opacity 320ms ease-out;
+  }
+  .lp-demo:not([data-space]) :is(.lp-demo-space, .lp-demo-overlay) {
+    opacity: 0;
+  }
+  /* The window's visible part. Its height is the design's `visible` height at the same scale, so
+     the rest of the window runs off the bottom of the backdrop. */
+  .lp-demo-crop {
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: var(--wide-w) / var(--wide-v);
+    border-radius: 12px 12px 0 0;
+    background: var(--color-panel);
+    box-shadow:
+      0 0 0 1px #0a0a0a,
+      0 24px 48px -12px #0a0a0ab3,
+      0 60px 120px -24px #0a0a0add;
+  }
+  /* The rim is drawn over the contents rather than as a border, so the space inside is exactly as
+     wide as the box the scale was measured from. */
+  .lp-demo-crop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid #ffffff1f;
+    border-bottom: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .lp-demo-space {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(var(--wide-w) * 1px);
+    height: calc(var(--wide-h) * 1px);
+    transform: scale(var(--space-k, 1));
+    transform-origin: top left;
+    color: var(--color-ink);
+    font-family: var(--font-sans), sans-serif;
+    font-size: 14px;
+    letter-spacing: normal;
+  }
+  .lp-demo-overlay {
+    position: absolute;
+    right: calc(-32px * var(--space-k, 1));
+    bottom: 0;
+    transform: scale(var(--space-k, 1));
+    transform-origin: bottom right;
+    color: var(--color-ink);
+    font-family: var(--font-sans), sans-serif;
+    letter-spacing: normal;
+  }
+
+  /* The workspace, as the app lays it out. */
+  .lp-window {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 34px minmax(0, 1fr);
+    width: 100%;
+    height: 100%;
+    background: var(--color-panel);
+  }
+  .lp-window[data-sidebar="true"] {
+    grid-template-columns: 232px minmax(0, 1fr);
+  }
+  .lp-window-dots {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lp-window-dots i {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #ffffff1a;
+    box-shadow: inset 0 0 0 0.5px #ffffff14;
+  }
+  .lp-window > .lp-window-dots {
+    grid-column: 1 / -1;
+    padding-left: 14px;
+    border-bottom: 1px solid var(--color-edge);
+    background: var(--color-surface);
+  }
+  .lp-window-sidebar {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-right: 1px solid var(--color-edge);
+  }
+  .lp-window-sidebar > * {
+    width: 100%;
+    height: 100%;
+  }
+  .lp-window-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .lp-window-header {
+    flex: none;
+    height: 56px;
+  }
+  .lp-window-header > * {
+    height: 100%;
+  }
+  .lp-window-panes {
+    display: grid;
+    grid-template-columns: minmax(0, 46fr) minmax(0, 54fr);
+    flex: 1;
+    min-height: 0;
+  }
+  .lp-window-chat {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 12px 16px;
+    border-right: 1px solid var(--color-edge);
+  }
+  .lp-window-transcript {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .lp-window-composer {
+    flex: none;
+    margin-top: 12px;
+  }
+  .lp-window-right,
+  .lp-pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .lp-pane {
+    flex: 1;
+  }
+  .lp-pane-stack {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+  }
+  .lp-drawn-diff {
+    transition: opacity 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .lp-drawn-diff[data-drawn="false"] {
+    opacity: 0;
+  }
+  /* Fade through rather than dissolve: two panes of text at half opacity read as a smudge, so
+     the one leaving is gone quickly and the one arriving comes in just after it. */
+  .lp-pane-stack > .lp-pane {
+    grid-area: 1 / 1;
+    background: var(--color-panel);
+    transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1) 160ms;
+  }
+  .lp-pane-stack > .lp-pane[data-shown="false"] {
+    opacity: 0;
+    transition: opacity 180ms ease-out;
+  }
+  .lp-pane-tabs {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    height: 44px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-edge);
+  }
+  .lp-pane-tabs > span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 6px;
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  .lp-pane-tabs > span[data-active="true"] {
+    color: var(--color-ink);
+    background: var(--color-field);
+  }
+  .lp-pane-code {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    padding: 8px;
+    overflow: hidden;
+  }
+  .lp-pane-pr {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  /* The example app, in place of the sandbox's iframe. `ps-generated-app` asks for the full
+     viewport height, which inside a pane is the pane's. */
+  .lp-pane-app,
+  .lp-pane-app.ps-generated-app {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+    background: #0d0d0d;
+  }
+
+  /* A small window with its own title bar: the Changes panel and the review's two windows. */
+  .lp-panel,
+  .lp-hero-changes {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #ffffff1f;
+    border-radius: 12px;
+    background: var(--color-panel);
+    box-shadow:
+      0 0 0 1px #0a0a0a,
+      0 24px 48px -12px #0a0a0ab3,
+      0 50px 100px -20px #0a0a0add;
+    font-size: 13px;
+  }
+  .lp-panel-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-edge);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-size: 12px;
+  }
+  .lp-panel-head > .lp-window-dots {
+    gap: 7px;
+    margin-right: 6px;
+  }
+  .lp-panel-head > .lp-window-dots i {
+    width: 10px;
+    height: 10px;
+  }
+  .lp-panel-aside {
+    margin-left: auto;
+    color: var(--color-muted);
+  }
+  .lp-panel-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* The hero's Changes panel, standing on the bottom edge over the window's corner. */
+  .lp-hero-changes {
+    width: 440px;
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+  }
+  /* The panel waits for its diff, so it arrives whole rather than as an empty box, and it rises
+     in when it appears. A transition rather than the hero's arrivals (`use-arrivals.ts`): an
+     animation would override the rule that keeps it hidden until its diff has drawn. */
+  .lp-hero-changes {
+    transition:
+      opacity 460ms cubic-bezier(0.22, 1, 0.36, 1),
+      translate 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  @starting-style {
+    .lp-hero-changes {
+      opacity: 0;
+      translate: 0 12px;
+    }
+  }
+  .lp-hero-changes:has(.lp-drawn-diff[data-drawn="false"]) {
+    opacity: 0;
+    translate: 0 12px;
+  }
+  .lp-hero-changes-body {
+    height: 200px;
+    padding: 6px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent);
+    mask-image: linear-gradient(180deg, #000 62%, transparent);
+  }
+
+  /* A narrow column gets a space of its own: one pane, the sidebar gone, its frame the narrow
+     space's visible height at the narrow scale (the column over `--narrow-w`, never above 1).
+     The space is the column's width over the scale: `narrow.width` on a phone, the column itself
+     above it. Dividing a length by a number is valid `calc()`; it is the other way round that
+     is not.
+
+     All of it is container queries, so it is right before any script runs and without one: the
+     page does not move when the script arrives, and a page without script still shows a phone
+     the phone's layout. The widths are `narrowBelow` in `demo-window.tsx`, where the scale
+     switches; `demo-window.test.tsx` holds every query here and in `features.css` to them. The
+     rules are written once per width because a query cannot take its width from the element. */
+  @container (width < 1002px) {
+    .lp-hero-demo .lp-demo-crop {
+      aspect-ratio: auto;
+      height: min(calc(var(--narrow-v) * 1px), calc(var(--narrow-v) * 100cqw / var(--narrow-w)));
+      border-radius: 10px 10px 0 0;
+    }
+    .lp-hero-demo .lp-demo-space {
+      width: calc(100cqw / var(--space-k, 1));
+      height: calc(var(--narrow-h) * 1px);
+    }
+    .lp-hero-demo :is(.lp-window[data-sidebar="true"], .lp-window-panes) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lp-hero-demo .lp-window-sidebar,
+    .lp-hero-demo[data-narrow="chat"] .lp-window-right,
+    .lp-hero-demo[data-narrow="pane"] .lp-window-chat {
+      display: none;
+    }
+    .lp-hero-demo .lp-window-chat {
+      border-right: 0;
+    }
+    /* The Changes panel stays, inside the window's edge and no wider than the space. */
+    .lp-hero-demo .lp-demo-overlay {
+      right: calc(12px * var(--space-k, 1));
+    }
+    .lp-hero-demo .lp-hero-changes {
+      width: min(440px, calc(100cqw / var(--space-k, 1) - 24px));
+    }
+  }
+  @container (width < 705px) {
+    .lp-demo:not(.lp-hero-demo) .lp-demo-crop {
+      aspect-ratio: auto;
+      height: min(calc(var(--narrow-v) * 1px), calc(var(--narrow-v) * 100cqw / var(--narrow-w)));
+      border-radius: 10px 10px 0 0;
+    }
+    .lp-demo:not(.lp-hero-demo) .lp-demo-space {
+      width: calc(100cqw / var(--space-k, 1));
+      height: calc(var(--narrow-h) * 1px);
+    }
+    .lp-demo:not(.lp-hero-demo) :is(.lp-window[data-sidebar="true"], .lp-window-panes) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lp-demo:not(.lp-hero-demo) .lp-window-sidebar,
+    .lp-demo:not(.lp-hero-demo)[data-narrow="chat"] .lp-window-right,
+    .lp-demo:not(.lp-hero-demo)[data-narrow="pane"] .lp-window-chat {
+      display: none;
+    }
+    .lp-demo:not(.lp-hero-demo) .lp-window-chat {
+      border-right: 0;
+    }
+  }
+}

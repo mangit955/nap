@@ -14,10 +14,11 @@ import {
   List,
   RotateCw,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, use, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { FetchJson } from "../files/use-project-files.ts";
+import { ShowcaseContext } from "../ui/showcase.ts";
 import { DiffFile } from "../workspace/changes-panel.tsx";
 import { githubRequest } from "./request.ts";
 
@@ -48,7 +49,9 @@ export function PullRequestsPanel({
     ...new Set(state.jobs.flatMap((job) => (job.pullRequestNumber ? [job.pullRequestNumber] : []))),
   ];
   const number = chosen !== null && numbers.includes(chosen) ? chosen : numbers[0];
-  const [view, setView] = useState<(typeof VIEWS)[number]>("Summary");
+  const [view, setView] = useState<(typeof VIEWS)[number]>(
+    use(ShowcaseContext)?.pullRequestView ?? "Summary",
+  );
   const identity = JSON.stringify([baseUrl, projectId, number]);
   const [savedInspection, setInspection] = useState<{
     identity: string;

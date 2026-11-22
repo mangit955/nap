@@ -27,6 +27,7 @@ import { ComputerNavigation } from "../computer/navigation.tsx";
 import { ScreenshotCard } from "../computer/screenshot-card.tsx";
 import { turnFailureCopy } from "../errors/failure-copy.ts";
 import { AlertIcon, CopyIcon } from "../ui/icons.tsx";
+import { ShowcaseContext } from "../ui/showcase.ts";
 import { type PlanActions, PlanCard, ProposedPlanCard, QuestionCard } from "./agent-cards.tsx";
 import { ChangedFilesCard } from "./changed-files-card.tsx";
 import { ChatMarkdown, ProjectFiles } from "./chat-markdown.tsx";
@@ -130,7 +131,9 @@ export function ChatTranscript({
   // replaying a finished session leaves the last word on a line that has no prose to fade in. A
   // client that reconnected mid-turn has no `turn.started`, and the passage the model is writing
   // right now is exactly what asking for one would refuse to stream.
-  const liveKey = items.at(-1)?.key;
+  // A showcase is a still picture: nothing in it is arriving (`ui/showcase.ts`).
+  const showcase = use(ShowcaseContext);
+  const liveKey = showcase?.streamingText === false ? undefined : items.at(-1)?.key;
 
   const compactionFailures = new Map<number, FailedTurn>();
   const foldedFailures = new Set<number>();
@@ -518,6 +521,7 @@ function Item({
  * a tool step — so the boundary this copies is one the reader can see.
  */
 function CopyButton({ text }: { text: string }) {
+  if (use(ShowcaseContext)?.copyButtons === false) return null;
   return (
     <button
       type="button"

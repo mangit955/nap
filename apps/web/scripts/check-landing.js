@@ -2,8 +2,12 @@
  * care about (1440, 1024, 768 and 390 at least). It checks what component tests cannot, because
  * jsdom does no layout and no hit-testing:
  *
- * - the photograph is behind the product, never in front of it: the hero's session and each
- *   feature drawing receive the hit at their own centre;
+ * - the backdrop is behind the product, never in front of it: the hero's session and each
+ *   feature's window receive the hit at their own centre;
+ * - the repo row's crop shows the pull request's passing checks;
+ * - every window of the product is drawn large enough to read: the text that tells its story
+ *   (the transcript, the plan's count, the pane's tabs, a panel's title) renders at 9px or more
+ *   on any screen from a 360px phone up, and none of it larger than the product draws it;
  * - every link and button on the page gets its own clicks rather than a sibling laid over it;
  * - every focus ring on the page's dark ground can be seen (3:1 against the ground);
  * - the serif is set on the hero and the closing line and nowhere else in the page's own copy;
@@ -48,6 +52,36 @@
     window.scrollIntoView({ block: "center" });
     await settle();
     check(owns(window, centre(window)), `nothing drawn over ${window.className}`);
+  }
+
+  // The demos draw the product's text at the scale `useSpaceScale` measured. What is read is the
+  // rendered size of the text that tells each one's story, wherever it is on screen.
+  const story = '[role="log"] :is(p, h3), .lp-pane-tabs > span, .lp-panel-head > span';
+  for (const demo of document.querySelectorAll(".lp-demo")) {
+    const name = demo.getAttribute("aria-label");
+    // Unmeasured, a demo is still hidden (`demo.css`) and its scale means nothing.
+    check(demo.hasAttribute("data-space"), `${name} was measured`);
+    const scale = Number(demo.style.getPropertyValue("--space-k") || Number.NaN);
+    const sizes = [...demo.querySelectorAll(story)]
+      .filter((text) => text.getClientRects().length > 0)
+      .map((text) => Number.parseFloat(getComputedStyle(text).fontSize) * scale);
+    check(sizes.length > 0, `${name} has text to read`);
+    const smallest = Math.min(...sizes);
+    check(smallest >= 9, `${name} is readable (its smallest text at ${smallest.toFixed(1)}px)`);
+    check(scale <= 1.0001, `${name} is not drawn larger than the product (scale ${scale})`);
+  }
+
+  // The repo row is about a pull request whose checks pass: its crop must show them.
+  const repo = document.querySelector(".lp-repo-demo");
+  if (repo) {
+    const crop = repo.querySelector(".lp-demo-crop").getBoundingClientRect();
+    const build = [...repo.querySelectorAll(".lp-pane-pr *")].find(
+      (text) => text.children.length === 0 && text.textContent.trim() === "build",
+    );
+    check(
+      build !== undefined && build.getBoundingClientRect().bottom <= crop.bottom,
+      "the repo demo shows its passing checks",
+    );
   }
 
   for (const anchor of document.querySelectorAll('.landing a[href^="#"]')) {

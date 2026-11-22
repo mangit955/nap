@@ -3,11 +3,10 @@
 /**
  * Fits a fixed design space to the width it is actually given.
  *
- * Two things on this page — the poured bento and the live demo — place their contents in plain
- * pixels, because the shape drawn behind them is traced from those same numbers and a percentage
- * layout would put the contents somewhere the skin was never drawn for. Something then has to
- * shrink that space to the column it lands in, and this is it: one ratio, written to the element
- * as a custom property the stylesheet scales by.
+ * The landing page's demos draw the product's own components at the size the product lays them
+ * out for, and those components do not reflow into a column a third that wide. Something then has
+ * to shrink that space to the column it lands in, and this is it: one ratio, written to the
+ * element as a custom property the stylesheet scales by, and the layout it was computed for.
  *
  * **It measures, which is the second attempt.** The first was pure CSS —
  * `scale: calc(100cqw / 460)` — and it is silently invalid: `scale` takes a *number*, a container
@@ -22,15 +21,32 @@
  * full-size content later.
  */
 
-import { type RefObject, useLayoutEffect } from "react";
+import { type RefObject, useLayoutEffect, useRef } from "react";
 
 /** What the stylesheet reads. Defaults to 1, so markup nothing has measured is simply unscaled. */
 const VAR = "--space-k";
 
-export function useSpaceScale(ref: RefObject<HTMLElement | null>, designWidth: number): void {
+/** The space a box draws at, and the name of its layout, which goes to `data-space`. */
+export type SpaceChoice = { width: number; layout: string };
+
+/**
+ * `choose` picks the space for the width the box was given: a phone gets a narrower space rather
+ * than the desktop one shrunk. The layout it names is written to `data-space`, so the stylesheet
+ * lays the space out for exactly the width the ratio was computed for.
+ */
+export function useSpaceScale(
+  ref: RefObject<HTMLElement | null>,
+  choose: (width: number) => SpaceChoice,
+): void {
+  // Read through a ref so a function written inline does not re-run the effect on every render.
+  const current = useRef(choose);
+  useLayoutEffect(() => {
+    current.current = choose;
+  });
+
   useLayoutEffect(() => {
     const host = ref.current;
-    if (host === null || designWidth <= 0) return;
+    if (host === null) return;
 
     const fit = () => {
       const width = host.getBoundingClientRect().width;
@@ -38,7 +54,10 @@ export function useSpaceScale(ref: RefObject<HTMLElement | null>, designWidth: n
       // ancestor, during a print. Scaling to zero there would hide the section outright, where
       // leaving the last known ratio alone costs nothing.
       if (width <= 0) return;
-      host.style.setProperty(VAR, `${width / designWidth}`);
+      const space = current.current(width);
+      if (space.width <= 0) return;
+      host.style.setProperty(VAR, `${width / space.width}`);
+      host.dataset.space = space.layout;
     };
 
     fit();
@@ -48,5 +67,5 @@ export function useSpaceScale(ref: RefObject<HTMLElement | null>, designWidth: n
     observer.observe(host);
 
     return () => observer.disconnect();
-  }, [ref, designWidth]);
+  }, [ref]);
 }
