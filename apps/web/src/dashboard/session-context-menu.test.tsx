@@ -72,17 +72,28 @@ it("draws Delete in the danger colour and every other item in grey, one colour p
       .map(([key, values]) => `${item.textContent} ${key}: ${values.join(" and ")}`),
   );
   expect(conflicts).toEqual([]);
-  const atRest = (name: string) =>
-    colours(screen.getByRole("menuitem", { name }).className).get("|text");
-  expect(atRest("Delete")).toEqual(["danger"]);
-  expect(atRest("Archive")).toEqual(["ink-2"]);
+  const textColours = (name: string) =>
+    Object.fromEntries(
+      [...colours(screen.getByRole("menuitem", { name }).className)]
+        .filter(([key]) => key.endsWith("|text"))
+        .map(([key, values]) => [key.slice(0, -"|text".length) || "rest", values]),
+    );
+  // Red in every state that names a colour, so a grey slipped in for hover or focus fails too.
+  const deleteColours = textColours("Delete");
+  expect(deleteColours.rest).toEqual(["danger"]);
+  for (const values of Object.values(deleteColours)) expect(values).toEqual(["danger"]);
+  expect(textColours("Archive").rest).toEqual(["ink-2"]);
   // A submenu's owner is drawn by its own branch of the menu, so it is checked on its own.
-  expect(atRest("Snooze")).toEqual(["ink-2"]);
+  expect(textColours("Snooze").rest).toEqual(["ink-2"]);
 });
 
-it("keeps an outline for forced colours, where the focus wash is painted over", () => {
+it("outlines only the focused item under forced colours, where the focus wash is painted over", () => {
   for (const item of open()) {
-    expect(item.className.split(/\s+/)).toContain("outline-hidden");
-    expect(item.className.split(/\s+/)).not.toContain("outline-none");
+    const classes = item.className.split(/\s+/);
+    expect(classes).toContain("focus-visible:outline-hidden");
+    // Unprefixed, either one acts on every item: `outline-none` leaves no focus indicator in that
+    // mode, and `outline-hidden` outlines every item, focused or not.
+    expect(classes).not.toContain("outline-hidden");
+    expect(classes).not.toContain("outline-none");
   }
 });

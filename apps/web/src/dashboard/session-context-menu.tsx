@@ -277,11 +277,12 @@ function WithSeparator({
  * the class list gives them. `text-ink-2` comes after `text-danger` there, so Delete was drawn grey
  * for as long as this string carried a text colour of its own.
  *
- * `outline-hidden` rather than `outline-none`: focus shows as a background wash, which forced
- * colours (Windows High Contrast) paints over, and `outline-hidden` gives the outline back there.
+ * Focus shows as a background wash, which forced colours (Windows High Contrast) paints over.
+ * `focus-visible:outline-hidden` hides the browser's ring everywhere else and gives an outline
+ * back there, on the focused item only. Unprefixed, it would outline every item in that mode.
  */
 const ITEM =
-  "flex w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-hidden";
+  "flex w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] focus-visible:outline-hidden";
 
 const TONE = {
   plain: "text-ink-2 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink",

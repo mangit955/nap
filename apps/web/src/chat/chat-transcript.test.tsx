@@ -843,6 +843,28 @@ describe("taking what the agent said away with you", () => {
     }
   });
 
+  it("keeps the check for the full moment after a second copy", async () => {
+    vi.useFakeTimers();
+    try {
+      stubClipboard();
+      show(ev("agent.message", { text: "Added App.tsx." }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
+      await act(async () => {});
+      act(() => vi.advanceTimersByTime(1000));
+      fireEvent.click(screen.getByRole("button", { name: "Copied" }));
+      await act(async () => {});
+
+      // Past the first copy's moment, inside the second's.
+      act(() => vi.advanceTimersByTime(1599));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy response" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("claims nothing was copied when the clipboard refuses", async () => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,

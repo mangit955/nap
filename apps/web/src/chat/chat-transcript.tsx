@@ -527,12 +527,15 @@ function Item({
  * screen), while it has keyboard focus, and for a moment after it copies, as a check.
  */
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  // Counts copies rather than holding a flag, so a second copy while the check shows starts the
+  // timer again; a flag already `true` would not change, and the first copy's timer would end it.
+  const [copies, setCopies] = useState(0);
+  const copied = copies > 0;
   useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), COPIED_MS);
+    if (copies === 0) return;
+    const timer = window.setTimeout(() => setCopies(0), COPIED_MS);
     return () => window.clearTimeout(timer);
-  }, [copied]);
+  }, [copies]);
   if (use(ShowcaseContext)?.copyButtons === false) return null;
   return (
     <button
@@ -545,7 +548,7 @@ function CopyButton({ text }: { text: string }) {
         // the document is not focused or permission is denied; neither is worth telling the
         // reader about mid-transcript, so the icon simply stays as it was.
         navigator.clipboard?.writeText(text).then(
-          () => setCopied(true),
+          () => setCopies((count) => count + 1),
           () => {},
         );
       }}
