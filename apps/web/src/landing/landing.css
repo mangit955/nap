@@ -744,6 +744,11 @@
       width: calc(100% - 40px);
     }
   }
+  @media (prefers-reduced-motion: no-preference) {
+    html:has([data-landing-page]) {
+      scroll-behavior: smooth;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .landing *,
     .landing *::before,

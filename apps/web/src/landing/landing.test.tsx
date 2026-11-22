@@ -1,5 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FEATURED_REPLAY_PATH } from "../replay/featured.ts";
 import { REPO_URL } from "./github-button.tsx";
 import { type AuthState, Landing } from "./landing.tsx";
@@ -9,6 +9,112 @@ function show(auth: AuthState) {
 }
 
 const bar = () => within(screen.getByRole("banner"));
+
+it("eases a wheel gesture over several frames and releases the frame on unmount", () => {
+  vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+  const now = vi.spyOn(performance, "now");
+  let position = 0;
+  const scrollY = vi.spyOn(window, "scrollY", "get").mockImplementation(() => position);
+  const scrollHeight = vi
+    .spyOn(document.documentElement, "scrollHeight", "get")
+    .mockReturnValue(4000);
+  const scrollTo = vi
+    .spyOn(window, "scrollTo")
+    .mockImplementation((options?: ScrollToOptions | number) => {
+      if (typeof options === "object") position = Math.round(options.top ?? 0);
+    });
+  const { unmount } = show("signed-out");
+  try {
+    const main = screen.getByRole("main");
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 });
+    now.mockReturnValueOnce(20);
+    main.dispatchEvent(wheel);
+
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(position).toBe(0);
+    vi.advanceTimersToNextFrame();
+    expect(position).toBe(0);
+    vi.advanceTimersToNextFrame();
+    expect(position).toBeGreaterThan(0);
+    expect(position).toBeLessThan(240);
+    vi.advanceTimersByTime(500);
+    expect(position).toBe(240);
+
+    main.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 }));
+    vi.advanceTimersToNextFrame();
+    const beforeReversal = position;
+    expect(beforeReversal).toBeGreaterThan(240);
+    expect(beforeReversal).toBeLessThan(480);
+    main.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }));
+    vi.advanceTimersToNextFrame();
+    expect(position).toBeLessThan(beforeReversal);
+
+    position = 600;
+    vi.advanceTimersByTime(500);
+    expect(position).toBe(600);
+
+    const pending = vi.getTimerCount();
+    main.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 }));
+    expect(vi.getTimerCount()).toBe(pending + 1);
+    unmount();
+    vi.advanceTimersByTime(500);
+    expect(position).toBe(600);
+  } finally {
+    unmount();
+    now.mockRestore();
+    scrollY.mockRestore();
+    scrollHeight.mockRestore();
+    scrollTo.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+function expectNativeWheel(target: HTMLElement, input: WheelEventInit) {
+  const height = vi.spyOn(document.documentElement, "scrollHeight", "get").mockReturnValue(4000);
+  try {
+    const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...input });
+    target.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(false);
+  } finally {
+    height.mockRestore();
+  }
+}
+
+it.each([
+  { deltaY: 120, ctrlKey: true },
+  { deltaY: 120, shiftKey: true },
+  { deltaY: 40, deltaX: 120 },
+])("leaves non-vertical gestures and browser shortcuts native (%j)", (input) => {
+  show("signed-out");
+  expectNativeWheel(screen.getByRole("main"), input);
+});
+
+it("leaves wheel input native when reduced motion is requested", () => {
+  const original = window.matchMedia;
+  const media = vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+    ...original(query),
+    matches: query === "(prefers-reduced-motion: reduce)",
+  }));
+  try {
+    show("signed-out");
+    expectNativeWheel(screen.getByRole("main"), { deltaY: 120 });
+  } finally {
+    media.mockRestore();
+  }
+});
+
+it("leaves a nested scroll area's wheel input native", () => {
+  render(
+    <Landing
+      auth="signed-out"
+      hero={<section aria-label="Scrollable example" style={{ overflowY: "auto" }} />}
+    />,
+  );
+  const region = screen.getByRole("region", { name: "Scrollable example" });
+  Object.defineProperty(region, "scrollHeight", { value: 200 });
+  Object.defineProperty(region, "clientHeight", { value: 100 });
+  expectNativeWheel(region, { deltaY: 120 });
+});
 
 describe("before the session has resolved", () => {
   it("offers no way in from the bar", () => {
