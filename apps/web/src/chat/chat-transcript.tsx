@@ -528,8 +528,9 @@ function Item({
  * Prose gives up room on its first line only. A reply that opens with a code block or a table
  * loses the button's width along that whole block, because a box that scrolls its own overflow
  * keeps clear of a float rather than wrapping around it. Both scroll sideways, so nothing is cut.
- * It stays drawn where nothing can hover (a touch screen), while it has keyboard focus, and for a
- * moment after it copies, as a check.
+ * It stays drawn wherever a finger can reach it, while it has keyboard focus, and for a moment
+ * after it copies, as a check. "A finger" is `(hover: none)` or `(any-pointer: coarse)`: a
+ * touchscreen laptop's main pointer can hover, so the first alone would hide it from the screen.
  */
 function CopyButton({ text }: { text: string }) {
   // Counts copies rather than holding a flag, so a second copy while the check shows starts the
@@ -557,7 +558,7 @@ function CopyButton({ text }: { text: string }) {
           () => {},
         );
       }}
-      className={`float-right ms-3 rounded-chip p-1 text-muted transition-[opacity,color,background-color] duration-150 hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [@media(hover:none)]:opacity-100 ${copied ? "opacity-100" : "opacity-0 group-hover/reply:opacity-100"}`}
+      className={`float-right ms-3 rounded-chip p-1 text-muted transition-[opacity,color,background-color] duration-150 hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100 ${copied ? "opacity-100" : "opacity-0 group-hover/reply:opacity-100"}`}
     >
       {copied ? (
         <Check aria-hidden="true" className="size-3.5 text-ink" />
