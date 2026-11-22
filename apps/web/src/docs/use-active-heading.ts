@@ -19,9 +19,10 @@ import { useEffect, useState } from "react";
  * How far below a heading's landing position the reading line sits. A heading followed from a
  * link lands at its `scroll-margin-top`, which is taller on a phone, where a second bar sits under
  * the first; reading the line from the heading's own margin keeps a heading just jumped to marked
- * at every width.
+ * at every width. The slack covers a heading that lands a few pixels low — browser zoom, sub-pixel
+ * rounding, a bar still settling — and is far less than the gap between any two headings.
  */
-const SLACK = 8;
+const SLACK = 24;
 
 export function useActiveHeading(ids: readonly string[]): string | null {
   const [active, setActive] = useState<string | null>(null);
@@ -64,7 +65,12 @@ export function useActiveHeading(ids: readonly string[]): string | null {
     measure();
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
+    // The page can move under a still window: a web font swapping in reflows every heading after
+    // the first measurement, and a page opened at a heading's address is measured before it has.
+    const layout = new ResizeObserver(schedule);
+    layout.observe(document.body);
     return () => {
+      layout.disconnect();
       window.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       if (frame !== 0) window.cancelAnimationFrame(frame);

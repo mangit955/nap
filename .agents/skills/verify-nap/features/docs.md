@@ -19,7 +19,7 @@ bar under the header holds the breadcrumb and an "On this page" button.
 ## How to get to it (user POV)
 
 - "Docs" in the landing page's bar, or the Docs links in its footer.
-- A link from the README, including the old `/docs#verification` form.
+- A link from the README, or an old `/docs#verification` link from before the docs had pages.
 
 ## Driving it with verify-nap
 
