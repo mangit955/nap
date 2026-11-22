@@ -28,8 +28,15 @@ export function legacyTarget(hash: string): string | null {
 export function LegacyAnchor() {
   const router = useRouter();
   useEffect(() => {
-    const target = legacyTarget(window.location.hash);
-    if (target) router.replace(target);
+    // On arrival, and again when the fragment changes under a page already open — somebody
+    // pasting an old link into the address bar of a tab already on the docs home.
+    const forward = () => {
+      const target = legacyTarget(window.location.hash);
+      if (target) router.replace(target);
+    };
+    forward();
+    window.addEventListener("hashchange", forward);
+    return () => window.removeEventListener("hashchange", forward);
   }, [router]);
   return null;
 }

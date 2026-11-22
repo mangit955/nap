@@ -99,6 +99,7 @@ describe("parseCommand", () => {
     expect(parseCommand(["resize", "--width", "390"]).ok).toBe(false);
     expect(parseCommand(["resize", "--width", "0", "--height", "844"]).ok).toBe(false);
     expect(parseCommand(["resize", "--width", "39.5", "--height", "844"]).ok).toBe(false);
+    expect(parseCommand(["resize", "--width", "10000001", "--height", "844"]).ok).toBe(false);
   });
 
   it("reads goto with a path, and refuses an absolute URL elsewhere", () => {

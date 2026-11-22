@@ -414,12 +414,15 @@ async function main() {
     const page = context.pages()[0] ?? (await context.newPage());
     try {
       if (command.kind === "resize") {
+        // Applied before it is saved, so a size Chrome refuses never reaches the commands after.
+        await page.setViewportSize({ width: command.width, height: command.height });
         await writeFile(
           join(directory, VIEWPORT_FILE),
           JSON.stringify({ width: command.width, height: command.height }),
         );
+      } else {
+        await applyViewport(page, directory);
       }
-      await applyViewport(page, directory);
       await act(page, run, command);
     } catch (error) {
       // A failed action is evidence too: save what the page looked like when it failed.

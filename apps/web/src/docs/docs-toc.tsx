@@ -11,9 +11,10 @@
  */
 
 import { ArrowUp, ChevronDown, List, Pencil } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Heading } from "./outline.ts";
 import { useActiveHeading } from "./use-active-heading.ts";
+import { useDismiss } from "./use-dismiss.ts";
 
 export function DocsToc({ headings, editHref }: { headings: Heading[]; editHref: string }) {
   const active = useActiveHeading(headings.map((heading) => heading.id));
@@ -64,14 +65,9 @@ export function MobileToc({ crumb, headings }: { crumb: string; headings: Headin
   const [open, setOpen] = useState(false);
   const active = useActiveHeading(headings.map((heading) => heading.id));
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, close, toggle);
 
   return (
     <div className="docs-mobile-bar">
@@ -79,6 +75,7 @@ export function MobileToc({ crumb, headings }: { crumb: string; headings: Headin
       {headings.length > 0 && (
         <>
           <button
+            ref={toggle}
             type="button"
             aria-expanded={open}
             aria-controls="docs-mobile-toc"

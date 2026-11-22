@@ -2,7 +2,7 @@
 
 /**
  * Which heading the reader is in: the last one whose top has scrolled above the reading line just
- * under the bar. The "On this page" list and the sidebar both mark it.
+ * under the bar — where a heading lands when a link is followed to it. The "On this page" list and the sidebar both mark it.
  *
  * Measured on scroll, once a frame, rather than with an `IntersectionObserver`: an observer reports
  * headings entering and leaving a band, and turning those edges into "the section I am reading" on
@@ -15,8 +15,13 @@
 
 import { useEffect, useState } from "react";
 
-/** The reading line, in pixels from the top of the viewport: under the bar, with some air. */
-const READING_LINE = 120;
+/**
+ * How far below a heading's landing position the reading line sits. A heading followed from a
+ * link lands at its `scroll-margin-top`, which is taller on a phone, where a second bar sits under
+ * the first; reading the line from the heading's own margin keeps a heading just jumped to marked
+ * at every width.
+ */
+const SLACK = 8;
 
 export function useActiveHeading(ids: readonly string[]): string | null {
   const [active, setActive] = useState<string | null>(null);
@@ -33,11 +38,18 @@ export function useActiveHeading(ids: readonly string[]): string | null {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const tops = list.flatMap((id) => {
+      const elements = list.flatMap((id) => {
         const element = document.getElementById(id);
-        return element ? [{ id, top: element.getBoundingClientRect().top }] : [];
+        return element ? [{ id, element }] : [];
       });
-      let current = tops.filter(({ top }) => top <= READING_LINE).at(-1)?.id ?? null;
+      const first = elements[0]?.element;
+      const line =
+        (first ? Number.parseFloat(getComputedStyle(first).scrollMarginTop) || 0 : 0) + SLACK;
+      const tops = elements.map(({ id, element }) => ({
+        id,
+        top: element.getBoundingClientRect().top,
+      }));
+      let current = tops.filter(({ top }) => top <= line).at(-1)?.id ?? null;
       const root = document.documentElement;
       const atBottom = window.innerHeight + window.scrollY >= root.scrollHeight - 2;
       if (atBottom) {

@@ -15,14 +15,17 @@
 import { Menu, Search, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { REPO_URL } from "../landing/github-button.tsx";
 import { useOpenSearch } from "./docs-search.tsx";
 import { DocsSidebar, type HeadingsByPage } from "./docs-sidebar.tsx";
 import { DOCS_HOME } from "./pages.ts";
+import { useDismiss } from "./use-dismiss.ts";
 
 const MENU_ID = "docs-menu";
+/** Where the sidebar and the bar's links come back, in step with `docs.css`. */
+const WIDE = "(min-width: 1024px)";
 
 export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
   const openSearch = useOpenSearch();
@@ -34,18 +37,28 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: the path changing is the event.
   useEffect(() => setMenu(false), [pathname]);
 
+  const toggle = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setMenu(false), []);
+  useDismiss(menu, closeMenu, toggle);
+
   useEffect(() => {
     if (!menu) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenu(false);
-    };
-    // The page under an open menu must not scroll with the finger that is scrolling the menu.
+    // The menu covers the page, so the page goes inert under it: Tab cannot wander into links
+    // the reader cannot see, and the finger scrolling the menu does not scroll the page.
+    const page = document.querySelector<HTMLElement>("[data-docs-body]");
+    page?.setAttribute("inert", "");
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKey);
+    // Widened past the menu's breakpoint, the sidebar is back and the menu would cover it.
+    const wide = window.matchMedia(WIDE);
+    const onWide = () => {
+      if (wide.matches) setMenu(false);
+    };
+    wide.addEventListener("change", onWide);
     return () => {
+      page?.removeAttribute("inert");
       document.body.style.overflow = overflow;
-      window.removeEventListener("keydown", onKey);
+      wide.removeEventListener("change", onWide);
     };
   }, [menu]);
 
@@ -76,7 +89,9 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
         <nav aria-label="Site" className="docs-header-links">
           <a href="/#product">Product</a>
           <a href="/#changelog">Changelog</a>
-          <Link href={DOCS_HOME} aria-current="page">
+          {/* "page" on the docs home; on a section page the reader is in the docs rather than on this
+              link's page, and the sidebar names the page. */}
+          <Link href={DOCS_HOME} aria-current={pathname === DOCS_HOME ? "page" : "true"}>
             Docs
           </Link>
           <a href={REPO_URL} target="_blank" rel="noreferrer">
@@ -97,6 +112,7 @@ export function DocsHeader({ headings }: { headings: HeadingsByPage }) {
             <Search aria-hidden="true" size={17} />
           </button>
           <button
+            ref={toggle}
             type="button"
             className="lp-button lp-button-ghost lp-menu-toggle"
             aria-label={menu ? "Close menu" : "Menu"}

@@ -157,6 +157,7 @@ const VALUE_FLAGS = new Set([
   "frame",
 ]);
 const BOOLEAN_FLAGS = new Set(["loose", "full", "right"]);
+const MAX_VIEWPORT = 7680;
 
 function flags(
   args: readonly string[],
@@ -287,11 +288,15 @@ export function parseCommand(args: readonly string[]): Result<Command, string> {
     }
     case "resize": {
       const [width, height] = [values.get("width"), values.get("height")].map(Number);
+      // Up to an 8K screen: past that Chrome refuses the size, and nothing real is that wide.
       const valid = (n: number | undefined): n is number =>
-        n !== undefined && Number.isInteger(n) && n > 0;
+        n !== undefined && Number.isInteger(n) && n > 0 && n <= MAX_VIEWPORT;
       return valid(width) && valid(height)
         ? { ok: true, value: { kind: "resize", width, height } }
-        : { ok: false, error: "resize needs --width and --height, whole pixels, e.g. 390 and 844" };
+        : {
+            ok: false,
+            error: `resize needs --width and --height, whole pixels up to ${MAX_VIEWPORT}, e.g. 390 and 844`,
+          };
     }
     default:
       return {

@@ -133,7 +133,7 @@ function SearchDialog({
           type="text"
           role="combobox"
           aria-expanded={hits.length > 0}
-          aria-controls={`${ids}-results`}
+          aria-controls={hits.length > 0 ? `${ids}-results` : undefined}
           aria-activedescendant={hits.length > 0 ? optionId(active) : undefined}
           aria-autocomplete="list"
           aria-label="Search the docs"
@@ -155,35 +155,48 @@ function SearchDialog({
           }}
           className="docs-search-input"
         />
-        <kbd className="docs-kbd">esc</kbd>
+        {/* A real button, so a touch screen reader has a way out that is not a gesture. */}
+        <button type="button" className="docs-kbd docs-search-close" onClick={close}>
+          <span aria-hidden="true">esc</span>
+          <span className="sr-only">Close search</span>
+        </button>
       </div>
 
-      <div
-        ref={list}
-        id={`${ids}-results`}
-        role="listbox"
-        aria-label="Results"
-        className="docs-search-results"
-      >
-        {hits.length === 0 ? (
-          <p className="docs-search-empty">No results for “{query.trim()}”.</p>
-        ) : (
-          <>
-            <Group
-              name={query.trim() ? "Pages" : "All pages"}
-              hits={results.pages}
-              offset={0}
-              {...{ active, terms, optionId, setActive, close }}
-            />
-            <Group
-              name="Sections"
-              hits={results.sections}
-              offset={results.pages.length}
-              {...{ active, terms, optionId, setActive, close }}
-            />
-          </>
-        )}
-      </div>
+      {/* Announced while focus stays in the field: how many results, or that there are none. The
+          options themselves are only read as the arrows reach them. */}
+      <p role="status" className={hits.length > 0 ? "sr-only" : "docs-search-empty"}>
+        {hits.length > 0
+          ? query.trim()
+            ? `${hits.length} ${hits.length === 1 ? "result" : "results"}`
+            : ""
+          : `No results for “${query.trim()}”.`}
+      </p>
+
+      {hits.length > 0 && (
+        <div
+          ref={list}
+          id={`${ids}-results`}
+          role="listbox"
+          aria-label="Results"
+          // Out of the tab order: Chrome makes a scrolling box focusable, and the arrows and Enter
+          // that work the list are the field's, so Tab landing here would strand them.
+          tabIndex={-1}
+          className="docs-search-results"
+        >
+          <Group
+            name={query.trim() ? "Pages" : "All pages"}
+            hits={results.pages}
+            offset={0}
+            {...{ active, terms, optionId, setActive, close }}
+          />
+          <Group
+            name="Sections"
+            hits={results.sections}
+            offset={results.pages.length}
+            {...{ active, terms, optionId, setActive, close }}
+          />
+        </div>
+      )}
 
       <div className="docs-search-foot" aria-hidden="true">
         <span>

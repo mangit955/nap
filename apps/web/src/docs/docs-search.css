@@ -52,6 +52,13 @@
   .docs-search-input:focus-visible {
     outline: 2px solid transparent;
   }
+  .docs-search-close {
+    cursor: pointer;
+    transition: color 120ms ease;
+  }
+  .docs-search-close:hover {
+    color: var(--lp-ink);
+  }
   .docs-search-results {
     flex: 1;
     scrollbar-width: thin;

@@ -6,10 +6,11 @@
  * the landing page's — its ink ramp and faces, set at reading size — and lives in `docs.css`, so
  * nothing here names a colour.
  *
- * **Every component here is a plain function of its props.** `outline.ts` reads a section by
- * calling it and walking what comes back, which is how the "On this page" list, the heading ids
- * and the search index stay in step with the prose without a second copy of it. A hook in here, or
- * in a section, would break that walk; `outline.test.ts` would say so.
+ * **`outline.ts` reads a section without rendering it**: it calls the section and walks the
+ * elements that come back, matching these components by identity and reading their props. That is
+ * how the "On this page" list, the heading ids and the search index stay in step with the prose
+ * without a second copy of it. These components are never called by that walk, so they may hold
+ * state; a section may not (see `outline.ts`).
  */
 
 import type { ReactNode } from "react";

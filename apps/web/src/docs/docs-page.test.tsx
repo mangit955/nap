@@ -178,6 +178,69 @@ describe("the bar", () => {
     );
     expect(bar.queryByRole("link", { name: /sign in/i })).not.toBeInTheDocument();
   });
+
+  it("marks Docs as the section, not the page, once the reader is on a section's page", () => {
+    renderPage("scale");
+    const bar = within(screen.getByRole("banner"));
+    expect(bar.getByRole("link", { name: /^docs$/i, current: true })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+  });
+});
+
+describe("the phone menu", () => {
+  function openMenu() {
+    renderPage("verification");
+    const toggle = screen.getByRole("button", { name: "Menu" });
+    fireEvent.click(toggle);
+    return toggle;
+  }
+
+  it("makes the page under it inert, and gives it back when closed", () => {
+    const toggle = openMenu();
+    const page = screen.getByRole("main", { hidden: true }).closest("[data-docs-body]");
+    expect(page).toHaveAttribute("inert");
+
+    fireEvent.click(toggle);
+    expect(page).not.toHaveAttribute("inert");
+  });
+
+  it("closes on Escape and puts focus back on its button", () => {
+    const toggle = openMenu();
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(toggle).toHaveAccessibleName("Menu");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
+  });
+
+  it("stays open when Escape is closing the search opened from it", () => {
+    const toggle = openMenu();
+    fireEvent.click(
+      within(document.getElementById("docs-menu") as HTMLElement).getByRole("button", {
+        name: /search docs/i,
+      }),
+    );
+    fireEvent.keyDown(screen.getByRole("combobox", { name: /search the docs/i }), {
+      key: "Escape",
+    });
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("the phone's On this page", () => {
+  it("closes on Escape and puts focus back on its button", () => {
+    renderPage("verification");
+    const button = screen.getByRole("button", { name: "On this page" });
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).toHaveFocus();
+  });
 });
 
 describe("old single-page links", () => {
@@ -189,6 +252,17 @@ describe("old single-page links", () => {
     expect(legacyTarget("")).toBeNull();
     expect(legacyTarget("#nothing-here")).toBeNull();
     expect(legacyTarget("#%E0%A4%A")).toBeNull();
+  });
+
+  it("forward a fragment that changes under a page already open", () => {
+    render(<LegacyAnchor />);
+    expect(router.replace).not.toHaveBeenCalled();
+
+    window.location.hash = "#architecture";
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(router.replace).toHaveBeenCalledWith(hrefOf("architecture"));
   });
 
   it("replace the address rather than adding to history", () => {
@@ -251,11 +325,27 @@ describe("search", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("says so when nothing matches", () => {
+  it("announces the count, and says so when nothing matches, without moving focus", () => {
     const input = openWithShortcut();
+    fireEvent.change(input, { target: { value: "repair" } });
+    expect(screen.getByRole("status")).toHaveTextContent(/^\d+ results$/);
+
     fireEvent.change(input, { target: { value: "zzzqqq" } });
     expect(screen.queryAllByRole("option")).toEqual([]);
-    expect(screen.getByText(/no results for/i)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("No results for “zzzqqq”.");
+    expect(input).not.toHaveAttribute("aria-controls");
+    expect(input).toHaveFocus();
+  });
+
+  it("keeps the results out of the tab order, where the arrows and Enter would not reach", () => {
+    openWithShortcut();
+    expect(screen.getByRole("listbox", { name: "Results" })).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("can be closed with a button as well as Escape", () => {
+    openWithShortcut();
+    fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
