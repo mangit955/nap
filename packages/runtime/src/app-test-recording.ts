@@ -23,6 +23,9 @@ const FINAL_START_FAILURES: ReadonlySet<DesktopError["code"]> = new Set([
   "timeout",
 ]);
 
+/** The warm-up is optional, so it must never cost a test the driver's whole deadline. */
+const WARMUP_DEADLINE_MS = 10_000;
+
 type CaptureStep = "desktop_start" | "encoder_warmup" | "recording_begin";
 type StepFailure = { code?: DesktopError["code"]; error?: string; err?: unknown };
 
@@ -33,6 +36,7 @@ type StepFailure = { code?: DesktopError["code"]; error?: string; err?: unknown 
 async function captureStep(
   step: CaptureStep,
   attempt: number,
+  turn: AbortSignal | undefined,
   call: () => Promise<{ ok: true } | { ok: false; error: DesktopError }>,
 ): Promise<StepFailure | undefined> {
   const began = Date.now();
@@ -45,7 +49,7 @@ async function captureStep(
     failure = { err };
   }
   // Someone pressing Stop is not a capture failure, and would bury the real ones.
-  if (failure.code === "cancelled") return failure;
+  if (turn?.aborted) return failure;
   getLogger().warn(
     { step, attempt, ...failure, elapsedMs: Date.now() - began },
     step === "encoder_warmup" ? "test recording warm-up failed" : "test recording could not start",
@@ -64,7 +68,7 @@ async function beginCapture(
 ): Promise<boolean> {
   const signal = options.signal ? { signal: options.signal } : {};
   for (let attempt = 1; ; attempt++) {
-    const failure = await captureStep("desktop_start", attempt, () =>
+    const failure = await captureStep("desktop_start", attempt, options.signal, () =>
       options.desktop.start({
         sandboxId: options.sandboxId,
         devServerUrl: options.devServerUrl,
@@ -84,12 +88,22 @@ async function beginCapture(
   // ffmpeg, so a test whose build turn never looked at the screen is ffmpeg's first run on the
   // machine, under that deadline. A screenshot runs the same binary and leaves no recording
   // state behind, so it pays most of that first load beforehand. A failed one is only logged.
-  await captureStep("encoder_warmup", 1, () =>
-    options.desktop.screenshot(options.sandboxId, options.signal),
-  );
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), WARMUP_DEADLINE_MS);
+  try {
+    await captureStep("encoder_warmup", 1, options.signal, () =>
+      options.desktop.screenshot(
+        options.sandboxId,
+        options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal,
+      ),
+    );
+  } finally {
+    clearTimeout(timer);
+  }
   return (
-    (await captureStep("recording_begin", 1, () => recordings.begin({ ...ref, ...signal }))) ===
-    undefined
+    (await captureStep("recording_begin", 1, options.signal, () =>
+      recordings.begin({ ...ref, ...signal }),
+    )) === undefined
   );
 }
 

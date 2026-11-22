@@ -431,15 +431,52 @@ it("does not retry the desktop start once the turn is aborted", async () => {
   expect(start).toHaveBeenCalledTimes(1);
 });
 
-it("does not log a cancelled capture as a failure", async () => {
+it("does not log a capture failure caused by the turn being stopped", async () => {
   const f = fixture();
-  vi.spyOn(f.desktop, "start").mockResolvedValue({
-    ok: false,
-    error: { code: "cancelled", message: "Desktop operation cancelled." },
+  const controller = new AbortController();
+  const start = vi.spyOn(f.desktop, "start").mockImplementation(async () => {
+    controller.abort();
+    return { ok: false, error: unavailable };
   });
   const log = logRecorder();
   await withLogContext(log.logger, {}, () =>
-    withAppTestRecording(f.options, async () => ({ ok: false })),
+    withAppTestRecording({ ...f.options, signal: controller.signal }, async () => ({
+      ok: false,
+    })),
   );
+  expect(start).toHaveBeenCalledTimes(1);
   expect(log.lines).toEqual([]);
+});
+
+it("gives up on a stalled warm-up after ten seconds and still begins the recording", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const f = fixture();
+    vi.spyOn(f.desktop, "screenshot").mockImplementation(
+      (_sandboxId, signal) =>
+        new Promise((resolve) =>
+          signal?.addEventListener("abort", () =>
+            resolve({
+              ok: false,
+              error: { code: "cancelled", message: "Desktop operation cancelled." },
+            }),
+          ),
+        ),
+    );
+    const log = logRecorder();
+    const pending = withLogContext(log.logger, {}, () =>
+      withAppTestRecording(f.options, async () => ({ ok: true })),
+    );
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(f.recordings.begin).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(f.recordings.begin).toHaveBeenCalledTimes(1);
+    expect(log.lines.map((line) => line.fields)).toEqual([
+      expect.objectContaining({ step: "encoder_warmup", code: "cancelled" }),
+    ]);
+    expect(f.entries.at(-1)).toMatchObject({ payload: { recording: { state: "available" } } });
+  } finally {
+    vi.useRealTimers();
+  }
 });
