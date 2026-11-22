@@ -141,6 +141,27 @@ describe("when it works", () => {
     expect(await screen.findByRole("button", { name: "One moment…" })).toBeDisabled();
     expect(push).toHaveBeenCalledWith("/welcome");
   });
+
+  it("goes to the key step even when the new session is noticed after it set off", async () => {
+    // Signing up creates the very session this page watches for, to move on somebody who
+    // arrived already signed in. When the client's session refresh landed after the push to
+    // `/welcome`, that redirect fired too and took a brand-new account to the dashboard, past
+    // the key step. Seen in the verify-nap fixture on every sign-up.
+    signUpEmail.mockResolvedValue({ data: {} });
+    window.history.replaceState(null, "", "/sign-up");
+    const view = await renderReady(<LiveSignIn initialMode="sign-up" />);
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ada" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "a good password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/welcome"));
+
+    useSession.mockReturnValue({ data: { user: { id: "u1" } }, isPending: false });
+    view.rerender(<LiveSignIn initialMode="sign-up" />);
+
+    expect(replace).not.toHaveBeenCalled();
+  });
 });
 
 describe("the address bar", () => {

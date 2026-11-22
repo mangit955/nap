@@ -120,9 +120,13 @@ export function LiveSignIn({
   // existing free trial instead of being left with the provider's raw error — unless they came
   // here to leave it, when the form is the whole point and the trial button still continues it.
   const staying = upgrade && session?.user.isAnonymous === true;
+  // Not while a submission is under way. Signing in or up creates the very session this watches
+  // for, and the client's session refresh can land after the submission has already sent the
+  // person on to `AFTER_SIGN_IN`. Redirecting then too would take a new account past the key
+  // step to the dashboard. The submission chooses where its own session goes.
   useEffect(() => {
-    if (session != null && !staying) router.replace(AFTER_DEMO_SIGN_IN);
-  }, [session, staying, router]);
+    if (session != null && !staying && !submitting) router.replace(AFTER_DEMO_SIGN_IN);
+  }, [session, staying, submitting, router]);
 
   useEffect(() => {
     let cancelled = false;
