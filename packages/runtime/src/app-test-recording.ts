@@ -87,7 +87,9 @@ async function beginCapture(
   // allows ffmpeg two seconds to appear and five to give a frame. Starting the desktop runs no
   // ffmpeg, so a test whose build turn never looked at the screen is ffmpeg's first run on the
   // machine, under that deadline. A screenshot runs the same binary and leaves no recording
-  // state behind, so it pays most of that first load beforehand. A failed one is only logged.
+  // state behind, so it pays most of that first load beforehand. It also uses up any zoom crop a
+  // cancelled computer call left pending, which is better spent here than on the test's first
+  // look. A failed or abandoned one is only logged: whatever it paged in stays paged in.
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), WARMUP_DEADLINE_MS);
   try {
