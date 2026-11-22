@@ -21,7 +21,7 @@ const ROWS: readonly {
   {
     id: "repo",
     title: "Hand it your repo. Come back to a pull request.",
-    body: "Connect GitHub and give nap a task. It clones the repo into its own sandbox, does the work, and runs your checks. Publish the result as a draft pull request, or have nap open one every time. Close the tab whenever you like.",
+    body: "Connect GitHub and give nap a task. It clones the repo into its own sandbox, does the work, and runs your checks. Publish the result as a draft pull request, or have nap open one whenever its work is verified. Close the tab whenever you like.",
     link: { label: "Connect GitHub", href: "/sign-up" },
     Art: RepoArt,
   },
