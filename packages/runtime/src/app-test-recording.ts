@@ -44,6 +44,8 @@ async function captureStep(
   } catch (err) {
     failure = { err };
   }
+  // Someone pressing Stop is not a capture failure, and would bury the real ones.
+  if (failure.code === "cancelled") return failure;
   getLogger().warn(
     { step, attempt, ...failure, elapsedMs: Date.now() - began },
     step === "encoder_warmup" ? "test recording warm-up failed" : "test recording could not start",
@@ -53,12 +55,10 @@ async function captureStep(
 
 /** True once the encoder has its first frame. */
 async function beginCapture(
-  options: {
-    sandboxId: string;
-    devServerUrl: string;
-    desktop: Pick<SandboxDesktop, "start" | "screenshot">;
-    signal?: AbortSignal | undefined;
-  },
+  options: Pick<
+    Parameters<typeof withAppTestRecording>[0],
+    "sandboxId" | "devServerUrl" | "desktop" | "signal"
+  >,
   recordings: SandboxRecordings,
   ref: SandboxRecording,
 ): Promise<boolean> {

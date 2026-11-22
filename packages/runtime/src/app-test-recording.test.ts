@@ -430,3 +430,16 @@ it("does not retry the desktop start once the turn is aborted", async () => {
   }));
   expect(start).toHaveBeenCalledTimes(1);
 });
+
+it("does not log a cancelled capture as a failure", async () => {
+  const f = fixture();
+  vi.spyOn(f.desktop, "start").mockResolvedValue({
+    ok: false,
+    error: { code: "cancelled", message: "Desktop operation cancelled." },
+  });
+  const log = logRecorder();
+  await withLogContext(log.logger, {}, () =>
+    withAppTestRecording(f.options, async () => ({ ok: false })),
+  );
+  expect(log.lines).toEqual([]);
+});
