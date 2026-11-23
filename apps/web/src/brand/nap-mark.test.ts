@@ -51,9 +51,9 @@ describe("the favicon", () => {
 
 describe("the component", () => {
   it("cuts the eyes out with a mask rather than painting over them", () => {
-    // The mask is what keeps the mark a single colour — it sits on a light stage and in a dark
-    // header — and it is also what lets the eyes move while the body holds still. Eyes filled
-    // in the background colour would look identical and break on both counts.
+    // The mask is what keeps the mark a single colour — it sits on the landing pages' ground and
+    // in the workspace header — and it is also what lets the eyes move while the body holds
+    // still. Eyes filled in the background colour would look identical and break on both counts.
     expect(component).toContain("<mask");
     // A pattern rather than the literal source, which would both break on reformatting and read
     // to the linter as a template placeholder somebody forgot to interpolate.
@@ -73,7 +73,7 @@ describe("the component", () => {
   it("cuts the squint out with the other faces, not over them", () => {
     // It is drawn with a black stroke, which inside the mask means "a hole shaped like this"
     // and outside it means two black chevrons painted onto a ghost that is otherwise one
-    // colour — legible on the dark dashboard and invisible on a light stage.
+    // colour — legible on the dark dashboard and invisible on a light background.
     const [beforeMask = ""] = component.split("</mask>");
     expect(beforeMask).toContain("nap-mark-squint");
   });

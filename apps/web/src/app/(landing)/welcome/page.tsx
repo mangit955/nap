@@ -1,4 +1,4 @@
-import { Welcome } from "../../account/welcome.tsx";
+import { Welcome } from "../../../account/welcome.tsx";
 
 /**
  * Where a new account lands, once, before the dashboard.

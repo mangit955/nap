@@ -6,14 +6,11 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 /**
- * The display face: the few headings the app sets apart from its system sans — `/welcome` and
- * the preview pane's empty states.
+ * The display face: the few headings the app sets apart from its system sans, which are the
+ * preview pane's empty states.
  *
  * A grotesque with deliberately odd details — a wide, low-waisted `a`, a flat-topped `t`, a
- * tail on the `l` — which is exactly what a system stack cannot give a first sentence. It is
- * loaded across its whole weight axis because the treatment *is* the weight: those headings sit
- * at 200 and the empty states at 600, and both have to be the same typeface or the contrast reads
- * as a fallback rather than as a choice.
+ * tail on the `l` — which is exactly what a system stack cannot give a short heading.
  *
  * Declared here so that `--font-display` resolves on every route that reaches for it, and **not
  * preloaded**, because a root-layout font is preloaded on every route and most never draw it:

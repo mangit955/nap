@@ -141,6 +141,56 @@ describe("when it works", () => {
     expect(await screen.findByRole("button", { name: "One moment…" })).toBeDisabled();
     expect(push).toHaveBeenCalledWith("/welcome");
   });
+
+  it("goes to the key step even when the new session is noticed after it set off", async () => {
+    // Signing up creates the very session this page watches for, to move on somebody who
+    // arrived already signed in. When the client's session refresh landed after the push to
+    // `/welcome`, that redirect fired too and took a brand-new account to the dashboard, past
+    // the key step. Seen in the verify-nap fixture on every sign-up.
+    signUpEmail.mockResolvedValue({ data: {} });
+    window.history.replaceState(null, "", "/sign-up");
+    const view = await renderReady(<LiveSignIn initialMode="sign-up" />);
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ada" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "a good password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    await vi.waitFor(() => expect(push).toHaveBeenCalledWith("/welcome"));
+
+    useSession.mockReturnValue({ data: { user: { id: "u1" } }, isPending: false });
+    view.rerender(<LiveSignIn initialMode="sign-up" />);
+
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("still goes on when asking whether the cookie stuck never answers", async () => {
+    // The redirect above stands aside while a submission is under way, so the submission's own
+    // check is the only way on. A check that hangs must fail open like one that throws, or the
+    // button sits on "One moment…" for as long as the page is open.
+    signUpEmail.mockResolvedValue({ data: {} });
+    getSession.mockReturnValue(new Promise(() => {}));
+    window.history.replaceState(null, "", "/sign-up");
+    await renderReady(<LiveSignIn initialMode="sign-up" />);
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ada" } });
+      fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.com" } });
+      fireEvent.change(screen.getByLabelText("Password"), {
+        target: { value: "a good password" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+      // Just short of the bound it is still asking, which is what keeps the cookie check
+      // meaningful: a bound short enough to beat the network would wave every browser through.
+      await act(() => vi.advanceTimersByTimeAsync(4999));
+      expect(push).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(1));
+
+      expect(push).toHaveBeenCalledWith("/welcome");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("the address bar", () => {
@@ -385,6 +435,21 @@ describe("the social buttons", () => {
       callbackURL: "http://localhost:3000/welcome",
     });
     expect(screen.queryByRole("button", { name: "Continue with GitHub" })).toBeNull();
+  });
+
+  it("says so and gives the form back when the provider is refused", async () => {
+    // The client answers a refusal (a 429, say) with a result rather than a rejection. Left
+    // unread, the button stayed on "One moment…" for good, and because the "already signed in"
+    // redirect stands aside while a submission is under way, a session that loaded meanwhile
+    // could not move the person on either.
+    ways.socialProviders = ["github"];
+    signInSocial.mockResolvedValue({ data: null, error: { message: "Too many requests." } });
+    await renderReady(<LiveSignIn />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with GitHub" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many requests.");
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 
   it("lands a new account on the key step rather than the dashboard", async () => {

@@ -48,6 +48,20 @@ describe("what it asks", () => {
   });
 });
 
+describe("how it is drawn", () => {
+  it("wears the sign-up page's voice and gives the key form a dark ramp", () => {
+    // Asserted by class because neither failure has an accessible surface. Without `.landing`
+    // and `.lp-serif` the page loses sign-up's ground and faces, and somebody meets a third
+    // style in their first minute. Without `.ai-stage-dark` the form's `--s-*` variables
+    // resolve to nothing and it draws with no fill, no border and inherited text.
+    render(<Welcome />);
+
+    expect(screen.getByRole("main").parentElement).toHaveClass("landing");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("lp-serif");
+    expect(screen.getByLabelText("API key").closest(".ai-stage-dark")).not.toBeNull();
+  });
+});
+
 describe("skipping", () => {
   it("goes to the dashboard and remembers, so it is a first-run step", () => {
     render(<Welcome />);

@@ -53,7 +53,7 @@ goto /sign-up
 fill  --role textbox --name Name --value "Ada Lovelace"
 fill  --role textbox --name Email --value "ada-<unique>@nap.test"
 fill  --role textbox --name Password --value "a-long-test-password-123"
-click --role button --name "Create account"  # to /welcome (the key step), which in the fixture forwards to /dashboard
+click --role button --name "Create account"  # to /welcome, the key step; see welcome.md
 ```
 
 ## Gotchas

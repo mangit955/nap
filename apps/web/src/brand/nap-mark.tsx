@@ -9,8 +9,8 @@
  * the *outline* of the body — the dome, the straight shoulders, the three-bump hem.
  *
  * **The eyes are cut out of the body with a mask, not painted over it.** That keeps the whole
- * mark one colour, taken from the text beside it, so the same file works on the light stage, in
- * the dark workspace header and as a one-colour icon. Painting the eyes in the background
+ * mark one colour, taken from the text beside it, so the same file works on the landing pages'
+ * ground, in the workspace header and as a one-colour icon. Painting the eyes in the background
  * colour would look identical here and break the moment the surface behind it changed.
  *
  * The mask is also what makes it animatable. Cutting the eyes out of a *single* path with

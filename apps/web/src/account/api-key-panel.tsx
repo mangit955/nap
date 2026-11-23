@@ -60,10 +60,10 @@ export function ApiKeyPanel({
       /*
        * `ai-stage-dark` is what makes the shared form legible here.
        *
-       * `ApiKeyForm` paints itself in the `--s-*` ramp, which is scoped to `.ai-stage` — the
-       * light pages. Over the workspace those variables resolve to nothing, which is not an
-       * error and not a fallback: it is a dialog with no fill, no border and the page showing
-       * through its text. The class hands the same names a dark set of values. See `globals.css`.
+       * `ApiKeyForm` paints itself in the `--s-*` ramp, which nothing defines globally. Without
+       * this class those variables resolve to nothing, which is not an error and not a fallback:
+       * it is a dialog with no fill, no border and the page showing through its text. The class
+       * hands the names a dark set of values. See `globals.css`.
        *
        * The rest is T3 Code's dialog glass — see `.dialog-glass` in `globals.css`.
        */

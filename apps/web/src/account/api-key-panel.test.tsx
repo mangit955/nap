@@ -72,10 +72,10 @@ describe("ApiKeyPanel", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("brings its own ramp, since the one the form is written in is scoped elsewhere", () => {
+  it("brings its own ramp, since nothing defines the one the form is written in", () => {
     // Asserted by class, which this file otherwise never does, because the failure it guards
-    // has no accessible surface at all: `ApiKeyForm` paints itself in `--s-*`, those variables
-    // are scoped to `.ai-stage`, and this dialog opens over the workspace. Unresolved custom
+    // has no accessible surface at all: `ApiKeyForm` paints itself in `--s-*`, and only
+    // `.ai-stage-dark` gives those variables values. Unresolved custom
     // properties are not an error — they paint nothing — so the dialog rendered transparent
     // with the page legible through its own text, and every assertion above still passed.
     render(<ApiKeyPanel open onClose={vi.fn()} keyState={keyState()} />);

@@ -71,15 +71,28 @@ const COOKIE_BLOCKED =
  * a second gate on getting in: a blip while asking must not strand somebody whose cookie was
  * stored perfectly well. If it really was dropped, the destination bounces them back here anyway,
  * which is the behaviour this replaces rather than something worse.
+ *
+ * A check that never answers is a blip too, so it is bounded. It matters more than it looks: the
+ * "already signed in" redirect stands aside while a submission is under way, so this check is the
+ * only thing that moves a successful submission on.
  */
 async function sessionSurvived(): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stalled = new Promise<"stalled">((resolve) => {
+    timer = setTimeout(() => resolve("stalled"), SESSION_CHECK_MS);
+  });
   try {
-    const { data } = await authClient.getSession();
-    return data != null;
+    const answer = await Promise.race([authClient.getSession(), stalled]);
+    return answer === "stalled" || answer.data != null;
   } catch {
     return true;
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+/** How long `sessionSurvived` waits for the server before it fails open. */
+const SESSION_CHECK_MS = 5000;
 
 /** How long the form's controls wait for the providers lookup before they are shown anyway. */
 const PROVIDERS_WAIT_MS = 4000;
@@ -120,9 +133,13 @@ export function LiveSignIn({
   // existing free trial instead of being left with the provider's raw error — unless they came
   // here to leave it, when the form is the whole point and the trial button still continues it.
   const staying = upgrade && session?.user.isAnonymous === true;
+  // Not while a submission is under way. Signing in or up creates the very session this watches
+  // for, and the client's session refresh can land after the submission has already sent the
+  // person on to `AFTER_SIGN_IN`. Redirecting then too would take a new account past the key
+  // step to the dashboard. The submission chooses where its own session goes.
   useEffect(() => {
-    if (session != null && !staying) router.replace(AFTER_DEMO_SIGN_IN);
-  }, [session, staying, router]);
+    if (session != null && !staying && !submitting) router.replace(AFTER_DEMO_SIGN_IN);
+  }, [session, staying, submitting, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,11 +288,20 @@ export function LiveSignIn({
         setSubmitting(true);
         setError(undefined);
         // A full-page redirect to the provider, so nothing after this runs — unless it never
-        // gets that far, which leaves the same stuck button as a failed email sign-in.
-        authClient.signIn.social({ provider, callbackURL: returnTo(AFTER_SIGN_IN) }).catch(() => {
-          setError(UNREACHABLE);
-          setSubmitting(false);
-        });
+        // gets that far. Then it fails in the email path's two shapes: a refusal answered with
+        // a result, and a request that could not be sent at all. Either one left unhandled
+        // holds the button down, and with it the "already signed in" redirect.
+        authClient.signIn.social({ provider, callbackURL: returnTo(AFTER_SIGN_IN) }).then(
+          (result) => {
+            if (!result.error) return;
+            setError(result.error.message ?? UNKNOWN);
+            setSubmitting(false);
+          },
+          () => {
+            setError(UNREACHABLE);
+            setSubmitting(false);
+          },
+        );
       }}
       onDemo={() => void startDemo()}
       socialProviders={ways.social}
