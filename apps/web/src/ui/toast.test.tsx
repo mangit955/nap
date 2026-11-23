@@ -23,6 +23,19 @@ describe("showToast and Toaster", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not copy");
   });
 
+  // jsdom neither applies Tailwind nor hit-tests, so this pins the class rather than the tap. On a
+  // phone the stack covers the open sidebar's Settings and Help, and a toast that took pointer
+  // events made both untappable until it went (seen in Chrome at 390px).
+  it("lets taps through to whatever a toast covers", async () => {
+    render(<Toaster />);
+    act(() => showToast({ title: "Session link copied" }));
+    const toast = await screen.findByRole("dialog", { name: "Session link copied" });
+    expect(toast).toHaveClass("pointer-events-none");
+    expect(screen.getByRole("region", { name: "Notifications" })).toHaveClass(
+      "pointer-events-none",
+    );
+  });
+
   it("a listener stops hearing toasts once it unsubscribes", () => {
     const heard: string[] = [];
     const stop = subscribeToToasts(({ title }) => heard.push(title));

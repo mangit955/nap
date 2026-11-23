@@ -46,6 +46,20 @@ describe("Tooltip", () => {
     expect(screen.getByText("Help")).toBeInTheDocument();
   });
 
+  // jsdom does no layout, so Base UI never marks the anchor hidden here; this pins the class that
+  // hides it. In Chrome a tooltip opened by focus stayed drawn over the sidebar's header after its
+  // row scrolled out of the list.
+  it("hides itself while its control is scrolled out of view", async () => {
+    render(
+      <Tooltip label="Wake">
+        <button type="button" aria-label="Wake Plain" />
+      </Tooltip>,
+    );
+    rest(screen.getByRole("button", { name: "Wake Plain" }));
+    await wait(TOOLTIP_DELAY_MS);
+    expect(screen.getByText("Wake").parentElement).toHaveClass("data-[anchor-hidden]:invisible");
+  });
+
   it("keeps the control as it was: its name, its element, its ref and its click", () => {
     const ref = createRef<HTMLButtonElement>();
     const onClick = vi.fn();
