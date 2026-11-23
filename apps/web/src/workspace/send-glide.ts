@@ -23,7 +23,7 @@
  * composer's drawn box and how far through the glide it was, and the next frame carries on from
  * exactly there, on the same timeline, to its own composer's place.
  *
- * **Only the composer moves, and it is never cut off or scrolled.** The translate is clamped to
+ * **Only the composer moves, and it is kept inside what clips it.** The translate is clamped to
  * every box that clips the composer, so it cannot start under the right panel and be cut at the
  * column's edge, and cannot reach outside a scroll container's viewport and flash a scrollbar. The
  * conversation and the panel only fade, so they overflow nothing either. Nothing outside the
@@ -197,7 +197,13 @@ export function useSendGlide(root: RefObject<HTMLElement | null>): void {
         return [{ transform: `translate(${x / rest}px, ${y / rest}px)` }, { transform: "none" }];
       };
       const moving = play(composer, aim());
+      // A composer in a hidden pane has no box: there is nothing to aim at or hand over, and
+      // the last aim stands. On a phone the project's view hides the conversation for a moment
+      // as it mounts, before it knows the screen is narrow, and aiming then drew one frame of
+      // the composer already in its place.
+      const hidden = () => composer.closest("[hidden]") !== null;
       leave = () => {
+        if (hidden()) return;
         const progress = moving.effect?.getComputedTiming().progress;
         if (typeof progress !== "number" || progress >= 1) return;
         const { left, top, right, bottom } = composer.getBoundingClientRect();
@@ -210,7 +216,7 @@ export function useSendGlide(root: RefObject<HTMLElement | null>): void {
       // layout, before paint — until it lands. What moves the composer without resizing any of
       // the three is not seen.
       const observer = new ResizeObserver(() => {
-        if (moving.effect instanceof KeyframeEffect) moving.effect.setKeyframes(aim());
+        if (!hidden() && moving.effect instanceof KeyframeEffect) moving.effect.setKeyframes(aim());
       });
       observer.observe(composer);
       for (const box of [".chat-composer-dock", ".t3-chat-column"]) {

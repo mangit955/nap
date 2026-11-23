@@ -258,6 +258,15 @@ describe("the glide into the workspace", () => {
       [{ transform: "translate(100px, 250px)" }, { transform: "none" }],
     ]);
 
+    // A pane hidden for a moment, as a phone's project view does as it mounts, keeps that aim.
+    const column = container.querySelector<HTMLElement>(".t3-chat-column");
+    if (column === null) throw new Error("no column drawn");
+    column.hidden = true;
+    composer.getBoundingClientRect = () => new DOMRect();
+    watching?.resize();
+    expect(glide?.effect.aimed).toHaveLength(1);
+    column.hidden = false;
+
     // Once it lands, a panel dragged wider has nothing left to aim.
     glide?.land();
     await vi.waitFor(() => expect(watching?.disconnected).toBe(true));
