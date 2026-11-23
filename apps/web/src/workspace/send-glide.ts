@@ -205,15 +205,18 @@ export function useSendGlide(root: RefObject<HTMLElement | null>): void {
       };
       // The frame is laid out again after this runs: the panel's saved width, or a panel the last
       // start closed, is restored by an effect, which moves the composer across its column and
-      // moves the column's edge. Aimed and clamped again on each resize of the composer or the
-      // column — after layout, before paint — so it still starts from where it was sent and is
-      // never cut off, until it lands.
+      // moves the column's edge; the thread details card, set inline a task later, pads the dock.
+      // Aimed and clamped again whenever the composer, its dock or its column resizes — after
+      // layout, before paint — until it lands. What moves the composer without resizing any of
+      // the three is not seen.
       const observer = new ResizeObserver(() => {
         if (moving.effect instanceof KeyframeEffect) moving.effect.setKeyframes(aim());
       });
       observer.observe(composer);
-      const column = composer.closest(".t3-chat-column");
-      if (column !== null) observer.observe(column);
+      for (const box of [".chat-composer-dock", ".t3-chat-column"]) {
+        const element = composer.closest(box);
+        if (element !== null) observer.observe(element);
+      }
       const stop = () => observer.disconnect();
       moving.finished.then(stop, stop);
       watching = observer;

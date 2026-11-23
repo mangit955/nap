@@ -231,7 +231,11 @@ describe("the glide into the workspace", () => {
     if (composer === null) throw new Error("no composer drawn");
     const [glide] = moved(".workspace-composer");
     const watching = observers.find((observer) => observer.watched.includes(composer));
-    expect(watching?.watched).toEqual([composer, container.querySelector(".t3-chat-column")]);
+    expect(watching?.watched).toEqual([
+      composer,
+      container.querySelector(".chat-composer-dock"),
+      container.querySelector(".t3-chat-column"),
+    ]);
 
     // A saved panel, restored by an effect after the glide began, moves the composer 200 across.
     // It is measured mid-glide, drawn where the glide has it, so its box includes the translate.
