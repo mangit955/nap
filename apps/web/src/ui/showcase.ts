@@ -21,7 +21,7 @@ export type Showcase = {
    * and on it the fade reads as text being typed out.
    */
   streamingText: boolean;
-  /** "Copy response" under each agent message. There is nothing to paste it into. */
+  /** "Copy response" on each agent message. There is nothing to paste it into. */
   copyButtons: boolean;
   /** The vendor's mark beside the model's name in the composer. Its brand colour is not Nap's. */
   vendorLogos: boolean;

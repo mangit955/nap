@@ -20,8 +20,8 @@ import type { MediaAttachment } from "@nap/shared/media";
  * unusable for the person who most needs to know the agent is still working.
  */
 
-import { Monitor } from "lucide-react";
-import { use, useMemo, useState } from "react";
+import { Check, Monitor } from "lucide-react";
+import { use, useEffect, useMemo, useState } from "react";
 import { AppTestResult } from "../computer/app-test-cards.tsx";
 import { ComputerNavigation } from "../computer/navigation.tsx";
 import { ScreenshotCard } from "../computer/screenshot-card.tsx";
@@ -395,10 +395,13 @@ function Item({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
+        // `flow-root` holds the copy button's float, so a one-line reply is never shorter than it.
+        // The button comes before "Agent:", which a screen reader then reads straight into the
+        // words it labels.
+        <div className="group/reply flow-root">
+          <CopyButton text={item.text} />
           <span className="sr-only">Agent: </span>
           <ChatMarkdown text={item.text} streaming={live} />
-          <CopyButton text={item.text} />
         </div>
       );
 
@@ -519,26 +522,55 @@ function Item({
  * banner when they wanted the sentence explaining what changed. The fold has already decided where
  * a passage ends — `transcript.ts` joins a run of `agent.message` events and refuses to join across
  * a tool step — so the boundary this copies is one the reader can see.
+ *
+ * Floated to the reply's top right and drawn only while the pointer is over the reply, so a long
+ * session is not a column of identical icons, and hiding it leaves no empty row under each reply.
+ * Prose gives up room on its first line only. A reply that opens with a code block or a table
+ * loses the button's width along that whole block, because a box that scrolls its own overflow
+ * keeps clear of a float rather than wrapping around it. Both scroll sideways, so nothing is cut.
+ * It stays drawn wherever a finger can reach it, while it has keyboard focus, and for a moment
+ * after it copies, as a check. "A finger" is `(hover: none)` or `(any-pointer: coarse)`: a
+ * touchscreen laptop's main pointer can hover, so the first alone would hide it from the screen.
  */
 function CopyButton({ text }: { text: string }) {
+  // Counts copies rather than holding a flag, so a second copy while the check shows starts the
+  // timer again; a flag already `true` would not change, and the first copy's timer would end it.
+  const [copies, setCopies] = useState(0);
+  const copied = copies > 0;
+  useEffect(() => {
+    if (copies === 0) return;
+    const timer = window.setTimeout(() => setCopies(0), COPIED_MS);
+    return () => window.clearTimeout(timer);
+  }, [copies]);
   if (use(ShowcaseContext)?.copyButtons === false) return null;
   return (
     <button
       type="button"
       // Named rather than labelled by its glyph: the icon is the only thing drawn, so without
       // this the control reads as "button" to anyone listening.
-      aria-label="Copy response"
+      aria-label={copied ? "Copied" : "Copy response"}
       onClick={() => {
-        // Nothing to do with the promise. It rejects when the document is not focused or the
-        // permission is refused, and neither is something to tell the reader about mid-transcript.
-        void navigator.clipboard?.writeText(text);
+        // The check is drawn only once the text is on the clipboard. The write is refused when
+        // the document is not focused or permission is denied; neither is worth telling the
+        // reader about mid-transcript, so the icon simply stays as it was.
+        navigator.clipboard?.writeText(text).then(
+          () => setCopies((count) => count + 1),
+          () => {},
+        );
       }}
-      className="self-start rounded-chip p-1 text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+      className={`float-right ms-3 rounded-chip p-1 text-muted transition-[opacity,color,background-color] duration-150 hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100 ${copied ? "opacity-100" : "opacity-0 group-hover/reply:opacity-100"}`}
     >
-      <CopyIcon className="size-3.5" />
+      {copied ? (
+        <Check aria-hidden="true" className="size-3.5 text-ink" />
+      ) : (
+        <CopyIcon className="size-3.5" />
+      )}
     </button>
   );
 }
+
+/** Long enough to be seen after the pointer has left the button; short enough to forget. */
+const COPIED_MS = 1600;
 
 /**
  * What a failed check asked the model to do.

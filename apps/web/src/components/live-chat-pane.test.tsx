@@ -954,7 +954,7 @@ it("shows app-test progress at the clicked card before any stream event arrives"
   expect(screen.getByRole("status", { name: "App test progress" })).toHaveTextContent(
     "Starting app test…",
   );
-  expect(screen.getByRole("button", { name: "Starting app test…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Test the app" })).toBeDisabled();
   await act(async () => {
     accept?.(
       Response.json(

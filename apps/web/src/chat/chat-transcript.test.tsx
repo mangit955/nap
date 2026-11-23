@@ -1,6 +1,6 @@
 import { type NapEvent, NapEventSchema, type NapEventType } from "@nap/shared/events";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatTranscript } from "./chat-transcript.tsx";
 import { buildTranscript } from "./transcript.ts";
@@ -822,6 +822,93 @@ describe("taking what the agent said away with you", () => {
     fireEvent.click(screen.getByRole("button", { name: /copy/i }));
 
     expect(written).toEqual(["Added App.tsx."]);
+  });
+
+  it("turns into a check once the passage is on the clipboard, and back after a moment", async () => {
+    vi.useFakeTimers();
+    try {
+      stubClipboard();
+      show(ev("agent.message", { text: "Added App.tsx." }));
+
+      // The glyph is what a sighted reader goes by; the name is what a listener gets.
+      const check = () =>
+        screen.getByRole("button", { name: /^Cop/ }).querySelector(".lucide-check");
+      expect(check()).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
+      await act(async () => {});
+
+      expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+      expect(check()).not.toBeNull();
+      act(() => vi.advanceTimersByTime(1599));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy response" })).toBeInTheDocument();
+      expect(check()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays drawn for a finger even where the main pointer can hover", () => {
+    show(ev("agent.message", { text: "Added App.tsx." }));
+
+    // jsdom evaluates no media query, so the two rules are checked by name. `(hover: none)` alone
+    // misses a touchscreen laptop: its trackpad can hover, and only `(any-pointer: coarse)` sees
+    // the screen.
+    const classes = screen.getByRole("button", { name: "Copy response" }).className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        "[@media(hover:none)]:opacity-100",
+        "[@media(any-pointer:coarse)]:opacity-100",
+      ]),
+    );
+  });
+
+  it("reads Copy before the reply's speaker, so the speaker runs straight into the words", () => {
+    show(ev("agent.message", { text: "Added App.tsx." }));
+
+    const copy = screen.getByRole("button", { name: "Copy response" });
+    const speaker = screen.getByText("Agent:");
+    // Copy first, then "Agent:" — nothing read between the speaker and what was said.
+    expect(copy.compareDocumentPosition(speaker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps the check for the full moment after a second copy", async () => {
+    vi.useFakeTimers();
+    try {
+      stubClipboard();
+      show(ev("agent.message", { text: "Added App.tsx." }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
+      await act(async () => {});
+      act(() => vi.advanceTimersByTime(1000));
+      fireEvent.click(screen.getByRole("button", { name: "Copied" }));
+      await act(async () => {});
+
+      // Past the first copy's moment, inside the second's.
+      act(() => vi.advanceTimersByTime(1599));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy response" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("claims nothing was copied when the clipboard refuses", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () => Promise.reject(new DOMException("Not focused", "NotAllowedError")),
+      },
+    });
+    show(ev("agent.message", { text: "Added App.tsx." }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
+    await act(async () => {});
+
+    expect(screen.getByRole("button", { name: "Copy response" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copied" })).not.toBeInTheDocument();
   });
 
   it("copies the passage you asked for and not the machinery around it", () => {
