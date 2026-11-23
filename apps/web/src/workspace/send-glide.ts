@@ -10,14 +10,18 @@
  *
  * **The record lives here, in module state, and is good for one glide on the way in.** It only
  * has to cross one client-side navigation in one tab, as `workspace-entry.ts`'s does, so another
- * tab never sees it and a reload has nothing to replay. Only a frame mounting at the dashboard's
- * way in (`WORKSPACE_ENTRY`) may play it. The first claims it, within `CLAIM_WITHIN_MS` of
- * `departFrom`; after that it is good only for the rest of the glide, because the starting
- * workspace hands over to the project's own (`live-workspace.tsx`) and the frame mounts again,
- * often mid-glide, still at that address. The second mount picks up the same timeline at the time
- * already spent. A sidebar switch or Back and Forward lands on the project's own address, and any
- * mount after the glide finds it spent, so nothing glides that was not just sent. A refused start
- * forgets its own record, in case the refusal beat the workspace to the screen.
+ * tab never sees it and a reload has nothing to replay. Only a frame drawn at the dashboard's way
+ * in, entered by a start (`enteringByStart`), may play it: a project opened from the dashboard, a
+ * sidebar switch and Forward onto a project's address never do. The first frame claims it, within
+ * `CLAIM_WITHIN_MS` of `departFrom`; after that it is good only for the rest of the glide, and any
+ * mount after that finds it spent. A refused start forgets its own record, in case the refusal
+ * beat the workspace to the screen.
+ *
+ * **A frame that goes mid-glide hands over where it drew the composer.** The starting workspace
+ * gives way to the project's own (`live-workspace.tsx`), often mid-glide, and the two can lay the
+ * column out differently (one panel saved shut, the other open). So the frame leaving records the
+ * composer's drawn box and how far through the glide it was, and the next frame carries on from
+ * exactly there, on the same timeline, to its own composer's place.
  *
  * **Only the composer moves, and it is never cut off or scrolled.** The translate is clamped to
  * every box that clips the composer, so it cannot start under the right panel and be cut at the
@@ -31,10 +35,12 @@
  */
 
 import { type RefObject, useLayoutEffect } from "react";
-import { WORKSPACE_ENTRY } from "./workspace-entry.ts";
+import { enteringByStart } from "./workspace-entry.ts";
 
 type Box = { left: number; top: number; right: number; bottom: number };
-type Departure = { from: Box; at: number; claimedAt: number | undefined };
+/** Where the composer was drawn, and how far through the glide (eased, 0 to 1) that was. */
+type Anchor = { box: Box; progress: number };
+type Departure = { anchor: Anchor; at: number; claimedAt: number | undefined };
 
 /** How long the composer takes to settle into its place. */
 export const GLIDE_MS = 300;
@@ -56,7 +62,7 @@ export function departFrom(composer: Element | null): () => void {
   if (composer === null) return () => {};
   const { left, top, right, bottom } = composer.getBoundingClientRect();
   const own: Departure = {
-    from: { left, top, right, bottom },
+    anchor: { box: { left, top, right, bottom }, progress: 0 },
     at: performance.now(),
     claimedAt: undefined,
   };
@@ -67,10 +73,10 @@ export function departFrom(composer: Element | null): () => void {
 }
 
 /**
- * Where the glide starts for a frame mounting now, and how far into it that is; `undefined` when
- * nothing was just sent. Spends the record once the glide it describes is over.
+ * Where the glide carries on from for a frame mounting now, and how far into it that is;
+ * `undefined` when nothing was just sent. Spends the record once the glide it describes is over.
  */
-export function claimGlide(now: number): { from: Box; elapsed: number } | undefined {
+export function claimGlide(now: number): { anchor: Anchor; elapsed: number } | undefined {
   const current = departure;
   if (current === undefined) return undefined;
   if (current.claimedAt === undefined) {
@@ -85,7 +91,12 @@ export function claimGlide(now: number): { from: Box; elapsed: number } | undefi
     departure = undefined;
     return undefined;
   }
-  return { from: current.from, elapsed };
+  return { anchor: current.anchor, elapsed };
+}
+
+/** A frame leaving mid-glide: where it drew the composer, for the frame that takes over. */
+function handOver(anchor: Anchor): void {
+  if (departure?.claimedAt !== undefined) departure.anchor = anchor;
 }
 
 /** Forgets any glide not yet played; for tests. */
@@ -156,11 +167,11 @@ function clipsOf(element: HTMLElement, root: HTMLElement): Box[] {
 export function useSendGlide(root: RefObject<HTMLElement | null>): void {
   useLayoutEffect(() => {
     const frame = root.current;
-    if (frame === null || window.location.pathname !== WORKSPACE_ENTRY) return;
+    if (frame === null || !enteringByStart()) return;
     const glide = claimGlide(performance.now());
     if (glide === undefined) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const { from, elapsed } = glide;
+    const { anchor, elapsed } = glide;
     const playing: Animation[] = [];
     const play = (element: HTMLElement, keyframes: Keyframe[], delay = 0) => {
       const animation = element.animate(keyframes, {
@@ -174,13 +185,24 @@ export function useSendGlide(root: RefObject<HTMLElement | null>): void {
     };
 
     let watching: ResizeObserver | undefined;
+    let leave = () => {};
     const composer = frame.querySelector<HTMLElement>(".chat-composer-dock .workspace-composer");
-    if (composer !== null) {
+    // Nothing left to travel once the glide is all but over.
+    if (composer !== null && anchor.progress < 1) {
+      // The translate that puts the composer at the anchor's box at the anchor's point of the
+      // glide: the offset left there, stretched over what remains of the eased path.
+      const rest = 1 - anchor.progress;
       const aim = (): Keyframe[] => {
-        const { x, y } = glideOffset(from, layoutBox(composer), clipsOf(composer, frame));
-        return [{ transform: `translate(${x}px, ${y}px)` }, { transform: "none" }];
+        const { x, y } = glideOffset(anchor.box, layoutBox(composer), clipsOf(composer, frame));
+        return [{ transform: `translate(${x / rest}px, ${y / rest}px)` }, { transform: "none" }];
       };
       const moving = play(composer, aim());
+      leave = () => {
+        const progress = moving.effect?.getComputedTiming().progress;
+        if (typeof progress !== "number" || progress >= 1) return;
+        const { left, top, right, bottom } = composer.getBoundingClientRect();
+        handOver({ box: { left, top, right, bottom }, progress });
+      };
       // The frame is laid out again after this runs: the panel's saved width, or a panel the last
       // start closed, is restored by an effect, which moves the composer across its column and
       // moves the column's edge. Aimed and clamped again on each resize of the composer or the
@@ -203,6 +225,8 @@ export function useSendGlide(root: RefObject<HTMLElement | null>): void {
     if (panel !== null) play(panel, fade, 40);
     return () => {
       watching?.disconnect();
+      // Still laid out and still drawn mid-glide: React runs this before it removes the frame.
+      leave();
       for (const animation of playing) animation.cancel();
     };
   }, [root]);

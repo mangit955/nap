@@ -25,7 +25,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
 
 /** The workspace before it knows its project. Never a project id: those are UUIDs. */
-export const WORKSPACE_ENTRY = "/p/new";
+const WORKSPACE_ENTRY = "/p/new";
 
 /**
  * How often, at most, the dashboard asks for the entry page again while somebody is using it.
@@ -125,6 +125,15 @@ export function beginStart(
 
 function startOf(ownerId: string): Start | undefined {
   return entry?.kind === "start" && entry.ownerId === ownerId ? entry : undefined;
+}
+
+/**
+ * Whether the workspace drawing now is the dashboard's way in, entered by a start rather than an
+ * open: what the composer's glide from the dashboard belongs to (`send-glide.ts`). The address,
+ * not the router's: the project's own replaces `/p/new` in an effect after its first draw.
+ */
+export function enteringByStart(): boolean {
+  return window.location.pathname === WORKSPACE_ENTRY && entry?.kind === "start";
 }
 
 /**

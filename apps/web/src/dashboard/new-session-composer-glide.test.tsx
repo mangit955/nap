@@ -51,11 +51,14 @@ it("measures its composer for the glide as it enters the workspace, and not befo
 
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(push).toHaveBeenCalledWith("/p/new"));
-  expect(claimGlide(performance.now())?.from).toEqual({
-    left: 380,
-    top: 384,
-    right: 1116,
-    bottom: 530,
+  expect(claimGlide(performance.now())?.anchor).toEqual({
+    progress: 0,
+    box: {
+      left: 380,
+      top: 384,
+      right: 1116,
+      bottom: 530,
+    },
   });
 });
 

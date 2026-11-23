@@ -9,6 +9,7 @@ import {
   glideOffset,
 } from "./send-glide.ts";
 import { StartingWorkspace } from "./starting-workspace.tsx";
+import { beginStart, forgetWorkspaceEntry, openProject } from "./workspace-entry.ts";
 
 /**
  * The glide from the dashboard into the workspace, played by the real starting workspace (the
@@ -20,6 +21,11 @@ import { StartingWorkspace } from "./starting-workspace.tsx";
 /** What the frame asked one element to do, and what it re-aimed it at after. */
 class Effect {
   aimed: Keyframe[][] = [];
+  /** How far through its eased path the animation is; `null` before it has started. */
+  progress: number | null = null;
+  getComputedTiming() {
+    return { progress: this.progress };
+  }
   setKeyframes(keyframes: Keyframe[]) {
     this.aimed.push(keyframes);
   }
@@ -103,6 +109,7 @@ beforeEach(() => {
 
 afterEach(() => {
   forgetSendGlide();
+  forgetWorkspaceEntry();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   Element.prototype.animate = realAnimate;
@@ -120,7 +127,9 @@ function send(box: { left: number; top: number; right: number; bottom: number })
       width: box.right - box.left,
       height: box.bottom - box.top,
     });
-  return departFrom(composer);
+  const forget = departFrom(composer);
+  beginStart({ push: () => {} }, { ownerId: "owner", prompt: { text: "Build a calendar" } });
+  return forget;
 }
 
 const Workspace = () => <StartingWorkspace prompt={{ text: "Build a calendar" }} />;
@@ -155,14 +164,22 @@ describe("the glide into the workspace", () => {
     now += 40;
     const starting = render(<Workspace />);
     now += 120;
+    // Three quarters along its eased path, drawn here when the project's view takes over.
+    const [leaving] = moved(".workspace-composer");
+    if (leaving === undefined) throw new Error("no glide played");
+    leaving.effect.progress = 0.75;
+    leaving.element.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 100, y: 200, width: 400, height: 50 });
     starting.unmount();
     // A start the server refused unmounts the same way, and nothing it moved stays moved.
     expect(cancelled).toHaveLength(3);
     calls.length = 0;
     render(<Workspace />);
 
+    // From where it was drawn (300 across, 250 down, against jsdom's zero box), over the quarter
+    // of the path left: wherever the new view puts its composer, the hand-over does not jump.
     const [composer] = moved(".workspace-composer");
-    expect(composer?.keyframes[0]).toEqual({ transform: "translate(300px, 250px)" });
+    expect(composer?.keyframes[0]).toEqual({ transform: "translate(1200px, 1000px)" });
     expect(composer?.timing.delay).toBe(-120);
     expect(moved(".chat-scroller")[0]?.timing.delay).toBe(60 - 120);
   });
@@ -249,6 +266,17 @@ describe("the glide into the workspace", () => {
     calls.length = 0;
     // The sidebar's switch and Forward both land on a project's own address, never `/p/new`.
     window.history.replaceState(null, "", "/p/00000000-0000-4000-8000-000000000002");
+    render(<Workspace />);
+    expect(calls).toEqual([]);
+  });
+
+  it("never glides a project opened from the dashboard, even mid-glide", () => {
+    send({ left: 100, top: 50, right: 500, bottom: 250 });
+    render(<Workspace />).unmount();
+    now += 100;
+    calls.length = 0;
+    // The same way in, `/p/new`, entered by an open rather than the start.
+    openProject({ push: () => {} }, "00000000-0000-4000-8000-000000000002");
     render(<Workspace />);
     expect(calls).toEqual([]);
   });
