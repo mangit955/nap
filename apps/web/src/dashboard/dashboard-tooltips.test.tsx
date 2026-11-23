@@ -9,6 +9,7 @@ import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { navigationServer } from "../testing/navigation-server.ts";
 import { TOOLTIP_DELAY_MS } from "../ui/tooltip.tsx";
 import { ThreadDetailsToggle } from "../workspace/thread-details.tsx";
+import { WorkspaceHeader } from "../workspace/workspace-header.tsx";
 import { Dashboard } from "./dashboard.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
@@ -54,7 +55,8 @@ function Harness({ server }: { server: ReturnType<typeof navigationServer> }) {
   const navigation = useSessionNavigation({ fetchJson: server.fetchJson });
   return (
     <Dashboard
-      hero={<p>Hero</p>}
+      // The workspace's header, whose right-panel toggle sits beside the details toggle.
+      hero={<WorkspaceHeader projectName="Plain" job={null} panelOpen onTogglePanel={vi.fn()} />}
       details={<ThreadDetailsToggle open={false} onToggle={vi.fn()} />}
       sidebar={
         <Sidebar
@@ -114,7 +116,7 @@ describe("the dashboard's icon-only controls", () => {
     const iconOnly = [...container.querySelectorAll(":is(a, button, summary)")].filter(
       (element) => element.textContent?.trim() === "",
     );
-    expect(iconOnly.length).toBeGreaterThanOrEqual(10);
+    expect(iconOnly.length).toBeGreaterThanOrEqual(11);
     expect(iconOnly.filter((element) => element.hasAttribute("title"))).toEqual([]);
   });
 
@@ -132,6 +134,7 @@ describe("the dashboard's icon-only controls", () => {
     ["Un-settle Finished", "Un-settle"],
     ["Dismiss Woke for Awake", "Dismiss"],
     ["Toggle thread details panel", "Thread details"],
+    ["Hide right panel", "Hide right panel"],
   ])("%s shows “%s” once the pointer rests on it", async (name, text) => {
     const { container } = await mount();
     const target = control(name);

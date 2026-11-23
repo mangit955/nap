@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Toaster } from "./toast.tsx";
 import { showToast, subscribeToToasts } from "./toasts.ts";
@@ -52,6 +52,18 @@ describe("showToast and Toaster", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("clears what is showing at the next press anywhere, and only what is showing", async () => {
+    render(<Toaster />);
+    act(() => showToast({ title: "Session link copied" }));
+    await screen.findByRole("dialog", { name: "Session link copied" });
+    fireEvent.pointerDown(document.body);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Session link copied" })).toBeNull(),
+    );
+    act(() => showToast({ title: "Branch copied" }));
+    expect(await screen.findByRole("dialog", { name: "Branch copied" })).toBeInTheDocument();
   });
 
   it("a listener stops hearing toasts once it unsubscribes", () => {

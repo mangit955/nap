@@ -227,7 +227,8 @@ export const SessionRow = memo(function SessionRow({
   // they get a visible trigger for the same menu. `session-actions` keeps it, and the hover
   // controls around it, shown on touch only (`globals.css`, `hover: none`).
   // Unlike the other menu buttons, its tooltip is not shut while the menu is open: that state is
-  // the list's, not the row's, and the button only shows where nothing hovers.
+  // the list's, not the row's, and the button only shows where the main input cannot hover. A
+  // second, hovering input there (a trackpad on a tablet) can draw it over the menu's top corner.
   const more = hasMenu ? (
     <Tooltip label="More actions">
       <button

@@ -35,6 +35,15 @@ export function Toaster() {
       }),
     [],
   );
+  // Any press clears what is showing. Taps pass through a toast, so on a phone one opening the
+  // sidebar's Settings, whose menu rises from the foot of the screen, would otherwise act on rows
+  // drawn under the toast without their labels showing. The press that copies comes before the
+  // toast it raises, so it never clears its own.
+  useEffect(() => {
+    const clear = () => manager.close();
+    document.addEventListener("pointerdown", clear, true);
+    return () => document.removeEventListener("pointerdown", clear, true);
+  }, []);
   return (
     <Toast.Provider toastManager={manager} timeout={4000} limit={3}>
       <Toast.Portal>
