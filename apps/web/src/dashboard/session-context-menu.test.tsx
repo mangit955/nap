@@ -82,9 +82,11 @@ it("draws Delete in the danger colour and every other item in grey, one colour p
   const deleteColours = textColours("Delete");
   expect(deleteColours.rest).toEqual(["danger"]);
   for (const values of Object.values(deleteColours)) expect(values).toEqual(["danger"]);
-  expect(textColours("Archive").rest).toEqual(["ink-2"]);
-  // A submenu's owner is drawn by its own branch of the menu, so it is checked on its own.
-  expect(textColours("Snooze").rest).toEqual(["ink-2"]);
+  // Every other item, the submenu's owner (Snooze) included: it is drawn by a branch of its own.
+  const others = ITEMS.filter((item) => !item.destructive).map((item) => item.label);
+  expect(others).toEqual(["Rename", "Snooze", "Archive"]);
+  for (const label of others)
+    expect({ label, ...textColours(label) }).toMatchObject({ label, rest: ["ink-2"] });
 });
 
 it("outlines only the focused item under forced colours, where the focus wash is painted over", () => {

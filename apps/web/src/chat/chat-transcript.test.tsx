@@ -830,17 +830,38 @@ describe("taking what the agent said away with you", () => {
       stubClipboard();
       show(ev("agent.message", { text: "Added App.tsx." }));
 
+      // The glyph is what a sighted reader goes by; the name is what a listener gets.
+      const check = () =>
+        screen.getByRole("button", { name: /^Cop/ }).querySelector(".lucide-check");
+      expect(check()).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Copy response" }));
       await act(async () => {});
 
       expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+      expect(check()).not.toBeNull();
       act(() => vi.advanceTimersByTime(1599));
       expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
       act(() => vi.advanceTimersByTime(1));
       expect(screen.getByRole("button", { name: "Copy response" })).toBeInTheDocument();
+      expect(check()).toBeNull();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("stays drawn for a finger even where the main pointer can hover", () => {
+    show(ev("agent.message", { text: "Added App.tsx." }));
+
+    // jsdom evaluates no media query, so the two rules are checked by name. `(hover: none)` alone
+    // misses a touchscreen laptop: its trackpad can hover, and only `(any-pointer: coarse)` sees
+    // the screen.
+    const classes = screen.getByRole("button", { name: "Copy response" }).className.split(/\s+/);
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        "[@media(hover:none)]:opacity-100",
+        "[@media(any-pointer:coarse)]:opacity-100",
+      ]),
+    );
   });
 
   it("reads Copy before the reply's speaker, so the speaker runs straight into the words", () => {
