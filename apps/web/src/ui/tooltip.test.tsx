@@ -64,9 +64,11 @@ describe("Tooltip", () => {
     expect(screen.getByText("Wake").parentElement).toHaveClass("data-[anchor-hidden]:invisible");
   });
 
-  // Opened by keyboard focus, a tooltip stays open while the list under it scrolls; it has to close,
-  // or it floats where its control was and takes the first Escape meant for the sidebar.
-  it("closes when anything holding its control scrolls, and not for any other scroll", async () => {
+  // Opened by keyboard focus, a tooltip stays open while the list under it scrolls. Once its control
+  // is scrolled out of the list it has to close, or it floats where the control was and takes the
+  // first Escape meant for the sidebar. While the control still shows it stays: moving focus
+  // scrolls the list to show the focused control, and must not undo the tooltip focus just opened.
+  it("closes when a scroll takes its control out of view, and for no other scroll", async () => {
     render(
       <>
         <div data-testid="list">
@@ -77,14 +79,25 @@ describe("Tooltip", () => {
         <div data-testid="elsewhere" />
       </>,
     );
+    const list = screen.getByTestId("list");
+    const button = screen.getByRole("button", { name: "Snooze Plain" });
+    // jsdom does no layout: the list shows y 0-100, and the button sits wherever the test puts it.
+    vi.spyOn(list, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 200, 100));
+    const at = (y: number) =>
+      vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(150, y, 20, 20));
+    at(40);
     fireEvent.keyDown(document.body, { key: "Tab" });
-    act(() => screen.getByRole("button", { name: "Snooze Plain" }).focus());
+    act(() => button.focus());
     await wait(0);
     expect(screen.getByText("Snooze")).toBeInTheDocument();
+
     fireEvent.scroll(screen.getByTestId("elsewhere"));
+    fireEvent.scroll(list);
     await wait(200);
     expect(screen.getByText("Snooze")).toBeInTheDocument();
-    fireEvent.scroll(screen.getByTestId("list"));
+
+    at(-30);
+    fireEvent.scroll(list);
     await wait(200);
     expect(screen.queryByText("Snooze")).toBeNull();
   });

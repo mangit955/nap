@@ -44,16 +44,19 @@ export function Tooltip({
   const actions = useRef<Base.Root.Actions>(null);
   const trigger = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
-  // Closed when anything holding the control scrolls. A tooltip opened by keyboard focus stays open
-  // while the list under it moves: in Chrome it floated over the sidebar's header once its row was
-  // scrolled away, and, hidden but still open, it took the first Escape the phone's sidebar needed.
-  // Listened for only while open, so a long list of rows adds no listeners.
+  // Closed once a scroll carries the control fully out of view. A tooltip opened by keyboard focus
+  // stays open while the list under it moves: in Chrome it floated over the sidebar's header once
+  // its row was scrolled away, and, hidden but still open, it took the first Escape the phone's
+  // sidebar needed. Not on every scroll: moving focus scrolls the list to show the focused control,
+  // and closing then would undo the tooltip that focus had just opened. Listened for only while
+  // open, so a long list of rows adds no listeners.
   useEffect(() => {
     if (!open) return;
     const away = (event: Event) => {
-      if (event.target instanceof Node && event.target.contains(trigger.current)) {
-        actions.current?.close();
-      }
+      const control = trigger.current;
+      const scroller = event.target;
+      if (!control || !(scroller instanceof Node) || !scroller.contains(control)) return;
+      if (!inView(control, scroller)) actions.current?.close();
     };
     window.addEventListener("scroll", away, { capture: true, passive: true });
     return () => window.removeEventListener("scroll", away, { capture: true });
@@ -85,6 +88,18 @@ export function Tooltip({
         </Base.Positioner>
       </Base.Portal>
     </Base.Root>
+  );
+}
+
+/** Whether any of `control` shows inside what `scroller` shows: the window, for the document. */
+function inView(control: Element, scroller: Node): boolean {
+  const box = control.getBoundingClientRect();
+  const view =
+    scroller instanceof Element
+      ? scroller.getBoundingClientRect()
+      : new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+  return (
+    box.bottom > view.top && box.top < view.bottom && box.right > view.left && box.left < view.right
   );
 }
 
