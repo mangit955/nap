@@ -9,17 +9,19 @@ const manager = Toast.createToastManager();
 
 /**
  * Draws the toasts `showToast` raises: the bottom right, over everything but a modal dialog.
- * Mount it once, in the frame every signed-in page shares.
+ * Mounted once, in the frame the dashboard and each project's workspace share. The settings pages
+ * and `/welcome` are drawn without it, so a toast raised there is not shown.
  *
  * An error is high priority, which Base UI reads out at once through an alert of its own rather
- * than waiting for the reader to be idle.
+ * than waiting for the reader to be idle, and stays twice as long, since nothing pauses it.
  *
  * A toast takes no pointer events: it says something and goes, and never takes a click meant for
- * what it covers. On a phone the stack spans the screen's foot, which is where the open sidebar
- * keeps Settings and Help, so a copy made from the sidebar would otherwise leave both untappable
- * until it went. The cost is Base UI's pause on hover and its swipe to dismiss, neither of which a
- * four-second line with nothing to press needs. A toast that gains an action gives that action
+ * what it covers. The cost is Base UI's pause on hover and its swipe to dismiss, neither of which
+ * a line with nothing to press needs. A toast that gains an action gives that action
  * `pointer-events-auto`, and only it.
+ *
+ * Below `md` the stack sits 4rem up. There the open sidebar is a drawer as tall as the screen,
+ * with Settings and Help in its last 3rem, and a toast at the foot covered both.
  */
 export function Toaster() {
   useEffect(
@@ -28,7 +30,7 @@ export function Toaster() {
         manager.add({
           title,
           description,
-          ...(tone === "error" && { type: "error", priority: "high" as const }),
+          ...(tone === "error" && { type: "error", priority: "high" as const, timeout: 8000 }),
         });
       }),
     [],
@@ -36,7 +38,7 @@ export function Toaster() {
   return (
     <Toast.Provider toastManager={manager} timeout={4000} limit={3}>
       <Toast.Portal>
-        <Toast.Viewport className="pointer-events-none fixed right-4 bottom-4 z-[60] flex w-[min(22rem,calc(100vw-2rem))] flex-col-reverse gap-2 outline-none">
+        <Toast.Viewport className="pointer-events-none fixed right-4 bottom-4 z-[60] max-md:bottom-16 flex w-[min(22rem,calc(100vw-2rem))] flex-col-reverse gap-2 outline-none">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Toaster } from "./toast.tsx";
 import { showToast, subscribeToToasts } from "./toasts.ts";
 
@@ -36,6 +36,24 @@ describe("showToast and Toaster", () => {
     );
   });
 
+  it("keeps an error up twice as long as a confirmation, since nothing pauses it", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<Toaster />);
+      act(() => {
+        showToast({ title: "Branch copied" });
+        showToast({ title: "Could not copy", tone: "error" });
+      });
+      act(() => vi.advanceTimersByTime(5000));
+      expect(screen.queryByRole("dialog", { name: "Branch copied" })).toBeNull();
+      expect(screen.getByText("Could not copy", { selector: "h2" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(3500));
+      expect(screen.queryByText("Could not copy", { selector: "h2" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a listener stops hearing toasts once it unsubscribes", () => {
     const heard: string[] = [];
     const stop = subscribeToToasts(({ title }) => heard.push(title));
@@ -58,5 +76,18 @@ describe("showToast and Toaster", () => {
       )
       .map((file) => relative(src, join(src, file)));
     expect(importers).toEqual(["ui/toast.tsx"]);
+  });
+
+  // Kept apart from the line above: moving `showToast` into `ui/toast.tsx` would leave Base UI's
+  // import where it is and still put the drawing code on the landing page, through the sidebar.
+  it("only the dashboard's frame imports Toaster, which is what draws a toast", () => {
+    const src = join(import.meta.dirname, "..");
+    const importers = readdirSync(src, { recursive: true, encoding: "utf8" })
+      .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file))
+      .filter((file) =>
+        /from\s+["'][^"']*\/toast\.tsx["']/.test(readFileSync(join(src, file), "utf8")),
+      )
+      .map((file) => relative(src, join(src, file)));
+    expect(importers).toEqual(["dashboard/dashboard.tsx"]);
   });
 });

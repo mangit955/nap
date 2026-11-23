@@ -30,6 +30,10 @@ describe("Tooltip", () => {
     expect(screen.queryByText("New session")).toBeNull();
     await wait(100);
     expect(screen.getByText("New session")).toBeInTheDocument();
+    // For eyes only: a screen reader hears the control's own name, not the name and then the label.
+    const button = screen.getByRole("button", { name: "New session" });
+    expect(button).not.toHaveAttribute("aria-describedby");
+    expect(button).toHaveAccessibleDescription("");
   });
 
   it("opens on keyboard focus with no wait", async () => {
@@ -58,6 +62,31 @@ describe("Tooltip", () => {
     rest(screen.getByRole("button", { name: "Wake Plain" }));
     await wait(TOOLTIP_DELAY_MS);
     expect(screen.getByText("Wake").parentElement).toHaveClass("data-[anchor-hidden]:invisible");
+  });
+
+  // Opened by keyboard focus, a tooltip stays open while the list under it scrolls; it has to close,
+  // or it floats where its control was and takes the first Escape meant for the sidebar.
+  it("closes when anything holding its control scrolls, and not for any other scroll", async () => {
+    render(
+      <>
+        <div data-testid="list">
+          <Tooltip label="Snooze">
+            <button type="button" aria-label="Snooze Plain" />
+          </Tooltip>
+        </div>
+        <div data-testid="elsewhere" />
+      </>,
+    );
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => screen.getByRole("button", { name: "Snooze Plain" }).focus());
+    await wait(0);
+    expect(screen.getByText("Snooze")).toBeInTheDocument();
+    fireEvent.scroll(screen.getByTestId("elsewhere"));
+    await wait(200);
+    expect(screen.getByText("Snooze")).toBeInTheDocument();
+    fireEvent.scroll(screen.getByTestId("list"));
+    await wait(200);
+    expect(screen.queryByText("Snooze")).toBeNull();
   });
 
   it("keeps the control as it was: its name, its element, its ref and its click", () => {

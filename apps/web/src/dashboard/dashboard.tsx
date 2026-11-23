@@ -159,8 +159,8 @@ export function Dashboard({
   }, [navigationOpen, closeNavigation]);
 
   return (
-    // One tooltip group and one toast stack for every signed-in page: the dashboard and each
-    // project's workspace are both drawn in this frame.
+    // One tooltip group and one toast stack for the dashboard and each project's workspace, the
+    // two pages drawn in this frame.
     <TooltipProvider>
       <Toaster />
       <div

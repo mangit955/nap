@@ -1,7 +1,7 @@
 "use client";
 
 import { Tooltip as Base } from "@base-ui/react/tooltip";
-import type { ReactElement } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 
 /**
  * How long a pointer rests on a control before its tooltip appears. Long enough that sweeping
@@ -41,14 +41,37 @@ export function Tooltip({
   /** The control itself. Its own props, ref and handlers are kept. */
   children: ReactElement;
 }) {
+  const actions = useRef<Base.Root.Actions>(null);
+  const trigger = useRef<HTMLElement>(null);
+  const [open, setOpen] = useState(false);
+  // Closed when anything holding the control scrolls. A tooltip opened by keyboard focus stays open
+  // while the list under it moves: in Chrome it floated over the sidebar's header once its row was
+  // scrolled away, and, hidden but still open, it took the first Escape the phone's sidebar needed.
+  // Listened for only while open, so a long list of rows adds no listeners.
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: Event) => {
+      if (event.target instanceof Node && event.target.contains(trigger.current)) {
+        actions.current?.close();
+      }
+    };
+    window.addEventListener("scroll", away, { capture: true, passive: true });
+    return () => window.removeEventListener("scroll", away, { capture: true });
+  }, [open]);
   return (
-    <Base.Root disabled={disabled}>
-      <Base.Trigger delay={TOOLTIP_DELAY_MS} render={children} />
+    <Base.Root disabled={disabled} actionsRef={actions} onOpenChange={setOpen}>
+      <Base.Trigger
+        // A callback, since Base UI types the ref for a button and the control may be a link.
+        ref={(element: HTMLElement | null) => {
+          trigger.current = element;
+        }}
+        delay={TOOLTIP_DELAY_MS}
+        render={children}
+      />
       <Base.Portal>
         {/*
           Above the sidebar's menus (50) and its resize handle (45), which it can overhang. Hidden
-          while Base UI marks its control scrolled out of view: a tooltip opened by keyboard focus
-          stays open when the list scrolls, and would float over whatever the row was clipped by.
+          while Base UI finds its control clipped out of view some other way than by a scroll.
         */}
         <Base.Positioner
           side={side}

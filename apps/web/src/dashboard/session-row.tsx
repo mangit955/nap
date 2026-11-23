@@ -226,6 +226,8 @@ export const SessionRow = memo(function SessionRow({
   // Touch screens have no right-click, and iOS does not turn a long press on a link into one, so
   // they get a visible trigger for the same menu. `session-actions` keeps it, and the hover
   // controls around it, shown on touch only (`globals.css`, `hover: none`).
+  // Unlike the other menu buttons, its tooltip is not shut while the menu is open: that state is
+  // the list's, not the row's, and the button only shows where nothing hovers.
   const more = hasMenu ? (
     <Tooltip label="More actions">
       <button

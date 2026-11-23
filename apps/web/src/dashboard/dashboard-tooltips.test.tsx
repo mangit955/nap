@@ -161,12 +161,30 @@ describe("the dashboard's icon-only controls", () => {
       fireEvent.pointerDown(target, { pointerType: "mouse" });
       fireEvent.click(target);
       expect(target).toHaveAttribute("aria-expanded", "true");
+      // Gone with the pointer still on the control: nothing but the press has happened.
+      act(() => vi.advanceTimersByTime(200));
+      expect(tooltip(container, text)).toBeNull();
       // Leaving and coming back is a fresh hover, which the open menu must not let through.
       fireEvent.mouseLeave(target);
       act(() => vi.advanceTimersByTime(TOOLTIP_DELAY_MS));
-      expect(tooltip(container, text)).toBeNull();
       rest(target);
       expect(tooltip(container, text)).toBeNull();
     },
   );
+
+  // The provider in the dashboard's frame: once one tooltip shows, the next opens without the wait,
+  // so moving along the sidebar's icons reads each name in turn.
+  it("opens a neighbour's tooltip at once while one is showing", async () => {
+    const { container } = await mount();
+    const filter = control("Filter by source");
+    rest(filter);
+    expect(tooltip(container, "Filter by source")).not.toBeNull();
+    fireEvent.mouseLeave(filter);
+    const next = control("New session");
+    fireEvent.pointerEnter(next, { pointerType: "mouse" });
+    fireEvent.mouseEnter(next);
+    fireEvent.mouseMove(next);
+    act(() => vi.advanceTimersByTime(20));
+    expect(tooltip(container, "New session")).not.toBeNull();
+  });
 });
