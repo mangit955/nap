@@ -14,6 +14,7 @@ coding-agent systems.
 A model saying "done" is a claim. A passing checkpoint is evidence.
 
 [![CI](https://github.com/mangit955/nap/actions/workflows/ci.yml/badge.svg)](https://github.com/mangit955/nap/actions/workflows/ci.yml)
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/mangit955/badge.svg)](https://hub.xerj.org/contributors/mangit955)
 
 [Live demo](https://nap-tawny.vercel.app) · [Docs](https://nap-tawny.vercel.app/docs) ·
 [Architecture](https://nap-tawny.vercel.app/docs/architecture)
