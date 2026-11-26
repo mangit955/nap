@@ -53,7 +53,7 @@ const CHANNEL_GRACE_SEC = 15;
 const TIMED_OUT = 124;
 
 /** How many times a read or a listing is tried when what came back is not base64. */
-export const READ_ATTEMPTS = 2;
+export const BASE64_ATTEMPTS = 2;
 
 /** An exit status these scripts use for "no such file", out of the range commands usually use. */
 const MISSING = 44;
@@ -292,7 +292,7 @@ export class ChannelSandboxManager implements SandboxManager {
       // for. Line breaks in base64's output are part of the format.
       if (/^[A-Za-z0-9+/=\s]*$/.test(ran.value.stdout))
         return { ok: true, value: Buffer.from(ran.value.stdout, "base64") };
-      if (attempt === READ_ATTEMPTS)
+      if (attempt === BASE64_ATTEMPTS)
         return {
           ok: false,
           error: { code: "exec_failed", message: `cannot ${what}: the output was not base64` },
