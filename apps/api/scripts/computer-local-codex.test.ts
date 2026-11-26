@@ -28,6 +28,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
+// Each test here starts real Node processes, one per peer, and runs under `unit`'s 5 s default:
+// about a second alone, past five under the full suite. The same 30 s the computer suites get
+// (vitest.config.ts), set here rather than by moving the file there, which would stop
+// `check:changed` reaching it through its imports of `@nap/agent`.
+vi.setConfig({ testTimeout: 30_000 });
+
 const MODEL = { nativeModel: "gpt-5.6-sol", napModel: "openai/gpt-5.6-sol" };
 const USAGE = { input_tokens: 120, cached_input_tokens: 90, output_tokens: 12 };
 const COMPUTER = {

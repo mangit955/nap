@@ -74,6 +74,11 @@ export default defineConfig({
             "{packages,apps}/*/src/**/*.computer.test.ts",
             "{packages,apps}/*/scripts/**/*.computer.test.ts",
           ],
+          // Vitest's 5 s default is a unit test's budget. A test here starts several real
+          // processes: the slowest takes about 3 s alone and has gone past 5 s under the full
+          // suite. 30 s is ten times the slowest seen alone, the figure the other suites here
+          // already give their tests one by one, and still well short of a hang going unnoticed.
+          testTimeout: 30_000,
         },
       },
       {
