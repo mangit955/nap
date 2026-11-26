@@ -22,6 +22,7 @@ beforeAll(() => {
   };
 });
 afterEach(() => {
+  vi.useRealTimers();
   localStorage.clear();
   vi.restoreAllMocks();
 });
@@ -149,7 +150,14 @@ describe("every item in a session's context menu", () => {
   });
 
   it("each Snooze preset sends its own wake time, shown beside it", async () => {
+    // The menu works its presets out again from the clock, so a minute ending between this line
+    // and the click would leave this label naming a time the menu no longer shows. Only `Date`
+    // is frozen; the waits below still run on real timers. A Wednesday morning, so all five
+    // presets are offered.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 25, 10, 59, 59, 900));
     const presets = snoozePresets(new Date());
+    expect(presets).toHaveLength(5);
     const rows = presets.map((_, index) => row(`Snooze ${index}`));
     const server = await mount(rows);
     for (const [index, preset] of presets.entries()) {
@@ -162,10 +170,7 @@ describe("every item in a session's context menu", () => {
       await waitFor(() => expect(server.requests).toHaveLength(index + 1));
       const body = server.requests[index]?.body as { change: { kind: string; until: string } };
       expect(body.change.kind).toBe("snooze");
-      // A preset is computed again at the moment it is chosen; a minute's leeway covers that.
-      expect(
-        Math.abs(Date.parse(body.change.until) - Date.parse(preset.snoozedUntil)),
-      ).toBeLessThan(60_000);
+      expect(body.change.until).toBe(preset.snoozedUntil);
     }
   });
 
