@@ -81,6 +81,21 @@ command's output) opens a repair turn, recorded as a failed `review` check; ever
 is a note. Not a helper: the system calls it, not the agent. What a review that returns cost is in
 the log as `review.completed`, outside any turn's usage, and the **session's usage** adds it.
 
+**App test** — a user-approved, system-prompted Turn that exercises the latest completed Job in
+its Computer. Its goal and source commit are recorded in `test.started`; its input prompt is
+built from that goal and the Job's diff. Assertions are declared before input and receive a
+verdict after a new screenshot. The result does not change the Job's checkpoint. A failed
+assertion offers a separate repair the user may request; it never starts one itself.
+
+**Goal** — what an **App test** of a Job is judged against. Usually the Job's objective. A Job
+opened by **Fix it** has the repair prompt as its objective and the failed test's goal as its
+goal, copied from that test's `test.started` by the runtime. Structured repairs preserve this goal
+without reading it from the repair prompt. Older logs fall back to the objective and are not backfilled.
+
+**Test recording** — a video of one App test, with annotations on the video’s timeline. It shows
+what was attempted and what was visible; it does not independently establish an assertion’s truth.
+An interrupted or missing recording leaves the test’s assertions available for review.
+
 **Session usage** — the tokens a session spent on its completed turns, the project's title, and its
 reviews that returned. A compaction or a helper ran inside a turn and is already in that turn's total. A failed
 turn writes no total, so it is left out whole, even the compaction or helper usage its own events
@@ -93,6 +108,13 @@ failed its tests, and treating a missing script as a failure would put every fre
 repair loop it cannot leave. Which checks exist is discovered from the project rather than declared
 by the model. Owned by `@nap/verify` (`docs/adr/0007`). The passed/failed/absent triple itself sits
 one layer lower still, in `@nap/shared`, because `verification.completed` carries it into the log.
+
+**Check output** — what a failed command actually said, kept on the check beside the exit code it
+does not explain. Recorded only on failure and only when there was something to record, because a
+passing build's output is churn in an artefact people diff. Each stream is budgeted on its own and
+keeps its **tail** — a failing command prints its banner first and its reason last, and a shared
+budget would let a chatty stdout push out the stderr that explains the failure. A stream says
+whether it was truncated, so a fragment is never read as the whole.
 
 **Verdict** — what a whole *run* of the checks came to, as against the outcome of any one of them:
 **passed**, **failed**, or **errored**. The third is the one worth the word. Failed is the project's
@@ -403,6 +425,16 @@ a session *busy*. See ADR-0022.
 `preview.ready`. The `seq` of that announcement, not its URL, is what identifies *which* preview:
 a project put away and restarted has two announcements and only one live sandbox.
 
+**Computer** — the desktop inside a project's sandbox, behind `SandboxDesktop`. The agent sees
+JPEG screenshots and sends batched input and observation actions through the `computer` tool.
+Screenshot events name stored objects; the model receives images only within its active turn.
+Desktop lifecycle and stream credentials stay separate from sandbox lifecycle and event storage.
+See [ADR-0018](docs/adr/0018-the-agent-gets-a-computer.md).
+
+**Input scope** — one single-use ownership of a project's Computer input, reserved durably before physical dispatch. A model attempt reserves lazily and an owner batch reserves once. Unknown completion retains the project's admission fence until a matching remote drain proof clears it. Closing a scope permanently revokes delayed input for that identity. Recovery never replays input or destroys source.
+
+**Abandoning a Computer** — the owner's way out when a held input scope's machine never proves its drain. After one more drain attempt fails, the reservation is deleted and the project forgets that machine. The next turn restores the last snapshot onto a fresh one. This is not *closing* a project, which snapshots first: abandoning takes no snapshot of the machine it gives up, since all it has established is that the drain failed. Changes since the last snapshot are lost, including the work of a turn that completed and committed but never reached its snapshot, and every session of the project gets a notice in its log saying the computer was abandoned.
+
 **Installation** — one GitHub App installation on a personal account or organization, bound to the
 one Nap owner who connected it; what the UI calls a **GitHub connection**. It stays reserved to that
 owner across a disconnect. Only GitHub answering 404 for it marks it *removed*; a rate limit or an
@@ -444,17 +476,12 @@ Not the API's own host, which only the event stream (and webhooks) still reach d
 **API proxy path** where the cookie is sent, and carried in the socket's query string to the API's
 own host, where it is not. Not a session: it is worth nothing on any other route.
 
-## NapBench glossary
+## NapBench terms still in use
 
-**NapBench was retired on 2026-11-17**, and its code is at the git tag `napbench-v1`. This glossary
-stays because its write-ups (`docs/napbench-*.md`, `docs/NAPBENCH.md`) and ADRs use these words, and
-the public-benchmark glossary below borrows **Trial** and **Reward** from it.
-
-NapBench was the evaluation harness that measured Nap's agent. Its vocabulary is kept separate
-because it describes the thing *observing* the system, not the system — a user never encounters any
-of these words. Where the two vocabularies collide, the collision is named below rather than
-resolved by hoping nobody notices. See `docs/adr/0001`–`0005`, `0007` and `0012`–`0013` for the
-decisions behind them.
+NapBench, the benchmark retired on 2026-11-17, keeps its glossary in
+[`docs/NAPBENCH.md`](docs/NAPBENCH.md#glossary). The terms below stay here because live code,
+live ADRs or the public-benchmark glossary below still use them; a bold word they use that is not
+defined in this file is defined there.
 
 **Task** — one reproducible unit of work put to the agent: an id, a prompt or short sequence of
 prompts, an environment that may seed files before anything runs, and the checks that decide whether
@@ -464,83 +491,6 @@ benchmark; everything else is a variable. **This word collides**: a NapBench tas
 specification of work to be repeated, where the runtime's unit of actual work being done once is a
 **Job**. The two are different concepts and keep different names rather than one being renamed.
 
-**Check** — a `@nap/verify` **Check** plus the scoring metadata that makes it an acceptance
-criterion: the category it scores into, a weight, and whether it is required. The primitive — one
-thing run, that passed, failed or was absent — is shared with the runtime's verifier, because it
-was never NapBench's alone; what is NapBench's is that a score is made of nothing else. Three kinds:
-*command* (run something in the sandbox), *browser* (drive the preview and assert) and
-*accessibility* (axe against a rendered page). A fourth, *custom*, was specified and deliberately
-not built: a task is **data**, validated by a schema as its module loads, and a custom check would
-be code — which no schema can validate and no sandbox can be handed. The extension point the fourth
-kind was meant to provide is the discriminated union itself: a new kind is a schema, a branch in the
-executor's dispatch and a default category, which is exactly what adding *accessibility* turned out
-to cost. Only *command* is the shared primitive; *browser* and *accessibility* are NapBench's own
-and stay there, since ADR-0001 keeps the browser out of anything that ships. The passed / failed /
-*absent* triple is the primitive's, and the difference between the last two is load-bearing here in
-its own way — see **Gate**.
-
-**Check output** — what a failed command actually said, kept on the check beside the exit code it
-does not explain. Recorded only on failure and only when there was something to record, because a
-passing build's output is churn in an artefact people diff. Each stream is budgeted on its own and
-keeps its **tail** — a failing command prints its banner first and its reason last, and a shared
-budget would let a chatty stdout push out the stderr that explains the failure. A stream says
-whether it was truncated, so a fragment is never read as the whole.
-
-**Step** — one line of a browser check: an *action* that does something to the running application
-(navigate, click, fill, press, reload, select, resize) or an *assertion* that must hold at that
-point. Actions and assertions are one ordered list rather than two, because almost everything worth
-asserting is a change — the item that appears after the button, the list that shortens under a
-filter, the thing still there after a reload.
-
-**Arrival** — the opening navigation of a browser or accessibility check, as distinct from any
-navigating it does later. Retried a few times before it is believed, and a failure that survives
-every attempt is the *evaluator's* rather than the agent's: the preview gate has already proven that
-URL serves, so a check that never gets there observed nothing about the application and must not
-record a failed check against it. A `navigate` or `reload` *after* arrival is the opposite — the
-road was demonstrably fine moments ago — and stays a failed check. See `docs/adr/0005`.
-
-**Selector** — how a step names an element, as a value rather than a CSS string: by *role* (with an
-accessible name), by *label*, by *text* or by *test id*. Nobody wrote the markup of a generated
-application, so nobody can write a selector against it; these four are what a page *means* rather
-than how it is built, and they are answerable by a fake.
-
-**Viewport** — the size a browser check runs at, as one of three names — *mobile*, *tablet*,
-*desktop* — defaulting to desktop. A field on the check rather than a kind of its own, so the same
-sequence can be asserted at two sizes without being written twice.
-
-**Category** — which axis of quality a check speaks to: *functional*, *browser*, *visual* or *code*.
-Weighted into the overall score, and the weighting renormalises over the categories that actually
-produced results. A check's category defaults from its kind and can be overridden by the task,
-because `npm run build` and `npm run lint` are both commands and are not both functional.
-
-> **`visual` is the v1 name and is superseded.** It was a category with a port behind it and no
-> implementation, and how an application looks is now the **Product half**, graded on
-> **Dimension**s by a **Judge**. The name is kept rather than removed: every archived report names
-> it in its category list and its effective weight vector, and deleting it would make those files
-> unreadable by the code that wrote them. Nothing new scores into it — a task written today gets
-> the product half instead — so on any recent report it is simply absent, which renormalises. See
-> `docs/adr/0012`.
-
-**Dimension** — one axis the **Product half** is graded on, and deliberately not a **Check** and
-not a **Category**. A check asks a question with a yes-or-no answer and is answered by a machine; a
-dimension asks how good something is and is answered by a **Judge** on an ordinal scale. Two words
-because they are two kinds of claim, and one word would let a judgement be read as a measurement.
-There are nine — *hierarchy*, *typography*, *spacing*, *color*, *layout*, *components*,
-*interaction*, *responsiveness*, *restraint* — equally weighted, because any weighting we chose
-would be our own aesthetic theory compiled into the instrument. A tenth, *polish*, is the judge's
-holistic read: reported, never scored, and structurally outside `PRODUCT_DIMENSIONS` so no fold can
-pick it up. Its value is the *disagreement* — a holistic read far below the computed mean says the
-rubric is missing a dimension. A dimension that could not be assessed is **absent**, exactly as a
-category is, and renormalises rather than scoring low.
-
-**Restraint** — the dimension that asks whether each visual decision earns its place, and where
-icon usage is judged. Named for the question rather than for any of its answers: there is
-deliberately **no icon dimension**, because naming one would bake a component library into the
-rubric and make the benchmark measure adherence to our taste. A gradient, a rounded card, a shadow
-and an icon each have to answer the same question, and each can be the right call — so this is not
-a penalty list, and slop is not a rule. The rubric requires icon usage to be *stated* here on every
-run, so it stays visible even when the answer is "fine".
-
 **Judge** — whoever grades the **Product half**: a scripted judgement in a unit test, a vision model
 behind `--real`, or a person filling in a form. A port (`ProductEvaluation`) for the reason
 `BrowserSession` is one, so the scorer never learns how a judgement was made and the free path and
@@ -549,29 +499,6 @@ source and a **rubric version** — because the same model against a reworded ru
 instrument, and a score taken under one is not a score taken under the other. It is shown
 **screenshots and the Intent and nothing else**, and it arbitrates nothing: the gates fire before it
 is consulted, so it can never rescue an application that does not work. See `docs/adr/0013`.
-
-**Gate** — a rule that constrains the outcome regardless of what the checks summed to: a declared
-starting state that could not be seeded errors the run before a prompt is ever sent, a failed turn
-is an error with no score, a preview that never serves fails the run, a failed required check fails
-the run, a browser that could not be started errors it without blaming the agent, a build failure
-fails it and caps the overall score. Gates exist so a broken application
-cannot score well by being good at everything except working. They are an ordered list of pure
-functions, each individually tested.
-
-**Status** — how a run ended, as one of four answers. *Passed* and *failed* are results, and both
-have a score. *Errored* means no result was obtained, so there is no score to give. *Cancelled*
-means somebody stopped it, which is not an observation at all.
-
-**Error kind** — whose fault an errored run was, as one of seven answers in four groups: the system
-under test (*agent*, *runtime*), what it depends on (*model*, *sandbox*), the instrument (*browser*,
-*evaluator*) and the operator (*configuration*). The distinction is what keeps a benchmark honest —
-an agent that refused and a provider outage both produce no score, and only the first is evidence
-about the agent. **What is measured is the model, with Nap held fixed**, so the split does not ask
-whose code was at fault but whether the failure says anything about a model: *agent* alone is
-agent-attributable and the other six are infrastructure. *Runtime* and *evaluator* are the pair
-worth keeping apart — Nap's own machinery breaking against NapBench crashing on itself — because a
-suite full of the first is a deployment to fix and one full of the second is a benchmark to fix.
-See `docs/adr/0004`.
 
 **Run configuration** — what a run was *held at*, as opposed to what it spent: which model ran, and
 the ceilings the turn was given. The counterpart to the trajectory's model, which prices what was
@@ -606,58 +533,6 @@ cannot supply is absent rather than inferred. **Stored as two files, not one:** 
 trajectory file and the metrics in the report beside it, because the metrics are what everything
 reads and a second copy next to the events could disagree with the first.
 
-**Surface** — a named view a task wants photographed, plus the steps that reach a state worth
-looking at: an empty list, a populated one, a detail page. Declared rather than inferred, because
-a **Check** is named for what it asserts and not for what it is looking at — so a check's
-photograph cannot be cited as a view, and nothing about it guarantees the *pair* a judge needs.
-Every surface is captured at **mobile** and **desktop**, which is what makes "was the small
-viewport designed for, or the large one squashed" answerable at all. A task that declares none
-still gets the default pair — `/` at both sizes — so no run ends with nothing to judge. Steps are
-the browser-step vocabulary minus assertions and resizes: a surface is evidence, not a check, so
-it has nowhere to put a failed assertion, and the size belongs to the pass rather than to the view.
-
-**Capture pass** — the deliberate photography, run after every check has had its say and before
-any judge is asked. One browser session per image, for the isolation reason a check gets one. It
-changes no score on any path: an unreachable surface, an absent browser and a full disk each cost
-the run an image and nothing else. Bounded at four surfaces a task, so at most eight images —
-every one of them is vision-model tokens on a real run.
-
-**Screenshot** — a picture of the running application, of **exactly one** of two things: a
-**Check**, taken at the end of one at the viewport that check *actually finished at* rather than
-the one it declared, since a check may resize partway through; or a **Surface**, taken by the
-capture pass because somebody asked for that view at that size. Only the second is comparable, and
-only the second is put in front of a judge. Never stored alone: each image has a sidecar naming the
-task, run, whichever of the check and the surface it is of, size, moment and reference, so an image
-copied out of the results directory still says what it is.
-Referenced from the report by a path **relative to the results directory** — an absolute one is
-wrong the first time somebody moves the directory. Evidence *about* a run rather than an
-observation *of* the application, which is why a screenshot that could not be taken or stored
-degrades the report and never changes a score.
-
-**Visual evaluation** — *v1, superseded by the **Product half**.* What a judge made of how the
-application looks, as one of two answers: *not run*, or a *score* with a `source` naming who
-produced it. It never answered anything else — the port shipped with two trivial implementations
-and a `not_run` default, so the `visual` **Category** was weighted 15 and never once produced a
-number. What replaced it grades nine **Dimension**s ordinally and multiplies rather than averaging,
-because a single number for "how it looks" carried at 15% could always be bought by correctness.
-The word stays in the glossary for the reason the category does: archived reports use it.
-
-**Intent** — one neutral sentence saying what an application is *for*, declared by a task and the
-whole of what a product judge is told about it. Never the prompts: a person opening the finished
-application has no specification, and a judge shown the prompts would start grading feature
-completion, which the checks already measure and measure better because a check cannot be talked
-round. It is also the switch — a task that declares one is scored on two halves, and a task that
-declares none is scored on its checks alone whatever judge is composed, which is what keeps the
-frozen `all` suite priced as its funded runs priced it.
-
-**Objective half** — the half of a score that asks whether the application does what was asked, as
-against the **Product half**, which asks whether anybody would want to use it. It is the v1
-four-category weighted mean, unchanged and still renormalising: **the arithmetic of the objective
-half is exactly the arithmetic of a v1 score**, which is what lets the frozen `all` suite go on
-being priced as its funded runs priced it. Deterministic in the strong sense — every number in it
-comes from a **Check** that ran, and no judgement of any kind reaches it. It is also the half that
-can stand alone: a run nobody judged is scored on this and nothing else.
-
 **Product half** — the half of a score that asks whether what was built is a product anybody would
 want to use, as against the **Objective half**, which asks whether it does what was asked. Graded
 by a judge from **Surface** screenshots and the **Intent**, and combined with the objective half
@@ -667,32 +542,6 @@ absence renormalises to the objective half alone rather than multiplying by zero
 Which arithmetic produced a run's number is recorded on the report as its **scoring model**, `v1`
 or `v2`, and `compare` refuses to put one beside the other: the scale is the same and the meaning
 is not. See `docs/adr/0012` for the arithmetic, and `docs/adr/0013` for how the grades are reached.
-
-**Fixture corpus** — nine hand-written applications, committed as pages plus photographs, that a
-judge has to be able to tell apart. Nine designs of *one* application with one shared **Intent**, so
-design is the only variable between two of them. It is not a benchmark task and never runs: nothing
-is generated, no sandbox is acquired and no score reaches a report. It exists because an evaluator
-nobody has watched discriminate is a check that has never been observed failing.
-
-**Discrimination expectation** — one claim about what the corpus's grades must *do*, in one of
-three shapes: a **pair ordering** on one dimension (minimalist grades better than slop on
-`hierarchy`), a **margin** between two whole product scores (broken-beautiful beats correct-ugly by
-at least a real margin), or a **grade bound** (`responsiveness` on desktop-only-breaks-mobile is at
-most `weak`). Never an absolute score — that would be *assert on model prose* in numeric form. Each
-is one half of a pair, so passing it requires telling two fixtures apart rather than marking one
-thing down everywhere. A margin is the shape for a pair built to differ in everything a photograph
-shows, and there is only one such pair; a pair built to differ in three places is three orderings.
-Its three outcomes are **met**, **unmet** and **not assessable**; the third is absence, which is
-neither, for the reason the **product half** renormalises rather than scoring zero.
-
-**Reference screenshot** — what a browser check's screenshot is *meant* to look like, as a path the
-task declares. Nothing compares against it yet; it is expressible now so that tasks can carry
-references before the judge that reads them exists. Declared per check rather than per task,
-because one task routinely photographs several viewports.
-
-**Suite** — a named set of tasks run together, and the level at which a model is characterised
-rather than a single result observed. Reports a mean over completed runs beside an explicit error
-rate, because a run whose turn failed has no score and would otherwise vanish from the average.
 
 **Trial** — one **Run** as an external harness sees it: the same execution, given a directory of its
 own and named by the harness rather than by us. The word is the harness's and is kept because the
@@ -711,12 +560,6 @@ metrics on a 0–1 scale, `overall` beside the halves and the categories. A *pro
 one on purpose: it exists beside the report, never instead of it. A run that measured nothing yields
 **no reward at all** rather than a zero — see the reward rule in `docs/NAPBENCH.md`.
 
-**Spread** — what a task's repeated runs came to, as mean, median, sample standard deviation and
-range. Reported **per task**, never across a suite: a deviation over different tasks measures how
-much the tasks differ in difficulty, which is a fact about the benchmark rather than about the
-model. A task run once has *no* standard deviation rather than one of zero — zero is a claim of
-perfect consistency, and what happened is that nobody measured twice.
-
 **Comparison** — two runs of the same task, and what moved between them: overall, per category and
 per check. The **baseline** is what was, the **candidate** is what is; a candidate that scores
 worse is a regression against that baseline and nothing else. Two runs, never three — three is a
@@ -728,26 +571,11 @@ has no score: there is no number there to reprice, and refusing would make an er
 incomparable with everything, which is when its counterpart is most worth reading. A differing
 **Harness identity** is the one difference it reports rather than refuses.
 
-**Check movement** — what happened to one check between the two runs: *fixed*, *broken*, *changed*,
-*unchanged*, *added* or *removed*. `changed` is the one that earns its place: a check that went
-absent is neither a regression nor a repair — the run never asked — but it renormalises its
-category out and moves the score, so calling it unchanged would leave a moved number with nothing
-explaining it.
-
 **Route** — what the agent *did* on the way to a result, as opposed to how long it took: tool calls,
 tool failures, commands run and files touched. The distinction is load-bearing for the claim
 "same score, different route", which is about two runs doing different things. Duration and token
 counts are reported beside it and deliberately excluded from deciding it, since both vary between
 two runs that did identical work.
-
-**Accessibility check** — a check kind that audits one rendered page with axe and fails on findings
-at or above a grade the task declares, defaulting to *serious*. The bar is the design: failing on
-every finding would fail essentially every generated application, which is a check that has stopped
-separating them. An **ungraded** finding always counts — the tool reports only violations, so one it
-declined to grade is still one, and guessing a severity for it would understate it. Scores into
-*code* rather than *browser*, because a category is a property of what a check measures rather than
-of how it measures it: the audit drives nothing and asserts no behaviour, and what it reports is the
-quality of the markup.
 
 ## Public-benchmark glossary
 
@@ -766,9 +594,8 @@ completes by saying it failed still counts as a claim.
 
 ## Load-generation glossary
 
-The vocabulary of the load harness. Kept separate for the same reason NapBench's is: it describes
-something *driving* the system rather than anything a user encounters. See
-`docs/scaling-design.md` §23.
+The vocabulary of the load harness. Kept separate because it describes something *driving* the
+system rather than anything a user encounters. See `docs/scaling-design.md` §23.
 
 **Journey** — one scripted user's whole path through the system, start to finish: sign in through
 the demo door, create a project, open a socket, wait to be told the replay is over, submit a turn,
@@ -785,28 +612,3 @@ changes only when another funded run records something different.
 **Threshold** — one condition a run is held to, as a metric, a statistic of it, a comparison and a
 number. A threshold whose metric was never recorded **fails**, rather than passing vacuously: a
 harness that quietly stopped measuring something must not report a green run.
-
-**Computer** — the desktop inside a project's sandbox, behind `SandboxDesktop`. The agent sees
-JPEG screenshots and sends batched input and observation actions through the `computer` tool.
-Screenshot events name stored objects; the model receives images only within its active turn.
-Desktop lifecycle and stream credentials stay separate from sandbox lifecycle and event storage.
-See [ADR-0018](docs/adr/0018-the-agent-gets-a-computer.md).
-
-**Input scope** — one single-use ownership of a project's Computer input, reserved durably before physical dispatch. A model attempt reserves lazily and an owner batch reserves once. Unknown completion retains the project's admission fence until a matching remote drain proof clears it. Closing a scope permanently revokes delayed input for that identity. Recovery never replays input or destroys source.
-
-**Abandoning a Computer** — the owner's way out when a held input scope's machine never proves its drain. After one more drain attempt fails, the reservation is deleted and the project forgets that machine. The next turn restores the last snapshot onto a fresh one. This is not *closing* a project, which snapshots first: abandoning takes no snapshot of the machine it gives up, since all it has established is that the drain failed. Changes since the last snapshot are lost, including the work of a turn that completed and committed but never reached its snapshot, and every session of the project gets a notice in its log saying the computer was abandoned.
-
-**App test** — a user-approved, system-prompted Turn that exercises the latest completed Job in
-its Computer. Its goal and source commit are recorded in `test.started`; its input prompt is
-built from that goal and the Job's diff. Assertions are declared before input and receive a
-verdict after a new screenshot. The result does not change the Job's checkpoint. A failed
-assertion offers a separate repair the user may request; it never starts one itself.
-
-**Goal** — what an **App test** of a Job is judged against. Usually the Job's objective. A Job
-opened by **Fix it** has the repair prompt as its objective and the failed test's goal as its
-goal, copied from that test's `test.started` by the runtime. Structured repairs preserve this goal
-without reading it from the repair prompt. Older logs fall back to the objective and are not backfilled.
-
-**Test recording** — a video of one App test, with annotations on the video’s timeline. It shows
-what was attempted and what was visible; it does not independently establish an assertion’s truth.
-An interrupted or missing recording leaves the test’s assertions available for review.
