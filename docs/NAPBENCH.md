@@ -14,8 +14,8 @@ individual checks — and that it is **withheld** when it would be misleading: a
 and an E2B outage both produce no score, and NapBench keeps them apart, because a benchmark that
 quietly attributes infrastructure noise to a model is worse than no benchmark.
 
-Vocabulary is in the [glossary](#glossary) at the end of this page. The decisions that were
-expensive to reverse are in
+Most of the vocabulary is in the [glossary](#glossary) at the end of this page. The decisions that
+were expensive to reverse are in
 [`docs/adr/0001`](adr/0001-napbench-splits-into-a-pure-package-and-an-app.md) (the two units),
 [`0002`](adr/0002-absent-scoring-categories-renormalise.md) (renormalisation, error attribution,
 comparison), [`0003`](adr/0003-unmeasurable-metrics-stay-absent.md) (metrics come from the existing
