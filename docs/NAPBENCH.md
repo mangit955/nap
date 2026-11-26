@@ -900,7 +900,8 @@ with the browser check catching an overflow the judge said in as many words it c
 
 Moved here from `CONTEXT.md` once NapBench was retired. The NapBench terms live sources still use
 stayed in [`CONTEXT.md`](../CONTEXT.md), under "NapBench terms still in use", beside the product's
-own vocabulary; a bold word used below and not defined here is defined there.
+own vocabulary; a bold word used below and not defined here is defined there, and so is the
+`@nap/verify` **Check** that NapBench's **Check** extends.
 
 NapBench was the evaluation harness that measured Nap's agent. Its vocabulary is kept separate
 because it describes the thing *observing* the system, not the system — a user never encounters any
