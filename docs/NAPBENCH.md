@@ -898,17 +898,13 @@ with the browser check catching an overflow the judge said in as many words it c
 
 ## Glossary
 
-Moved here from `CONTEXT.md` once NapBench was retired. The terms live code still uses —
-**Task**, **Run configuration**, **Harness identity**, **Run**, **Trajectory**, **Product half**,
-**Trial**, **Job directory**, **Reward**, **Route**, **Check output** — stayed in
-[`CONTEXT.md`](../CONTEXT.md), beside the product's own vocabulary; a bold word used below and not
-defined here is defined there.
+Moved here from `CONTEXT.md` once NapBench was retired. The NapBench terms live sources still use
+stayed in [`CONTEXT.md`](../CONTEXT.md), under "NapBench terms still in use", beside the product's
+own vocabulary; a bold word used below and not defined here is defined there.
 
 NapBench was the evaluation harness that measured Nap's agent. Its vocabulary is kept separate
 because it describes the thing *observing* the system, not the system — a user never encounters any
-of these words. Where the two vocabularies collide, the collision is named below rather than
-resolved by hoping nobody notices. See `docs/adr/0001`–`0005`, `0007` and `0012`–`0013` for the
-decisions behind them.
+of these words. See `docs/adr/0001`–`0005`, `0007` and `0012`–`0013` for the decisions behind them.
 
 **Check** — a `@nap/verify` **Check** plus the scoring metadata that makes it an acceptance
 criterion: the category it scores into, a weight, and whether it is required. The primitive — one
@@ -979,15 +975,6 @@ rubric and make the benchmark measure adherence to our taste. A gradient, a roun
 and an icon each have to answer the same question, and each can be the right call — so this is not
 a penalty list, and slop is not a rule. The rubric requires icon usage to be *stated* here on every
 run, so it stays visible even when the answer is "fine".
-
-**Judge** — whoever grades the **Product half**: a scripted judgement in a unit test, a vision model
-behind `--real`, or a person filling in a form. A port (`ProductEvaluation`) for the reason
-`BrowserSession` is one, so the scorer never learns how a judgement was made and the free path and
-the paid path drive identical scoring code. Every judgement records the judge's *identity* — a
-source and a **rubric version** — because the same model against a reworded rubric is a different
-instrument, and a score taken under one is not a score taken under the other. It is shown
-**screenshots and the Intent and nothing else**, and it arbitrates nothing: the gates fire before it
-is consulted, so it can never rescue an application that does not work. See `docs/adr/0013`.
 
 **Gate** — a rule that constrains the outcome regardless of what the checks summed to: a declared
 starting state that could not be seeded errors the run before a prompt is ever sent, a failed turn
@@ -1095,17 +1082,6 @@ range. Reported **per task**, never across a suite: a deviation over different t
 much the tasks differ in difficulty, which is a fact about the benchmark rather than about the
 model. A task run once has *no* standard deviation rather than one of zero — zero is a claim of
 perfect consistency, and what happened is that nobody measured twice.
-
-**Comparison** — two runs of the same task, and what moved between them: overall, per category and
-per check. The **baseline** is what was, the **candidate** is what is; a candidate that scores
-worse is a regression against that baseline and nothing else. Two runs, never three — three is a
-table rather than a diff. **Refused** whenever the two effective weight vectors differ, because
-renormalisation means a score is only meaningful relative to the categories that produced it; the
-*configured* vector deliberately does not decide, since reweighting a category neither run scored
-renormalises to the same vector and those runs are comparable. Refusal is skipped when either run
-has no score: there is no number there to reprice, and refusing would make an errored run
-incomparable with everything, which is when its counterpart is most worth reading. A differing
-**Harness identity** is the one difference it reports rather than refuses.
 
 **Check movement** — what happened to one check between the two runs: *fixed*, *broken*, *changed*,
 *unchanged*, *added* or *removed*. `changed` is the one that earns its place: a check that went

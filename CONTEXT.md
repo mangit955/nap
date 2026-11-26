@@ -479,8 +479,8 @@ own host, where it is not. Not a session: it is worth nothing on any other route
 ## NapBench terms still in use
 
 NapBench, the benchmark retired on 2026-11-17, keeps its glossary in
-[`docs/NAPBENCH.md`](docs/NAPBENCH.md#glossary); these of its terms stay here because live code,
-ADRs or the public-benchmark glossary below still use them, and a bold word they use that is not
+[`docs/NAPBENCH.md`](docs/NAPBENCH.md#glossary). The terms below stay here because live code,
+live ADRs or the public-benchmark glossary below still use them; a bold word they use that is not
 defined in this file is defined there.
 
 **Task** — one reproducible unit of work put to the agent: an id, a prompt or short sequence of
@@ -490,6 +490,15 @@ different model, prompt or context engine without being edited. Tasks are the fi
 benchmark; everything else is a variable. **This word collides**: a NapBench task is a
 specification of work to be repeated, where the runtime's unit of actual work being done once is a
 **Job**. The two are different concepts and keep different names rather than one being renamed.
+
+**Judge** — whoever grades the **Product half**: a scripted judgement in a unit test, a vision model
+behind `--real`, or a person filling in a form. A port (`ProductEvaluation`) for the reason
+`BrowserSession` is one, so the scorer never learns how a judgement was made and the free path and
+the paid path drive identical scoring code. Every judgement records the judge's *identity* — a
+source and a **rubric version** — because the same model against a reworded rubric is a different
+instrument, and a score taken under one is not a score taken under the other. It is shown
+**screenshots and the Intent and nothing else**, and it arbitrates nothing: the gates fire before it
+is consulted, so it can never rescue an application that does not work. See `docs/adr/0013`.
 
 **Run configuration** — what a run was *held at*, as opposed to what it spent: which model ran, and
 the ceilings the turn was given. The counterpart to the trajectory's model, which prices what was
@@ -551,6 +560,17 @@ metrics on a 0–1 scale, `overall` beside the halves and the categories. A *pro
 one on purpose: it exists beside the report, never instead of it. A run that measured nothing yields
 **no reward at all** rather than a zero — see the reward rule in `docs/NAPBENCH.md`.
 
+**Comparison** — two runs of the same task, and what moved between them: overall, per category and
+per check. The **baseline** is what was, the **candidate** is what is; a candidate that scores
+worse is a regression against that baseline and nothing else. Two runs, never three — three is a
+table rather than a diff. **Refused** whenever the two effective weight vectors differ, because
+renormalisation means a score is only meaningful relative to the categories that produced it; the
+*configured* vector deliberately does not decide, since reweighting a category neither run scored
+renormalises to the same vector and those runs are comparable. Refusal is skipped when either run
+has no score: there is no number there to reprice, and refusing would make an errored run
+incomparable with everything, which is when its counterpart is most worth reading. A differing
+**Harness identity** is the one difference it reports rather than refuses.
+
 **Route** — what the agent *did* on the way to a result, as opposed to how long it took: tool calls,
 tool failures, commands run and files touched. The distinction is load-bearing for the claim
 "same score, different route", which is about two runs doing different things. Duration and token
@@ -574,9 +594,8 @@ completes by saying it failed still counts as a claim.
 
 ## Load-generation glossary
 
-The vocabulary of the load harness. Kept separate for the same reason NapBench's is: it describes
-something *driving* the system rather than anything a user encounters. See
-`docs/scaling-design.md` §23.
+The vocabulary of the load harness. Kept separate because it describes something *driving* the
+system rather than anything a user encounters. See `docs/scaling-design.md` §23.
 
 **Journey** — one scripted user's whole path through the system, start to finish: sign in through
 the demo door, create a project, open a socket, wait to be told the replay is over, submit a turn,
