@@ -52,7 +52,7 @@ const CHANNEL_GRACE_SEC = 15;
 /** `timeout`'s exit status when it stopped the command. */
 const TIMED_OUT = 124;
 
-/** How many times a read is tried when what came back is not base64. */
+/** How many times a read or a listing is tried when what came back is not base64. */
 export const READ_ATTEMPTS = 2;
 
 /** An exit status these scripts use for "no such file", out of the range commands usually use. */
@@ -150,31 +150,13 @@ export class ChannelSandboxManager implements SandboxManager {
     const known = this.#check(sandboxId);
     if (!known.ok) return known;
     const target = shellQuote(path);
-    // Twice at most. The frame keeps a command's own stderr apart, but the shell that runs the
-    // frame can warn (a missing locale) on a stream the environment folds into stdout, and two
-    // streams read separately can interleave: the warning then lands inside the base64. Reading
-    // is idempotent, so one more attempt is the cheap answer to a rare reordering.
-    for (let attempt = 1; ; attempt += 1) {
-      const ran = await this.#run(`[ -f ${target} ] || exit ${MISSING}; base64 < ${target}`);
-      if (!ran.ok) return ran;
-      if (ran.value.exitCode === MISSING)
-        return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
-      if (ran.value.exitCode !== 0)
-        return {
-          ok: false,
-          error: { code: "exec_failed", message: `cannot read ${path}: ${reason(ran.value)}` },
-        };
-      // Checked, because Node's decoder skips what is not base64 rather than failing on it, and
-      // a file that came back with anything else in it must not be handed over as its contents.
-      // Line breaks in base64's output are part of the format.
-      if (/^[A-Za-z0-9+/=\s]*$/.test(ran.value.stdout))
-        return { ok: true, value: new Uint8Array(Buffer.from(ran.value.stdout, "base64")) };
-      if (attempt === READ_ATTEMPTS)
-        return {
-          ok: false,
-          error: { code: "exec_failed", message: `cannot read ${path}: the output was not base64` },
-        };
-    }
+    const read = await this.#runBase64(
+      `[ -f ${target} ] || exit ${MISSING}; base64 < ${target}`,
+      `read ${path}`,
+    );
+    if (read === MISSING)
+      return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
+    return read.ok ? { ok: true, value: new Uint8Array(read.value) } : read;
   }
 
   async listFiles(sandboxId: string, path: string): Promise<Result<FileNode[], SandboxError>> {
@@ -182,24 +164,22 @@ export class ChannelSandboxManager implements SandboxManager {
     if (!known.ok) return known;
     // One record per entry, NUL-terminated so any name survives. The three globs cover plain
     // names, dotfiles and names starting `..`; one that matches nothing stays literal and is
-    // skipped by the existence test.
-    const script =
-      `cd -- ${shellQuote(path)} 2>/dev/null || exit ${MISSING}; ` +
-      `for f in * .[!.]* ..?*; do ` +
-      `{ [ -e "$f" ] || [ -L "$f" ]; } || continue; ` +
-      `if [ -d "$f" ]; then printf 'd%s\\0' "$f"; else printf 'f%s\\0' "$f"; fi; done`;
-    const ran = await this.#run(script);
-    if (!ran.ok) return ran;
-    if (ran.value.exitCode === MISSING)
+    // skipped by the existence test. Sent back as base64 for the same reason a file is: a stray
+    // warning inside the raw records would come back as a name nobody created. `pipefail`, so a
+    // loop that fails part-way still fails the listing rather than shortening it.
+    const listed = await this.#runBase64(
+      `cd -- ${shellQuote(path)} 2>/dev/null || exit ${MISSING}; set -o pipefail; ` +
+        `for f in * .[!.]* ..?*; do ` +
+        `{ [ -e "$f" ] || [ -L "$f" ]; } || continue; ` +
+        `if [ -d "$f" ]; then printf 'd%s\\0' "$f"; else printf 'f%s\\0' "$f"; fi; done | base64`,
+      `list ${path}`,
+    );
+    if (listed === MISSING)
       return { ok: false, error: { code: "file_not_found", message: `${path} does not exist` } };
-    // A listing stopped part-way is not a shorter listing.
-    if (ran.value.exitCode !== 0)
-      return {
-        ok: false,
-        error: { code: "exec_failed", message: `cannot list ${path}: ${reason(ran.value)}` },
-      };
+    if (!listed.ok) return listed;
     const base = path.replace(/\/+$/, "");
-    const nodes = ran.value.stdout
+    const nodes = listed.value
+      .toString("utf8")
       .split("\0")
       .filter((record) => record.length > 1)
       .map(
@@ -285,6 +265,39 @@ export class ChannelSandboxManager implements SandboxManager {
     });
     if (!ran.ok) return ran;
     return unframe(ran.value, open, split);
+  }
+
+  /**
+   * Runs a script whose stdout is base64 and returns it decoded, or `MISSING` when the script
+   * exits with that status. Twice at most: the frame keeps a command's own stderr apart, but the
+   * shell that runs the frame can warn (a missing locale) on a stream the environment folds into
+   * stdout, and two streams read separately can interleave, landing the warning inside the
+   * output. Both callers only read, so one more attempt is the cheap answer to a rare reordering.
+   */
+  async #runBase64(
+    script: string,
+    what: string,
+  ): Promise<Result<Buffer, SandboxError> | typeof MISSING> {
+    for (let attempt = 1; ; attempt += 1) {
+      const ran = await this.#run(script);
+      if (!ran.ok) return ran;
+      if (ran.value.exitCode === MISSING) return MISSING;
+      if (ran.value.exitCode !== 0)
+        return {
+          ok: false,
+          error: { code: "exec_failed", message: `cannot ${what}: ${reason(ran.value)}` },
+        };
+      // Checked, because Node's decoder skips what is not base64 rather than failing on it, and
+      // output that came back with anything else in it must not be handed over as what was asked
+      // for. Line breaks in base64's output are part of the format.
+      if (/^[A-Za-z0-9+/=\s]*$/.test(ran.value.stdout))
+        return { ok: true, value: Buffer.from(ran.value.stdout, "base64") };
+      if (attempt === READ_ATTEMPTS)
+        return {
+          ok: false,
+          error: { code: "exec_failed", message: `cannot ${what}: the output was not base64` },
+        };
+    }
   }
 
   #check(sandboxId: string): VoidResult<SandboxError> {
