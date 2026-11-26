@@ -57,6 +57,7 @@ import { EnvironmentSettings } from "../github/environment-settings.tsx";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import type { ProjectPhase } from "../projects/project-phase.ts";
 import { CloseIcon, GithubIcon } from "../ui/icons.tsx";
+import { Tooltip } from "../ui/tooltip.tsx";
 import {
   branchUrl,
   canPublish,
@@ -546,20 +547,22 @@ export function ThreadDetailsToggle({
   controls?: string | undefined;
 }) {
   return (
-    <button
-      type="button"
-      className={className}
-      title="Toggle thread details"
-      aria-label="Toggle thread details panel"
-      aria-pressed={open}
-      aria-expanded={open}
-      aria-haspopup={presentation === "popover" ? "dialog" : undefined}
-      aria-controls={open ? controls : undefined}
-      data-thread-details-toggle=""
-      onClick={onToggle}
-    >
-      <SquareMenu />
-    </button>
+    // To the left, since the card it opens hangs below it.
+    <Tooltip label="Thread details" side="left">
+      <button
+        type="button"
+        className={className}
+        aria-label="Toggle thread details panel"
+        aria-pressed={open}
+        aria-expanded={open}
+        aria-haspopup={presentation === "popover" ? "dialog" : undefined}
+        aria-controls={open ? controls : undefined}
+        data-thread-details-toggle=""
+        onClick={onToggle}
+      >
+        <SquareMenu />
+      </button>
+    </Tooltip>
   );
 }
 

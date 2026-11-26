@@ -4,6 +4,7 @@ import { PanelRight } from "lucide-react";
 import { PhaseDot } from "../chat/job-marks.tsx";
 import type { JobSummary } from "../chat/job-summary.ts";
 import { EditableTitle } from "../ui/editable-title.tsx";
+import { Tooltip } from "../ui/tooltip.tsx";
 import { type DetailsPresentation, ThreadDetailsToggle } from "./thread-details.tsx";
 
 export function WorkspaceHeader({
@@ -60,15 +61,17 @@ export function WorkspaceHeader({
           onToggle={onToggleDetails}
         />
       )}
-      <button
-        type="button"
-        className="t3-icon-button"
-        title={panelOpen ? "Hide right panel" : "Show right panel"}
-        aria-label={panelOpen ? "Hide right panel" : "Show right panel"}
-        onClick={onTogglePanel}
-      >
-        <PanelRight />
-      </button>
+      {/* Drawn by the app, as its neighbour the details toggle is, rather than by the browser. */}
+      <Tooltip label={panelOpen ? "Hide right panel" : "Show right panel"} side="left">
+        <button
+          type="button"
+          className="t3-icon-button"
+          aria-label={panelOpen ? "Hide right panel" : "Show right panel"}
+          onClick={onTogglePanel}
+        >
+          <PanelRight />
+        </button>
+      </Tooltip>
     </header>
   );
 }

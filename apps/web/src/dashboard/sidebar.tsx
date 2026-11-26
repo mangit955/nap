@@ -9,6 +9,7 @@ import type { useSessionNavigation } from "../projects/use-session-navigation.ts
 import { useSessionSearch } from "../projects/use-session-search.ts";
 import { ConnectionsIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { ShowcaseContext } from "../ui/showcase.ts";
+import { Tooltip } from "../ui/tooltip.tsx";
 import { DraftRows } from "./draft-rows.tsx";
 import { preloadDrag, SessionList } from "./session-list.tsx";
 import { SEARCH_LISTBOX_ID, SessionSearchResults, searchOptionId } from "./session-search.tsx";
@@ -211,16 +212,17 @@ export function Sidebar({
           />
         )}
         <SourceFilter sessions={sessions} value={repository} onChange={setRepository} />
-        <button
-          type="button"
-          aria-label="New session"
-          title="New session"
-          data-new-session
-          onClick={onNewProject}
-          className="grid size-7 shrink-0 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
-        >
-          <SquarePen className="size-4" aria-hidden />
-        </button>
+        <Tooltip label="New session">
+          <button
+            type="button"
+            aria-label="New session"
+            data-new-session
+            onClick={onNewProject}
+            className="grid size-7 shrink-0 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+          >
+            <SquarePen className="size-4" aria-hidden />
+          </button>
+        </Tooltip>
       </div>
       <section
         ref={scroll}
@@ -297,14 +299,15 @@ export function Sidebar({
           onSignOut={onSignOut}
           signingOut={signingOut}
         />
-        <a
-          href="/docs"
-          aria-label="Help"
-          title="Help"
-          className="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
-        >
-          <HelpIcon />
-        </a>
+        <Tooltip label="Help" side="top">
+          <a
+            href="/docs"
+            aria-label="Help"
+            className="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink"
+          >
+            <HelpIcon />
+          </a>
+        </Tooltip>
       </div>
     </nav>
   );
@@ -351,18 +354,20 @@ export function AccountMenu({
         trigger.current?.focus();
       }}
     >
-      <button
-        ref={trigger}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((it) => !it)}
-        aria-label="Settings"
-        title="Settings"
-        className="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink focus-visible:outline-accent"
-      >
-        <SettingsIcon />
-      </button>
+      {/* Shut while the menu is open: it opens upward, over the place the tooltip would draw. */}
+      <Tooltip label="Settings" side="top" disabled={open}>
+        <button
+          ref={trigger}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((it) => !it)}
+          aria-label="Settings"
+          className="grid size-7 place-items-center rounded-md text-sidebar-icon hover:bg-hover hover:text-ink focus-visible:outline-accent"
+        >
+          <SettingsIcon />
+        </button>
+      </Tooltip>
 
       {/*
         After the trigger in the DOM, so Tab out of the name walks into the menu — `bottom-full`

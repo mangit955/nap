@@ -87,6 +87,9 @@ export const TREE_READERS = [
     test: "apps/web/src/testing/react-compiler.test.tsx",
     reads: /^(?:apps\/web\/)?package\.json$|^apps\/web\/src\//,
   },
+  // Keeps Base UI's toast imported by ui/toast.tsx alone, so that raising a toast does not put
+  // the code that draws one on the landing page. It reads all of web's src.
+  { test: "apps/web/src/ui/toast.test.tsx", reads: /^apps\/web\/src\// },
   // Holds the landing demos' narrow-layout widths in demo.css and features.css to `narrowBelow`
   // in demo-window.tsx, so a frame's height is right before any script runs.
   {

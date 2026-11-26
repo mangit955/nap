@@ -28,6 +28,7 @@ import {
 } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
 import { ShowcaseContext } from "../ui/showcase.ts";
+import { Tooltip } from "../ui/tooltip.tsx";
 import {
   compactTime,
   diffLabel,
@@ -225,21 +226,25 @@ export const SessionRow = memo(function SessionRow({
   // Touch screens have no right-click, and iOS does not turn a long press on a link into one, so
   // they get a visible trigger for the same menu. `session-actions` keeps it, and the hover
   // controls around it, shown on touch only (`globals.css`, `hover: none`).
+  // Unlike the other menu buttons, its tooltip is not shut while the menu is open: that state is
+  // the list's, not the row's, and the button only shows where the main input cannot hover. A
+  // second, hovering input there (a trackpad on a tablet) can draw it over the menu's top corner.
   const more = hasMenu ? (
-    <button
-      type="button"
-      aria-label={`More actions for ${session.name}`}
-      title="More actions"
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const rect = event.currentTarget.getBoundingClientRect();
-        dispatch({ kind: "menu", projectId, at: { x: rect.right - 240, y: rect.bottom + 4 } });
-      }}
-      className="session-actions hidden size-5 shrink-0 place-items-center rounded-md text-muted hover:text-ink"
-    >
-      <Ellipsis aria-hidden className="size-3.5" />
-    </button>
+    <Tooltip label="More actions">
+      <button
+        type="button"
+        aria-label={`More actions for ${session.name}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          dispatch({ kind: "menu", projectId, at: { x: rect.right - 240, y: rect.bottom + 4 } });
+        }}
+        className="session-actions hidden size-5 shrink-0 place-items-center rounded-md text-muted hover:text-ink"
+      >
+        <Ellipsis aria-hidden className="size-3.5" />
+      </button>
+    </Tooltip>
   ) : null;
 
   const hoverControls = `sidebar-row-controls pointer-events-none absolute right-1.5 flex items-center opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 ${menuOpen ? "pointer-events-auto opacity-100" : ""}`;
@@ -276,12 +281,20 @@ export const SessionRow = memo(function SessionRow({
           <span className={`${hoverControls} inset-y-0`}>
             {snoozed
               ? onSnooze && (
-                  <RowButton label={`Wake ${session.name}`} onPress={() => onSnooze(null)}>
+                  <RowButton
+                    label={`Wake ${session.name}`}
+                    tip="Wake"
+                    onPress={() => onSnooze(null)}
+                  >
                     <AlarmClockOff aria-hidden className="size-3.5" />
                   </RowButton>
                 )
               : onSettle && (
-                  <RowButton label={`Un-settle ${session.name}`} onPress={() => onSettle(false)}>
+                  <RowButton
+                    label={`Un-settle ${session.name}`}
+                    tip="Un-settle"
+                    onPress={() => onSettle(false)}
+                  >
                     <Undo2 aria-hidden className="size-3.5" />
                   </RowButton>
                 )}
@@ -361,6 +374,7 @@ export const SessionRow = memo(function SessionRow({
               // The Woke chip again, now a button: hovering is the moment it can be dismissed.
               <RowButton
                 label={`Dismiss Woke for ${session.name}`}
+                tip="Dismiss"
                 onPress={() => dispatch({ kind: "seen", projectId, dismiss: true })}
               >
                 <X aria-hidden className="size-3.5" />
@@ -372,7 +386,7 @@ export const SessionRow = memo(function SessionRow({
             {onSnooze &&
               !woke &&
               (snoozed ? (
-                <RowButton label={`Wake ${session.name}`} onPress={() => onSnooze(null)}>
+                <RowButton label={`Wake ${session.name}`} tip="Wake" onPress={() => onSnooze(null)}>
                   <AlarmClockOff aria-hidden className="size-3.5" />
                 </RowButton>
               ) : (
@@ -544,20 +558,26 @@ function DraftMark() {
   );
 }
 
+/**
+ * One of a row's hover controls. `tip` is the short name drawn on hover for a button that shows
+ * only an icon; one whose own words say what it does has none, and `label`, which names the
+ * session too, is what a screen reader hears.
+ */
 function RowButton({
   label,
+  tip,
   onPress,
   children,
 }: {
   label: string;
+  tip?: string | undefined;
   onPress: () => void;
   children: ReactNode;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       aria-label={label}
-      title={label}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -568,6 +588,7 @@ function RowButton({
       {children}
     </button>
   );
+  return tip === undefined ? button : <Tooltip label={tip}>{button}</Tooltip>;
 }
 
 /** T3's in-place rename: Enter or leaving the field keeps it, Escape puts it back. */

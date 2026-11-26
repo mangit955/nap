@@ -7,6 +7,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { navigationServer } from "../testing/navigation-server.ts";
+import { Toaster } from "../ui/toast.tsx";
 import { snoozePresets } from "./session-rows.ts";
 import { Sidebar } from "./sidebar.tsx";
 
@@ -88,7 +89,12 @@ function Harness({
 
 async function mount(rows: SessionSummary[], onSelectProject?: (id: string) => void) {
   const server = navigationServer(rows);
-  render(<Harness server={server} onSelectProject={onSelectProject} />);
+  render(
+    <>
+      <Harness server={server} onSelectProject={onSelectProject} />
+      <Toaster />
+    </>,
+  );
   await screen.findByRole("list", { name: "Inbox sessions" });
   return server;
 }
@@ -249,8 +255,31 @@ describe("every item in a session's context menu", () => {
       fireEvent.click(within(menu).getByRole("menuitem", { name: item }));
       await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(expected));
     }
-    expect(await screen.findByText("Branch copied")).toHaveAttribute("role", "status");
+    // Each copy says so in a toast that shows what was copied, and only there: the sidebar
+    // itself no longer carries a line of its own about it.
+    const link = await screen.findByRole("dialog", { name: "Session link copied" });
+    expect(link).toHaveAccessibleDescription(`${window.location.origin}/p/${session.projectId}`);
+    const branch = await screen.findByRole("dialog", { name: "Branch copied" });
+    expect(branch).toHaveAccessibleDescription("nap/fix-header");
+    const sidebar = screen.getByRole("navigation", { name: "Dashboard" });
+    expect(within(sidebar).queryByText(/copied/)).toBeNull();
     expect(server.requests).toEqual([]);
+  });
+
+  it("a copy the clipboard refuses is an error toast, announced at once", async () => {
+    const writeText = vi.fn(async () => {
+      throw new DOMException("Document is not focused.", "NotAllowedError");
+    });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    await mount([row("Copy me")]);
+    const menu = openMenu("Copy me");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy" }));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Session link" }));
+    // A high-priority toast is read out through an alert of its own while the stack is unfocused.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not copyCheck clipboard access and try again.",
+    );
+    expect(screen.queryByRole("dialog", { name: /copied/ })).toBeNull();
   });
 
   it("Move up and Move down send the shelf's new order", async () => {
