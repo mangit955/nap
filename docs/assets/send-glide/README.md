@@ -2,7 +2,8 @@
 
 Recorded with `bun run verify-nap:up --production` (a `next build` and `next start` of the real web app,
 with the real API, worker and Postgres, and a fake model and sandbox). Chrome was headless at 1440×900
-unless noted. "Before" is `main` at 82dfce2d. "After" is the branch at e3d25ccb.
+unless noted. "Before" is `main` at 82dfce2d. "After" is the branch at 1467348d, where the right panel
+starts closed and the starting view keeps the project's layout.
 
 Frames come from Chrome's own screencast (`Page.startScreencast`), stamped with Chrome's paint time and
 labelled with their offset from the Enter keypress. The positions in the tables were read on every
@@ -19,9 +20,10 @@ glide's `ResizeObserver` has already run). It recorded:
 |---|---|
 | `send-realtime.gif`, `send-realtime.mp4` | Before (left) and after (right), side by side, aligned on the keypress, in real time |
 | `send-slow-5x.gif`, `send-slow-5x.mp4` | The same two takes played five times slower. The frames are the real ones, each held five times longer |
-| `before-frames.jpg`, `after-frames.jpg` | Eight frames of each, from just before Enter to +320 ms |
-| `after-panel-closed-frames.jpg`, `after-panel-closed-slow-5x.mp4` | A starting workspace whose saved right panel is closed, while the new project opens it |
-| `after-saved-width-frames.jpg`, `after-saved-width-slow-5x.mp4` | 1920×1080 with the right panel saved at 760 px. The saved width is restored after the glide has started, which narrows the column |
+| `before-frames.jpg`, `after-frames.jpg` | Eight frames of each, from just before Enter to about +320 ms |
+| `after-slow-start-frames.jpg`, `after-slow-start-slow-5x.mp4` | The server's answer held for 1.5 s, as a real sandbox's start keeps "Starting your project…" up: the glide lands on the starting view, and the project's view takes over in the same place |
+| `after-panel-open-frames.jpg`, `after-panel-open-slow-5x.mp4` | A right panel opened during an earlier start, so this start's view has it open: the project's view opens with it open too |
+| `after-saved-width-frames.jpg`, `after-saved-width-slow-5x.mp4` | 1920×1080 with the right panel open and saved at 760 px. The saved width is restored after the glide has started, which narrows the column |
 | `reduced-motion-frames.jpg` | `prefers-reduced-motion: reduce` emulated: the cut |
 | `refused-start-frames.jpg`, `refused-start-slow-5x.mp4` | The start refused 150 ms after Enter (an injected 400), landing mid-glide: back on the dashboard with the error |
 | `phone-frames.jpg` | 390×844 |
@@ -29,43 +31,44 @@ glide's `ResizeObserver` has already run). It recorded:
 | Take | Dashboard composer (left, top, right, bottom) | First workspace frame, as drawn | Hand-over to the project's view | Last frame still moving |
 |---|---|---|---|---|
 | Before | 380, 384, 1116, 530 | +36 ms, already in its slot (272, 830, 880, 884) | n/a | n/a |
-| After | 380, 384, 1116, 530 | +21 ms: 288, 476, 896, 530 (translate 16, −354) | +49 ms | +303 ms |
-| After, saved panel closed | 380, 384, 1116, 530 | +20 ms: 396, 476, 1100, 530 (translate −100, −354) | +42 ms | +301 ms |
-| After, 1920 px, 760 px saved panel | 720, 474, 1456, 620 | +23 ms: 452, 581, 1156, 635 (translate 98, −429) | +40 ms | +305 ms |
-| After, phone, 760 px panel still saved | 20, 366, 370, 508 | +32 ms: 16, 454, 374, 508 (translate 0, −320) | +52 ms | +315 ms |
-| After, reduced motion | 380, 384, 1116, 530 | +39 ms, in its slot (272, 830, 880, 884), transform `none` | n/a | none |
+| After, panel closed (the default) | 380, 384, 1116, 530 | +36 ms: 396, 476, 1100, 530 (translate 0, −354) | +83 ms, centre 748 on both sides | +334 ms |
+| After, start answered at 1.5 s | 380, 384, 1116, 530 | +25 ms: 396, 476, 1100, 530 (translate 0, −354) | +1563 ms, settled at 396–1100 on both sides | +308 ms |
+| After, panel opened while starting | 380, 384, 1116, 530 | +34 ms: 288, 476, 896, 530 (translate 16, −354) | +87 ms, centre 585 to 582 | +314 ms |
+| After, 1920 px, 760 px saved panel | 720, 474, 1456, 620 | +35 ms: 452, 566, 1156, 620 (translate 98, −444) | +70 ms | +336 ms |
+| After, phone | 20, 366, 370, 508 | +21 ms: 16, 454, 374, 508 (translate 0, −320) | +40 ms | +304 ms |
+| After, reduced motion | 380, 384, 1116, 530 | +20 ms, in its slot (396, 830, 1100, 884), transform `none` | +40 ms, same centre | none |
 
-Every "after" take with motion handed over from the starting view to the project's view mid-glide (the
-fake server answers fast), and in every one the composer's vertical offset only ever shrank, frame to
-frame: no frame jumped it towards its slot and back.
-
-In every "after" take, every frame from Enter to +500 ms had zero clipped composers, zero sideways
-overflow on the composer's ancestors, zero sideways overflow on the panes and no page scrollbar.
+In every "after" take, every frame from Enter to +500 ms (to +2000 ms in the slow start) had zero
+clipped composers, zero sideways overflow on the composer's ancestors, zero sideways overflow on the
+panes and no page scrollbar, with one exception described below.
 
 Reading the table:
 
-- **After.** The composer starts with the bottom edge the dashboard's composer had. With the panel open,
-  its sideways move is clamped to the 16 px the conversation column leaves before the right panel, so it
-  is never drawn under the panel and cut off.
-- **Saved panel closed.** The column is wide, so the composer starts centred under where it was typed
-  (748 across in both). At the hand-over the project's view opens its panel, the column's edge
-  moves in under the composer, and the composer moves with it to stay inside (centre 587): the column
-  changing width, which moves the composer without the glide too.
-- **1920 px, 760 px saved panel.** The first frame painted was already about 3% into the glide (−429 of
-  −444 down). Its right edge sits on the narrowed column's edge (1156): the glide was clamped again when
-  the saved width landed.
-- **Phone.** Recorded straight after the 1920 px take, so the 760 px panel width was still saved. The
-  project's view hides the conversation for a moment as it mounts there, and an earlier build re-aimed
-  the glide at that empty box and painted one frame of the composer already in its slot; this one
-  keeps its aim while the pane is hidden.
+- **Panel closed.** The right panel now starts closed, so the conversation column is wide and the
+  composer goes straight down: its centre stays at 748, under where it was typed, through the hand-over
+  and into its slot. A starting view whose saved panel is closed is the same take: it is the default.
+- **Start answered at 1.5 s.** The glide finishes on the starting view at 396–1100, and when the
+  project arrives its composer is drawn at the same left and right edges. The starting view keeps the
+  same lane clear of the thread details card as the project's view does. Before that, the starting
+  view's composer sat at 496–1200 and moved 100 px left when the project took over (seen in the
+  reduced-motion take of an earlier build, 848 to 748 across).
+- **Panel opened while starting.** The project's view opens with the panel the starting view had, so
+  the column keeps its width at the hand-over and the composer moves 3 px across, not the 161 px of
+  the earlier build, whose new project opened its panel by default. One of four recordings of this
+  take had a single probe sample, at +48 ms, with the composer 191 px left and clipped. No screencast
+  frame shows that position (the frames at +36, +53 and +70 ms are where they should be), and three
+  more recordings had no such sample.
+- **1920 px, 760 px saved panel.** The saved width is restored after the glide has started and narrows
+  the column; the glide is clamped again and its horizontal offset only shrinks, frame to frame.
+- **Phone.** The composer only moves down.
 
-Three more checks, on the same run:
+Three more checks, on the same build:
 
-- **A refused start.** After a refusal landing mid-glide (+150 ms), and after one landing before the
-  workspace drew (+0 ms), the dashboard has no animation on the composer, the panel or the conversation.
-  The composer's transform is `none`. The elements with an inline `transform` or `overflow` are exactly
-  those of a freshly loaded dashboard: `html` and `body` with `overflow: hidden`, which is the
-  dashboard's own scroll lock, and one visually hidden element (1px, clipped).
-- **Back and Forward.** After a send had landed, going Back to the dashboard and Forward into the
-  project drew 55 frames, none moving.
-- **A second tab.** Opening the same project in a second tab drew 361 frames, none moving.
+- **A refused start.** After a refusal landing mid-glide (+150 ms), the dashboard is back by +177 ms
+  with the composer's transform `none`. The only animations still running are SVG icons (the
+  sidebar's spinners for projects at work).
+- **The right panel's default and its hand-over** are covered by tests in
+  `apps/web/src/workspace/project-switch.test.tsx` and `workbench.test.tsx`, each seen to fail when
+  the behaviour it guards is removed.
+- **Back and Forward, and a second tab,** were recorded on e3d25ccb and moved nothing. This change does
+  not touch how a glide is claimed, only where the panel starts.
