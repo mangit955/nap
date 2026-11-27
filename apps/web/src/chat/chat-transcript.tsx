@@ -119,22 +119,29 @@ export function ChatTranscript({
   useLayoutEffect(() => {
     if (closingFolds.size === 0 || transcript.current === null) return;
     let current = true;
-    const segments = transcript.current.querySelectorAll<HTMLElement>(
-      ':scope > .chat-fold-content[data-open="false"]',
+    const segments = Array.from(
+      transcript.current.querySelectorAll<HTMLElement>(
+        ':scope > .chat-fold-content[data-open="false"]',
+      ),
     );
-    const exits = Array.from(segments).flatMap((segment) =>
-      (segment.getAnimations?.() ?? []).map((animation) => animation.finished),
-    );
-    // A reversal cancels the old CSS transition. Only release rows from this commit, including
-    // when reduced motion gives us no transition to wait on.
-    void Promise.allSettled(exits).then(() => {
-      if (!current) return;
-      setFolds((latest) => {
-        const next = new Map(latest);
-        for (const id of closingFolds) if (next.get(id) === "closing") next.delete(id);
-        return next;
+    for (const id of closingFolds) {
+      const exits = segments
+        .filter((segment) => segment.dataset.fold === id)
+        .flatMap((segment) =>
+          (segment.getAnimations?.() ?? []).map((animation) => animation.finished),
+        );
+      // A reversal cancels the old CSS transition, settling `finished`; `current` then says this
+      // commit's wait is stale. Reduced motion has no transition, so the rows go at once.
+      void Promise.allSettled(exits).then(() => {
+        if (!current) return;
+        setFolds((latest) => {
+          if (latest.get(id) !== "closing") return latest;
+          const next = new Map(latest);
+          next.delete(id);
+          return next;
+        });
       });
-    });
+    }
     return () => {
       current = false;
     };
@@ -240,6 +247,7 @@ export function ChatTranscript({
             <div
               key={`fold-content:${id}`}
               className="chat-fold-content"
+              data-fold={fold}
               data-open={open}
               inert={!open}
             >

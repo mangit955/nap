@@ -154,6 +154,11 @@ type TurnFold = {
   anchor: number;
   /** Indices of the items behind the row. */
   hidden: ReadonlySet<number>;
+  /**
+   * The hidden items that slide shut rather than vanish. Work after the answer is left out: it can
+   * share one group with a failure that stays in view, and half a group cannot shrink.
+   */
+  shrinking: ReadonlySet<number>;
   label: string;
   at: string | undefined;
 };
@@ -236,6 +241,7 @@ export function deriveTurnFolds(items: readonly TranscriptItem[]): TurnFold[] {
     if (turnEnd.outcome === "failed" && !cancelled) continue;
 
     const hidden = new Set<number>();
+    const shrinking = new Set<number>();
     for (let index = turn.prompt + 1; index < turn.turnEndIndex; index += 1) {
       const item = items[index];
       if (item === undefined || index === turn.terminal) continue;
@@ -246,6 +252,7 @@ export function deriveTurnFolds(items: readonly TranscriptItem[]): TurnFold[] {
           : beforeAnswer && item.kind === "message"
       ) {
         hidden.add(index);
+        if (beforeAnswer) shrinking.add(index);
       }
     }
     if (hidden.size === 0) continue;
@@ -272,6 +279,7 @@ export function deriveTurnFolds(items: readonly TranscriptItem[]): TurnFold[] {
       foldId: `fold:${prompt?.key ?? turn.prompt}`,
       anchor: turn.prompt + 1,
       hidden,
+      shrinking,
       label,
       at: startedAt ?? turnEnd.at,
     });
@@ -336,9 +344,11 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
   const { running, pending = false, expandedFolds, closingFolds, expandedGroups } = options;
   const folds = deriveTurnFolds(items);
   const foldAt = new Map(folds.map((fold) => [fold.anchor, fold]));
-  const foldByIndex = new Map<number, string>();
+  const foldByIndex = new Map<number, { foldId: string; shrinks: boolean }>();
   for (const fold of folds) {
-    for (const index of fold.hidden) foldByIndex.set(index, fold.foldId);
+    for (const index of fold.hidden) {
+      foldByIndex.set(index, { foldId: fold.foldId, shrinks: fold.shrinking.has(index) });
+    }
   }
 
   const turns = turnsOf(items);
@@ -470,14 +480,18 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
       flush();
       rows.push({ kind: "working", id: "working", startedAt: options.startedAt });
     }
-    const foldContent = foldByIndex.get(index);
+    const hiddenBy = foldByIndex.get(index);
+    // Only an item that slides shut is drawn while its fold closes, and only it is marked as the
+    // fold's content; the rest of what the fold hides is drawn exactly as before it animated.
+    const foldContent = hiddenBy?.shrinks ? hiddenBy.foldId : undefined;
     if (
-      foldContent === undefined ||
-      expandedFolds.has(foldContent) ||
-      closingFolds?.has(foldContent)
+      hiddenBy === undefined ||
+      expandedFolds.has(hiddenBy.foldId) ||
+      (foldContent !== undefined && closingFolds?.has(foldContent))
     ) {
       if (isWorkEntry(item)) {
-        // A run must be able to shrink without taking a neighbouring visible failure with it.
+        // Never true while `shrinking` holds only work before the answer, which no visible work
+        // entry can join; it keeps a group from being half inside a closing segment if that changes.
         if (runFold !== foldContent) flush();
         runFold = foldContent;
         run.push(item);

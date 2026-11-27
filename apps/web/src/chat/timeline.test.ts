@@ -246,6 +246,39 @@ describe("folding a finished turn", () => {
     expect(shape(timeline)).toEqual(["user", "fold", "turn-start", "agent", "entry", "turn-end"]);
   });
 
+  it("groups work after the answer the same way while its fold is open or closing", () => {
+    reset();
+    const events = [
+      prompt(),
+      started(),
+      ...read("src/App.tsx"),
+      say("Done."),
+      ...run("bun run lint", "exit code 1\nlint error\n"),
+      ...run("bun run format"),
+      ...run("bun run typecheck", "exit code 2\ntype error\n"),
+      completed(5_000),
+    ];
+    const fold = only(rows(events), "turn-fold");
+    const open = rows(events, { expandedFolds: new Set([fold.foldId]) });
+    const closing = rows(events, { closingFolds: new Set([fold.foldId]) });
+    const closed = rows(events);
+    const after = (timeline: TimelineRow[]) =>
+      timeline.slice(
+        timeline.findLastIndex((row) => row.kind === "item" && row.item.kind === "message"),
+      );
+
+    // Open, the answer's three calls are one group, as they were before folding animated.
+    expect(
+      after(open)
+        .filter((row) => row.kind === "work-toggle")
+        .map((row) => row.groupId),
+    ).toHaveLength(1);
+    // Closing, the call that succeeded snaps away at once: nothing after the answer slides, so the
+    // two failures are grouped and keyed exactly as they are once the fold has shut.
+    expect(after(closing)).toEqual(after(closed));
+    expect(after(closing).some((row) => row.foldContent !== undefined)).toBe(false);
+  });
+
   it("folds each turn on its own", () => {
     reset();
     const timeline = rows([
