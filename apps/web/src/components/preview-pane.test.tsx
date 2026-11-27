@@ -325,10 +325,6 @@ describe("a new announcement", () => {
 });
 
 describe("reloading on purpose", () => {
-  // A reload and a change of page are things the user asked for, so they look like what they
-  // are: the frame goes at once and a loading state stands in for it. Holding the old page up
-  // would make the button look as if it had done nothing.
-
   it("keeps the same frame when nothing about the preview changed", () => {
     // The log delivers a new array on every event, so the phase is recomputed constantly.
     // Remounting on each one would reload the user's app every time the agent said anything.
@@ -340,21 +336,26 @@ describe("reloading on purpose", () => {
     expect(frame()).toBe(before);
   });
 
-  it("replaces the frame at once when the bar asks for a reload, and shows it reloading", () => {
-    // The button lives in the workspace's top bar — it counts, and this pane's frame is keyed on
-    // the count, because a cross-origin frame cannot be told to reload any other way.
+  it("holds the old frame through reload and promotes the frame that loaded", () => {
+    // The toolbar increments the reload count to request a fresh cross-origin frame.
     const { rerender } = render(<PreviewPane phase={running()} reloads={0} />);
     const before = frame();
     fireEvent.load(before as HTMLElement);
 
     rerender(<PreviewPane phase={running()} reloads={1} />);
 
-    expect(before).not.toBeInTheDocument();
-    expect(screen.getAllByTitle(PREVIEW_TITLE)).toHaveLength(1);
+    const [incoming, outgoing] = screen.getAllByTitle(PREVIEW_TITLE);
+    expect(outgoing).toBe(before);
+    expect(outgoing).toHaveAttribute("inert");
+    expect(outgoing).toHaveStyle({ backgroundColor: "rgb(255, 255, 255)" });
+    expect(incoming).toHaveStyle("opacity: 0");
     expect(screen.getByRole("status")).toHaveTextContent(/loading the preview/i);
 
-    fireEvent.load(frame() as HTMLElement);
+    fireEvent.load(incoming as HTMLElement);
 
+    expect(before).not.toBeInTheDocument();
+    expect(frame()).toBe(incoming);
+    expect(incoming).not.toHaveAttribute("inert");
     expect(screen.queryByText(/loading the preview/i)).toBeNull();
     expect(frame()).toBeVisible();
   });
@@ -366,11 +367,29 @@ describe("reloading on purpose", () => {
 
     rerender(<PreviewPane phase={running()} route="/pricing" />);
 
-    expect(frame()).toHaveAttribute("src", "https://5173-abc.e2b.dev/pricing");
+    const [incoming] = screen.getAllByTitle(PREVIEW_TITLE);
+    expect(incoming).toHaveAttribute("src", "https://5173-abc.e2b.dev/pricing");
     // A different page is a different page: the frame has to be replaced, not merely re-src'd,
     // or an app that has navigated itself since would ignore the change.
-    expect(before).not.toBeInTheDocument();
+    expect(before).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(/loading the preview/i);
+  });
+
+  it("loads a fresh frame when returning to the shown route during a pending navigation", () => {
+    const phase = running();
+    const { rerender } = render(<PreviewPane phase={phase} route="/" />);
+    const before = frame();
+    fireEvent.load(before as HTMLElement);
+
+    rerender(<PreviewPane phase={phase} route="/pricing" />);
+    rerender(<PreviewPane phase={phase} route="/" />);
+
+    const [incoming, outgoing] = screen.getAllByTitle(PREVIEW_TITLE);
+    expect(outgoing).toBe(before);
+    expect(incoming).not.toBe(before);
+    expect(incoming).toHaveAttribute("src", "https://5173-abc.e2b.dev");
+    fireEvent.load(incoming as HTMLElement);
+    expect(frame()).toBe(incoming);
   });
 
   it("offers no reload control when there is nothing to reload", () => {

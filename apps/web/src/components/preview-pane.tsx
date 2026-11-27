@@ -17,10 +17,8 @@ import { Pane } from "./pane.tsx";
  *
  * **A reload here is a remount.** The frame is cross-origin, so nothing on this side can call
  * `location.reload()` on it — the only mechanism available is to discard the element and make
- * a new one. A frame's key carries the sequence number of the announcement that produced it, a
- * click counter and the page, so a restarted dev server, the reload button and the address bar
- * all take that path, and an ordinary event arriving does *not*. Remounting on every event would
- * reload the user's app each time the agent spoke.
+ * a new one. A new announcement, reload click or address change advances the frame revision.
+ * Ordinary events leave it alone so the app does not reload each time the agent speaks.
  *
  * **A new frame waits for load, bounded by a timeout.** A fresh frame is blank until its server
  * answers, which after a restore is seconds of white. So a new frame loads out of sight, and what
@@ -126,7 +124,7 @@ export function PreviewPane({
     phase.kind === "starting" ||
     phase.kind === "opening" ||
     (shown === undefined && incoming?.reveal === "startup");
-  const reloading = shown === undefined && incoming?.reveal === "reload";
+  const reloading = incoming?.reveal === "reload";
   const replacing = shown !== undefined && incoming !== undefined;
   const picture = thumbnail?.projectId === projectId ? thumbnail.src : undefined;
 
@@ -145,11 +143,11 @@ export function PreviewPane({
         (frame) =>
           frame !== undefined && (
             <iframe
-              key={frame.key}
+              key={frame.revision}
               src={frame.src}
               title={PREVIEW_TITLE}
               sandbox={SANDBOX}
-              onLoad={() => loaded(frame.key)}
+              onLoad={() => loaded(frame.revision)}
               // Out of reach while it is not the live app: the waiting frame because nobody can see
               // it, and the old one because it may be the address of a sandbox that has gone.
               {...(frame === incoming || replacing ? { inert: true, "aria-hidden": true } : {})}
@@ -163,8 +161,10 @@ export function PreviewPane({
       {startingUp && (
         <StartingUp previewRequired={previewRequired} {...(picture ? { picture } : {})} />
       )}
-      {reloading && <Notice label="Loading the preview…" />}
-      {replacing && <Notice label="Updating the preview…" corner />}
+      <p role="status" className="sr-only">
+        {reloading ? "Loading the preview…" : replacing ? "Updating the preview…" : null}
+      </p>
+      {(reloading || replacing) && <div aria-hidden="true" className="nap-preview-loading" />}
       {phase.kind === "put-away" && (
         <Snapshot {...(picture ? { picture } : {})}>
           <PutAway onResume={onResume} error={resumeError} />
@@ -187,22 +187,10 @@ const HIDDEN: CSSProperties = { opacity: 0, pointerEvents: "none" };
 const LOADED: CSSProperties = { backgroundColor: "white" };
 
 type Target = { key: string; src: string; projectId: string; reloads: number; route: string };
-type Frame = Target & { loaded: boolean };
-/**
- * What stands in front of a frame that has not loaded yet.
- *
- * - `swap` — the frame it replaces. Nobody asked for this remount: the system announced a new
- *   address, and the old app is the least jarring thing to look at until the new one is up.
- * - `reload` — a loading state. The user pressed Reload or picked a page, so the old frame goes at
- *   once and the pane visibly reloads; holding the old page up would make the button look dead.
- * - `startup` — the start-up screen. Nothing was showing, or the last thing was another project's.
- *
- * Route changes take the reload path rather than the swap, which keeps the rule to one sentence:
- * **what the user asked for shows itself happening; what the system did quietly is hidden until
- * it is ready.** It also means a frame is only ever held up behind its own sandbox's newer self.
- */
+type Frame = Target & { revision: number; loaded: boolean };
+/** Which waiting state to announce while the incoming frame loads. */
 type Reveal = "swap" | "reload" | "startup";
-type Stack = { shown?: Frame; incoming?: Frame & { reveal: Reveal } };
+type Stack = { revision: number; shown?: Frame; incoming?: Frame & { reveal: Reveal } };
 
 /**
  * At most two frames: the one on screen and the newest one loading behind it.
@@ -213,7 +201,7 @@ type Stack = { shown?: Frame; incoming?: Frame & { reveal: Reveal } };
  * waiting frame and cleared when that frame is replaced, taken over or unmounted.
  */
 function useFrameSwap(target: Target | undefined) {
-  const [stack, setStack] = useState<Stack>({});
+  const [stack, setStack] = useState<Stack>({ revision: 0 });
   const latest = stack.incoming ?? stack.shown;
 
   // Adjusted during render rather than in an effect, so no frame is ever committed showing a stack
@@ -224,7 +212,7 @@ function useFrameSwap(target: Target | undefined) {
     setStack(current);
   }
 
-  const waiting = current.incoming?.key;
+  const waiting = current.incoming?.revision;
   useEffect(() => {
     if (waiting === undefined) return;
     const timer = setTimeout(
@@ -234,10 +222,10 @@ function useFrameSwap(target: Target | undefined) {
     return () => clearTimeout(timer);
   }, [waiting]);
 
-  const loaded = (key: string) =>
+  const loaded = (revision: number) =>
     setStack((now) => {
-      if (now.incoming?.key === key) return takeOver(now, key, true);
-      if (now.shown?.key === key && !now.shown.loaded) {
+      if (now.incoming?.revision === revision) return takeOver(now, revision, true);
+      if (now.shown?.revision === revision && !now.shown.loaded) {
         return { ...now, shown: { ...now.shown, loaded: true } };
       }
       return now;
@@ -247,51 +235,31 @@ function useFrameSwap(target: Target | undefined) {
 }
 
 function advance(stack: Stack, target: Target | undefined): Stack {
-  if (target === undefined) return {};
+  if (target === undefined) return { revision: stack.revision };
   const { shown } = stack;
   const latest = stack.incoming ?? shown;
-  if (shown?.key === target.key) return { shown };
-
-  const fresh = (reveal: Reveal) => ({ incoming: { ...target, loaded: false, reveal } });
+  // The app can navigate inside a frame, so returning to its original route needs a fresh frame.
+  const revision = stack.revision + 1;
+  const fresh = (reveal: Reveal) => ({
+    revision,
+    incoming: { ...target, revision, loaded: false, reveal },
+  });
   if (latest === undefined || latest.projectId !== target.projectId) return fresh("startup");
-  if (latest.reloads !== target.reloads || latest.route !== target.route) return fresh("reload");
-  // Still waiting on a first frame, or a reload: the newer address keeps the same screen in front.
-  if (shown === undefined) return fresh(stack.incoming?.reveal ?? "startup");
-  return { shown, ...fresh("swap") };
+  const explicit = latest.reloads !== target.reloads || latest.route !== target.route;
+  const reveal = explicit ? "reload" : (stack.incoming?.reveal ?? "swap");
+  const next = fresh(reveal);
+  return shown === undefined ? next : { ...next, shown };
 }
 
 /**
  * The waiting frame becomes the one on screen, and the frame it replaced is dropped. `loaded` is
  * false when the timeout forced it, and the frame's own `load` sets it later.
  */
-function takeOver(stack: Stack, key: string, loaded: boolean): Stack {
+function takeOver(stack: Stack, revision: number, loaded: boolean): Stack {
   const { incoming } = stack;
-  if (incoming?.key !== key) return stack;
+  if (incoming?.revision !== revision) return stack;
   const { reveal: _, ...frame } = incoming;
-  return { shown: { ...frame, loaded } };
-}
-
-/**
- * A line over the pane saying a frame is on its way.
- *
- * In a corner when the old app is still up behind it, so it marks that app as not live without
- * covering it; in the middle when there is nothing else on screen.
- */
-function Notice({ label, corner = false }: { label: string; corner?: boolean }) {
-  return (
-    <div
-      className={
-        corner
-          ? "pointer-events-none absolute top-3 right-3 flex items-center gap-2 rounded-chip border border-edge bg-panel/90 px-2.5 py-1 shadow-sm"
-          : "absolute inset-0 flex flex-col items-center justify-center gap-3"
-      }
-    >
-      <NapLoader className={corner ? "size-4 text-ink-2" : "size-10 text-ink-2"} />
-      <p role="status" className="font-mono text-[11px] text-muted">
-        {label}
-      </p>
-    </div>
-  );
+  return { revision, shown: { ...frame, loaded } };
 }
 
 /** Nothing asked for yet, a repository with no preview, or a start that broke. */

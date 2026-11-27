@@ -179,6 +179,7 @@ export function Workbench({
       aria-label="Right panel"
       className="t3-workbench"
       hidden={!layout.open}
+      inert={!layout.open}
       onKeyDown={keyboard}
     >
       <div className="t3-panel-header">
