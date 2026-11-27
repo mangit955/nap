@@ -32,11 +32,16 @@ export const PanelLayoutSchema = z.object({
   open: z.boolean(),
 });
 export type PanelLayout = z.infer<typeof PanelLayoutSchema>;
+/**
+ * Closed: the panel opens when somebody asks for it — the toggle, or a file, the changes or the
+ * computer opened from the conversation — never on its own, so a new project's conversation gets
+ * the whole width and the composer the dashboard sent from lands where it will stay.
+ */
 export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
   version: 1,
   tabs: [{ kind: "preview" }, { kind: "code" }],
   active: "preview",
-  open: true,
+  open: false,
 };
 export function restorePanelLayout(raw: string | null): PanelLayout {
   try {

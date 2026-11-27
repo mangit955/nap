@@ -246,11 +246,17 @@ const renamed = (name: string) => ({
   usage: { inputTokens: 1, outputTokens: 1 },
 });
 
+/** The right panel starts closed for a project this tab has not laid out; these tests look in it. */
+async function showPanel() {
+  fireEvent.click(await screen.findByRole("button", { name: "Show right panel" }));
+}
+
 const readsOf = (path: string) => reads.filter((read) => read === path).length;
 
 describe("switching projects in place", () => {
   it("shows the next project with nothing left of the last one", async () => {
     const view = render(workspace(PROJECT_A));
+    await showPanel();
     const alpha = await replayAlpha();
     expect(await screen.findByText("Alpha reply")).toBeVisible();
     expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
@@ -322,6 +328,7 @@ describe("switching projects in place", () => {
     });
     expect(await screen.findByText("Beta prompt")).toBeVisible();
 
+    await showPanel();
     fireEvent.click(screen.getByRole("tab", { name: "Files" }));
     const betaFiles = () => within(screen.getByRole("region", { name: "Files" }));
     expect(await betaFiles().findByRole("button", { name: "BetaOnly.tsx" })).toBeVisible();
@@ -346,6 +353,7 @@ describe("switching projects in place", () => {
     const pictureOf = (projectId: string) =>
       expect.stringContaining(`/projects/${projectId}/thumbnail`);
     const view = render(workspace(PROJECT_A));
+    await showPanel();
     await replayAlpha();
     // A's picture is really on screen — jsdom never loads A's frame, so the start-up screen stays
     // over it — which makes its absence after the switch the switch's doing.
@@ -354,6 +362,7 @@ describe("switching projects in place", () => {
     const recordForB = gate();
     recordHeld = recordForB.wait;
     view.rerender(workspace(PROJECT_B));
+    await showPanel();
 
     // B's record is still on its way: no picture at all, rather than the one that is to hand.
     expect(snapshot()).toBeNull();
@@ -362,6 +371,7 @@ describe("switching projects in place", () => {
     await act(async () => {
       recordForB.open();
     });
+    // Opened before B's session was known, the panel stays open once it is.
     await waitFor(() => expect(snapshot()).toHaveAttribute("src", pictureOf(PROJECT_B)));
     expectNothingOfAlpha();
   });
@@ -639,6 +649,49 @@ describe("entering from the dashboard", () => {
     // The server admitted the first turn with the project; the workspace never sends it again.
     expect(posted).toEqual([]);
     expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["left closed, opens the project closed", false],
+    ["opened while starting, opens the project with it open", true],
+  ])("keeps the right panel as it was across the hand-over: %s", async (_name, opened) => {
+    const start = beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "Panel" } });
+    const view = render(entry());
+    expect(await conversation().findByText("Panel")).toBeVisible();
+    // Nothing opens it on its own: a new start draws the conversation at full width.
+    expect(screen.getByRole("button", { name: "Show right panel" })).toBeVisible();
+    if (opened) fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
+
+    handOffStartedPrompt({
+      projectId: PROJECT_A,
+      sessionId: SESSION_ID,
+      requestId: ALPHA_REQUEST,
+      text: "Panel",
+    });
+    act(() => start.started(PROJECT_A));
+    expect(screen.queryByText("Starting your project…")).toBeNull();
+    const toggle = opened ? "Hide right panel" : "Show right panel";
+    expect(screen.getByRole("button", { name: toggle })).toBeVisible();
+    await waitFor(() => expect(window.location.pathname).toBe(`/p/${PROJECT_A}`));
+    followAddress(view);
+    expect(await screen.findByText("Alpha board")).toBeVisible();
+    expect(screen.getByRole("button", { name: toggle })).toBeVisible();
+  });
+
+  it("hands no panel over to a project opened after a start that went nowhere", async () => {
+    const start = beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "Refused" } });
+    const view = render(entry());
+    expect(await conversation().findByText("Refused")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
+    act(() => start.failed("No room."));
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith("/dashboard"));
+    view.unmount();
+    localStorage.removeItem("nap.right-panel.v1:starting");
+
+    openProject({ push: vi.fn() }, PROJECT_A);
+    render(entry());
+    expect(await screen.findByText("Alpha board")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Show right panel" })).toBeVisible();
   });
 
   it("opens an existing project at once, and shows its own address", async () => {

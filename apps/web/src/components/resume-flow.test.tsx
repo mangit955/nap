@@ -25,6 +25,7 @@ import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
+import { savePanelOpen } from "../testing/open-panel.ts";
 import { AppShell } from "./app-shell.tsx";
 import { PREVIEW_TITLE } from "./preview-pane.tsx";
 
@@ -103,6 +104,7 @@ async function pressResume() {
 
 beforeEach(() => {
   localStorage.clear();
+  savePanelOpen(PROJECT_ID);
   opens = 0;
   turns = 0;
   net = sockets();
