@@ -663,7 +663,7 @@ export function TurnFoldRow({
         type="button"
         aria-expanded={row.expanded}
         onClick={onToggle}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-muted text-sm tabular-nums leading-relaxed transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70"
+        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-muted text-sm tabular-nums leading-relaxed transition-colors hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
       >
         <span>{row.label}</span>
         {row.expanded ? (

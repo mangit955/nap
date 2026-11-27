@@ -2103,6 +2103,32 @@ details[open] > .nap-float {
 .chat-scroller {
   scroll-padding-top: 24px;
 }
+.chat-fold-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow-anchor: none;
+}
+.chat-fold-content[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.chat-fold-content > div {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  /* Only the height is clipped, so an outset focus ring at either side still draws. */
+  overflow-y: clip;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .chat-fold-content {
+    transition: grid-template-rows 180ms ease;
+  }
+  @starting-style {
+    .chat-fold-content[data-open="true"] {
+      grid-template-rows: 0fr;
+    }
+  }
+}
 .chat-user-message {
   max-width: 80%;
   padding: 12px;

@@ -21,7 +21,7 @@ import type { MediaAttachment } from "@nap/shared/media";
  */
 
 import { Check, Monitor } from "lucide-react";
-import { use, useEffect, useMemo, useState } from "react";
+import { type ReactNode, use, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AppTestResult } from "../computer/app-test-cards.tsx";
 import { ComputerNavigation } from "../computer/navigation.tsx";
 import { ScreenshotCard } from "../computer/screenshot-card.tsx";
@@ -107,7 +107,45 @@ export function ChatTranscript({
 }) {
   // Which folds and groups the reader has opened, by the ids `timeline.ts` derives from the item
   // each opened with — stable as the turn grows, so nothing springs shut mid-turn.
-  const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
+  const [folds, setFolds] = useState<ReadonlyMap<string, "open" | "closing">>(() => new Map());
+  const transcript = useRef<HTMLDivElement>(null);
+  const [openFolds, closingFolds] = useMemo(() => {
+    const open = new Set<string>();
+    const closing = new Set<string>();
+    for (const [id, state] of folds) (state === "open" ? open : closing).add(id);
+    return [open, closing];
+  }, [folds]);
+
+  useLayoutEffect(() => {
+    if (closingFolds.size === 0 || transcript.current === null) return;
+    let current = true;
+    const segments = Array.from(
+      transcript.current.querySelectorAll<HTMLElement>(
+        ':scope > .chat-fold-content[data-open="false"]',
+      ),
+    );
+    for (const id of closingFolds) {
+      const exits = segments
+        .filter((segment) => segment.dataset.fold === id)
+        .flatMap((segment) =>
+          (segment.getAnimations?.() ?? []).map((animation) => animation.finished),
+        );
+      // A reversal cancels the old CSS transition, settling `finished`; `current` then says this
+      // commit's wait is stale. Reduced motion has no transition, so the rows go at once, and so
+      // does jsdom, which has no `getAnimations` at all.
+      void Promise.allSettled(exits).then(() => {
+        if (!current) return;
+        setFolds((latest) => {
+          const next = new Map(latest);
+          next.delete(id);
+          return next;
+        });
+      });
+    }
+    return () => {
+      current = false;
+    };
+  }, [closingFolds]);
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const rows = useMemo(
     () =>
@@ -116,9 +154,10 @@ export function ChatTranscript({
         pending,
         startedAt,
         expandedFolds: openFolds,
+        closingFolds,
         expandedGroups: openGroups,
       }),
-    [items, running, pending, startedAt, openFolds, openGroups],
+    [items, running, pending, startedAt, openFolds, closingFolds, openGroups],
   );
   const projectFiles = useMemo(
     () => ({ files, onOpenFile, onOpenChanges }),
@@ -144,19 +183,56 @@ export function ChatTranscript({
     foldedFailures.add(item.key);
   }
 
-  const toggle = (set: typeof setOpenFolds, id: string) =>
-    set((current) => {
+  const toggleGroup = (id: string) =>
+    setOpenGroups((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
 
+  const segments: { id: string; fold: string | undefined; content: ReactNode[] }[] = [];
   let previous: TimelineRow | undefined;
+  for (const row of rows) {
+    // A turn that finished draws nothing of its own — its fold says how long it took — and a
+    // compaction's failure is drawn inside the compaction's row.
+    const drawnElsewhere = row.kind === "item" && foldedFailures.has(row.item.key);
+    if (drawnElsewhere || isFinished(row)) continue;
+    const spacing = spacingBefore(row, previous);
+    if (!quiet(row)) previous = row;
+    let segment = segments.at(-1);
+    if (segment === undefined || segment.fold !== row.foldContent) {
+      segment = { id: row.id, fold: row.foldContent, content: [] };
+      segments.push(segment);
+    }
+    segment.content.push(
+      <div key={row.id} className={spacing}>
+        <Row
+          busy={running}
+          // A card's click is a message, and one already on its way has not reached the log:
+          // until it does the card still looks open, and a second click would send it twice.
+          answering={running || pending}
+          row={row}
+          live={row.kind === "item" && row.item.key === liveKey}
+          compactionFailure={row.kind === "item" ? compactionFailures.get(row.item.key) : undefined}
+          onRetry={onRetry}
+          onAnswer={onAnswer}
+          planActions={planActions}
+          onToggleFold={(id) =>
+            setFolds((current) =>
+              new Map(current).set(id, current.get(id) === "open" ? "closing" : "open"),
+            )
+          }
+          onToggleGroup={toggleGroup}
+        />
+      </div>,
+    );
+  }
 
   return (
     <ProjectFiles value={projectFiles}>
       <div
+        ref={transcript}
         // A `log`, not a `list`: additions are announced, which is the point of a transcript that
         // grows while you watch it. Its children are deliberately plain elements — `listitem`
         // under a `log` is an orphaned role, and the rows are heterogeneous blocks rather than
@@ -165,31 +241,18 @@ export function ChatTranscript({
         aria-label="Transcript"
         className="mx-auto flex max-w-[46rem] flex-col px-5 py-6"
       >
-        {rows.map((row) => {
-          // A turn that finished draws nothing of its own — its fold says how long it took — and
-          // a compaction's failure is drawn inside the compaction's row. Neither takes a wrapper.
-          const drawnElsewhere = row.kind === "item" && foldedFailures.has(row.item.key);
-          if (drawnElsewhere || isFinished(row)) return null;
-          const before = previous;
-          if (!quiet(row)) previous = row;
+        {segments.flatMap(({ id, fold, content }) => {
+          if (fold === undefined) return content;
+          const open = openFolds.has(fold);
           return (
-            <div key={row.id} className={spacingBefore(row, before)}>
-              <Row
-                busy={running}
-                // A card's click is a message, and one already on its way has not reached the log:
-                // until it does the card still looks open, and a second click would send it twice.
-                answering={running || pending}
-                row={row}
-                live={row.kind === "item" && row.item.key === liveKey}
-                compactionFailure={
-                  row.kind === "item" ? compactionFailures.get(row.item.key) : undefined
-                }
-                onRetry={onRetry}
-                onAnswer={onAnswer}
-                planActions={planActions}
-                onToggleFold={(id) => toggle(setOpenFolds, id)}
-                onToggleGroup={(id) => toggle(setOpenGroups, id)}
-              />
+            <div
+              key={`fold-content:${id}`}
+              className="chat-fold-content"
+              data-fold={fold}
+              data-open={open}
+              inert={!open}
+            >
+              <div>{content}</div>
             </div>
           );
         })}

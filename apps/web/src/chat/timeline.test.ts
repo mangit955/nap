@@ -246,6 +246,63 @@ describe("folding a finished turn", () => {
     expect(shape(timeline)).toEqual(["user", "fold", "turn-start", "agent", "entry", "turn-end"]);
   });
 
+  it("groups work after the answer the same way while its fold is open or closing", () => {
+    reset();
+    const events = [
+      prompt(),
+      started(),
+      ...read("src/App.tsx"),
+      say("Done."),
+      ...run("bun run lint", "exit code 1\nlint error\n"),
+      ...run("bun run format"),
+      ...run("bun run typecheck", "exit code 2\ntype error\n"),
+      completed(5_000),
+    ];
+    const fold = only(rows(events), "turn-fold");
+    const open = rows(events, { expandedFolds: new Set([fold.foldId]) });
+    const closing = rows(events, { closingFolds: new Set([fold.foldId]) });
+    const closed = rows(events);
+    const after = (timeline: TimelineRow[]) =>
+      timeline.slice(
+        timeline.findLastIndex((row) => row.kind === "item" && row.item.kind === "message"),
+      );
+
+    // Open, the answer's three calls are one group, as they were before folding animated.
+    expect(
+      after(open)
+        .filter((row) => row.kind === "work-toggle")
+        .map((row) => row.groupId),
+    ).toHaveLength(1);
+    // Closing, the call that succeeded snaps away at once: a run holding a failure does not slide,
+    // so the two failures are grouped and keyed exactly as they are once the fold has shut.
+    expect(after(closing)).toEqual(after(closed));
+    expect(after(closing).some((row) => row.foldContent !== undefined)).toBe(false);
+  });
+
+  it("slides away a run after the answer that the fold hides whole", () => {
+    reset();
+    const events = [
+      prompt(),
+      started(),
+      ...read("src/App.tsx"),
+      say("Done."),
+      ...run("bun run format"),
+      ev("system.notice", { level: "info", text: "Sandbox resumed." }),
+      ...run("bun run lint", "exit code 1\nlint error\n"),
+      completed(5_000),
+    ];
+    const fold = only(rows(events), "turn-fold");
+    const closing = rows(events, { closingFolds: new Set([fold.foldId]) });
+    const tagged = closing.filter((row) => row.foldContent === fold.foldId);
+
+    // The read before the answer and the format after it slide; the failing lint, alone in its
+    // run after the notice, stays drawn and untouched.
+    expect(tagged.map((row) => row.kind)).toEqual(["work-entry", "work-entry"]);
+    expect(
+      closing.filter((row) => row.kind === "work-entry" && row.foldContent === undefined),
+    ).toHaveLength(1);
+  });
+
   it("folds each turn on its own", () => {
     reset();
     const timeline = rows([
@@ -682,6 +739,35 @@ describe("steers", () => {
     expect(shape(timeline)).toEqual(["user", "working", "turn-start", "live", "steer"]);
     // The read and the running command: one run, uninterrupted by the message waiting after it.
     expect(only(timeline, "work-live").entries).toHaveLength(2);
+  });
+
+  it("keeps exiting work on either side of a steer in its original order", () => {
+    reset();
+    const events = [
+      prompt(),
+      started(),
+      ...read("a.ts"),
+      ev("steer.applied", { steerId: STEER, text: "use Postgres" }),
+      ...read("b.ts"),
+      say("Switched to Postgres."),
+      completed(5_000),
+    ];
+    const fold = only(rows(events), "turn-fold");
+    const exiting = rows(events, { closingFolds: new Set([fold.foldId]) });
+    expect(shape(exiting)).toEqual([
+      "user",
+      "fold",
+      "turn-start",
+      "entry",
+      "steer",
+      "entry",
+      "agent",
+      "turn-end",
+    ]);
+    expect(exiting.filter((row) => row.foldContent === fold.foldId).map((row) => row.kind)).toEqual(
+      ["work-entry", "work-entry"],
+    );
+    expect(only(exiting, "turn-fold").expanded).toBe(false);
   });
 
   it("keeps one the agent read in view when its turn folds, between the work it split", () => {
