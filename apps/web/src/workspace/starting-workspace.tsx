@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { ChatPane } from "../components/chat-pane.tsx";
 import { PreviewPane } from "../components/preview-pane.tsx";
 import { BrowserToolbar } from "./browser-toolbar.tsx";
+import { useThreadDetails } from "./thread-details.tsx";
 import { useNarrowPanel } from "./use-narrow-panel.ts";
 import { handOverPanelLayout, usePanelLayout } from "./use-panel-layout.ts";
 import { Workbench } from "./workbench.tsx";
@@ -44,12 +45,18 @@ export function StartingWorkspace({ prompt }: { prompt: StartingPrompt | null })
   const shown = useRef(controller.layout);
   shown.current = controller.layout;
   useLayoutEffect(() => () => handOverPanelLayout(shown.current), []);
+  // The project's view keeps its conversation clear of the thread details card, which a new
+  // project shows wherever it fits beside the conversation; this view keeps the same lane, so the
+  // composer is in the same place in both. Its scope is never written: there is no card to close.
+  const details = useThreadDetails("starting");
   return (
     <WorkspacePanes
       panelOpen={panelOpen}
       maximized={maximized}
       chatHidden={chatHidden}
       onDismissPanel={controller.hide}
+      chatRef={details.ref}
+      detailsCard={details.open ? details.presentation : undefined}
       chat={
         <>
           <WorkspaceHeader

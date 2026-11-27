@@ -678,6 +678,30 @@ describe("entering from the dashboard", () => {
     expect(screen.getByRole("button", { name: toggle })).toBeVisible();
   });
 
+  it("keeps the conversation's lane clear of the details card from the start, as the project does", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1400);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(900);
+    const lane = () => document.querySelector(".t3-chat-column")?.getAttribute("data-details-card");
+    const start = beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "Lane" } });
+    const view = render(entry());
+    expect(await conversation().findByText("Lane")).toBeVisible();
+    expect(lane()).toBe("inline");
+
+    handOffStartedPrompt({
+      projectId: PROJECT_A,
+      sessionId: SESSION_ID,
+      requestId: ALPHA_REQUEST,
+      text: "Lane",
+    });
+    act(() => start.started(PROJECT_A));
+    expect(screen.queryByText("Starting your project…")).toBeNull();
+    expect(lane()).toBe("inline");
+    await waitFor(() => expect(window.location.pathname).toBe(`/p/${PROJECT_A}`));
+    followAddress(view);
+    expect(await screen.findByText("Alpha board")).toBeVisible();
+    expect(lane()).toBe("inline");
+  });
+
   it("hands no panel over to a project opened after a start that went nowhere", async () => {
     const start = beginStart({ push: vi.fn() }, { ownerId: "owner", prompt: { text: "Refused" } });
     const view = render(entry());
