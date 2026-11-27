@@ -1,0 +1,45 @@
+{
+  "dashboard-collapse": {
+    "cssTransitionMs": 220,
+    "sidebarWidthPerFrame": [
+      256, 256, 224.4, 195.0, 167.2, 140.9, 116.4, 93.5, 72.6, 53.6, 36.9, 22.6, 11.4, 3.7, 0.1, 0,
+      0, 0, 0, 0
+    ]
+  },
+  "dashboard-reopen": {
+    "cssTransitionMs": 220,
+    "sidebarWidthPerFrame": [
+      0, 0, 31.4, 61.0, 88.7, 114.9, 139.6, 162.3, 183.4, 202.3, 219.1, 233.3, 244.5, 252.3, 255.9,
+      256, 256, 256, 256, 256
+    ]
+  },
+  "session-collapse": {
+    "cssTransitionMs": 220,
+    "sidebarWidthPerFrame": [
+      256, 256, 224.5, 195.1, 167.2, 141.0, 116.5, 93.6, 72.6, 53.6, 36.8, 22.7, 11.3, 3.6, 0.1, 0,
+      0, 0, 0, 0
+    ]
+  },
+  "session-reopen": {
+    "cssTransitionMs": 220,
+    "sidebarWidthPerFrame": [
+      0, 0, 31.5, 60.8, 88.6, 114.8, 139.5, 162.2, 183.3, 202.4, 219.0, 233.3, 244.6, 252.3, 255.9,
+      256, 256, 256, 256, 256
+    ]
+  },
+  "reduced-motion-collapse": {
+    "cssTransitionMs": 0,
+    "sidebarWidthPerFrame": [320, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "reduced-motion-reopen": {
+    "cssTransitionMs": 0,
+    "sidebarWidthPerFrame": [
+      0, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320,
+      320
+    ]
+  },
+  "reduced-motion-close-before-reload": {
+    "cssTransitionMs": 0,
+    "sidebarWidthPerFrame": [320, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  }
+}
