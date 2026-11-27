@@ -18,12 +18,30 @@
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
-.t3-workspace-panes {
-  grid-template-columns: minmax(360px, 1fr) 4px minmax(360px, min(var(--panel-width, 540px), 70vw));
+@property --nap-right-panel-open {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
 }
-.t3-workspace-panes[data-panel-open="false"],
+.t3-workspace-panes {
+  --right-panel-motion: 0ms;
+  --nap-right-panel-open: 0;
+  grid-template-columns:
+    minmax(360px, 1fr)
+    calc(4px * var(--nap-right-panel-open))
+    calc(max(360px, min(var(--panel-width, 540px), 70vw)) * var(--nap-right-panel-open));
+  transition: --nap-right-panel-open var(--right-panel-motion) cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+.t3-workspace-panes[data-panel-open="true"] {
+  --nap-right-panel-open: 1;
+}
 .t3-workspace-panes[data-maximized="true"] {
   grid-template-columns: minmax(0, 1fr);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .t3-workspace-panes[data-maximized="false"] {
+    --right-panel-motion: 220ms;
+  }
 }
 .t3-chat-column {
   position: relative;
@@ -764,6 +782,7 @@
     bottom: 0;
     right: 0;
     width: min(540px, 100vw);
+    translate: calc(100% * (1 - var(--nap-right-panel-open)));
     z-index: 60;
     box-shadow: -12px 0 40px #0005;
   }
@@ -777,6 +796,18 @@
   .t3-chat-header {
     padding-left: 48px;
   }
+}
+@media (width > 980px) {
+  .t3-workspace-panes[data-maximized="false"] > .t3-panel-divider {
+    grid-column: 2;
+  }
+  .t3-workspace-panes[data-maximized="false"] > .t3-workbench {
+    grid-column: 3;
+  }
+}
+.t3-workspace-panes > .t3-workbench {
+  /* Let the closing panel paint until its track or sheet reaches the edge. */
+  transition: display var(--right-panel-motion) allow-discrete;
 }
 .t3-panel-job {
   margin-left: auto;
@@ -1074,4 +1105,34 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+.nap-preview-loading {
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+  inset: 0 0 auto;
+  height: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-accent) 24%, var(--color-panel));
+}
+.nap-preview-loading::after {
+  content: "";
+  display: block;
+  width: 36%;
+  height: 100%;
+  background: var(--color-accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nap-preview-loading::after {
+    animation: nap-preview-sweep 1s ease-in-out infinite;
+  }
+}
+@keyframes nap-preview-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(278%);
+  }
 }

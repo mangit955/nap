@@ -48,7 +48,7 @@ export function WorkspacePanes({
         ref={containerRef}
         className="t3-workspace-panes relative grid min-h-0 flex-1 overflow-hidden"
         data-panel-open={panelOpen}
-        data-maximized={maximized && panelOpen}
+        data-maximized={maximized}
         style={paneStyle}
       >
         <div
