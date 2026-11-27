@@ -6,6 +6,7 @@ import { sockets } from "../testing/fake-socket.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
 import { mediaBrowser } from "../testing/media-browser.ts";
 import { modelList } from "../testing/model-list.ts";
+import { savePanelOpen } from "../testing/open-panel.ts";
 import { AppShell } from "./app-shell.tsx";
 
 /**
@@ -52,7 +53,10 @@ function shell() {
 }
 
 describe("AppShell", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    savePanelOpen(PROJECT_ID);
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -319,6 +323,8 @@ describe("AppShell", () => {
   );
 
   it("keeps a mobile draft, reference and chosen model while inspecting code", async () => {
+    // A phone with nothing saved: the panel starts closed, over nothing.
+    localStorage.clear();
     const media = mediaBrowser();
     vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
       matches: query === "(max-width: 980px)",
@@ -384,6 +390,8 @@ describe("AppShell", () => {
   });
 
   it("keeps Stop available after a mobile tab switch before the worker's first event", async () => {
+    // A phone with nothing saved: the panel starts closed, over nothing.
+    localStorage.clear();
     vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
       matches: true,
       media: query,

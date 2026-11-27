@@ -203,7 +203,9 @@ export function AppShell({
     ...(fetchJson === undefined ? {} : { fetchJson }),
   });
 
-  const panels = usePanelLayout(`${ownerId ?? "guest"}:${projectId}:${sessionId ?? "pending"}`);
+  const panels = usePanelLayout(`${ownerId ?? "guest"}:${projectId}:${sessionId ?? "pending"}`, {
+    takesHandOver: true,
+  });
   const [maximized, setMaximized] = useState(false);
   const openPopout = useEffectEvent(() => {
     panels.open({ kind: "computer" });

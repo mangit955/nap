@@ -128,6 +128,15 @@ function startOf(ownerId: string): Start | undefined {
 }
 
 /**
+ * Whether the workspace drawing now is the dashboard's way in, entered by a start rather than an
+ * open: what the composer's glide from the dashboard belongs to (`send-glide.ts`). The address,
+ * not the router's: the project's own replaces `/p/new` in an effect after its first draw.
+ */
+export function enteringByStart(): boolean {
+  return window.location.pathname === WORKSPACE_ENTRY && entry?.kind === "start";
+}
+
+/**
  * This person's start still waiting on the server, if any — resolved once it is over.
  *
  * The dashboard composer waits on this before restoring its draft: until the start is over, the

@@ -37,8 +37,22 @@ function Workspace({
     </>
   );
 }
-beforeEach(() => localStorage.clear());
+const OPEN = { ...DEFAULT_PANEL_LAYOUT, open: true };
+beforeEach(() => {
+  localStorage.clear();
+  // These tests are about the panel's contents, so it starts open; the default is tested below.
+  for (const scope of ["test", "another"])
+    localStorage.setItem(`nap.right-panel.v1:${scope}`, JSON.stringify(OPEN));
+});
 describe("the right panel", () => {
+  it.each([false, true])("starts closed where nothing is saved, with narrow=%s", (narrow) => {
+    render(<Workspace scope="never-opened" narrow={narrow} />);
+    expect(screen.queryByRole("tab", { name: "Browser" })).toBeNull();
+    expect(localStorage.getItem("nap.right-panel.v1:never-opened")).toContain('"open":false');
+    fireEvent.click(screen.getByRole("button", { name: "Toggle panel" }));
+    expect(screen.getByRole("tab", { name: "Browser" })).toBeVisible();
+  });
+
   it.each([false, true])(
     "omits unavailable Computer from the panel menu with narrow=%s",
     (narrow) => {
@@ -55,7 +69,7 @@ describe("the right panel", () => {
     (narrow) => {
       localStorage.setItem(
         "nap.right-panel.v1:test",
-        JSON.stringify({ ...DEFAULT_PANEL_LAYOUT, tabs: [], active: null }),
+        JSON.stringify({ ...OPEN, tabs: [], active: null }),
       );
       render(<Workspace narrow={narrow} computerAvailable={false} />);
       expect(screen.queryByRole("button", { name: "Computer" })).not.toBeInTheDocument();
@@ -232,14 +246,13 @@ describe("the right panel", () => {
   ])("repairs malformed saved layout %s before persisting it", (raw) => {
     localStorage.setItem("nap.right-panel.v1:test", raw);
     render(<Workspace />);
+    fireEvent.click(screen.getByRole("button", { name: "Toggle panel" }));
     expect(screen.getAllByRole("tab").map((item) => item.textContent)).toEqual([
       "Browser",
       "Files",
     ]);
     expect(screen.getByRole("tab", { name: "Browser" })).toHaveAttribute("aria-selected", "true");
-    expect(JSON.parse(localStorage.getItem("nap.right-panel.v1:test") ?? "null")).toEqual(
-      DEFAULT_PANEL_LAYOUT,
-    );
+    expect(JSON.parse(localStorage.getItem("nap.right-panel.v1:test") ?? "null")).toEqual(OPEN);
   });
   it("supports keyboard tab selection and hides the whole panel without unmounting", () => {
     render(<Workspace />);
