@@ -2085,7 +2085,8 @@ details[open] > .nap-float {
   min-height: 0;
   min-width: 0;
   flex-direction: column;
-  overflow: clip;
+  /* Only the height is clipped, so an outset focus ring at either side still draws. */
+  overflow-y: clip;
 }
 @media (prefers-reduced-motion: no-preference) {
   .chat-fold-content {

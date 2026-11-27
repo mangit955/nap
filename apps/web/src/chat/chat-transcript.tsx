@@ -131,11 +131,11 @@ export function ChatTranscript({
           (segment.getAnimations?.() ?? []).map((animation) => animation.finished),
         );
       // A reversal cancels the old CSS transition, settling `finished`; `current` then says this
-      // commit's wait is stale. Reduced motion has no transition, so the rows go at once.
+      // commit's wait is stale. Reduced motion has no transition, so the rows go at once, and so
+      // does jsdom, which has no `getAnimations` at all.
       void Promise.allSettled(exits).then(() => {
         if (!current) return;
         setFolds((latest) => {
-          if (latest.get(id) !== "closing") return latest;
           const next = new Map(latest);
           next.delete(id);
           return next;
@@ -194,7 +194,8 @@ export function ChatTranscript({
   const segments: { id: string; fold: string | undefined; content: ReactNode[] }[] = [];
   let previous: TimelineRow | undefined;
   for (const row of rows) {
-    // A successful turn end draws nothing. A compaction's failure is drawn in its own row.
+    // A turn that finished draws nothing of its own — its fold says how long it took — and a
+    // compaction's failure is drawn inside the compaction's row.
     const drawnElsewhere = row.kind === "item" && foldedFailures.has(row.item.key);
     if (drawnElsewhere || isFinished(row)) continue;
     const spacing = spacingBefore(row, previous);
