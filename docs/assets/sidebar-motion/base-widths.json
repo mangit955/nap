@@ -1,0 +1,24 @@
+{
+  "dashboard-collapse": {
+    "cssTransitionMs": 0,
+    "sidebarWidthPerFrame": [256, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "dashboard-reopen": {
+    "cssTransitionMs": 0,
+    "sidebarWidthPerFrame": [
+      0, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
+      256, 256
+    ]
+  },
+  "session-collapse": {
+    "cssTransitionMs": 0,
+    "sidebarWidthPerFrame": [256, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "session-reopen": {
+    "cssTransitionMs": 0,
+    "sidebarWidthPerFrame": [
+      0, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
+      256, 256
+    ]
+  }
+}

@@ -316,6 +316,40 @@ describe("native sidebar persistence defaults", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
+  it("keeps the closing sidebar inert and returns it to the mobile drawer", () => {
+    localStorage.setItem("nap.sidebar.collapsed", "true");
+    render(
+      <Dashboard sidebar={<nav aria-label="Sessions">Sessions</nav>} hero={<p>Composer</p>} />,
+    );
+    const sidebar = screen.getByRole("navigation", { name: "Sessions" });
+    expect(sidebar.closest("[inert]")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+    expect(sidebar.closest("[inert]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close sessions" }));
+    expect(sidebar.closest("[inert]")).not.toBeNull();
+
+    const toggle = screen.getByRole("button", { name: "Expand sidebar" });
+    fireEvent.click(toggle);
+    expect(sidebar.closest("[inert]")).toBeNull();
+    fireEvent.click(toggle);
+    expect(sidebar.closest("[inert]")).not.toBeNull();
+    expect(toggle).toHaveFocus();
+  });
+
+  it("resizes by how far the handle is dragged, so a grab mid-reopen keeps the saved width", () => {
+    localStorage.setItem("nap.sidebar.width", "320");
+    render(<Dashboard sidebar={<p>Sessions</p>} hero={<p>Composer</p>} />);
+    const handle = screen.getByRole("separator", { name: "Sidebar width" });
+    handle.setPointerCapture = () => {};
+
+    // While the column is still widening, the handle sits at x=142, not at the saved 320.
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 142 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 146 });
+    expect(handle).toHaveAttribute("aria-valuenow", "324");
+    expect(localStorage.getItem("nap.sidebar.width")).toBe("324");
+  });
+
   it("restores and updates the real app's existing width and collapse keys", () => {
     localStorage.setItem("nap.sidebar.width", "320");
     localStorage.setItem("nap.sidebar.collapsed", "true");
