@@ -273,10 +273,34 @@ describe("folding a finished turn", () => {
         .filter((row) => row.kind === "work-toggle")
         .map((row) => row.groupId),
     ).toHaveLength(1);
-    // Closing, the call that succeeded snaps away at once: nothing after the answer slides, so the
-    // two failures are grouped and keyed exactly as they are once the fold has shut.
+    // Closing, the call that succeeded snaps away at once: a run holding a failure does not slide,
+    // so the two failures are grouped and keyed exactly as they are once the fold has shut.
     expect(after(closing)).toEqual(after(closed));
     expect(after(closing).some((row) => row.foldContent !== undefined)).toBe(false);
+  });
+
+  it("slides away a run after the answer that the fold hides whole", () => {
+    reset();
+    const events = [
+      prompt(),
+      started(),
+      ...read("src/App.tsx"),
+      say("Done."),
+      ...run("bun run format"),
+      ev("system.notice", { level: "info", text: "Sandbox resumed." }),
+      ...run("bun run lint", "exit code 1\nlint error\n"),
+      completed(5_000),
+    ];
+    const fold = only(rows(events), "turn-fold");
+    const closing = rows(events, { closingFolds: new Set([fold.foldId]) });
+    const tagged = closing.filter((row) => row.foldContent === fold.foldId);
+
+    // The read before the answer and the format after it slide; the failing lint, alone in its
+    // run after the notice, stays drawn and untouched.
+    expect(tagged.map((row) => row.kind)).toEqual(["work-entry", "work-entry"]);
+    expect(
+      closing.filter((row) => row.kind === "work-entry" && row.foldContent === undefined),
+    ).toHaveLength(1);
   });
 
   it("folds each turn on its own", () => {

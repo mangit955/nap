@@ -155,8 +155,9 @@ type TurnFold = {
   /** Indices of the items behind the row. */
   hidden: ReadonlySet<number>;
   /**
-   * The hidden items that slide shut rather than vanish. Work after the answer is left out: it can
-   * share one group with a failure that stays in view, and half a group cannot shrink.
+   * The hidden items that slide shut rather than vanish. Work after the answer slides only as a
+   * whole run: a run with a failure in it keeps that failure in view, grouped with the rest while
+   * open, and half a group cannot shrink.
    */
   shrinking: ReadonlySet<number>;
   label: string;
@@ -242,19 +243,31 @@ export function deriveTurnFolds(items: readonly TranscriptItem[]): TurnFold[] {
 
     const hidden = new Set<number>();
     const shrinking = new Set<number>();
+    // A run of work after the answer, as `timelineOf` will group it: a preview between two calls
+    // is drawn after them, and anything else drawn ends the run.
+    let run: number[] = [];
+    let runFailed = false;
+    const endRun = () => {
+      if (!runFailed) for (const index of run) shrinking.add(index);
+      run = [];
+      runFailed = false;
+    };
     for (let index = turn.prompt + 1; index < turn.turnEndIndex; index += 1) {
       const item = items[index];
       if (item === undefined || index === turn.terminal) continue;
       const beforeAnswer = turn.terminal === -1 || index < turn.terminal;
-      if (
-        isWorkEntry(item)
-          ? beforeAnswer || !entryFailed(item)
-          : beforeAnswer && item.kind === "message"
-      ) {
-        hidden.add(index);
-        if (beforeAnswer) shrinking.add(index);
-      }
+      if (beforeAnswer) {
+        if (isWorkEntry(item) || item.kind === "message") {
+          hidden.add(index);
+          shrinking.add(index);
+        }
+      } else if (isWorkEntry(item)) {
+        run.push(index);
+        if (entryFailed(item)) runFailed = true;
+        else hidden.add(index);
+      } else if (item.kind !== "preview") endRun();
     }
+    endRun();
     if (hidden.size === 0) continue;
 
     const startedAt = turn.turnStart?.at;
@@ -490,9 +503,8 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
       (foldContent !== undefined && closingFolds?.has(foldContent))
     ) {
       if (isWorkEntry(item)) {
-        // Never true while `shrinking` holds only work before the answer, which no visible work
-        // entry can join; it keeps a group from being half inside a closing segment if that changes.
-        if (runFold !== foldContent) flush();
+        // Every entry of a run agrees: `shrinking` takes work after the answer a whole run at a
+        // time, and anything that ends a run in one ends it in the other.
         runFold = foldContent;
         run.push(item);
       } else if (item.kind === "preview" && run.length > 0) deferred.push(item);
