@@ -229,8 +229,11 @@ export function Dashboard({
                 const target = event.currentTarget;
                 if (target instanceof HTMLElement) target.focus();
                 target.setPointerCapture(event.pointerId);
+                // Follow the drag distance, not the pointer's x: while the column is still
+                // animating open, the handle sits short of the saved width.
+                const from = { x: event.clientX, width };
                 const move = (next: Event) => {
-                  if (next instanceof PointerEvent) resize(next.clientX);
+                  if (next instanceof PointerEvent) resize(from.width + next.clientX - from.x);
                 };
                 const stop = () => {
                   target.removeEventListener("pointermove", move);

@@ -1813,7 +1813,16 @@ body {
     z-index: 46;
   }
   .dashboard-frame .workspace-header {
-    padding-left: max(12px, calc(52px - 50px * var(--dashboard-sidebar-open)));
+    padding-left: max(
+      var(--workspace-header-inset, 12px),
+      calc(52px - 50px * var(--dashboard-sidebar-open))
+    );
+  }
+}
+@media (width > 767px) and (max-width: 980px) {
+  /* Keep right-panel.css's resting inset at tablet widths; the sidebar only ever adds to it. */
+  .dashboard-frame {
+    --workspace-header-inset: 48px;
   }
 }
 @media (width > 767px) and (prefers-reduced-motion: no-preference) {

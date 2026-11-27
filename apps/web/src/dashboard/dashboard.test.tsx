@@ -337,6 +337,19 @@ describe("native sidebar persistence defaults", () => {
     expect(toggle).toHaveFocus();
   });
 
+  it("resizes by how far the handle is dragged, so a grab mid-reopen keeps the saved width", () => {
+    localStorage.setItem("nap.sidebar.width", "320");
+    render(<Dashboard sidebar={<p>Sessions</p>} hero={<p>Composer</p>} />);
+    const handle = screen.getByRole("separator", { name: "Sidebar width" });
+    handle.setPointerCapture = () => {};
+
+    // While the column is still widening, the handle sits at x=142, not at the saved 320.
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 142 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 146 });
+    expect(handle).toHaveAttribute("aria-valuenow", "324");
+    expect(localStorage.getItem("nap.sidebar.width")).toBe("324");
+  });
+
   it("restores and updates the real app's existing width and collapse keys", () => {
     localStorage.setItem("nap.sidebar.width", "320");
     localStorage.setItem("nap.sidebar.collapsed", "true");
