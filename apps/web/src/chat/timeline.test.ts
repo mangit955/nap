@@ -684,6 +684,35 @@ describe("steers", () => {
     expect(only(timeline, "work-live").entries).toHaveLength(2);
   });
 
+  it("keeps exiting work on either side of a steer in its original order", () => {
+    reset();
+    const events = [
+      prompt(),
+      started(),
+      ...read("a.ts"),
+      ev("steer.applied", { steerId: STEER, text: "use Postgres" }),
+      ...read("b.ts"),
+      say("Switched to Postgres."),
+      completed(5_000),
+    ];
+    const fold = only(rows(events), "turn-fold");
+    const exiting = rows(events, { closingFolds: new Set([fold.foldId]) });
+    expect(shape(exiting)).toEqual([
+      "user",
+      "fold",
+      "turn-start",
+      "entry",
+      "steer",
+      "entry",
+      "agent",
+      "turn-end",
+    ]);
+    expect(exiting.filter((row) => row.foldContent === fold.foldId).map((row) => row.kind)).toEqual(
+      ["work-entry", "work-entry"],
+    );
+    expect(only(exiting, "turn-fold").expanded).toBe(false);
+  });
+
   it("keeps one the agent read in view when its turn folds, between the work it split", () => {
     reset();
     const timeline = rows([

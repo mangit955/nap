@@ -40,7 +40,7 @@ type Step = Extract<TranscriptItem, { kind: "step" }>;
 /** The items that are drawn as themselves rather than folded into a work row. */
 export type PassThroughItem = Exclude<TranscriptItem, WorkEntry>;
 
-export type TimelineRow =
+export type TimelineRow = { foldContent?: string } & (
   | { kind: "item"; id: string; item: PassThroughItem }
   /** A run of one: drawn as the entry itself, the way T3 draws a lone tool call. */
   | {
@@ -85,7 +85,8 @@ export type TimelineRow =
       expanded: boolean;
       at: string | undefined;
     }
-  | { kind: "changed-files"; id: string; files: FileChange[] };
+  | { kind: "changed-files"; id: string; files: FileChange[] }
+);
 
 /**
  * The live row's id, shared by "Thinking" and the call it is running, so React keeps one element
@@ -110,6 +111,8 @@ export type TimelineOptions = {
   /** When the server says the open turn began, for the "Working for" clock. */
   startedAt?: string | undefined;
   expandedFolds: ReadonlySet<string>;
+  /** Closed disclosures whose rows still need to draw while they shrink. */
+  closingFolds?: ReadonlySet<string>;
   expandedGroups: ReadonlySet<string>;
 };
 
@@ -330,12 +333,13 @@ export function buildTimeline(
 }
 
 function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions): TimelineRow[] {
-  const { running, pending = false, expandedFolds, expandedGroups } = options;
+  const { running, pending = false, expandedFolds, closingFolds, expandedGroups } = options;
   const folds = deriveTurnFolds(items);
   const foldAt = new Map(folds.map((fold) => [fold.anchor, fold]));
-  const collapsed = new Set(
-    folds.filter((fold) => !expandedFolds.has(fold.foldId)).flatMap((fold) => [...fold.hidden]),
-  );
+  const foldByIndex = new Map<number, string>();
+  for (const fold of folds) {
+    for (const index of fold.hidden) foldByIndex.set(index, fold.foldId);
+  }
 
   const turns = turnsOf(items);
   const filesAfter = new Map<number, { id: string; files: FileChange[] }>();
@@ -387,6 +391,7 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
 
   const rows: TimelineRow[] = [];
   let run: WorkEntry[] = [];
+  let runFold: string | undefined;
   /**
    * Preview announcements met in the middle of a run, drawn once it ends. The runtime writes a
    * new sandbox's `preview.ready` whenever its dev server answers, which can be between two calls
@@ -407,9 +412,11 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
     const [first] = entries;
     if (first === undefined) return;
     const groupId = groupIdOf(first);
+    const membership = runFold === undefined ? {} : { foldContent: runFold };
 
     if (entries.length === 1) {
       rows.push({
+        ...membership,
         kind: "work-entry",
         id: groupId,
         groupId,
@@ -428,6 +435,7 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
     const { summary, hasFailure } = summarizeToolGroup(entries);
     const expanded = expandedGroups.has(groupId);
     rows.push({
+      ...membership,
       kind: "work-toggle",
       id: groupId,
       groupId,
@@ -438,7 +446,8 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
       expanded,
       at: entries.find((entry): entry is Step => entry.kind === "step")?.at,
     });
-    if (expanded) rows.push({ kind: "work-group", id: `${groupId}:list`, groupId, entries });
+    if (expanded)
+      rows.push({ ...membership, kind: "work-group", id: `${groupId}:list`, groupId, entries });
   };
 
   for (let index = 0; index < tailStart; index += 1) {
@@ -461,12 +470,22 @@ function timelineOf(items: readonly TranscriptItem[], options: TimelineOptions):
       flush();
       rows.push({ kind: "working", id: "working", startedAt: options.startedAt });
     }
-    if (!collapsed.has(index)) {
-      if (isWorkEntry(item)) run.push(item);
-      else if (item.kind === "preview" && run.length > 0) deferred.push(item);
+    const foldContent = foldByIndex.get(index);
+    if (
+      foldContent === undefined ||
+      expandedFolds.has(foldContent) ||
+      closingFolds?.has(foldContent)
+    ) {
+      if (isWorkEntry(item)) {
+        // A run must be able to shrink without taking a neighbouring visible failure with it.
+        if (runFold !== foldContent) flush();
+        runFold = foldContent;
+        run.push(item);
+      } else if (item.kind === "preview" && run.length > 0) deferred.push(item);
       else {
         flush();
-        rows.push({ kind: "item", id: `item:${item.key}`, item });
+        const membership = foldContent === undefined ? {} : { foldContent };
+        rows.push({ ...membership, kind: "item", id: `item:${item.key}`, item });
       }
     }
 
