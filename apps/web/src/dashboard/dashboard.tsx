@@ -39,6 +39,7 @@ export function Dashboard({
   const Content = contentLandmark ? "main" : "div";
   useDocumentScrollLock();
   const [collapsed, setCollapsed] = useState(false);
+  const [sidebarMotion, setSidebarMotion] = useState(false);
   const [width, setWidth] = useState(256);
   const resize = useCallback((next: number) => {
     const value = Math.round(
@@ -169,6 +170,7 @@ export function Dashboard({
         className={`dashboard-frame relative grid h-dvh overflow-hidden bg-surface text-ink transition-opacity duration-200 ${fading ? "opacity-60" : "opacity-100"}`}
         data-signing-out={fading}
         data-sidebar-collapsed={collapsed}
+        data-sidebar-motion={sidebarMotion}
         data-navigation-open={navigationOpen}
         data-details-card={detailsCard}
       >
@@ -177,7 +179,9 @@ export function Dashboard({
             type="button"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded={!collapsed}
-            onClick={() => {
+            onClick={(event) => {
+              event.currentTarget.focus();
+              setSidebarMotion(true);
               setCollapsed(!collapsed);
               try {
                 localStorage.setItem("nap.sidebar.collapsed", String(!collapsed));
@@ -208,7 +212,11 @@ export function Dashboard({
             className="sidebar-backdrop"
           />
         )}
-        <div ref={navigation} className="dashboard-sidebar min-h-0">
+        <div
+          ref={navigation}
+          inert={collapsed && !navigationOpen}
+          className="dashboard-sidebar min-h-0"
+        >
           {typeof sidebar === "function" ? sidebar({ closeNavigation }) : sidebar}
         </div>
         {!collapsed && (

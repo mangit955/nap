@@ -316,6 +316,27 @@ describe("native sidebar persistence defaults", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
+  it("keeps the closing sidebar inert and returns it to the mobile drawer", () => {
+    localStorage.setItem("nap.sidebar.collapsed", "true");
+    render(
+      <Dashboard sidebar={<nav aria-label="Sessions">Sessions</nav>} hero={<p>Composer</p>} />,
+    );
+    const sidebar = screen.getByRole("navigation", { name: "Sessions" });
+    expect(sidebar.closest("[inert]")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
+    expect(sidebar.closest("[inert]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close sessions" }));
+    expect(sidebar.closest("[inert]")).not.toBeNull();
+
+    const toggle = screen.getByRole("button", { name: "Expand sidebar" });
+    fireEvent.click(toggle);
+    expect(sidebar.closest("[inert]")).toBeNull();
+    fireEvent.click(toggle);
+    expect(sidebar.closest("[inert]")).not.toBeNull();
+    expect(toggle).toHaveFocus();
+  });
+
   it("restores and updates the real app's existing width and collapse keys", () => {
     localStorage.setItem("nap.sidebar.width", "320");
     localStorage.setItem("nap.sidebar.collapsed", "true");
