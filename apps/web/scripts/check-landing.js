@@ -89,8 +89,10 @@
   // Script focus draws the keyboard ring only until the page has seen a pointer, so run this on
   // a fresh load; a control the browser would not ring is skipped, and at least one must count.
   let rings = 0;
+  // `preventScroll`: the page scrolls smoothly, so focusing would start a scroll that is still
+  // moving when the hit tests below run, and they would test points off the screen.
   for (const control of controls) {
-    control.focus();
+    control.focus({ preventScroll: true });
     if (control.matches(":focus-visible")) {
       rings++;
       const style = getComputedStyle(control);
@@ -108,7 +110,10 @@
     control.scrollIntoView({ block: "center", behavior: "instant" });
     await settle();
     const name = (control.textContent || control.getAttribute("aria-label") || "").trim();
-    check(owns(control, centre(control)), `"${name.slice(0, 40)}" gets its own clicks`);
+    const hit = centre(control);
+    const over =
+      hit === null ? "nothing" : `<${hit.tagName.toLowerCase()} class="${hit.className}">`;
+    check(owns(control, hit), `"${name.slice(0, 40)}" gets its own clicks (got ${over})`);
   }
 
   scrollTo({ top: 0, behavior: "instant" });

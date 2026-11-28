@@ -33,7 +33,8 @@ export function Changelog() {
           rel="noreferrer"
           className="n1-label n1-more"
         >
-          [ See everything new → ]
+          <span aria-hidden="true">[ </span>See everything new
+          <span aria-hidden="true"> → ]</span>
         </a>
       </SectionHead>
       <Reveal>
@@ -44,7 +45,9 @@ export function Changelog() {
                 <b aria-hidden="true" />
                 <time dateTime={entry.date}>{DAY.format(new Date(entry.date))}</time>
                 <span>{entry.title}</span>
-                <em>#{entry.pr} ↗</em>
+                <em>
+                  #{entry.pr} <span aria-hidden="true">↗</span>
+                </em>
               </a>
             </li>
           ))}

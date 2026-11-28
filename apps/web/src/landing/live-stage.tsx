@@ -27,7 +27,7 @@ export function LiveStage() {
             <b>[ live ]</b>&nbsp; num1 is testing the import
           </span>
           <a href={FEATURED_REPLAY_PATH} className="n1-label n1-stage-replay">
-            Watch the replay →
+            Watch the replay <span aria-hidden="true">→</span>
           </a>
         </div>
         <SessionStage />

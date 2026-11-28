@@ -15,9 +15,9 @@
  * something. So the observer disconnects the moment it fires.
  *
  * Under reduced motion no observer is created and the state stays `idle`, which is the same
- * markup a browser without the API gets. The stylesheet also neutralises the transition under
- * that query — the two together, because a hook and a media query that disagree is a bug nobody
- * sees until somebody with the setting turned on visits.
+ * markup a browser without the API gets. The stylesheet (`num1.css`) also hides and moves nothing
+ * outside `prefers-reduced-motion: no-preference` — the two together, because a hook and a media
+ * query that disagree is a bug nobody sees until somebody with the setting turned on visits.
  */
 
 import { type RefObject, useEffect, useRef, useState } from "react";

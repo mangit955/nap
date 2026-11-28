@@ -42,13 +42,15 @@ const NO_PREFERENCE = "@media (prefers-reduced-motion: no-preference)";
 describe("the front page's motion", () => {
   it("is found at all, so the checks below cannot pass on nothing", () => {
     expect(ALL.filter((rule) => /\banimation:/.test(rule.body)).length).toBeGreaterThan(4);
+    expect(ALL.filter((rule) => /\btransition:/.test(rule.body)).length).toBeGreaterThan(2);
+    expect(ALL.some((rule) => rule.selector === '.nap-reveal[data-reveal="pending"]')).toBe(true);
     expect(
       ALL.filter((rule) => rule.within.some((at) => at.startsWith("@keyframes"))).length,
     ).toBeGreaterThan(4);
   });
 
   it("plays only for readers who have not asked for less of it", () => {
-    for (const rule of ALL.filter((each) => /\banimation:/.test(each.body))) {
+    for (const rule of ALL.filter((each) => /\b(?:animation|transition):/.test(each.body))) {
       expect(rule.within, `${rule.path}: ${rule.selector}`).toContain(NO_PREFERENCE);
     }
   });
@@ -57,6 +59,18 @@ describe("the front page's motion", () => {
     // A rule that hides something until it is played must sit where the playing does.
     for (const rule of ALL.filter((each) => each.selector.includes('data-reveal="pending"'))) {
       expect(rule.within, `${rule.path}: ${rule.selector}`).toContain(NO_PREFERENCE);
+    }
+  });
+
+  it("transitions only opacity and transform", () => {
+    for (const rule of ALL.filter((each) => /\btransition:/.test(each.body))) {
+      const value = rule.body.match(/\btransition:([^;]*)/)?.[1] ?? "";
+      // Commas inside `cubic-bezier(…)` do not separate transitions.
+      for (const part of value.split(/,(?![^(]*\))/)) {
+        expect(["opacity", "transform"], `${rule.path}: ${rule.selector}`).toContain(
+          part.trim().split(/\s+/)[0],
+        );
+      }
     }
   });
 

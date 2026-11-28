@@ -43,7 +43,7 @@ export function LandingFooter() {
             </a>
             <p>A coding agent with its own computer. Open source, MIT licensed.</p>
           </div>
-          <nav aria-label="Footer" className="contents">
+          <nav aria-label="Footer" className="n1-foot-nav">
             {COLUMNS.map((column) => (
               <div key={column.title}>
                 <h2>{column.title}</h2>

@@ -6,7 +6,8 @@ const GLYPH = ["..XX...", ".XXX...", "..XX...", "..XX...", "..XX...", "..XX...",
 /**
  * The Num1 mark — **a placeholder**: a blocky "1" standing in until the real mark exists. Every
  * place the front page draws the brand goes through this one component, so the real mark is a
- * change to this file alone.
+ * change to this file alone — and to `app/(front)/icon.svg`, the tab's icon, drawn from the same
+ * glyph.
  *
  * `tile` draws it light on an ink square, as the bar and the footer do; without it the glyph is
  * drawn in `currentColor`, as the product window's sidebar does.

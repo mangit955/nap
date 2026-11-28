@@ -49,7 +49,7 @@ export const GLIDE_MS = 300;
  * arrives later than this is drawn with the cut rather than gliding from a spot long left.
  */
 export const CLAIM_WITHIN_MS = 1000;
-/** Short and decelerating, like the landing page's arrivals (`landing/use-arrivals.ts`). */
+/** Short and decelerating: it arrives fast and settles, rather than easing in and out. */
 const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 let departure: Departure | undefined;
