@@ -24,11 +24,28 @@ import { describe, expect, it } from "vitest";
 
 const APP = dirname(new URL(import.meta.url).pathname);
 const SRC = resolve(APP, "..");
-const LANDING_GROUP = join(APP, "(landing)");
-// The stylesheets that set text in the landing faces. Each reads a variable only the group's
-// layout defines.
-const LANDING_STYLESHEETS = ["landing/landing.css", "landing/ledger-app.css"];
-const LANDING_FACE_VARIABLES = /var\(--font-(?:inter|newsreader)\)/;
+
+/**
+ * Each route group that loads faces of its own: the stylesheets that set text in them (each
+ * reads a variable only that group's layout defines), and classes the check must find, so an
+ * empty list cannot pass everything.
+ */
+const GROUPS = [
+  {
+    name: "the dark theme's",
+    group: join(APP, "(landing)"),
+    stylesheets: ["landing/landing.css", "landing/ledger-app.css"],
+    variables: /var\(--font-(?:inter|newsreader)\)/,
+    expected: ["landing", "lp-serif", "ps-ledger"],
+  },
+  {
+    name: "Num1's",
+    group: join(APP, "(front)"),
+    stylesheets: ["landing/num1.css", "landing/showcase/showcase.css"],
+    variables: /var\(--font-(?:doto|geist|geist-mono|silkscreen)\)/,
+    expected: ["num1", "n1-tag"],
+  },
+];
 
 function filesUnder(dir: string, name: (file: string) => boolean): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -39,11 +56,11 @@ function filesUnder(dir: string, name: (file: string) => boolean): string[] {
 }
 
 /** The classes whose own rule sets text in a landing face — the roots the faces hang from. */
-function classesDrawingLandingFaces(css: string): string[] {
+function classesDrawingFaces(css: string, variables: RegExp): string[] {
   const uncommented = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const classes = new Set<string>();
   for (const [, selector = "", body = ""] of uncommented.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (!LANDING_FACE_VARIABLES.test(body)) continue;
+    if (!variables.test(body)) continue;
     for (const [, name = ""] of selector.matchAll(/\.([\w-]+)/g)) classes.add(name);
   }
   return [...classes];
@@ -85,11 +102,7 @@ function drawing(files: Iterable<string>, classes: string[]): string[] {
 }
 
 describe("font placement", () => {
-  const classes = LANDING_STYLESHEETS.flatMap((sheet) =>
-    classesDrawingLandingFaces(readFileSync(join(SRC, sheet), "utf8")),
-  );
   const pages = filesUnder(APP, (name) => name === "page.tsx");
-  const inGroup = (page: string) => page.startsWith(`${LANDING_GROUP}/`);
 
   it("loads no face in the root layout that every route would preload", () => {
     const layout = readFileSync(join(APP, "layout.tsx"), "utf8");
@@ -109,26 +122,33 @@ describe("font placement", () => {
     }
   });
 
-  it("knows which classes draw the landing faces", () => {
-    // If this list ever comes back empty, the test after it passes on everything.
-    expect(classes).toEqual(expect.arrayContaining(["landing", "lp-serif", "ps-ledger"]));
-  });
-
-  it("draws the landing faces on no page outside the group that loads them", () => {
-    const outside = pages.filter((page) => !inGroup(page));
-    expect(outside.length).toBeGreaterThan(0);
-    const strays = outside.flatMap((page) =>
-      drawing(reachable(page), classes).map(
-        (file) => `${relative(SRC, page)} reaches ${relative(SRC, file)}`,
-      ),
+  describe.each(GROUPS)("$name faces", ({ group, stylesheets, variables, expected }) => {
+    const classes = stylesheets.flatMap((sheet) =>
+      classesDrawingFaces(readFileSync(join(SRC, sheet), "utf8"), variables),
     );
-    expect(strays).toEqual([]);
-  });
+    const inGroup = (page: string) => page.startsWith(`${group}/`);
 
-  it("puts no page in that group that draws neither face", () => {
-    const inside = pages.filter(inGroup);
-    expect(inside.length).toBeGreaterThan(0);
-    const idle = inside.filter((page) => drawing(reachable(page), classes).length === 0);
-    expect(idle.map((page) => relative(SRC, page))).toEqual([]);
+    it("knows which classes draw them", () => {
+      // If this list ever comes back empty, the tests after it pass on everything.
+      expect(classes).toEqual(expect.arrayContaining(expected));
+    });
+
+    it("are drawn on no page outside the group that loads them", () => {
+      const outside = pages.filter((page) => !inGroup(page));
+      expect(outside.length).toBeGreaterThan(0);
+      const strays = outside.flatMap((page) =>
+        drawing(reachable(page), classes).map(
+          (file) => `${relative(SRC, page)} reaches ${relative(SRC, file)}`,
+        ),
+      );
+      expect(strays).toEqual([]);
+    });
+
+    it("are drawn by every page in the group that loads them", () => {
+      const inside = pages.filter(inGroup);
+      expect(inside.length).toBeGreaterThan(0);
+      const idle = inside.filter((page) => drawing(reachable(page), classes).length === 0);
+      expect(idle.map((page) => relative(SRC, page))).toEqual([]);
+    });
   });
 });

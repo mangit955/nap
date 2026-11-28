@@ -5,7 +5,7 @@ import { REPO_URL } from "./github-button.tsx";
 import { type AuthState, Landing } from "./landing.tsx";
 
 function show(auth: AuthState) {
-  return render(<Landing auth={auth} hero={<p>hero</p>} />);
+  return render(<Landing auth={auth} />);
 }
 
 const bar = () => within(screen.getByRole("banner"));
@@ -104,13 +104,10 @@ it("leaves wheel input native when reduced motion is requested", () => {
 });
 
 it("leaves a nested scroll area's wheel input native", () => {
-  render(
-    <Landing
-      auth="signed-out"
-      hero={<section aria-label="Scrollable example" style={{ overflowY: "auto" }} />}
-    />,
-  );
-  const region = screen.getByRole("region", { name: "Scrollable example" });
+  show("signed-out");
+  const region = document.createElement("section");
+  region.style.overflowY = "auto";
+  screen.getByRole("main").append(region);
   Object.defineProperty(region, "scrollHeight", { value: 200 });
   Object.defineProperty(region, "clientHeight", { value: 100 });
   expectNativeWheel(region, { deltaY: 120 });
@@ -125,27 +122,37 @@ describe("before the session has resolved", () => {
 
   it("still shows the hero, because it is the page", () => {
     show("pending");
-    expect(screen.getByText("hero")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Describe an app.Get verified code.",
+    );
   });
 });
 
 describe("signed out", () => {
   it("offers both halves of a way in", () => {
     show("signed-out");
-    expect(bar().getByRole("link", { name: /sign in/i })).toHaveAttribute("href", "/sign-in");
-    expect(bar().getByRole("link", { name: /get started/i })).toHaveAttribute("href", "/sign-up");
+    for (const link of bar().getAllByRole("link", { name: /sign in/i })) {
+      expect(link).toHaveAttribute("href", "/sign-in");
+    }
+    for (const link of bar().getAllByRole("link", { name: /get started/i })) {
+      expect(link).toHaveAttribute("href", "/sign-up");
+    }
+    // Once in the bar for a wide screen and once in the menu for a narrow one.
+    expect(bar().getAllByRole("link", { name: /sign in/i })).toHaveLength(2);
   });
 });
 
 describe("the repository link", () => {
   it("points at the source", () => {
     show("signed-out");
-    expect(bar().getByRole("link", { name: /^github$/i })).toHaveAttribute("href", REPO_URL);
+    const nav = within(bar().getByRole("navigation", { name: "Front page" }));
+    expect(nav.getByRole("link", { name: /^github$/i })).toHaveAttribute("href", REPO_URL);
   });
 
   it("is there before the session resolves, because it is right either way", () => {
     show("pending");
-    expect(bar().getByRole("link", { name: /^github$/i })).toBeInTheDocument();
+    const nav = within(bar().getByRole("navigation", { name: "Front page" }));
+    expect(nav.getByRole("link", { name: /^github$/i })).toBeInTheDocument();
   });
 });
 
@@ -158,8 +165,9 @@ describe("the bar's links", () => {
       .map((link) => [link.textContent, link.getAttribute("href")]);
     expect(links).toEqual([
       ["Product", "#product"],
-      ["Changelog", "#changelog"],
       ["Docs", "/docs"],
+      ["Changelog", "#changelog"],
+      ["GitHub", REPO_URL],
     ]);
   });
 });
@@ -195,11 +203,17 @@ describe("the frame", () => {
     const sections = [...screen.getByRole("main").querySelectorAll(":scope > section")].map(
       (section) => section.id,
     );
-    expect(sections).toEqual(["product", "changelog", "start"]);
+    expect(sections).toEqual([
+      "hero",
+      "live",
+      "how-it-works",
+      "product",
+      "session",
+      "changelog",
+      "start",
+    ]);
   });
 
-  // The hero is a stub here, so this covers the frame around it: the bar, the sections and the
-  // footer. `scripts/check-landing.js` runs the same check on the real page in a browser.
   it("sends every in-page link around the hero to something on it", () => {
     show("signed-out");
     const targets = [...document.querySelectorAll('a[href^="#"]')].map((link) =>
@@ -211,25 +225,43 @@ describe("the frame", () => {
     }
   });
 
-  it("names every section, and keeps the serif for the closing line alone", () => {
+  it("names every section, and sets every heading in the dot-matrix face", () => {
     show("signed-out");
-    expect(screen.getByRole("region", { name: "Product" })).toBeInTheDocument();
-    for (const name of [/^changelog$/i, /^build your first app\.$/i]) {
-      expect(screen.getByRole("heading", { level: 2, name })).toBeInTheDocument();
-    }
-    const serif = [...document.querySelectorAll("main h2.lp-serif")].map((h) => h.textContent);
-    expect(serif).toEqual(["Build your first app."]);
+    expect(screen.getByRole("region", { name: /everything a\s*developer does/i })).toHaveAttribute(
+      "id",
+      "product",
+    );
+    expect(screen.getByRole("region", { name: "Num1 at work" })).toBeInTheDocument();
+    const headings = [...document.querySelectorAll("main :is(h1, h2)")];
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "Describe an app.Get verified code.",
+      "A loop,not one shot.",
+      "Everything adeveloper does.",
+      "One prompt.A working app.",
+      "Shipped lately.",
+      "Build yourfirst app.",
+    ]);
+    for (const heading of headings) expect(heading).toHaveClass("n1-dot");
   });
 
-  it("scopes its dark colours to itself rather than to the whole app", () => {
+  it("scopes its light colours to itself rather than to the whole app", () => {
     const { container } = show("signed-out");
-    expect(container.firstElementChild).toHaveClass("landing");
+    expect(container.firstElementChild).toHaveClass("num1");
+    expect(container.firstElementChild).not.toHaveClass("landing");
   });
 
-  it("credits the photographs it stands on", () => {
+  it("calls itself Num1 and not nap", () => {
+    const { container } = show("signed-out");
+    expect(container.textContent).not.toMatch(/\bnap\b/i);
+    expect(screen.getByRole("img", { name: "Num1" })).toBeInTheDocument();
+  });
+
+  it("keeps its product pictures out of the accessibility tree", () => {
     show("signed-out");
-    const footer = within(screen.getByRole("contentinfo"));
-    expect(footer.getByText(/CC BY-SA 4\.0/)).toBeInTheDocument();
+    for (const picture of document.querySelectorAll(".n1-status, .n1-sess, .n1-pw")) {
+      expect(picture).toHaveAttribute("aria-hidden", "true");
+    }
+    expect(document.querySelectorAll(".n1-status, .n1-sess, .n1-pw")).toHaveLength(3);
   });
 });
 
@@ -242,11 +274,11 @@ describe("the footer", () => {
       .map((link) => [link.textContent, link.getAttribute("href")]);
     expect(links).toEqual([
       ["Changelog", "#changelog"],
-      ["Watch a real session", FEATURED_REPLAY_PATH],
+      ["Watch a session", FEATURED_REPLAY_PATH],
       ["Get started", "/sign-up"],
       ["How it works", "/docs"],
       ["Architecture", "/docs/architecture"],
-      ["Engineering reports", `${REPO_URL}/blob/main/docs/scaling-cluster.md`],
+      ["Reports", `${REPO_URL}/blob/main/docs/scaling-cluster.md`],
       ["GitHub", REPO_URL],
       ["License", `${REPO_URL}/blob/main/LICENSE`],
       ["Sign in", "/sign-in"],
@@ -256,7 +288,7 @@ describe("the footer", () => {
   it("links the engineering reports, which the page itself no longer quotes", () => {
     show("signed-out");
     const footer = within(screen.getByRole("contentinfo"));
-    expect(footer.getByRole("link", { name: /engineering reports/i })).toHaveAttribute(
+    expect(footer.getByRole("link", { name: /^reports$/i })).toHaveAttribute(
       "href",
       `${REPO_URL}/blob/main/docs/scaling-cluster.md`,
     );
@@ -265,7 +297,7 @@ describe("the footer", () => {
   it("keeps a recorded session one click from the front page", () => {
     show("signed-out");
     const footer = within(screen.getByRole("contentinfo"));
-    expect(footer.getByRole("link", { name: /watch a real session/i })).toHaveAttribute(
+    expect(footer.getByRole("link", { name: /watch a session/i })).toHaveAttribute(
       "href",
       FEATURED_REPLAY_PATH,
     );

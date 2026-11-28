@@ -90,12 +90,6 @@ export const TREE_READERS = [
   // Keeps Base UI's toast imported by ui/toast.tsx alone, so that raising a toast does not put
   // the code that draws one on the landing page. It reads all of web's src.
   { test: "apps/web/src/ui/toast.test.tsx", reads: /^apps\/web\/src\// },
-  // Holds the landing demos' narrow-layout widths in demo.css and features.css to `narrowBelow`
-  // in demo-window.tsx, so a frame's height is right before any script runs.
-  {
-    test: "apps/web/src/landing/demo-window.test.tsx",
-    reads: /^apps\/web\/src\/landing\/(?:demo|features)\.css$/,
-  },
   // Reads the theme's colour names from globals.css, to tell `text-ink-2` (a colour) from
   // `text-[13px]` (a size) when it checks a menu item for two colours in one state.
   {

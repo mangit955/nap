@@ -4,7 +4,7 @@
  * The front page, wired to the session.
  *
  * One question is asked here and answered for the whole page — whether anybody is signed in —
- * because the hero and the redirect below both need it and two subscriptions would be two
+ * because the bar and the redirect below both need it and two subscriptions would be two
  * answers that can disagree for a frame.
  *
  * **Somebody signed in does not belong here.** This page is a pitch: it explains what the
@@ -24,7 +24,6 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { authClient } from "../auth/client.ts";
-import { Hero } from "./hero.tsx";
 import { Landing } from "./landing.tsx";
 
 export function LiveLanding() {
@@ -41,7 +40,6 @@ export function LiveLanding() {
       // Never `signed-in`: this page has nothing to show that visitor, and drawing their
       // projects for the frame before the redirect lands is a flash of the wrong page.
       auth={isPending || signedIn ? "pending" : "signed-out"}
-      hero={<Hero />}
     />
   );
 }
