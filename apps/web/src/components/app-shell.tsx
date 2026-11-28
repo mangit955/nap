@@ -2,6 +2,7 @@
 
 import type { ProjectRepository } from "@nap/shared/github-protocol";
 import type { StoredEvent } from "@nap/shared/ports/event-store";
+import { FileDiff, Files, Globe } from "lucide-react";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { TurnActivity } from "../chat/use-turn-submission.ts";
 import { foldAppTests } from "../computer/app-test-state.ts";
@@ -17,6 +18,7 @@ import { useAfterReplay } from "../hooks/after-replay.ts";
 import { forgetLog } from "../hooks/remembered-logs.ts";
 import type { CreateSocket } from "../hooks/use-event-stream.ts";
 import { useSessionLog } from "../hooks/use-session-log.ts";
+import { useCommands } from "../palette/registry.ts";
 import { phaseOf, recordState } from "../projects/project-phase.ts";
 import { type OpenProject, useProject } from "../projects/use-projects.ts";
 import { announceSessionsChanged } from "../projects/use-session-navigation.ts";
@@ -229,6 +231,32 @@ export function AppShell({
     panels.open({ kind: "computer" });
   };
   const openFile = (path: string) => panels.open({ kind: "file", path });
+  useCommands(() => [
+    {
+      id: "open-files",
+      group: "Actions",
+      order: 2,
+      label: "Open Files",
+      icon: <Files className="size-4" aria-hidden />,
+      run: () => panels.open({ kind: "code" }),
+    },
+    {
+      id: "open-browser",
+      group: "Actions",
+      order: 3,
+      label: "Open Browser",
+      icon: <Globe className="size-4" aria-hidden />,
+      run: () => panels.open({ kind: "preview" }),
+    },
+    {
+      id: "show-changes",
+      group: "Actions",
+      order: 4,
+      label: "Show changed files",
+      icon: <FileDiff className="size-4" aria-hidden />,
+      run: () => panels.open({ kind: "diff" }),
+    },
+  ]);
   const visiblePanel = panels.layout.open;
   const tests = useMemo(() => foldAppTests(log.events), [log.events]);
   const [turnActivity, setTurnActivity] = useState<TurnActivity | null>(null);

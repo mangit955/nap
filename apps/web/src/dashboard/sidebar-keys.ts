@@ -36,6 +36,13 @@ export function showsJumpHints(event: Keys, mac: boolean): boolean {
   return modifier(event, mac) && !event.shiftKey && !event.altKey;
 }
 
+/** The command palette's chord: the modifier and K, as T3 Code and most editors bind it. */
+export function opensPalette(event: Keys, mac: boolean): boolean {
+  return (
+    modifier(event, mac) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "k"
+  );
+}
+
 /** The keyboard's ways of asking for a context menu. */
 export function opensMenu(event: Pick<Keys, "key" | "shiftKey">): boolean {
   return event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);

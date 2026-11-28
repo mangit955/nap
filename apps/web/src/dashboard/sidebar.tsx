@@ -5,12 +5,14 @@ import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navig
 import { SquarePen } from "lucide-react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { NapMark } from "../brand/nap-mark.tsx";
+import { useCommands } from "../palette/registry.ts";
 import type { useSessionNavigation } from "../projects/use-session-navigation.ts";
 import { useSessionSearch } from "../projects/use-session-search.ts";
 import { ConnectionsIcon, SpinnerIcon } from "../ui/icons.tsx";
 import { ShowcaseContext } from "../ui/showcase.ts";
 import { Tooltip } from "../ui/tooltip.tsx";
 import { DraftRows } from "./draft-rows.tsx";
+import { sessionCommands } from "./session-commands.tsx";
 import { preloadDrag, SessionList } from "./session-list.tsx";
 import { SEARCH_LISTBOX_ID, SessionSearchResults, searchOptionId } from "./session-search.tsx";
 import { SourceFilter } from "./source-filter.tsx";
@@ -148,6 +150,18 @@ export function Sidebar({
       model: null,
       titling: false,
     }));
+  // Only a sidebar that can open a session offers them; the landing page's demos cannot.
+  useCommands(() => [
+    {
+      id: "new-session",
+      group: "Actions",
+      order: 0,
+      label: "New session",
+      icon: <SquarePen className="size-4" aria-hidden />,
+      run: onNewProject,
+    },
+    ...(onSelectProject ? sessionCommands(sessions, Date.now(), onSelectProject) : []),
+  ]);
   return (
     <nav
       aria-label="Dashboard"
