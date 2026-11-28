@@ -476,8 +476,8 @@ function StatusSlot({
         <span role="status">Woke</span>
       </span>
     );
-  // A finished turn nobody has read: T3's plain unread dot beside the time, not a word. Blue marks
-  // status here and nowhere else, and the dot neither glows nor pulses — it waits.
+  // A finished turn nobody has read: T3's plain unread dot beside the time, not a word. It neither
+  // glows nor pulses — it waits.
   return (
     <span className="inline-flex items-center gap-1.5">
       <span role="status" className="inline-flex">

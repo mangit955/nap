@@ -211,6 +211,7 @@ describe("finishedInBackground", () => {
       [watched, other],
       [watched, finish(other)],
       new Set([watched.projectId]),
+      NOW,
     );
     expect(finished.map((row) => row.projectId)).toEqual([other.projectId]);
   });
@@ -221,38 +222,62 @@ describe("finishedInBackground", () => {
     const left = working();
     const now = working();
     const viewed = new Set([left.projectId, now.projectId]);
-    expect(finishedInBackground([left, now], [finish(left), finish(now)], viewed)).toEqual([]);
+    expect(finishedInBackground([left, now], [finish(left), finish(now)], viewed, NOW)).toEqual([]);
+  });
+
+  // The job runs on after a turn — verification, repair turns — and each turn moves the finish
+  // time. Only the end of the whole job is news, once, when the row stops working.
+  it("names nothing still working or queued, and names it once the job ends", () => {
+    const running = working();
+    const midJob = { ...finish(running, 1), activity: "working" as const };
+    expect(finishedInBackground([running], [midJob], new Set(), NOW)).toEqual([]);
+    const requeued = { ...finish(running, 1), activity: "queued" as const };
+    expect(finishedInBackground([running], [requeued], new Set(), NOW)).toEqual([]);
+    // The job's end may not move the finish time again: leaving Working is enough.
+    const ended = { ...midJob, activity: "completed" as const };
+    expect(finishedInBackground([midJob], [ended], new Set(), NOW)).toHaveLength(1);
+  });
+
+  it("names nothing archived", () => {
+    const running = working();
+    const archived = {
+      ...finish(running),
+      navigation: NavigationSchema.parse({ archivedAt: at(0) }),
+    };
+    expect(finishedInBackground([running], [archived], new Set(), NOW)).toEqual([]);
   });
 
   // A failure is not "finished": its row says Failed in red, and a green check would contradict it.
   it("names nothing whose turn failed", () => {
     const broken = working();
     const failed = { ...finish(broken), activity: "attention" as const };
-    expect(finishedInBackground([broken], [failed], new Set())).toEqual([]);
+    expect(finishedInBackground([broken], [failed], new Set(), NOW)).toEqual([]);
   });
 
   it("names a second finished turn on a session that had finished before", () => {
     const earlier = finish(working(), 10);
     const later = finish(earlier, 0);
-    expect(finishedInBackground([earlier], [later], new Set())).toHaveLength(1);
+    expect(finishedInBackground([earlier], [later], new Set(), NOW)).toHaveLength(1);
   });
 
   // The first list after a load is not news: everything in it finished before the reader came.
   it("names nothing on the first list, or for a session it had not seen", () => {
     const row = finish(working());
-    expect(finishedInBackground(undefined, [row], new Set())).toEqual([]);
-    expect(finishedInBackground([], [row], new Set())).toEqual([]);
+    expect(finishedInBackground(undefined, [row], new Set(), NOW)).toEqual([]);
+    expect(finishedInBackground([], [row], new Set(), NOW)).toEqual([]);
   });
 
   it("names nothing whose finished turn did not move, or was already read elsewhere", () => {
     const done = finish(working(), 5);
-    expect(finishedInBackground([done], [{ ...done, activityAt: at(0) }], new Set())).toEqual([]);
+    expect(finishedInBackground([done], [{ ...done, activityAt: at(0) }], new Set(), NOW)).toEqual(
+      [],
+    );
     const running = working();
     const readInAnotherTab = {
       ...finish(running),
       navigation: NavigationSchema.parse({ readAt: at(0) }),
     };
-    expect(finishedInBackground([running], [readInAnotherTab], new Set())).toEqual([]);
+    expect(finishedInBackground([running], [readInAnotherTab], new Set(), NOW)).toEqual([]);
   });
 });
 

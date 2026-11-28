@@ -114,26 +114,34 @@ export function isUnread(session: SessionSummary): boolean {
 }
 
 /**
- * The sessions whose turn finished between two reads of the list, for the "Session finished"
- * toast. A row counts only when it was on the previous list too — the first list after a load,
- * and a session first seen already finished, are not news — when its finished turn moved later,
- * and when it is still unread, so a turn read in another tab raises nothing. A failed turn is not
- * named: its row says Failed, and a green check would contradict it. Nor is any session in
- * `viewed`, every one the reader had open since the previous list — a turn can finish on screen
- * and the reader move on before the list showing it arrives.
+ * The sessions whose job finished between two reads of the list, for the "Session finished" toast.
+ *
+ * A row counts when it has stopped working — the end of the whole job, not of a turn inside it:
+ * a job finishes a turn, verifies, and may run repair turns, and each of those turns moves
+ * `turnFinishedAt` while the row still says Working. So the row must be idle now, and either its
+ * finish moved later or it was busy on the previous list (the job's end need not move the time
+ * again). It must also have been on the previous list — the first list after a load, and a
+ * session first seen already finished, are not news — and still be unread, so a turn read in
+ * another tab raises nothing. A failed job is not named: its row says Failed, and a green check
+ * would contradict it. Nor is an archived session, or any in `viewed`, the sessions the reader
+ * was looking at.
  */
 export function finishedInBackground(
   previous: readonly SessionSummary[] | undefined,
   next: readonly SessionSummary[],
   viewed: ReadonlySet<string>,
+  now: number,
 ): SessionSummary[] {
   if (previous === undefined) return [];
   const before = new Map(previous.map((row) => [row.projectId, row]));
   return next.filter((row) => {
     const prior = before.get(row.projectId);
     if (!prior || viewed.has(row.projectId) || row.turnFinishedAt === null) return false;
-    if (row.activity === "attention") return false;
-    return time(row.turnFinishedAt) > time(prior.turnFinishedAt) && isUnread(row);
+    if (row.activity !== "ready" && row.activity !== "completed") return false;
+    if (sessionSection(row, now) === "archived") return false;
+    const moved = time(row.turnFinishedAt) > time(prior.turnFinishedAt);
+    const wasBusy = prior.activity === "working" || prior.activity === "queued";
+    return (moved || wasBusy) && isUnread(row);
   });
 }
 

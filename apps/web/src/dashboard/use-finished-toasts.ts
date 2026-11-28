@@ -55,7 +55,7 @@ export function useFinishedToasts(
       if (now - at < LEFT_GRACE_MS) viewed.add(projectId);
       else leftAt.current.delete(projectId);
     }
-    const finished = finishedInBackground(lastCompared, projects, viewed);
+    const finished = finishedInBackground(lastCompared, projects, viewed, now);
     lastCompared = projects;
     for (const { projectId, name } of finished)
       showToast({
