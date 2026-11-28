@@ -49,8 +49,8 @@ export function scopeCounts(
  *
  * Sorted here rather than trusted from the server: the list endpoint's order is its own
  * business, and a "Recents" that is only recent by coincidence is worse than none. Copied
- * before sorting, because sorting the caller's array in place would reorder the grid as a side
- * effect of drawing the sidebar.
+ * before sorting, because sorting the caller's array in place would reorder every other view of
+ * the same projects as a side effect of drawing the sidebar.
  */
 export function recentProjects(
   projects: readonly ProjectSummaryPayload[],

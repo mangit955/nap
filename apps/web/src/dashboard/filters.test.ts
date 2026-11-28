@@ -86,8 +86,8 @@ describe("the recents list", () => {
   });
 
   it("leaves the list it was given alone", () => {
-    // It sorts, and an in-place sort here would reorder the grid as a side effect of drawing
-    // the sidebar — which reads as the grid shuffling itself for no reason.
+    // It sorts, and an in-place sort here would reorder the caller's list as a side effect of
+    // drawing the sidebar — which reads as the projects shuffling themselves for no reason.
     const given = [project({ projectId: "old", updatedAt: "2026-08-01T10:00:00.000Z" }), running];
     recentProjects(given, 5);
 
