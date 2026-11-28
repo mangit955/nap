@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { adjacentId, opensMenu, shortcutCommand, showsJumpHints } from "./sidebar-keys.ts";
+import {
+  adjacentId,
+  opensMenu,
+  opensPalette,
+  shortcutCommand,
+  showsJumpHints,
+} from "./sidebar-keys.ts";
 
 const key = (init: Partial<KeyboardEventInit> & { key: string; code?: string }) => ({
   key: init.key,
@@ -63,5 +69,19 @@ describe("adjacentId", () => {
     expect(adjacentId(["a", "b", "c"], undefined, -1)).toBe("c");
     expect(adjacentId(["a", "b", "c"], "c", 1)).toBeUndefined();
     expect(adjacentId([], undefined, 1)).toBeUndefined();
+  });
+});
+
+describe("opensPalette", () => {
+  it("is the platform's modifier and K, and nothing else", () => {
+    expect(opensPalette(key({ key: "k", code: "KeyK", metaKey: true }), true)).toBe(true);
+    expect(opensPalette(key({ key: "k", code: "KeyK", ctrlKey: true }), false)).toBe(true);
+    // Caps Lock prints a capital without Shift.
+    expect(opensPalette(key({ key: "K", code: "KeyK", metaKey: true }), true)).toBe(true);
+    // Ctrl on a Mac is the terminal's kill-line, not the palette; Shift and Alt are other chords.
+    expect(opensPalette(key({ key: "k", code: "KeyK", ctrlKey: true }), true)).toBe(false);
+    expect(opensPalette(key({ key: "k", metaKey: true, shiftKey: true }), true)).toBe(false);
+    expect(opensPalette(key({ key: "k", metaKey: true, altKey: true }), true)).toBe(false);
+    expect(opensPalette(key({ key: "k" }), true)).toBe(false);
   });
 });

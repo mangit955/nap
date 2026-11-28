@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BACKOFF } from "../hooks/use-event-stream.ts";
+import { CommandPalette } from "../palette/command-palette.tsx";
+import { CommandRegistryContext, createCommandRegistry } from "../palette/registry.ts";
 import { ev, PROJECT_ID, SESSION_ID } from "../testing/events.ts";
 import { sockets } from "../testing/fake-socket.ts";
 import { JOB_ID, jobLog } from "../testing/job-events.ts";
@@ -481,6 +483,39 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("tab", { name: "App.tsx" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "src/App.tsx (read-only)" })).toBeInTheDocument();
+  });
+
+  it("offers the palette Files, Browser and the changed files, each opening its tab", async () => {
+    // jsdom has `<dialog>` without its methods; these toggle `open` as the real ones do.
+    HTMLDialogElement.prototype.showModal ??= function showModal(this: HTMLDialogElement) {
+      this.setAttribute("open", "");
+    };
+    HTMLDialogElement.prototype.close ??= function close(this: HTMLDialogElement) {
+      this.removeAttribute("open");
+      this.dispatchEvent(new Event("close"));
+    };
+    const registry = createCommandRegistry();
+    render(
+      <CommandRegistryContext.Provider value={registry}>
+        <CommandPalette registry={registry} />
+        {shell()}
+      </CommandRegistryContext.Provider>,
+    );
+    const pick = (name: string) => {
+      fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true });
+      fireEvent.click(screen.getByRole("option", { name }));
+    };
+    expect(registry.list().map((command) => command.label)).toEqual([
+      "Open Files",
+      "Open Browser",
+      "Show changed files",
+    ]);
+    pick("Open Files");
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
+    pick("Show changed files");
+    expect(screen.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
+    pick("Open Browser");
+    expect(screen.getByRole("tab", { name: "Browser" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("mounts the chat beside the workbench", () => {

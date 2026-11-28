@@ -65,6 +65,8 @@ starts with `Preconditions:`), and `Gotchas`.
   `/docs#<id>` links, and the phone layout.
 - [Model picker](./model-picker.md): the line and effort a turn runs on, the key form a locked line
   opens, and the version a turn is queued on.
+- [Command palette](./command-palette.md): ⌘K over the dashboard and a workspace, filtering,
+  running a command, and where focus goes after.
 
 Not mapped yet: settings (`/settings/*`), plan mode, the diff view, Test the app, archived
 sessions. Add a file for each one the first time a change touches it.

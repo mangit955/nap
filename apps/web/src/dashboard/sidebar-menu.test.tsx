@@ -573,6 +573,20 @@ describe("keyboard shortcuts", () => {
     expect(opened).toHaveBeenLastCalledWith(rows[1]?.projectId);
   });
 
+  it("leaves the page alone while a modal owns the keyboard", async () => {
+    const opened = vi.fn();
+    await mount([row("Only", { position: 0 })], opened);
+    // jsdom never makes a dialog modal, so stand one in for the browser's answer to `:modal`.
+    const query = document.querySelector.bind(document);
+    vi.spyOn(document, "querySelector").mockImplementation((selector: string) =>
+      selector === "dialog:modal" ? document.body : query(selector),
+    );
+    fireEvent.keyDown(window, { key: "1", code: "Digit1", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true });
+    expect(opened).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
   it("moves between rows with the arrows and opens one with Enter", async () => {
     const opened = vi.fn();
     const rows = ["Upper", "Lower"].map((name, index) => row(name, { position: index }));

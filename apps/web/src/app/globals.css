@@ -4,6 +4,7 @@
 @import "../docs/docs.css";
 @import "../docs/docs-home.css";
 @import "../docs/docs-search.css";
+@import "../palette/command-palette.css";
 
 .computer-screenshot-card {
   display: block;

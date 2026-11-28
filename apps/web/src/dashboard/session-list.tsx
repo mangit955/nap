@@ -40,6 +40,7 @@ import {
 import {
   adjacentId,
   isMacPlatform,
+  modalIsOpen,
   opensMenu,
   shortcutCommand,
   showsJumpHints,
@@ -483,7 +484,7 @@ export function SessionList({
       return !!link;
     };
     const down = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
+      if (event.defaultPrevented || event.isComposing || modalIsOpen()) return;
       const command = shortcutCommand(event, mac);
       if (command) {
         hide();
