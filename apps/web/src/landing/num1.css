@@ -1,0 +1,852 @@
+/*
+ * The Num1 front page (`landing.tsx`): warm paper on a faint 36px grid, one ink, one accent
+ * (cobalt), bracketed buttons with a hard offset shadow, dot-matrix headings and monospaced text.
+ *
+ * Every rule is scoped to `.num1`, so the dark `.landing` theme the docs and sign-in still wear is
+ * untouched. The faces are the variables `app/(front)/layout.tsx` defines.
+ *
+ * **Motion is compositor-only** — `opacity` and `transform` and nothing that lays out — so it
+ * costs the scroll nothing, and its at-rest frame is the design's frame: an animation only ever
+ * plays *into* the state a still screenshot shows. Every animation, transition and rule that hides
+ * something until it plays sits inside `prefers-reduced-motion: no-preference`, so a reader who
+ * asked for less motion gets none and has nothing held back; `num1-css.test.ts` fails otherwise.
+ */
+/* Outside the layer on purpose: the app's own unlayered `body` rule (`globals.css`) would beat a
+   layered one, and the page behind an overscroll or a portal must be paper, not the dark app. */
+html:has(.num1) {
+  color-scheme: light;
+  background: #f2f0e9;
+}
+html:has(.num1) body {
+  background: #f2f0e9;
+}
+
+@layer components {
+  .num1 {
+    --n1-paper: #f2f0e9;
+    --n1-paper-2: #e9e6dc;
+    --n1-card: #fdfcf9;
+    --n1-ink: #121110;
+    --n1-ink-2: #514d46;
+    /* Darker than the mockup's #8b867c (3.2:1 on the paper) to give the small labels drawn in it
+       more contrast: 3.9:1. */
+    --n1-ink-3: #7d786e;
+    --n1-rule: #dcd8cc;
+    --n1-grid-line: #e2ded3;
+    --n1-blue: #2f45ff;
+    --n1-blue-hi: #6f80ff;
+    --n1-blue-soft: #e6e9ff;
+    --n1-green: #16884a;
+    --n1-red: #cc3f2a;
+    --n1-on-ink: #f4f1ea;
+    --n1-dot: var(--font-doto), var(--font-geist-mono), monospace;
+    --n1-mono: var(--font-geist-mono), ui-monospace, monospace;
+    --n1-sans: var(--font-geist), system-ui, sans-serif;
+    --n1-wrap: min(1200px, calc(100% - 64px));
+    min-height: 100dvh;
+    overflow-x: clip;
+    background: var(--n1-paper);
+    color: var(--n1-ink);
+    font: 400 15px / 1.65 var(--n1-mono);
+    -webkit-font-smoothing: antialiased;
+    font-variant-ligatures: none;
+  }
+  .num1 :is(a, summary):focus-visible {
+    outline: 2px solid var(--n1-blue);
+    outline-offset: 3px;
+  }
+  .n1-wrap {
+    width: var(--n1-wrap);
+    margin-inline: auto;
+  }
+  .n1-grid {
+    background-image:
+      linear-gradient(var(--n1-grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--n1-grid-line) 1px, transparent 1px);
+    background-size: 36px 36px;
+    background-position: -1px -1px;
+  }
+  .n1-dot {
+    font-family: var(--n1-dot);
+    font-weight: 900;
+    letter-spacing: -0.02em;
+  }
+  .n1-label {
+    font: 500 11.5px var(--n1-mono);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--n1-ink-3);
+  }
+  .n1-label b {
+    color: var(--n1-blue);
+    font-weight: 500;
+  }
+  .n1-tag {
+    font:
+      400 10px var(--font-silkscreen),
+      var(--n1-mono);
+    text-transform: uppercase;
+    padding: 2px 7px;
+  }
+  .n1-pos {
+    color: var(--n1-green);
+  }
+
+  /* Buttons: brackets and a hard cobalt shadow. The brackets are decoration, so their alt text
+     is empty and a screen reader announces only the label. */
+  .n1-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 50px;
+    padding: 0 22px;
+    font: 500 14px var(--n1-mono);
+    white-space: nowrap;
+    border: 1.5px solid var(--n1-ink);
+    background: var(--n1-card);
+  }
+  .n1-btn::before {
+    content: "[" / "";
+    opacity: 0.45;
+  }
+  .n1-btn::after {
+    content: "]" / "";
+    opacity: 0.45;
+  }
+  .n1-btn:hover {
+    transform: translate(-1px, -1px);
+  }
+  .n1-btn:active {
+    transform: translate(2px, 2px);
+  }
+  .n1-btn-dark {
+    background: var(--n1-ink);
+    color: #fbfaf6;
+    box-shadow: 5px 5px 0 var(--n1-blue);
+  }
+  .n1-btn-dark:hover {
+    box-shadow: 6px 6px 0 var(--n1-blue);
+  }
+  .n1-btn-dark:active {
+    box-shadow: 3px 3px 0 var(--n1-blue);
+  }
+  .n1-btn-sm {
+    height: 38px;
+    padding: 0 14px;
+    font-size: 12.5px;
+    box-shadow: 3px 3px 0 var(--n1-blue);
+  }
+  .n1-btn-sm:hover {
+    box-shadow: 4px 4px 0 var(--n1-blue);
+  }
+  .n1-btn-sm:active {
+    box-shadow: 1px 1px 0 var(--n1-blue);
+  }
+
+  /* The mark: a light glyph on an ink tile. */
+  .n1-mark-tile {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    background: var(--n1-ink);
+  }
+
+  /* The bar */
+  .n1-nav {
+    position: relative;
+    z-index: 20;
+    border-bottom: 1.5px solid var(--n1-ink);
+    background: var(--n1-paper);
+  }
+  .n1-nav > .n1-wrap {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    height: 72px;
+  }
+  .n1-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font: 600 15px var(--n1-mono);
+  }
+  .n1-links {
+    display: flex;
+    gap: 28px;
+    margin-left: 22px;
+    font: 400 13px var(--n1-mono);
+    color: var(--n1-ink-2);
+  }
+  .n1-links a:hover,
+  .n1-signin:hover {
+    color: var(--n1-ink);
+  }
+  .n1-sp {
+    flex: 1;
+  }
+  .n1-signin {
+    font: 400 13px var(--n1-mono);
+    color: var(--n1-ink-2);
+  }
+  .n1-menu {
+    display: none;
+    position: relative;
+    font: 500 13px var(--n1-mono);
+  }
+  .n1-menu summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .n1-menu summary::-webkit-details-marker {
+    display: none;
+  }
+  .n1-menu-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 18px);
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+    background: var(--n1-card);
+    border: 1.5px solid var(--n1-ink);
+    box-shadow: 5px 5px 0 var(--n1-blue);
+  }
+  .n1-menu-panel a {
+    padding: 12px 16px;
+    font: 400 13.5px var(--n1-mono);
+  }
+  .n1-menu-panel a + a {
+    border-top: 1px solid var(--n1-rule);
+  }
+  .n1-menu-panel a:hover {
+    background: var(--n1-paper);
+  }
+
+  /* The hero */
+  .n1-hero {
+    padding: 56px 0 0;
+  }
+  .n1-kick {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+  }
+  .n1-kick-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    background: var(--n1-blue);
+    margin-right: 10px;
+  }
+  .n1-masthead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 48px;
+    align-items: end;
+    margin-top: 40px;
+  }
+
+  .n1-wm {
+    display: grid;
+    min-width: 0;
+  }
+  .n1-wm i {
+    position: relative;
+    min-width: 0;
+    aspect-ratio: 1;
+  }
+  .n1-wm i.on {
+    background: var(--n1-ink);
+    box-shadow: inset 3px 3px 0 #34312b;
+  }
+  .n1-wm i.ac {
+    background: var(--n1-blue);
+    box-shadow: inset 3px 3px 0 var(--n1-blue-hi);
+  }
+  .n1-wm i.gh {
+    outline: 1.5px dashed var(--n1-ink-3);
+    outline-offset: -5px;
+  }
+  /* The block falling into the last gap, and the dashed line it falls along. */
+  .n1-wm i.n1-wm-fall::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateY(-260%);
+    background: var(--n1-blue);
+    box-shadow: inset 3px 3px 0 var(--n1-blue-hi);
+  }
+  .n1-wm i.n1-wm-fall::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -130%;
+    height: 110%;
+    border-left: 1.5px dashed var(--n1-blue);
+  }
+
+  .n1-intro {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 440px;
+    gap: 64px;
+    align-items: end;
+    margin-top: 64px;
+    padding-bottom: 88px;
+  }
+  .n1-intro h1 {
+    font-size: clamp(36px, 4.6vw, 64px);
+    line-height: 1.06;
+  }
+  .n1-intro h1 span {
+    color: var(--n1-blue);
+  }
+  .n1-sub {
+    font-size: 15.5px;
+    line-height: 1.75;
+    color: var(--n1-ink-2);
+  }
+  .n1-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 30px;
+  }
+  .n1-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 22px;
+    font: 400 12px var(--n1-mono);
+    color: var(--n1-ink-3);
+  }
+  .n1-meta li::before {
+    content: "■ " / "";
+    color: var(--n1-blue);
+  }
+
+  /* Numbered sections */
+  .n1-sec {
+    padding-top: 128px;
+  }
+  .n1-sec.n1-sec-tight {
+    padding-top: 72px;
+  }
+  .n1-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 440px;
+    gap: 64px;
+    align-items: end;
+    padding-bottom: 40px;
+    border-bottom: 1.5px solid var(--n1-ink);
+  }
+  .n1-head h2 {
+    margin-top: 14px;
+    font-size: clamp(34px, 4vw, 52px);
+    line-height: 1.04;
+  }
+  .n1-head-aside p {
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--n1-ink-2);
+  }
+  .n1-head-aside p a {
+    color: var(--n1-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--n1-blue);
+    text-underline-offset: 3px;
+  }
+  .n1-more {
+    color: var(--n1-ink);
+  }
+  .n1-more:hover {
+    color: var(--n1-blue);
+  }
+
+  /* [01] The loop */
+  .n1-loop {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    border-bottom: 1px solid var(--n1-rule);
+  }
+  .n1-step {
+    position: relative;
+    padding: 28px 22px 30px 0;
+  }
+  .n1-step + .n1-step {
+    padding-left: 22px;
+    border-left: 1px solid var(--n1-rule);
+  }
+  .n1-step-n {
+    font: 500 11px var(--n1-mono);
+    letter-spacing: 0.14em;
+    color: var(--n1-ink-3);
+  }
+  .n1-step svg {
+    display: block;
+    margin: 26px 0 20px;
+  }
+  .n1-step h3 {
+    font: 600 16px var(--n1-mono);
+  }
+  .n1-step p {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--n1-ink-2);
+  }
+  .n1-step.now h3,
+  .n1-step.now .n1-step-n {
+    color: var(--n1-blue);
+  }
+  .n1-step-badge {
+    position: absolute;
+    top: 26px;
+    right: 16px;
+    background: var(--n1-blue);
+    color: #fff;
+  }
+  .n1-back {
+    position: relative;
+    height: 70px;
+  }
+  .n1-back div {
+    position: absolute;
+    left: calc(100% / 6 * 2.5);
+    top: 0;
+    width: calc(100% / 6 * 2);
+    height: 32px;
+    border: 1.5px dashed var(--n1-blue);
+    border-top: 0;
+  }
+  .n1-back div::before {
+    content: "▲" / "";
+    position: absolute;
+    left: -6px;
+    top: -10px;
+    color: var(--n1-blue);
+    font-size: 9px;
+  }
+  .n1-back-label {
+    position: absolute;
+    left: calc(100% / 6 * 3.5);
+    top: 22px;
+    transform: translateX(-50%);
+    padding: 0 12px;
+    background: var(--n1-paper);
+    font: 500 11px var(--n1-mono);
+    letter-spacing: 0.14em;
+    color: var(--n1-blue);
+    white-space: nowrap;
+  }
+
+  /* [02] Capabilities: a ruled table of six */
+  .n1-caps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .n1-cap {
+    padding: 34px 34px 36px 0;
+    border-bottom: 1px solid var(--n1-rule);
+  }
+  .n1-cap:nth-child(3n + 2),
+  .n1-cap:nth-child(3n) {
+    padding-left: 34px;
+    border-left: 1px solid var(--n1-rule);
+  }
+  .n1-cap-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .n1-cap h3 {
+    margin-top: 26px;
+    font: 600 20px var(--n1-sans);
+    letter-spacing: -0.02em;
+  }
+  .n1-cap p {
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--n1-ink-2);
+  }
+  .n1-proof {
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 20px;
+    padding: 6px 10px;
+    background: var(--n1-card);
+    border: 1px solid var(--n1-rule);
+    font: 400 12px var(--n1-mono);
+    color: var(--n1-ink-2);
+  }
+  .n1-proof .ok {
+    color: var(--n1-green);
+  }
+  .n1-proof .bad {
+    color: var(--n1-red);
+  }
+  .n1-proof .bl {
+    color: var(--n1-blue);
+  }
+
+  /* [04] The changelog */
+  .n1-log a {
+    display: grid;
+    grid-template-columns: 22px 180px minmax(0, 1fr) 70px;
+    gap: 12px;
+    align-items: baseline;
+    padding: 22px 0;
+    border-bottom: 1px solid var(--n1-rule);
+    font-size: 15.5px;
+  }
+  .n1-log b {
+    align-self: center;
+    width: 10px;
+    height: 10px;
+    background: var(--n1-blue);
+  }
+  .n1-log a:hover b {
+    transform: scale(1.4);
+  }
+  .n1-log a:hover > span {
+    color: var(--n1-blue);
+  }
+  .n1-log time {
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--n1-ink-3);
+  }
+  .n1-log em {
+    font: 400 12.5px var(--n1-mono);
+    text-align: right;
+    color: var(--n1-ink-3);
+  }
+
+  /* The closing band, where the blocks pile up */
+  .n1-close {
+    position: relative;
+    margin-top: 140px;
+    overflow: hidden;
+    background: var(--n1-ink);
+    color: var(--n1-on-ink);
+  }
+  .n1-close .n1-wrap {
+    position: relative;
+    z-index: 1;
+    padding: 128px 0 136px;
+  }
+  .n1-close .n1-label {
+    color: #8b867c;
+  }
+  .n1-close .n1-label b {
+    color: var(--n1-blue-hi);
+  }
+  .n1-close h2 {
+    margin-top: 22px;
+    font-size: clamp(44px, 6.4vw, 92px);
+    line-height: 1;
+  }
+  .n1-close h2 span {
+    color: var(--n1-blue-hi);
+  }
+  .n1-close p {
+    max-width: 460px;
+    margin-top: 22px;
+    font-size: 15.5px;
+    color: #a8a298;
+  }
+  .n1-close .n1-cta {
+    margin-top: 40px;
+  }
+  .n1-close .n1-btn {
+    background: transparent;
+    border-color: var(--n1-on-ink);
+    color: var(--n1-on-ink);
+  }
+  .n1-close .n1-btn-dark {
+    background: var(--n1-on-ink);
+    color: var(--n1-ink);
+  }
+  /* Cobalt on ink only just clears 3:1; the band rings in the lighter blue, at about 5:1. */
+  .num1 .n1-close a:focus-visible {
+    outline-color: var(--n1-blue-hi);
+  }
+  .n1-pile {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(12, 44px);
+    grid-auto-rows: 44px;
+  }
+  .n1-pile i.on {
+    background: #24221f;
+    box-shadow: inset 3px 3px 0 #34312b;
+  }
+  .n1-pile i.ac {
+    background: var(--n1-blue);
+    box-shadow: inset 3px 3px 0 var(--n1-blue-hi);
+  }
+  .n1-pile i.gh {
+    outline: 1.5px dashed #4a463f;
+    outline-offset: -5px;
+  }
+
+  /* The footer */
+  .n1-footer {
+    padding-top: 56px;
+  }
+  /* The brand column, then the three link columns, which the nav takes as a subgrid so it stays
+     one landmark box while its columns line up with the mockup's. */
+  .n1-foot {
+    display: grid;
+    grid-template-columns: 1.5fr repeat(3, 1fr);
+    gap: 30px;
+  }
+  .n1-foot-nav {
+    display: grid;
+    grid-column: span 3;
+    grid-template-columns: subgrid;
+  }
+  .n1-foot p {
+    max-width: 280px;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--n1-ink-2);
+  }
+  .n1-foot h2 {
+    margin-bottom: 14px;
+    font: 500 11px var(--n1-mono);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--n1-ink-3);
+  }
+  .n1-foot nav a {
+    display: block;
+    padding: 4px 0;
+    font-size: 13.5px;
+    color: var(--n1-ink-2);
+  }
+  .n1-foot nav a:hover {
+    color: var(--n1-ink);
+  }
+  .n1-fine {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 56px;
+    padding: 18px 0 22px;
+    border-top: 1.5px solid var(--n1-ink);
+    font-size: 12px;
+    color: var(--n1-ink-3);
+  }
+
+  /* Responsive: the mockup's three breakpoints */
+  @media (max-width: 1100px) {
+    .n1-masthead {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .n1-intro {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 28px;
+    }
+    .n1-head {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+    }
+    .n1-loop {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .n1-step:nth-child(4) {
+      padding-left: 0;
+      border-left: 0;
+    }
+    .n1-step:nth-child(-n + 3) {
+      border-bottom: 1px solid var(--n1-rule);
+    }
+    .n1-back {
+      display: none;
+    }
+  }
+  @media (max-width: 860px) {
+    .n1-links,
+    .n1-signin {
+      display: none;
+    }
+    .n1-menu {
+      display: block;
+    }
+    .n1-caps {
+      grid-template-columns: 1fr 1fr;
+    }
+    .n1-cap,
+    .n1-cap:nth-child(3n + 2),
+    .n1-cap:nth-child(3n) {
+      padding: 30px 26px 32px 0;
+      border-left: 0;
+    }
+    .n1-cap:nth-child(2n),
+    .n1-cap:nth-child(3n):nth-child(2n) {
+      padding-left: 26px;
+      border-left: 1px solid var(--n1-rule);
+    }
+    .n1-pile {
+      grid-template-columns: repeat(8, 34px);
+      grid-auto-rows: 34px;
+      opacity: 0.6;
+    }
+    .n1-foot {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .n1-foot-nav {
+      grid-column: auto;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+  }
+  @media (max-width: 560px) {
+    .num1 {
+      --n1-wrap: calc(100% - 32px);
+    }
+    .n1-nav > .n1-wrap {
+      height: 60px;
+    }
+    .n1-nav-cta {
+      display: none;
+    }
+    .n1-hero {
+      padding-top: 32px;
+    }
+    .n1-kick-meta {
+      display: none;
+    }
+    .n1-masthead {
+      gap: 32px;
+      margin-top: 32px;
+    }
+    .n1-wm i.on {
+      box-shadow: inset 2px 2px 0 #34312b;
+    }
+    .n1-wm i.ac,
+    .n1-wm i.n1-wm-fall::after {
+      box-shadow: inset 2px 2px 0 var(--n1-blue-hi);
+    }
+    .n1-wm i.gh {
+      outline-width: 1px;
+      outline-offset: -3px;
+    }
+    .n1-intro {
+      margin-top: 40px;
+      padding-bottom: 56px;
+    }
+    .n1-cta .n1-btn {
+      flex: 1 1 100%;
+    }
+    .n1-sec {
+      padding-top: 88px;
+    }
+    .n1-loop {
+      grid-template-columns: 1fr 1fr;
+    }
+    .n1-step,
+    .n1-step + .n1-step,
+    .n1-step:nth-child(4) {
+      padding: 24px 16px 24px 0;
+      border-left: 0;
+      border-bottom: 1px solid var(--n1-rule);
+    }
+    .n1-step:nth-child(2n) {
+      padding-left: 16px;
+      border-left: 1px solid var(--n1-rule);
+    }
+    .n1-caps {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .n1-cap,
+    .n1-cap:nth-child(3n + 2),
+    .n1-cap:nth-child(3n),
+    .n1-cap:nth-child(2n),
+    .n1-cap:nth-child(3n):nth-child(2n) {
+      padding: 28px 0 30px;
+      border-left: 0;
+    }
+    .n1-log a {
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 4px 10px;
+      font-size: 15px;
+    }
+    .n1-log a > :is(span, em) {
+      grid-column: 2;
+    }
+    .n1-log em {
+      text-align: left;
+    }
+    .n1-close {
+      margin-top: 96px;
+    }
+    .n1-close .n1-wrap {
+      padding: 80px 0 230px;
+    }
+    .n1-fine {
+      flex-direction: column;
+      gap: 4px;
+    }
+  }
+
+  /* Motion: the falling block settles into the masthead once, on load. The showcases' own
+     motion is in `showcase/showcase.css`. */
+  @keyframes n1-fall {
+    from {
+      transform: translateY(-900%);
+      opacity: 0;
+    }
+    70% {
+      transform: translateY(-250%);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(-260%);
+      opacity: 1;
+    }
+  }
+  @keyframes n1-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html:has(.num1) {
+      scroll-behavior: smooth;
+    }
+    .n1-btn {
+      transition: transform 140ms ease;
+    }
+    .n1-log b {
+      transition: transform 160ms ease;
+    }
+
+    /* Sections settle in as they are reached (`reveal.tsx`): a short fade and rise. `pending` is
+       written only once an observer exists to take it off again (`use-reveal.ts`). */
+    .nap-reveal {
+      transition:
+        opacity 520ms cubic-bezier(0.22, 0.61, 0.36, 1),
+        transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    }
+    .nap-reveal[data-reveal="pending"] {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+
+    .n1-wm i.n1-wm-fall::after {
+      animation: n1-fall 1100ms cubic-bezier(0.3, 0.7, 0.2, 1) 350ms both;
+    }
+    .n1-wm i.n1-wm-fall::before {
+      animation: n1-fade-in 400ms ease 1200ms both;
+    }
+  }
+}

@@ -57,7 +57,7 @@ describe("the front page, for somebody who is already signed in", () => {
 
     expect(replace).not.toHaveBeenCalled();
     expect(
-      within(screen.getByRole("banner")).getByRole("link", { name: /sign in/i }),
-    ).toBeInTheDocument();
+      within(screen.getByRole("banner")).getAllByRole("link", { name: /sign in/i }).length,
+    ).toBeGreaterThan(0);
   });
 });

@@ -1,10 +1,12 @@
 import { REPO_URL } from "./github-button.tsx";
+import { Reveal } from "./reveal.tsx";
+import { SectionHead } from "./section-head.tsx";
 
 /**
  * The four most recent changes a builder would notice, each linked to the pull request that made it.
  *
  * Written by hand, not generated from git: a merge title is written for whoever reviews the code,
- * and most merges are not news to somebody deciding whether to build here. Nap has no changelog
+ * and most merges are not news to somebody deciding whether to build here. There is no changelog
  * page, so "everything new" is the repository's merged pull requests.
  */
 const ENTRIES = [
@@ -23,30 +25,34 @@ const DAY = new Intl.DateTimeFormat("en-US", {
 
 export function Changelog() {
   return (
-    <section id="changelog" aria-labelledby="changelog-title" className="lp-section lp-container">
-      <div className="lp-section-head">
-        <h2 id="changelog-title" className="lp-heading">
-          Changelog
-        </h2>
+    <section id="changelog" aria-labelledby="changelog-title" className="n1-sec n1-wrap">
+      <SectionHead id="changelog-title" index="04" label="Changelog" title="Shipped lately.">
         <a
           href={`${REPO_URL}/pulls?q=is%3Apr+is%3Amerged`}
           target="_blank"
           rel="noreferrer"
-          className="lp-more"
+          className="n1-label n1-more"
         >
-          See everything new <span aria-hidden="true">→</span>
+          <span aria-hidden="true">[ </span>See everything new
+          <span aria-hidden="true"> → ]</span>
         </a>
-      </div>
-      <ol className="lp-changelog">
-        {ENTRIES.map((entry) => (
-          <li key={entry.pr}>
-            <a href={`${REPO_URL}/pull/${entry.pr}`} target="_blank" rel="noreferrer">
-              <time dateTime={entry.date}>{DAY.format(new Date(entry.date))}</time>
-              <span>{entry.title}</span>
-            </a>
-          </li>
-        ))}
-      </ol>
+      </SectionHead>
+      <Reveal>
+        <ol className="n1-log">
+          {ENTRIES.map((entry) => (
+            <li key={entry.pr}>
+              <a href={`${REPO_URL}/pull/${entry.pr}`} target="_blank" rel="noreferrer">
+                <b aria-hidden="true" />
+                <time dateTime={entry.date}>{DAY.format(new Date(entry.date))}</time>
+                <span>{entry.title}</span>
+                <em>
+                  #{entry.pr} <span aria-hidden="true">↗</span>
+                </em>
+              </a>
+            </li>
+          ))}
+        </ol>
+      </Reveal>
     </section>
   );
 }

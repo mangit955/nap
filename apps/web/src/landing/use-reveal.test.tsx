@@ -14,12 +14,14 @@ import { revealProps, useReveal } from "./use-reveal.ts";
 type Callback = ConstructorParameters<typeof IntersectionObserver>[0];
 
 let fire: Callback | undefined;
+let options: IntersectionObserverInit | undefined;
 let disconnected = 0;
 let original: typeof IntersectionObserver | undefined;
 
 class FakeObserver {
-  constructor(callback: Callback) {
+  constructor(callback: Callback, init?: IntersectionObserverInit) {
     fire = callback;
+    options = init;
   }
   observe() {}
   unobserve() {}
@@ -55,6 +57,7 @@ const shown = () => screen.getByText("a capability").parentElement;
 
 beforeEach(() => {
   fire = undefined;
+  options = undefined;
   disconnected = 0;
   original = globalThis.IntersectionObserver;
   globalThis.IntersectionObserver = FakeObserver as unknown as typeof IntersectionObserver;
@@ -84,6 +87,15 @@ describe("revealing a section", () => {
 
     expect(shown()).toHaveAttribute("data-reveal", "in");
     expect(disconnected).toBeGreaterThan(0);
+  });
+
+  // A share of the element's own height is the wrong trigger for a tall block: 15% of a 1,600px
+  // table is 240px, so a phone could stop with most of a screen of it in view and blank for good.
+  // Any pixel on screen, with no margin trimmed off the viewport, is the only rule that cannot.
+  it("fires as soon as any of the section is on screen, however tall it is", () => {
+    render(<Section />);
+    expect(options?.threshold ?? 0).toBe(0);
+    expect(options?.rootMargin ?? "0px").toMatch(/^(?:0px\s*)+$/);
   });
 
   it("does not hide it again when it leaves view", () => {

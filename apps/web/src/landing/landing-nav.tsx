@@ -1,114 +1,96 @@
-"use client";
-
 /**
- * The bar across the top of the front page: dark glass that fades into the page below.
+ * The bar across the top of the front page: the mark, the page's own sections, and a way in.
  *
- * **Nothing on the right is drawn until the session has resolved.** Guessing wrong puts a Sign in
- * link under the cursor of somebody who is already signed in and about to be redirected, and a
- * slightly late control beats an early wrong one. The repository and the docs do not wait: they
- * are the right answer either way.
+ * **Nothing that signs you in is drawn until the session has resolved.** Guessing wrong puts a
+ * Sign in link under the cursor of somebody who is already signed in and about to be redirected,
+ * and a slightly late control beats an early wrong one. The section links, the docs and the
+ * repository do not wait: they are the right answer either way.
+ *
+ * Below 860px the links fold into a `<details>` menu, which opens and closes with no script.
  */
 
-import { useEffect, useState } from "react";
-import { NapMark } from "../brand/nap-mark.tsx";
+import type { MouseEvent } from "react";
 import { REPO_URL } from "./github-button.tsx";
 import type { AuthState } from "./landing.tsx";
-
-/** Strengthen the glass as content starts moving behind the bar. */
-const SCROLLED_AT = 24;
+import { Num1Mark } from "./num1-mark.tsx";
 
 const LINKS = [
   { href: "#product", label: "Product" },
-  { href: "#changelog", label: "Changelog" },
   { href: "/docs", label: "Docs" },
+  { href: "#changelog", label: "Changelog" },
+  { href: REPO_URL, label: "GitHub", external: true },
 ] as const;
 
-export function LandingNav({ auth }: { auth: AuthState }) {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const update = () => setScrolled(window.scrollY > SCROLLED_AT);
-    update();
-    window.addEventListener("scroll", update, { passive: true });
-    return () => window.removeEventListener("scroll", update);
-  }, []);
-
+function NavLink({
+  link,
+  onClick,
+}: {
+  link: (typeof LINKS)[number];
+  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const external = "external" in link;
   return (
-    <header className="lp-nav fixed inset-x-0 top-0 z-50" data-scrolled={scrolled}>
-      <div className="lp-container flex h-[68px] items-center justify-between gap-4">
-        <a
-          href="/"
-          className="flex items-center gap-2 font-semibold text-[21px] tracking-[-0.03em] focus-visible:outline-2 focus-visible:outline-white focus-visible:outline-offset-4"
-        >
-          <NapMark className="size-[30px] text-white" />
-          nap
-        </a>
+    <a
+      href={link.href}
+      target={external ? "_blank" : undefined}
+      rel={external ? "noreferrer" : undefined}
+      onClick={onClick}
+    >
+      {link.label}
+    </a>
+  );
+}
 
-        <nav aria-label="Front page" className="hidden items-center gap-8 lg:flex">
+/** A link in the menu jumps within the page, so the menu has to close itself behind it. */
+function closeMenu(event: MouseEvent<HTMLAnchorElement>) {
+  event.currentTarget.closest("details")?.removeAttribute("open");
+}
+
+export function LandingNav({ auth }: { auth: AuthState }) {
+  return (
+    <header className="n1-nav">
+      <div className="n1-wrap">
+        <a href="/" className="n1-brand">
+          <Num1Mark tile />
+          num1
+        </a>
+        <nav aria-label="Front page" className="n1-links">
           {LINKS.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="text-[14.5px] text-[var(--lp-ink-2)] transition-colors hover:text-white"
-            >
-              {link.label}
-            </a>
+            <NavLink key={link.label} link={link} />
           ))}
         </nav>
-
-        <div className="flex items-center gap-2">
-          <details className="group lg:hidden">
-            <summary className="lp-button lp-button-ghost lp-menu-toggle cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-              <span className="sr-only">Menu</span>
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 20 20"
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              >
-                <path d="M3 6h14M3 13h14" />
-              </svg>
-            </summary>
-            <nav
-              aria-label="Mobile front page"
-              className="lp-nav-menu absolute inset-x-5 top-[64px] flex flex-col gap-1 rounded-2xl p-3"
-            >
-              {LINKS.map((link) => (
-                <a
-                  key={link.href}
-                  href={link.href}
-                  className="rounded-xl px-4 py-3 text-[15px] text-white/80 hover:bg-white/5 hover:text-white"
-                  onClick={(event) =>
-                    event.currentTarget.closest("details")?.removeAttribute("open")
-                  }
-                >
-                  {link.label}
+        <span className="n1-sp" />
+        {auth === "signed-out" && (
+          <>
+            <a href="/sign-in" className="n1-signin">
+              Sign in
+            </a>
+            <a href="/sign-up" className="n1-btn n1-btn-dark n1-btn-sm n1-nav-cta">
+              Get started
+            </a>
+          </>
+        )}
+        <details className="n1-menu">
+          <summary>
+            <span aria-hidden="true">[ menu ]</span>
+            <span className="sr-only">Menu</span>
+          </summary>
+          <nav aria-label="Mobile front page" className="n1-menu-panel">
+            {LINKS.map((link) => (
+              <NavLink key={link.label} link={link} onClick={closeMenu} />
+            ))}
+            {auth === "signed-out" && (
+              <>
+                <a href="/sign-in" onClick={closeMenu}>
+                  Sign in
                 </a>
-              ))}
-            </nav>
-          </details>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="lp-text-link mr-3 hidden sm:inline-flex"
-          >
-            GitHub
-          </a>
-          {auth === "signed-out" && (
-            <>
-              <a href="/sign-in" className="lp-text-link mr-3 hidden sm:inline-flex">
-                Sign in
-              </a>
-              <a href="/sign-up" className="lp-button lp-button-light">
-                Get started
-              </a>
-            </>
-          )}
-        </div>
+                <a href="/sign-up" onClick={closeMenu}>
+                  Get started
+                </a>
+              </>
+            )}
+          </nav>
+        </details>
       </div>
     </header>
   );

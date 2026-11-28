@@ -2,23 +2,22 @@ import { Inter, Newsreader } from "next/font/google";
 import type { ReactNode } from "react";
 
 /**
- * The front page's two faces: a light serif for its headings and Inter for everything else on it.
+ * The dark theme's two faces: a light serif for its headings and Inter for everything else.
  *
- * The serif is what makes the page read as editorial rather than as another dashboard — the same
- * choice the design it follows makes — and it is loaded across its optical-size axis because the
- * headings are set at display sizes, where the high-`opsz` cut is the one drawn for them.
+ * The serif is loaded across its optical-size axis because the headings are set at display
+ * sizes, where the high-`opsz` cut is the one drawn for them.
  *
  * **Loaded here, not in the root layout, because Next preloads a font on every route under the
  * layout that calls it.** In the root they cost every page of the app about 180KB of woff2 it never
- * draws. This group holds exactly the documents that draw them: `/`, `/sign-in` and `/sign-up`
- * (drawn in the front page's voice, see `auth/sign-in-form.tsx`), `/welcome`, the key step right
- * after sign-up (drawn in sign-up's voice, see `account/welcome.tsx`), the `/docs` pages (drawn
- * in its theme, see `docs/docs-shell.tsx`), and the two `/demo/*` example apps that draw them —
- * the ledger and the booking site — which are documents of their own and read the same variables
- * from `landing.css` and `ledger-app.css`. The launch demo draws neither face and sits outside
- * it. A page outside the group that draws a landing class gets `sans-serif` and Georgia without
- * any error, and one inside it that draws none preloads 180KB for nothing;
- * `font-placement.test.ts` fails on both.
+ * draws. This group holds exactly the documents that draw them: `/sign-in` and `/sign-up` (see
+ * `auth/sign-in-form.tsx`), `/welcome`, the key step right after sign-up (drawn in sign-up's
+ * voice, see `account/welcome.tsx`), the `/docs` pages (drawn in its theme, see
+ * `docs/docs-shell.tsx`), and the two `/demo/*` example apps that draw them — the ledger and the
+ * booking site — which are documents of their own and read the same variables from `landing.css`
+ * and `ledger-app.css`. The launch demo draws neither face and sits outside it, and the front
+ * page, `/`, is in `(front)` with faces of its own. A page outside the group that draws a landing
+ * class gets `sans-serif` and Georgia without any error, and one inside it that draws none
+ * preloads 180KB for nothing; `font-placement.test.ts` fails on both.
  */
 const landingSerif = Newsreader({
   subsets: ["latin"],

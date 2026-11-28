@@ -15,9 +15,9 @@
  * something. So the observer disconnects the moment it fires.
  *
  * Under reduced motion no observer is created and the state stays `idle`, which is the same
- * markup a browser without the API gets. The stylesheet also neutralises the transition under
- * that query — the two together, because a hook and a media query that disagree is a bug nobody
- * sees until somebody with the setting turned on visits.
+ * markup a browser without the API gets. The stylesheet (`num1.css`) also hides and moves nothing
+ * outside `prefers-reduced-motion: no-preference` — the two together, because a hook and a media
+ * query that disagree is a bug nobody sees until somebody with the setting turned on visits.
  */
 
 import { type RefObject, useEffect, useRef, useState } from "react";
@@ -25,11 +25,18 @@ import { useReducedMotion } from "../glow/use-pulse.ts";
 
 export type RevealState = "idle" | "pending" | "in";
 
-/** How much of an element has to be showing before it counts as reached. */
-const THRESHOLD = 0.15;
-/** Trims the bottom of the viewport, so a section reveals just after it enters rather than at the
- *  instant its first pixel does — arriving *with* the scroll rather than ahead of it. */
-const ROOT_MARGIN = "0px 0px -10% 0px";
+/**
+ * Revealed the moment any of the observed element is on screen. A share of its own height is the
+ * wrong trigger: 15% of a 1,600px table is 240px, so a phone could stop with most of a screen of it
+ * in view and blank, waiting for a reveal that only scrolling further would bring. For the same
+ * reason no margin is trimmed off the viewport: a trimmed strip is a place a block can sit, seen
+ * and blank. The fade is short enough that starting it at the edge still reads as arriving.
+ *
+ * So what may stay hidden is exactly what lies inside the observed element: a block that holds
+ * back only some pieces of itself observes the smallest part that contains them all (the live
+ * stage observes its desk, `live-stage.tsx`).
+ */
+const OBSERVE: IntersectionObserverInit = { threshold: 0 };
 
 export function useReveal<T extends HTMLElement>(): {
   ref: RefObject<T | null>;
@@ -55,15 +62,12 @@ export function useReveal<T extends HTMLElement>(): {
 
     setState("pending");
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setState("in");
-          observer.disconnect();
-        }
-      },
-      { threshold: THRESHOLD, rootMargin: ROOT_MARGIN },
-    );
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setState("in");
+        observer.disconnect();
+      }
+    }, OBSERVE);
     observer.observe(element);
 
     return () => observer.disconnect();
