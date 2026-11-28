@@ -765,8 +765,8 @@ provider — is in `docs/gotchas/api.md`.
 
 ## Screenshots
 
-The dashboard's cards are pictures of the apps themselves, taken at the end of the last turn
-that changed each one. That needs a browser in the image, so `Dockerfile` installs Debian's
+A project's picture, shown behind the preview pane's put-away and start-up screens, is the app
+itself, taken at the end of the last turn that changed it. That needs a browser in the image, so `Dockerfile` installs Debian's
 `chromium` and sets **`NAP_CHROME_PATH=/usr/bin/chromium` itself**. Do not set it as a platform
 variable: the binary and the path to it are one fact, and a variable can drift from the image
 that has to satisfy it.
