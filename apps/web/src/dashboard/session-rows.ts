@@ -113,33 +113,56 @@ export function isUnread(session: SessionSummary): boolean {
   return readAt === null || time(session.turnFinishedAt) > time(readAt);
 }
 
+/** Each session's newest finish as of the last list on which it was idle, by project id. */
+export type SettledFinishes = ReadonlyMap<string, string | null>;
+
 /**
- * The sessions whose job finished between two reads of the list, for the "Session finished" toast.
+ * What `finishedInBackground` compares the next list against. An idle row's finish is taken as
+ * it stands. A busy row keeps the finish it had when last idle: `job.completed` is written while
+ * the job still holds its lease — publishing the pull request and photographing the app come
+ * after it — so a list read in between shows the job's final finish on a row that still says
+ * Working, and taking it then would leave nothing to announce once the row goes idle. A row with
+ * nothing to keep — the first list, or a session new since — is taken as it stands.
+ */
+export function settledFinishes(
+  previous: SettledFinishes | undefined,
+  next: readonly SessionSummary[],
+): Map<string, string | null> {
+  const settled = new Map<string, string | null>();
+  for (const row of next) {
+    const busy = row.activity === "working" || row.activity === "queued";
+    const kept = busy && previous?.has(row.projectId);
+    settled.set(row.projectId, kept ? (previous?.get(row.projectId) ?? null) : row.turnFinishedAt);
+  }
+  return settled;
+}
+
+/**
+ * The sessions whose job finished since the reader last saw them idle, for the "Session finished"
+ * toast. `before` is `settledFinishes` of the lists so far.
  *
- * A row counts when its finish moved later and it has stopped working — the end of the whole job,
- * not of a turn inside it: a job finishes a turn, verifies, and may run repair turns, and each of
- * those turns moves `turnFinishedAt` while the row still says Working. The job's own end
- * (`job.completed`) moves it once more, which is what is announced. A row that stops working with
- * no new finish, as a publication does, is not news. It must also have been on the previous list —
- * the first list after a load, and a session first seen already finished, are not news — and
- * still be unread, so a turn read in another tab raises nothing. A failed job is not named: its
- * row says Failed, and a green check would contradict it. Nor is an archived session, or any in
- * `viewed`, the sessions the reader was looking at.
+ * A row counts when it has stopped working — the end of the whole job, not of a turn inside it:
+ * a job finishes a turn, verifies, and may run repair turns, and each moves `turnFinishedAt`
+ * while the row still says Working — and its finish is later than the one it had when last idle.
+ * A row that stops working with no new finish, as a publication does, is not news. It must be in
+ * `before` — the first list after a load, and a session first seen already finished, are not
+ * news — and still be unread, so a turn read in another tab raises nothing. A failed job is not
+ * named: its row says Failed, and a green check would contradict it. Nor is an archived session,
+ * or any in `viewed`, the sessions the reader was looking at.
  */
 export function finishedInBackground(
-  previous: readonly SessionSummary[] | undefined,
+  before: SettledFinishes | undefined,
   next: readonly SessionSummary[],
   viewed: ReadonlySet<string>,
   now: number,
 ): SessionSummary[] {
-  if (previous === undefined) return [];
-  const before = new Map(previous.map((row) => [row.projectId, row]));
+  if (before === undefined) return [];
   return next.filter((row) => {
-    const prior = before.get(row.projectId);
-    if (!prior || viewed.has(row.projectId) || row.turnFinishedAt === null) return false;
+    if (!before.has(row.projectId) || viewed.has(row.projectId)) return false;
+    if (row.turnFinishedAt === null) return false;
     if (row.activity !== "ready" && row.activity !== "completed") return false;
     if (sessionSection(row, now) === "archived") return false;
-    return time(row.turnFinishedAt) > time(prior.turnFinishedAt) && isUnread(row);
+    return time(row.turnFinishedAt) > time(before.get(row.projectId) ?? null) && isUnread(row);
   });
 }
 

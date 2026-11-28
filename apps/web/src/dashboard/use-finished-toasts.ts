@@ -3,14 +3,16 @@
 import type { SessionSummary } from "@nap/shared/session-navigation";
 import { useEffect, useRef } from "react";
 import { showToast } from "../ui/toasts.ts";
-import { finishedInBackground } from "./session-rows.ts";
+import { finishedInBackground, type SettledFinishes, settledFinishes } from "./session-rows.ts";
 
 /**
- * The last list compared, for the whole tab rather than one mount. The dashboard and each
- * project's workspace hold separate lists, and opening a session from the dashboard swaps one
- * for the other: a turn finishing before the workspace's first list arrived would otherwise be on
- * no list "before", and pass unannounced.
+ * What the lists so far said each session had finished (`settledFinishes`), and the last list
+ * compared — for the whole tab rather than one mount. The dashboard and each project's workspace
+ * hold separate lists, and opening a session from the dashboard swaps one for the other: a turn
+ * finishing before the workspace's first list arrived would otherwise be on no list "before", and
+ * pass unannounced.
  */
+let baseline: SettledFinishes | undefined;
 let lastCompared: readonly SessionSummary[] | undefined;
 
 /**
@@ -63,7 +65,8 @@ export function useFinishedToasts(
       if (now - at < LEFT_GRACE_MS) viewed.add(projectId);
       else leftAt.delete(projectId);
     }
-    const finished = finishedInBackground(lastCompared, projects, viewed, now);
+    const finished = finishedInBackground(baseline, projects, viewed, now);
+    baseline = settledFinishes(baseline, projects);
     lastCompared = projects;
     for (const { projectId, name } of finished)
       showToast({

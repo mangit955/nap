@@ -14,6 +14,7 @@ import {
   SETTLED_START,
   seenChange,
   sessionSource,
+  settledFinishes,
   shelveSessions,
   snoozePresets,
   snoozeWakeLabel,
@@ -197,6 +198,8 @@ describe("seenChange", () => {
 describe("finishedInBackground", () => {
   const working = (over: Partial<SessionSummary> = {}) =>
     session({ activity: "working", runStartedAt: at(2), ...over });
+  // What each row had finished as of the last list it was idle on, from one list.
+  const settle = (rows: SessionSummary[]) => settledFinishes(undefined, rows);
   const finish = (row: SessionSummary, minutesAgo = 0): SessionSummary => ({
     ...row,
     activity: "completed",
@@ -208,7 +211,7 @@ describe("finishedInBackground", () => {
     const watched = working();
     const other = working();
     const finished = finishedInBackground(
-      [watched, other],
+      settle([watched, other]),
       [watched, finish(other)],
       new Set([watched.projectId]),
       NOW,
@@ -222,7 +225,9 @@ describe("finishedInBackground", () => {
     const left = working();
     const now = working();
     const viewed = new Set([left.projectId, now.projectId]);
-    expect(finishedInBackground([left, now], [finish(left), finish(now)], viewed, NOW)).toEqual([]);
+    expect(
+      finishedInBackground(settle([left, now]), [finish(left), finish(now)], viewed, NOW),
+    ).toEqual([]);
   });
 
   // The job runs on after a turn — verification, repair turns — and each turn moves the finish
@@ -230,23 +235,42 @@ describe("finishedInBackground", () => {
   it("names nothing still working or queued, and names it once the job ends", () => {
     const running = working();
     const midJob = { ...finish(running, 1), activity: "working" as const };
-    expect(finishedInBackground([running], [midJob], new Set(), NOW)).toEqual([]);
+    expect(finishedInBackground(settle([running]), [midJob], new Set(), NOW)).toEqual([]);
     const requeued = { ...finish(running, 1), activity: "queued" as const };
-    expect(finishedInBackground([running], [requeued], new Set(), NOW)).toEqual([]);
-    // The job's own end (`job.completed`) moves the finish time again.
-    expect(finishedInBackground([midJob], [finish(running, 0)], new Set(), NOW)).toHaveLength(1);
+    expect(finishedInBackground(settle([running]), [requeued], new Set(), NOW)).toEqual([]);
+    const meanwhile = settledFinishes(settle([running]), [midJob]);
+    expect(finishedInBackground(meanwhile, [finish(running, 0)], new Set(), NOW)).toHaveLength(1);
+  });
+
+  // `job.completed` is written while the job still holds its lease: publishing the pull request
+  // and photographing the app come after it. A list read in between shows the final finish on a
+  // row that still says Working; the toast must still come once the row goes idle.
+  it("names a job whose last finish was listed while it still said Working", () => {
+    const before = finish(working(), 30);
+    const ended = { ...finish(before, 0), activity: "working" as const };
+    const baseline = settledFinishes(settle([before]), [ended]);
+    expect(finishedInBackground(baseline, [finish(before, 0)], new Set(), NOW)).toHaveLength(1);
   });
 
   // Publishing a verified job runs and ends without a new finish: the row leaving Working is not
   // news unless something finished, even when the reader has marked it unread meanwhile.
   it("names nothing that stops working without its finish moving", () => {
-    const published = { ...finish(working(), 5), activity: "working" as const };
-    const settled = {
-      ...published,
-      activity: "completed" as const,
-      navigation: NavigationSchema.parse({ unread: true }),
-    };
-    expect(finishedInBackground([published], [settled], new Set(), NOW)).toEqual([]);
+    const idle = finish(working(), 5);
+    const publishing = { ...idle, activity: "working" as const };
+    const settled = { ...idle, navigation: NavigationSchema.parse({ unread: true }) };
+    const baseline = settledFinishes(settle([idle]), [publishing]);
+    expect(finishedInBackground(baseline, [settled], new Set(), NOW)).toEqual([]);
+  });
+
+  // A session that turned up mid-watch already working — started in another tab — has finished
+  // nothing the reader knew of, so its first finish is news.
+  it("names the first finish of a session first listed while it worked", () => {
+    const known = finish(working(), 30);
+    const started = working();
+    const baseline = settledFinishes(settle([known]), [known, started]);
+    expect(finishedInBackground(baseline, [known, finish(started)], new Set(), NOW)).toHaveLength(
+      1,
+    );
   });
 
   it("names nothing archived", () => {
@@ -255,40 +279,40 @@ describe("finishedInBackground", () => {
       ...finish(running),
       navigation: NavigationSchema.parse({ archivedAt: at(0) }),
     };
-    expect(finishedInBackground([running], [archived], new Set(), NOW)).toEqual([]);
+    expect(finishedInBackground(settle([running]), [archived], new Set(), NOW)).toEqual([]);
   });
 
   // A failure is not "finished": its row says Failed in red, and a green check would contradict it.
   it("names nothing whose turn failed", () => {
     const broken = working();
     const failed = { ...finish(broken), activity: "attention" as const };
-    expect(finishedInBackground([broken], [failed], new Set(), NOW)).toEqual([]);
+    expect(finishedInBackground(settle([broken]), [failed], new Set(), NOW)).toEqual([]);
   });
 
   it("names a second finished turn on a session that had finished before", () => {
     const earlier = finish(working(), 10);
     const later = finish(earlier, 0);
-    expect(finishedInBackground([earlier], [later], new Set(), NOW)).toHaveLength(1);
+    expect(finishedInBackground(settle([earlier]), [later], new Set(), NOW)).toHaveLength(1);
   });
 
   // The first list after a load is not news: everything in it finished before the reader came.
   it("names nothing on the first list, or for a session it had not seen", () => {
     const row = finish(working());
     expect(finishedInBackground(undefined, [row], new Set(), NOW)).toEqual([]);
-    expect(finishedInBackground([], [row], new Set(), NOW)).toEqual([]);
+    expect(finishedInBackground(settle([]), [row], new Set(), NOW)).toEqual([]);
   });
 
   it("names nothing whose finished turn did not move, or was already read elsewhere", () => {
     const done = finish(working(), 5);
-    expect(finishedInBackground([done], [{ ...done, activityAt: at(0) }], new Set(), NOW)).toEqual(
-      [],
-    );
+    expect(
+      finishedInBackground(settle([done]), [{ ...done, activityAt: at(0) }], new Set(), NOW),
+    ).toEqual([]);
     const running = working();
     const readInAnotherTab = {
       ...finish(running),
       navigation: NavigationSchema.parse({ readAt: at(0) }),
     };
-    expect(finishedInBackground([running], [readInAnotherTab], new Set(), NOW)).toEqual([]);
+    expect(finishedInBackground(settle([running]), [readInAnotherTab], new Set(), NOW)).toEqual([]);
   });
 });
 
