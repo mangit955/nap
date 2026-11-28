@@ -147,7 +147,7 @@ it("snoozes with a preset, settles, and edits a title inline without following i
     fireEvent.click(screen.getByRole("button", { name: "Settle Fix header" }));
     expect(apply).toHaveBeenLastCalledWith(
       [{ kind: "change", projectId: session.projectId, change: { kind: "done", value: true } }],
-      { label: "Settled" },
+      { label: undefined },
     );
     const link = screen.getByRole("link", { name: /Fix header/ });
     // The first click of a double-click has gone wherever it goes; the second is not followed.

@@ -14,7 +14,7 @@
 
 import { Popover } from "@base-ui/react/popover";
 import { Toolbar } from "@base-ui/react/toolbar";
-import { DEFAULT_EFFORT, type Effort, type ModelVendor } from "@nap/shared/model-lines";
+import { DEFAULT_EFFORT, type Effort, lineOf, type ModelVendor } from "@nap/shared/model-lines";
 import { use, useEffect, useId, useRef, useState } from "react";
 import { ShowcaseContext } from "../ui/showcase.ts";
 import { type ModelOption, modelInUse } from "./model-options.ts";
@@ -35,6 +35,12 @@ const TAB_LABELS: Record<Tab, string> = {
 };
 
 const tabOf = (option: ModelOption): Tab => option.vendor ?? "free";
+
+function modelLabel(option: ModelOption): string {
+  const id = option.free ? null : option.version;
+  const version = id === null ? undefined : lineOf(id)?.pattern.exec(id)?.[1];
+  return version === undefined ? option.label : `${option.label} ${version}`;
+}
 
 /** The model's name with its effort, as the trigger shows it: bars, or "Max" written out. */
 function TriggerEffort(props: { option: ModelOption; effort: Effort }) {
@@ -122,6 +128,7 @@ export function ModelPicker({
     return null;
   }
 
+  const selectedLabel = modelLabel(selected);
   const tabs = (["free", "openai", "anthropic", "meta"] as const).filter((each) =>
     models.some((option) => tabOf(option) === each),
   );
@@ -131,7 +138,7 @@ export function ModelPicker({
     needle === ""
       ? models.filter((option) => tabOf(option) === tab)
       : models.filter((option) =>
-          `${option.label} ${option.version ?? ""} ${TAB_LABELS[tabOf(option)]}`
+          `${modelLabel(option)} ${option.version ?? ""} ${TAB_LABELS[tabOf(option)]}`
             .toLowerCase()
             .includes(needle),
         );
@@ -177,12 +184,12 @@ export function ModelPicker({
         className="group/model-trigger flex h-7 max-w-[220px] items-center gap-1.5 rounded-lg px-2 font-normal text-[13px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent disabled:text-muted data-[popup-open]:bg-hover data-[popup-open]:text-ink"
       >
         {vendorLogos && <VendorLogo vendor={selected.vendor} className="size-3.5" />}
-        <span className="truncate">{selected.label}</span>
+        <span className="truncate">{selectedLabel}</span>
         {showEffort && <TriggerEffort option={selected} effort={chosenEffort} />}
         <span id={describedBy} className="sr-only">
           {showEffort && selected.efforts.length > 0
-            ? `${selected.label}, ${EFFORT_LABELS[chosenEffort]} effort`
-            : selected.label}
+            ? `${selectedLabel}, ${EFFORT_LABELS[chosenEffort]} effort`
+            : selectedLabel}
         </span>
         <svg
           width="11"
@@ -211,14 +218,14 @@ export function ModelPicker({
             initialFocus={search}
             // On a phone the effort column goes under the list, as T3's does, rather than off the
             // screen to its side.
-            className="composer-surface nap-float flex max-h-[min(360px,var(--available-height))] overflow-hidden rounded-[12px] text-ink outline-none max-sm:max-h-[var(--available-height)] max-sm:max-w-[calc(100vw-16px)] max-sm:flex-col"
+            className="composer-surface quiet-popover nap-float flex max-h-[min(360px,var(--available-height))] overflow-hidden rounded-[12px] text-ink outline-none max-sm:max-h-[var(--available-height)] max-sm:max-w-[calc(100vw-16px)] max-sm:flex-col"
             data-model-picker
           >
             <div className="flex min-h-0 max-sm:max-h-[240px]">
               <Toolbar.Root
                 orientation="vertical"
                 aria-label="Vendors"
-                className="w-11 shrink-0 bg-hover/50 p-1"
+                className="w-11 shrink-0 p-1"
                 data-model-picker-sidebar
               >
                 <div className="flex flex-col gap-1">
@@ -234,7 +241,7 @@ export function ModelPicker({
                         setQuery("");
                         search.current?.focus();
                       }}
-                      className="relative flex aspect-square w-full cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none aria-pressed:bg-hover"
+                      className="relative flex aspect-square w-full cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
                     >
                       <VendorLogo vendor={each === "free" ? null : each} className="size-5" />
                       {each === tab && needle === "" && (
@@ -249,7 +256,7 @@ export function ModelPicker({
                 </div>
               </Toolbar.Root>
 
-              <div className="flex w-[232px] min-w-0 flex-col border-edge border-l max-sm:w-[180px]">
+              <div className="flex w-[232px] min-w-0 flex-col border-edge/45 border-l max-sm:w-[min(232px,calc(100vw-62px))]">
                 <div className="shrink-0 px-3 pt-2.5">
                   <input
                     ref={search}
@@ -258,7 +265,7 @@ export function ModelPicker({
                     placeholder="Search models…"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    className="h-[33px] w-full border-edge border-b bg-transparent pb-1.5 text-[13px] text-ink outline-none placeholder:text-muted"
+                    className="h-[33px] w-full border-edge/45 border-b bg-transparent pb-1.5 text-[13px] text-ink outline-none focus-visible:border-accent placeholder:text-muted"
                   />
                 </div>
                 <ul
@@ -282,9 +289,7 @@ export function ModelPicker({
                           aria-describedby={
                             option.available ? undefined : `${LOCKED_HINT_ID}-${option.id}`
                           }
-                          className={`group flex h-8 w-full cursor-pointer items-center gap-2 rounded-[6px] px-2 text-left hover:bg-hover focus-visible:bg-hover focus-visible:outline-none ${
-                            isSelected ? "bg-hover" : ""
-                          }`}
+                          className="group flex h-8 w-full cursor-pointer items-center gap-2 rounded-[6px] px-2 text-left hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
                         >
                           <VendorLogo vendor={option.vendor} className="size-4" />
                           <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -292,7 +297,7 @@ export function ModelPicker({
                               className={`min-w-0 truncate text-[13px] ${option.available ? "text-ink" : "text-muted"}`}
                               title={option.version ?? undefined}
                             >
-                              {option.label}
+                              {modelLabel(option)}
                               <span className="sr-only">
                                 {`, ${TAB_LABELS[tabOf(option)]}${isSelected ? ", in use" : ""}`}
                               </span>
@@ -344,15 +349,15 @@ export function ModelPicker({
             {showEffort && (
               <div
                 ref={effortColumn}
-                className="flex w-44 shrink-0 flex-col border-edge border-l bg-hover/50 max-sm:min-h-0 max-sm:w-full max-sm:shrink max-sm:border-t max-sm:border-l-0"
+                className="flex w-44 shrink-0 flex-col border-edge/45 border-l max-sm:min-h-0 max-sm:w-full max-sm:shrink max-sm:border-t max-sm:border-l-0"
                 data-model-picker-effort
               >
                 {/* Matches the search row's box, so one rule runs across the top of the popup. */}
                 <div className="shrink-0 px-3 pt-2.5">
-                  <div className="flex h-[33px] items-center gap-2 border-edge border-b pb-1.5 text-[13px]">
+                  <div className="flex h-[33px] items-center gap-2 border-edge/45 border-b pb-1.5 text-[13px]">
                     <span className="text-muted">Effort</span>
                     <span className="ms-auto min-w-0 truncate text-[11.5px] text-muted">
-                      {selected.label}
+                      {selectedLabel}
                     </span>
                   </div>
                 </div>

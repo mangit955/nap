@@ -509,7 +509,7 @@ function undoLabel(change: NavigationChange["change"]): string | undefined {
     case "pin":
       return change.pinned ? "Pinned" : "Unpinned";
     case "done":
-      return change.value ? "Settled" : "Un-settled";
+      return change.value ? undefined : "Un-settled";
     case "archive":
       return change.value ? "Archived" : "Restored";
     case "snooze":

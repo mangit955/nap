@@ -73,8 +73,32 @@ describe("the trigger", () => {
     const trigger = screen.getByRole("button", { name: /^Model/ });
     // Named for its job, described by its setting, so a screen reader hears both.
     expect(trigger).toHaveAccessibleName("Model");
-    expect(trigger).toHaveAccessibleDescription("Opus, High effort");
+    expect(trigger).toHaveAccessibleDescription("Opus 5.5, High effort");
     expect(trigger.querySelector("[data-effort-glyph]")).not.toBeNull();
+  });
+
+  it("uses the deployment label for a free model on a known line", () => {
+    const free = {
+      ...FREE,
+      id: "openai/gpt-6.2-sol",
+      version: "openai/gpt-6.2-sol",
+      label: "Gpt 6.2 Sol",
+    };
+    render(<ModelPicker models={[free, ...LINES]} model={free.id} onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Model" })).toHaveAccessibleDescription(
+      "Gpt 6.2 Sol",
+    );
+  });
+
+  it("follows the resolved version when the catalog or pin changes", () => {
+    const { rerender } = render(<ModelPicker models={LINES} model="sol" onChange={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "Model" });
+    expect(trigger).toHaveAccessibleDescription("Sol 6.2");
+    const pinned = LINES.map((line) =>
+      line.id === "sol" ? { ...line, version: "openai/gpt-6.1-sol" } : line,
+    );
+    rerender(<ModelPicker models={pinned} model="sol" onChange={vi.fn()} />);
+    expect(trigger).toHaveAccessibleDescription("Sol 6.1");
   });
 
   it("writes Max out rather than drawing a full row of bars", () => {
@@ -92,7 +116,7 @@ describe("the trigger", () => {
 
   it("never names a locked line as the one in use", () => {
     render(<ModelPicker models={LINES} model="fable" onChange={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Sol");
+    expect(screen.getByRole("button", { name: /^Model/ })).toHaveTextContent("Sol 6.2");
   });
 });
 
@@ -100,11 +124,11 @@ describe("the list", () => {
   it("opens on the vendor of the line in use, with T3's New badge", () => {
     open();
     const list = screen.getByRole("list", { name: "Model" });
-    expect(list).toHaveTextContent("Sol");
-    expect(list).toHaveTextContent("Luna");
+    expect(list).toHaveTextContent("Sol 6.2");
+    expect(list).toHaveTextContent("Luna 6");
     expect(list).not.toHaveTextContent("Opus");
     expect(within(list).getByText("New")).toHaveTextContent("New model");
-    expect(screen.getByRole("button", { name: /Sol, OpenAI, in use/ })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /Sol 6.2, OpenAI, in use/ })).toHaveAttribute(
       "aria-current",
       "true",
     );
@@ -119,11 +143,11 @@ describe("the list", () => {
   it("searches every vendor at once", () => {
     open();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search models" }), {
-      target: { value: "o" },
+      target: { value: "opus 5.5" },
     });
     const list = screen.getByRole("list", { name: "Model" });
-    expect(list).toHaveTextContent("Sol");
-    expect(list).toHaveTextContent("Opus");
+    expect(list).not.toHaveTextContent("Sol 6.2");
+    expect(list).toHaveTextContent("Opus 5.5");
     expect(list).not.toHaveTextContent("Muse Ember");
   });
 
@@ -165,6 +189,7 @@ describe("the list", () => {
 describe("the effort column", () => {
   it("offers the line's five levels, marking the default and the one chosen", () => {
     open({ effort: "xhigh", defaultEffort: "medium" });
+    expect(screen.getByText("Effort", { exact: true }).parentElement).toHaveTextContent("Sol 6.2");
     const levels = within(screen.getByRole("radiogroup", { name: "Effort" })).getAllByRole("radio");
     expect(levels.map((level) => level.textContent)).toEqual([
       "Low",

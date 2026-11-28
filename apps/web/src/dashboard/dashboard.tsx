@@ -268,6 +268,7 @@ export function Dashboard({
             <div className="sidebar-resize">
               <Splitter
                 label="Sidebar width"
+                quiet
                 value={width}
                 onGrab={(event) => {
                   event.preventDefault();

@@ -448,8 +448,7 @@ describe("acting before the server answers", () => {
     await act(async () => release());
     await waitFor(() => expect(server.rows()[0]?.navigation.doneAt).not.toBeNull());
     expect(screen.getByRole("button", { name: "Settled (1)" })).toBeInTheDocument();
-    // And it can be taken back.
-    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
   it("puts a refused action back and says why, by name", async () => {

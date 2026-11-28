@@ -165,7 +165,7 @@ export function Sidebar({
   return (
     <nav
       aria-label="Dashboard"
-      className="flex h-full min-h-0 flex-col border-r border-edge bg-sidebar px-2 pt-3 pb-2"
+      className="flex h-full min-h-0 flex-col border-r border-edge/55 bg-sidebar px-2 pt-3 pb-2"
     >
       <a
         href="/dashboard"

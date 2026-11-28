@@ -58,13 +58,13 @@ export function SourceFilter({
         </button>
       </Tooltip>
       {open && (
-        <div className="composer-surface nap-float absolute left-0 top-full z-40 mt-1 w-full rounded-[10px] p-1.5 [--float-origin:top]">
+        <div className="composer-surface quiet-popover nap-float absolute left-0 top-full z-40 mt-1 w-full rounded-[10px] p-1.5 [--float-origin:top]">
           <input
             aria-label="Search sources"
             placeholder="Find a source…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="mb-1 w-full rounded border border-edge bg-field p-2 text-xs outline-none focus:border-accent"
+            className="mb-1 w-full rounded border border-edge/55 bg-field/60 p-2 text-xs outline-none focus:border-accent"
           />
           <div className="max-h-64 overflow-y-auto">
             {[
@@ -80,7 +80,7 @@ export function SourceFilter({
                   setOpen(false);
                   trigger.current?.focus();
                 }}
-                className="flex w-full items-center gap-2 rounded p-2 text-left text-xs text-ink-2 hover:bg-hover"
+                className="flex w-full items-center gap-2 rounded p-2 text-left text-xs text-ink-2 hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
               >
                 <SourceMark source={source} />
                 <span className="truncate">
