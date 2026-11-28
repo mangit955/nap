@@ -717,7 +717,7 @@ Demo identities cost nothing to mint, so only the total below bounds the bill:
   this is *not* the worker's concurrency: unbounded it
   would be 25 simultaneous Chromiums in one container, and an OOM kill costs every turn in
   flight rather than a thumbnail. Pictures are taken after the session's lease goes back, so
-  a slow browser delays a card and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
+  a slow browser delays a picture and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
   projects wait for one. A project already waiting has its place taken over by its newer request;
   a new project's request past that cap is dropped. A shutdown drops the queue.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
