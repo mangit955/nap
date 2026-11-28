@@ -128,7 +128,7 @@ describe("CommandPalette", () => {
     const { field } = setup();
     chord();
     fireEvent.change(field(), { target: { value: "zzz" } });
-    expect(screen.getByText("No matching commands or sessions.")).toBeTruthy();
+    expect(screen.getByRole("status")).toHaveTextContent("No matching commands or sessions.");
     expect(field().getAttribute("aria-controls")).toBeNull();
     expect(field().getAttribute("aria-activedescendant")).toBeNull();
     fireEvent.keyDown(field(), { key: "Enter" });
@@ -212,14 +212,40 @@ describe("CommandPalette", () => {
     expect(ran).toEqual(["files"]);
   });
 
+  it("keeps the first row highlighted as a command, not a position, when the list reorders", () => {
+    const { ran, field, highlighted, replace, command } = setup();
+    chord();
+    expect(highlighted()).toBe("New session");
+    replace([
+      command("files", "Actions", -1, "Open Files"),
+      command("new", "Actions", 0, "New session"),
+    ]);
+    expect(highlighted()).toBe("New session");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(ran).toEqual(["new"]);
+  });
+
+  it("keeps focus in the field when the list is pressed", () => {
+    const { field } = setup();
+    chord();
+    // A cancelled mousedown is what keeps a click from focusing what was clicked.
+    expect(fireEvent.mouseDown(screen.getByText("Actions"))).toBe(false);
+    expect(fireEvent.mouseDown(screen.getByRole("option", { name: "Open Files" }))).toBe(false);
+    expect(document.activeElement).toBe(field());
+  });
+
   it("puts the page right after closing and before the command runs", () => {
     const order: string[] = [];
-    const { field } = setup({
+    const { field, ran } = setup({
       beforeRun: () =>
-        order.push(document.querySelector("dialog")?.hasAttribute("open") ? "open" : "closed"),
+        order.push(
+          `before: ${document.querySelector("dialog")?.hasAttribute("open") ? "open" : "closed"}`,
+          `ran so far: ${ran.length}`,
+        ),
     });
     chord();
     fireEvent.keyDown(field(), { key: "Enter" });
-    expect(order).toEqual(["closed"]);
+    expect(order).toEqual(["before: closed", "ran so far: 0"]);
+    expect(ran).toEqual(["new"]);
   });
 });

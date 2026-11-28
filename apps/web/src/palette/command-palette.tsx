@@ -20,8 +20,9 @@ import type { CommandRegistry } from "./registry.ts";
  * has offered (see `registry.ts`), drawn as T3 Code draws its own.
  *
  * A native modal `<dialog>`, like the repo's other dialogs, for its focus trap, Escape and inert
- * page. It stays mounted while closed so the way out can fade too; see `command-palette.css`. The field is a combobox and the rows a listbox it points into, so the field
- * keeps focus while arrows move the highlight — the pattern the sidebar's search uses.
+ * page. It stays mounted while closed so the way out can fade too; see `command-palette.css`.
+ * The field is a combobox and the rows a listbox it points into, so the field keeps focus while
+ * arrows move the highlight — the pattern the sidebar's search uses.
  */
 export function CommandPalette({
   registry,
@@ -47,10 +48,12 @@ export function CommandPalette({
 
   const sections = groupCommands(registry.list(), query);
   const rows = sections.flatMap((section) => section.commands);
-  const current = Math.max(
-    0,
-    rows.findIndex((command) => command.id === activeId),
-  );
+  const found = rows.findIndex((command) => command.id === activeId);
+  const current = Math.max(0, found);
+  // Whatever is highlighted is pinned by id the moment it shows, the first row included, so a
+  // source reordering the list under a still keyboard cannot change what Enter runs.
+  const shown = rows[current];
+  if (shown && found < 0) setActiveId(shown.id);
   const optionId = (index: number) => `${listId}-option-${index}`;
 
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
@@ -180,6 +183,9 @@ export function CommandPalette({
           // Chrome makes a scrolling box a tab stop; here it would take focus from the field,
           // whose keys are the only ones that move and run the highlight.
           tabIndex={-1}
+          // A press anywhere in the list leaves focus in the field: `tabIndex` -1 still lets a
+          // click focus the list itself, where the arrows and Enter do nothing.
+          onMouseDown={(event) => event.preventDefault()}
           className="command-palette-list"
         >
           {sections.map((section) => {
@@ -211,10 +217,12 @@ export function CommandPalette({
           })}
         </div>
       ) : (
-        <p role="status" className="command-palette-empty">
-          No matching commands or sessions.
-        </p>
+        <p className="command-palette-empty">No matching commands or sessions.</p>
       )}
+      {/* Always mounted: a live region that appears with its text is announced unreliably. */}
+      <p role="status" className="sr-only">
+        {rows.length === 0 ? "No matching commands or sessions." : ""}
+      </p>
       <div className="command-palette-footer" aria-hidden>
         <span>
           <kbd>↑</kbd>

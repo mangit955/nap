@@ -1,8 +1,8 @@
 /*
  * The command palette (`command-palette.tsx`), as T3 Code draws its own, measured from its
  * shipped bundle: the dialog glass at a 16px radius over the softened room (`.dialog-glass` in
- * `globals.css` draws both), rows 32px tall with a 6px radius in an 8px gutter, and a highlight that is the ink at 9% — grey, never the accent, which here only
- * marks status. The highlight jumps from row to row rather than sliding, as T3's does.
+ * `globals.css` draws both), rows 32px tall with a 6px radius in an 8px gutter, and a highlight
+ * that is the ink at 9% — grey, never the accent, which here only marks status. The highlight jumps from row to row rather than sliding, as T3's does.
  * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
  *
  * In and out alike: scale from 0.98 with the fade, 200ms ease-in-out. The dialog stays mounted
