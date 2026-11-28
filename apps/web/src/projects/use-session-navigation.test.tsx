@@ -138,6 +138,7 @@ it("sends actions one at a time, so a second change on a row carries the first's
   );
   expect(result.current.actionError).toBeUndefined();
   expect(find(session.projectId)?.revision).toBe(2);
+  expect(result.current.undoAction?.label).toBe("Pinned");
 });
 
 it("abandons the rest of a move once one of its steps is refused", async () => {
@@ -268,16 +269,16 @@ it("captures Undo after a refused predecessor, so it cannot resurrect the refuse
   act(() => {
     saved = Promise.all([
       result.current.change(session.projectId, { kind: "pin", pinned: true }),
-      result.current.change(session.projectId, { kind: "done", value: true }),
+      result.current.change(session.projectId, { kind: "archive", value: true }),
     ]);
   });
   await act(async () => {
     release();
     await saved;
   });
-  expect(result.current.undoAction?.label).toBe("Settled");
+  expect(result.current.undoAction?.label).toBe("Archived");
   await act(async () => result.current.undo());
-  expect(server.rows()[0]?.navigation).toMatchObject({ pinned: false, doneAt: null });
+  expect(server.rows()[0]?.navigation).toMatchObject({ pinned: false, archivedAt: null });
 });
 
 it("uses the accepted order revision when a refresh sees the commit before its response", async () => {

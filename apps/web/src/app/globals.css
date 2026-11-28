@@ -1960,6 +1960,10 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
 }
+.composer-surface.quiet-popover {
+  border-color: color-mix(in srgb, var(--color-edge) 55%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 94%, transparent);
+}
 /*
  * A popover rather than a menu — something that holds content, like the repository picker.
  * T3's popover adds one thing its menus do not: a 1px highlight along the top edge, drawn by a pseudo-element's shadow so it sits over the border rather than inside it.
@@ -2113,6 +2117,7 @@ details[open] > .nap-float {
     background: var(--color-panel);
   }
   .composer-surface,
+  .composer-surface.quiet-popover,
   .dialog-glass {
     background: var(--color-panel);
   }
@@ -2148,6 +2153,7 @@ details[open] > .nap-float {
     backdrop-filter: none;
   }
   .composer-surface,
+  .composer-surface.quiet-popover,
   .dialog-glass {
     background: var(--color-panel);
     -webkit-backdrop-filter: none;
@@ -2632,7 +2638,7 @@ details[open] > .nap-float {
   flex: 1;
   min-width: 8px;
   height: 1px;
-  background: color-mix(in srgb, var(--color-edge) 60%, transparent);
+  background: color-mix(in srgb, var(--color-edge) 35%, transparent);
 }
 [data-drop="true"]::before {
   content: "";

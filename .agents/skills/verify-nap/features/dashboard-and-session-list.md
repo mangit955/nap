@@ -10,7 +10,7 @@ and a Thread details panel sits on the right.
 - `list-open`: choosing a session opens its workspace at `/p/<projectId>`.
 - `list-search`: typing in Search sessions shows matching sessions in a listbox, with the match marked.
 - `list-filter`: Filter by source opens a picker with All sources and one button per source.
-- `list-settle`: Settle moves a session under a collapsed Settled group and offers Undo.
+- `list-settle`: Settle moves a session under a collapsed Settled group.
 - `list-snooze`: Snooze hides a session until later.
 - `list-new`: New session returns to the empty composer.
 - `list-menu`: right-clicking a row opens the menu `Actions for <title>` (Pin, Settle, Snooze,
@@ -46,8 +46,8 @@ Preconditions:
   and the button `Scratch`.
 - **Settle.** Run `hover --role link --name "<title>" --loose`, then
   `click --role button --name "Settle <title>"`. The row leaves `Inbox sessions`, a region
-  `Settled` with the button `Settled (1)` appears, and a status `Settled` offers `Undo`. Capture it
-  with `shot --label "session list: settled"`.
+  `Settled` with the button `Settled (1)` appears. Check `wait --role button --name "Undo" --state hidden`,
+  then capture it with `shot --label "session list: settled"`.
 - **Session menu.** Run `click --role link --name "<title>" --loose --right`. A menu
   `Actions for <title>` opens with menuitems including `Pin`, `Settle`, `Snooze`, `Rename`,
   `Regenerate title`, `Archive` and `Delete`.

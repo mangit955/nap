@@ -268,13 +268,13 @@ export function SessionList({
   const changeEach = (
     rows: readonly SessionSummary[],
     change: (row: SessionSummary) => NavigationStep | null,
-    verb: string,
+    verb: string | undefined,
   ) => {
     const steps = rows.flatMap((row) => {
       const step = change(row);
       return step ? [step] : [];
     });
-    apply(steps, { label: counted(verb, steps.length) });
+    apply(steps, { label: verb === undefined ? undefined : counted(verb, steps.length) });
   };
   const actions = {
     pin(row: SessionSummary, pinned: boolean) {
@@ -291,7 +291,7 @@ export function SessionList({
           (sessionSection(row, now) === "done") === value || (value && working(row))
             ? null
             : { kind: "change", projectId: row.projectId, change: { kind: "done", value } },
-        value ? "Settled" : "Un-settled",
+        value ? undefined : "Un-settled",
       );
     },
     snooze(ids: readonly string[], until: string | null) {
@@ -589,7 +589,7 @@ export function SessionList({
     const from = sessionSection(row, now);
     const verb =
       target.shelf === "settled"
-        ? "Settled"
+        ? undefined
         : from === "done"
           ? "Un-settled"
           : from === "snoozed"
