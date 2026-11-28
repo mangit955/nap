@@ -51,7 +51,7 @@ export function SessionSidebar({
     if (id !== projectId) window.history.pushState(null, "", `/p/${encodeURIComponent(id)}`);
     onNavigate?.();
   };
-  useFinishedToasts(projects, projectId, select);
+  useFinishedToasts(projects, status === "ready", projectId, select);
   const [settings, setSettings] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const key = useApiKey();

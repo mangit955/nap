@@ -117,19 +117,22 @@ export function isUnread(session: SessionSummary): boolean {
  * The sessions whose turn finished between two reads of the list, for the "Session finished"
  * toast. A row counts only when it was on the previous list too — the first list after a load,
  * and a session first seen already finished, are not news — when its finished turn moved later,
- * and when it is still unread, so a turn read in another tab raises nothing. The open session is
- * never named: the reader is watching it finish.
+ * and when it is still unread, so a turn read in another tab raises nothing. A failed turn is not
+ * named: its row says Failed, and a green check would contradict it. Nor is any session in
+ * `viewed`, every one the reader had open since the previous list — a turn can finish on screen
+ * and the reader move on before the list showing it arrives.
  */
 export function finishedInBackground(
   previous: readonly SessionSummary[] | undefined,
   next: readonly SessionSummary[],
-  openProjectId: string | undefined,
+  viewed: ReadonlySet<string>,
 ): SessionSummary[] {
   if (previous === undefined) return [];
   const before = new Map(previous.map((row) => [row.projectId, row]));
   return next.filter((row) => {
     const prior = before.get(row.projectId);
-    if (!prior || row.projectId === openProjectId || row.turnFinishedAt === null) return false;
+    if (!prior || viewed.has(row.projectId) || row.turnFinishedAt === null) return false;
+    if (row.activity === "attention") return false;
     return time(row.turnFinishedAt) > time(prior.turnFinishedAt) && isUnread(row);
   });
 }

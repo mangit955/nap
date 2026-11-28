@@ -19,7 +19,7 @@ screencast (`Page.startScreencast`).
 | `switch-toast-open.mp4` | The whole take in real time: send, switch away, the toast arrives, **Open** |
 | `toast-in-out-slow-5x.mp4` | The toast's entrance and exit at a fifth of the speed |
 | `motion-frames.jpg` | The bottom right every 100 ms: it rises from below the edge (0.7–1.1 s) and drops away fading after **Open** (1.4–1.6 s) |
-| `reduced-motion-frames.jpg` | `prefers-reduced-motion: reduce` emulated over CDP. The four frames are every frame Chrome painted from 6.63 s on: no toast (6.63 s, 7.27 s), the toast fully in place (7.28 s), gone (15.28 s, its 8 s timeout). Nothing in between, so no slide and no fade |
+| `reduced-motion-frames.jpg` | `prefers-reduced-motion: reduce` emulated over CDP. The take delivered 21 screencast frames, and these are the last four, labelled with Chrome's paint time: no toast (6.63 s, 7.27 s), the toast fully in place (7.28 s), gone (15.28 s, its 8 s timeout). The screencast sends a frame whenever the page repaints and delivered none in between, so nothing slid or faded |
 
 The reduced-motion take had to be recorded with no driver command running while the toast was up:
 each command re-attaches Playwright, which resets the emulated media. A first attempt with commands

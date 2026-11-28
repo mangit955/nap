@@ -186,6 +186,10 @@ it("shows working and failed states, and the unread dot only until completion ha
   expect(screen.getAllByRole("status").map((element) => element.textContent)).toEqual(
     expect.arrayContaining(["Working", "Queued", "Failed", "Unread"]),
   );
+  // The dot itself, beside the label a screen reader hears: info blue, 6px, round.
+  const unread = screen.getAllByRole("status").find((element) => element.textContent === "Unread");
+  expect(unread?.querySelector("[aria-hidden]")).toHaveClass("size-1.5", "rounded-full", "bg-info");
+
   view.rerender(
     <SessionList
       sessions={[{ ...done, navigation: NavigationSchema.parse({ readAt: done.activityAt }) }]}

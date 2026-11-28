@@ -64,7 +64,10 @@ export function Toaster() {
   return (
     <Toast.Provider toastManager={manager} timeout={4000} limit={3}>
       <Toast.Portal>
-        <Toast.Viewport className="pointer-events-none fixed right-4 bottom-4 z-[60] max-md:bottom-16 flex w-[min(22rem,calc(100vw-2rem))] flex-col-reverse gap-2 outline-none">
+        <Toast.Viewport
+          data-toast-viewport
+          className="pointer-events-none fixed right-4 bottom-4 z-[60] max-md:bottom-16 flex w-[min(22rem,calc(100vw-2rem))] flex-col-reverse gap-2 outline-none"
+        >
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>
@@ -103,7 +106,7 @@ function ToastList() {
 
 function PlainToast({ toast }: { toast: Toast.Root.ToastObject }) {
   return (
-    <Toast.Root key={toast.id} toast={toast} className={ROOT}>
+    <Toast.Root toast={toast} className={ROOT}>
       <Toast.Content className="flex min-w-0 items-start gap-2.5">
         {toast.type === "error" ? (
           <CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-danger" />

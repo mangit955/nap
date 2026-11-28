@@ -74,13 +74,15 @@ describe("showToast and Toaster", () => {
       action: { label: "Open", onClick: onOpen },
     });
 
-    it("is announced politely, with Open and Dismiss as buttons a keyboard reaches", async () => {
+    // jsdom does not move focus on Tab, so this pins what Tab relies on — both are tab stops — and
+    // that focus is what names Dismiss. The real Tab order was driven in Chrome (see the PR).
+    it("is announced politely, with Open and Dismiss as tab stops", async () => {
       render(<Toaster />);
       act(() => showToast(finished()));
       const toast = await screen.findByRole("dialog", { name: "Session finished" });
       expect(toast).toHaveAccessibleDescription("Fix empty-state copy");
       expect(screen.queryByRole("alert")).toBeNull();
-      expect(document.querySelector('[aria-live="polite"]')).not.toBeNull();
+      expect(toast.closest('[aria-live="polite"]')).not.toBeNull();
       expect(screen.getByRole("button", { name: "Open" }).tabIndex).toBe(0);
       // Base UI hides the close button from a screen reader until the stack is hovered or holds
       // focus; tabbing to it is what a keyboard does, and that names it.

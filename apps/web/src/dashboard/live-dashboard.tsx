@@ -70,7 +70,7 @@ function SignedInDashboard({
   const router = useRouter();
   const navigation = useSessionNavigation();
   const { projects, status, actionError, close, remove, rename } = navigation;
-  useFinishedToasts(projects, undefined, (id) => openProject(router, id));
+  useFinishedToasts(projects, status === "ready", undefined, (id) => openProject(router, id));
   const { models, loading: modelsLoading } = useModels();
   // The same hook the welcome step uses, so the rail's label and that page cannot disagree
   // about whether a key is saved.

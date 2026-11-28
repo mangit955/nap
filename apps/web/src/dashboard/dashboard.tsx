@@ -115,8 +115,14 @@ export function Dashboard({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      // Native rename/account dialogs keep their own Escape and Tab handling.
-      if (event.target instanceof Element && event.target.closest("dialog[open]")) return;
+      // Native rename/account dialogs keep their own Escape and Tab handling, and so do the toasts,
+      // which sit outside the drawer: F6 is a keyboard's way to them, and the trap below would pull
+      // focus from a toast's buttons straight back to the rows.
+      if (
+        event.target instanceof Element &&
+        event.target.closest("dialog[open], [data-toast-viewport]")
+      )
+        return;
       if (event.key === "Escape") {
         event.preventDefault();
         closeNavigation();

@@ -204,44 +204,55 @@ describe("finishedInBackground", () => {
     turnFinishedAt: at(minutesAgo),
   });
 
-  it("names a session whose turn finished since the last list, unread and not open", () => {
+  it("names a session whose turn finished since the last list, unread and not watched", () => {
     const watched = working();
     const other = working();
     const finished = finishedInBackground(
       [watched, other],
       [watched, finish(other)],
-      watched.projectId,
+      new Set([watched.projectId]),
     );
     expect(finished.map((row) => row.projectId)).toEqual([other.projectId]);
   });
 
-  it("never names the open session", () => {
-    const open = working();
-    expect(finishedInBackground([open], [finish(open)], open.projectId)).toEqual([]);
+  // Every session open since the last list counts as watched, not only the one open now: a turn
+  // can finish on screen and the reader switch away before the list that shows it arrives.
+  it("never names a session the reader had open since the last list", () => {
+    const left = working();
+    const now = working();
+    const viewed = new Set([left.projectId, now.projectId]);
+    expect(finishedInBackground([left, now], [finish(left), finish(now)], viewed)).toEqual([]);
+  });
+
+  // A failure is not "finished": its row says Failed in red, and a green check would contradict it.
+  it("names nothing whose turn failed", () => {
+    const broken = working();
+    const failed = { ...finish(broken), activity: "attention" as const };
+    expect(finishedInBackground([broken], [failed], new Set())).toEqual([]);
   });
 
   it("names a second finished turn on a session that had finished before", () => {
     const earlier = finish(working(), 10);
     const later = finish(earlier, 0);
-    expect(finishedInBackground([earlier], [later], undefined)).toHaveLength(1);
+    expect(finishedInBackground([earlier], [later], new Set())).toHaveLength(1);
   });
 
   // The first list after a load is not news: everything in it finished before the reader came.
   it("names nothing on the first list, or for a session it had not seen", () => {
     const row = finish(working());
-    expect(finishedInBackground(undefined, [row], undefined)).toEqual([]);
-    expect(finishedInBackground([], [row], undefined)).toEqual([]);
+    expect(finishedInBackground(undefined, [row], new Set())).toEqual([]);
+    expect(finishedInBackground([], [row], new Set())).toEqual([]);
   });
 
   it("names nothing whose finished turn did not move, or was already read elsewhere", () => {
     const done = finish(working(), 5);
-    expect(finishedInBackground([done], [{ ...done, activityAt: at(0) }], undefined)).toEqual([]);
+    expect(finishedInBackground([done], [{ ...done, activityAt: at(0) }], new Set())).toEqual([]);
     const running = working();
     const readInAnotherTab = {
       ...finish(running),
       navigation: NavigationSchema.parse({ readAt: at(0) }),
     };
-    expect(finishedInBackground([running], [readInAnotherTab], undefined)).toEqual([]);
+    expect(finishedInBackground([running], [readInAnotherTab], new Set())).toEqual([]);
   });
 });
 
