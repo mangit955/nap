@@ -30,7 +30,7 @@ import type { FetchJson } from "../files/use-project-files.ts";
 import { forgetKnownProject, knownProject, rememberProjects } from "./known-projects.ts";
 import { readProject } from "./project-prefetch.ts";
 
-export type ProjectsStatus = "loading" | "ready" | "error";
+type ProjectsStatus = "loading" | "ready" | "error";
 
 export type Projects = {
   projects: ProjectSummaryPayload[];

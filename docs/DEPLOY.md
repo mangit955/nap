@@ -717,7 +717,7 @@ Demo identities cost nothing to mint, so only the total below bounds the bill:
   this is *not* the worker's concurrency: unbounded it
   would be 25 simultaneous Chromiums in one container, and an OOM kill costs every turn in
   flight rather than a thumbnail. Pictures are taken after the session's lease goes back, so
-  a slow browser delays a card and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
+  a slow browser delays a picture and never a follow-up message. At most `NAP_WORKER_CONCURRENCY`
   projects wait for one. A project already waiting has its place taken over by its newer request;
   a new project's request past that cap is dropped. A shutdown drops the queue.
 - `NAP_DRAIN_TIMEOUT_SECONDS=600` — how long a worker being taken away waits for the turns it
@@ -765,8 +765,8 @@ provider — is in `docs/gotchas/api.md`.
 
 ## Screenshots
 
-The dashboard's cards are pictures of the apps themselves, taken at the end of the last turn
-that changed each one. That needs a browser in the image, so `Dockerfile` installs Debian's
+A project's picture, shown behind the preview pane's put-away and start-up screens, is the app
+itself, taken at the end of the last turn that changed it. That needs a browser in the image, so `Dockerfile` installs Debian's
 `chromium` and sets **`NAP_CHROME_PATH=/usr/bin/chromium` itself**. Do not set it as a platform
 variable: the binary and the path to it are one fact, and a variable can drift from the image
 that has to satisfy it.
@@ -777,8 +777,8 @@ two per turn, and `NAP_CAPTURE_CONCURRENCY` is what stops a worker running twent
 once — but it is the reason this was off at first.
 
 **A missing browser is not an error anywhere.** Capture returns a typed failure, the turn
-succeeds regardless, the thumbnail route 404s and each card falls back to a colour hashed from
-its project id. So the way to tell which state you are in is the boot line: `bun`'s log at
+succeeds regardless, the thumbnail route 404s and the preview pane's put-away and start-up
+screens show with no picture behind them. So the way to tell which state you are in is the boot line: `bun`'s log at
 startup carries `screenshots: "on" | "off"`. If it says `off`, the image lost its Chromium —
 nothing else will tell you, because every layer below is designed to shrug.
 

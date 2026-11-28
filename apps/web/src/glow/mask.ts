@@ -72,12 +72,6 @@ export function clampRadius(radius: number, width: number, height: number): numb
   return Math.max(0, Math.min(radius, width / 2, height / 2));
 }
 
-export function radiusOf(element: HTMLElement): number {
-  const radius = Number.parseFloat(getComputedStyle(element).borderRadius) || 0;
-  const { width, height } = element.getBoundingClientRect();
-  return clampRadius(radius, width, height);
-}
-
 /**
  * Safari's canvas blur is far stronger at the same radius, so the same number would put the
  * outermost layer most of the way across the page there.

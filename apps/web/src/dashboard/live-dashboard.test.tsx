@@ -52,10 +52,6 @@ vi.mock("../projects/use-session-navigation.ts", () => ({
   },
 }));
 
-vi.mock("../projects/use-start-project.ts", () => ({
-  useStartProject: () => ({ busy: false, error: undefined, start: vi.fn() }),
-}));
-
 const { LiveDashboard } = await import("./live-dashboard.tsx");
 
 beforeEach(() => {

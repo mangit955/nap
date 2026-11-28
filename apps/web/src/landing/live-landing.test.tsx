@@ -21,11 +21,6 @@ vi.mock("../auth/client.ts", () => ({
   authClient: { useSession: () => useSession(), signOut: vi.fn() },
 }));
 
-// The hero creates projects and the list loads them; neither has a server to talk to here.
-vi.mock("../projects/use-start-project.ts", () => ({
-  useStartProject: () => ({ busy: false, error: undefined, start: vi.fn() }),
-}));
-
 const { LiveLanding } = await import("./live-landing.tsx");
 
 beforeEach(() => {

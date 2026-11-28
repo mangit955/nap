@@ -8,11 +8,10 @@
  * Everything here is arithmetic and a storage passed in, so the whole rule is checkable without
  * mounting anything — the component keeps only the pointer handling.
  *
- * **There are two dividers now** — the chat against the workbench, and the file tree against the
- * editor — and they are the same rule with different numbers. So the rule is a factory and each
- * divider is an instance of it. The alternative was a second copy with the constants edited,
- * which is how one of them ends up with a fix the other never got. The bounds genuinely differ:
- * 180px is a readable column of filenames and an unreadable transcript.
+ * **There is more than one divider** — the chat against the workbench, and the right panel
+ * against the rest — and they are the same rule with different numbers. So the rule is a factory
+ * and each divider is an instance of it. The alternative was a second copy with the constants
+ * edited, which is how one of them ends up with a fix the other never got.
  */
 
 /** The subset of `Storage` this needs; `window.localStorage` satisfies it. */
@@ -115,19 +114,6 @@ export const CHAT_SPLIT = makeSplit({
   fallback: DEFAULT_CHAT_WIDTH,
   min: 280,
   maxFraction: 0.6,
-});
-
-/**
- * The file tree against the editor.
- *
- * Allowed a smaller share than the chat: source is the thing being read here, and a tree wide
- * enough to matter is still only a column of names.
- */
-export const TREE_SPLIT = makeSplit({
-  key: "nap.tree-width",
-  fallback: 240,
-  min: 180,
-  maxFraction: 0.4,
 });
 
 /*
