@@ -601,16 +601,17 @@ html:has(.num1) body {
   .n1-footer {
     padding-top: 56px;
   }
-  /* The brand column, then the link columns in a grid of their own: the mockup's 1.5fr + 3 × 1fr. */
+  /* The brand column, then the three link columns, which the nav takes as a subgrid so it stays
+     one landmark box while its columns line up with the mockup's. */
   .n1-foot {
     display: grid;
-    grid-template-columns: 1.5fr 3fr;
+    grid-template-columns: 1.5fr repeat(3, 1fr);
     gap: 30px;
   }
   .n1-foot-nav {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 30px;
+    grid-column: span 3;
+    grid-template-columns: subgrid;
   }
   .n1-foot p {
     max-width: 280px;
@@ -702,7 +703,9 @@ html:has(.num1) body {
       grid-template-columns: minmax(0, 1fr);
     }
     .n1-foot-nav {
+      grid-column: auto;
       grid-template-columns: 1fr 1fr;
+      gap: 30px;
     }
   }
   @media (max-width: 560px) {

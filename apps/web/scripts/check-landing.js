@@ -112,7 +112,9 @@
     const name = (control.textContent || control.getAttribute("aria-label") || "").trim();
     const hit = centre(control);
     const over =
-      hit === null ? "nothing" : `<${hit.tagName.toLowerCase()} class="${hit.className}">`;
+      hit === null
+        ? "nothing"
+        : `<${hit.tagName.toLowerCase()} class="${hit.getAttribute("class")}">`;
     check(owns(control, hit), `"${name.slice(0, 40)}" gets its own clicks (got ${over})`);
   }
 

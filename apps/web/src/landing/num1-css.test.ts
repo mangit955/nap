@@ -50,7 +50,11 @@ describe("the front page's motion", () => {
   });
 
   it("plays only for readers who have not asked for less of it", () => {
-    for (const rule of ALL.filter((each) => /\b(?:animation|transition):/.test(each.body))) {
+    for (const rule of ALL.filter((each) =>
+      /(?:^|[;\s])(?:animation|transition)(?:-[\w-]+)?\s*:|scroll-behavior:\s*smooth/.test(
+        each.body,
+      ),
+    )) {
       expect(rule.within, `${rule.path}: ${rule.selector}`).toContain(NO_PREFERENCE);
     }
   });
