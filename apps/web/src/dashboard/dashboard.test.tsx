@@ -1,6 +1,7 @@
 import { NavigationSchema, type SessionSummary } from "@nap/shared/session-navigation";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { showToast } from "../ui/toasts.ts";
 import { Dashboard } from "./dashboard.tsx";
 import { SessionList } from "./session-list.tsx";
 import { Sidebar } from "./sidebar.tsx";
@@ -109,6 +110,36 @@ it("closes the session action menu before the mobile drawer on Escape", () => {
   expect(screen.getByRole("link", { name: /Portfolio/ })).toHaveFocus();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
   expect(screen.getByRole("button", { name: "Open sessions" })).toHaveFocus();
+});
+
+// The toasts live outside the drawer, and the drawer's Tab trap would pull focus straight back from
+// a toast's Open or Dismiss to the rows (F6 is how a keyboard reaches the toasts at all).
+it("leaves a toast's keys to the toast while mobile sessions stays open", async () => {
+  // jsdom lays nothing out, and the trap skips anything with no box: without one it would find
+  // no targets and let Tab pass whatever it was told about the toasts.
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue(
+      Object.assign([new DOMRect(0, 0, 100, 30)], { item: () => new DOMRect(0, 0, 100, 30) }),
+    );
+  openSessionActions();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  act(() =>
+    showToast({
+      title: "Session finished",
+      tone: "finished",
+      action: { label: "Open", onClick: vi.fn() },
+    }),
+  );
+  const open = await screen.findByRole("button", { name: "Open" });
+  open.focus();
+  expect(fireEvent.keyDown(open, { key: "Tab" })).toBe(true);
+  expect(fireEvent.keyDown(open, { key: "Escape" })).toBe(true);
+  expect(screen.getByRole("button", { name: "Close sessions" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  rects.mockRestore();
 });
 
 it("leaves the delete dialog's keys to the dialog while mobile sessions stays open", () => {

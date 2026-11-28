@@ -16,6 +16,8 @@ and a Thread details panel sits on the right.
 - `list-menu`: right-clicking a row opens the menu `Actions for <title>` (Pin, Settle, Snooze,
   Rename, Regenerate title, Archive, Delete and more).
 - `list-retitle`: Regenerate title renames the session to the model's next title.
+- `list-finished`: a session that finishes while another is open raises the toast `Session finished`,
+  whose `Open` goes there; its row keeps a status `Unread` until it is opened.
 
 ## How to get to it (user POV)
 
@@ -31,7 +33,7 @@ Preconditions:
 
 - **See the list.** Run `goto /dashboard`, then `snapshot --label "dashboard"`. The navigation
   `Dashboard` contains the region `Session list` and the list `Inbox sessions`, and that list
-  contains a link whose name includes `Seeded notes app` and a status `Done`.
+  contains a link whose name includes `Seeded notes app` and a status `Unread` (the row's blue dot).
 - **Open a session.** Run `click --role link --name "Seeded notes app" --loose`. The URL becomes
   `/p/<seeded projectId>` (see `run.json`), and the main area shows the button
   `Rename this project. Currently called Seeded notes app` and the region `Chat`.
@@ -55,6 +57,13 @@ Preconditions:
   `wait --role link --name "Fixture title <nnn>" --loose --state hidden`; that wait passing is the
   proof. Then `snapshot` again: the row has a `Fixture title` number that was not in the list
   before, higher than all of them, because one counter numbers every title in the run.
+- **Finished out of sight.** Run `click --role button --name "New session"`, fill
+  `Describe the app you want`, `press --key Enter`, `wait --role region --name "Chat"`, then
+  `click --role link --name "Seeded notes app" --loose` while the new one works. Run
+  `wait --role dialog --name "Session finished" --timeout 60000`: the dialog's description is the new
+  session's title, and its row holds a status `Unread`. Run `click --role button --name "Open"` at
+  once: the URL becomes the new session's, its row has no `Unread`, and the dialog is gone. A turn
+  that finishes in the session you are viewing raises no dialog.
 - **New session.** Run `click --role button --name "New session"`. The main area shows the group
   `New session composer` with an empty `Describe the app you want`.
 
@@ -70,6 +79,13 @@ Preconditions:
 - Each user may run four projects at once on the fixture, the seeded one included. Past that,
   Send shows the alert "You already have 4 projects running, which is the limit". Settling does
   not free a slot; choose `Put away workspace` in a project's menu first.
+- A session left less than two seconds before its finish shows counts as watched, and raises no
+  toast — only its dot. A fake turn lasts about 7.5 s, so switch away as soon as `Chat` appears;
+  `snapshot` straight after the switch should show the new row's status `Working`.
+- The `Session finished` toast closes itself after 8 seconds, and every driver command takes a second
+  or two: click `Open` straight after the wait, with nothing in between. Its `Dismiss` button is
+  hidden from the tree until the toast holds focus or the pointer, so `click --name "Dismiss"`
+  cannot find it; reach it as a keyboard does, `press --key F6` then `Tab` three times and `Enter`.
 - The Snooze and Settle buttons sit under the row's link until the row is hovered. Clicking them
   without hovering fails with "subtree intercepts pointer events".
 - A row's link name includes its age and diff counts (`Scratch 3m Recipe Box +3 −1 scripted`), so

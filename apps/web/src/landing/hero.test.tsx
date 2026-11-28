@@ -55,8 +55,8 @@ describe("the front page's hero", () => {
 
 describe("the hero's three beats", () => {
   // Each beat is read where it is drawn: the bar's phase, the plan's count, the ledger's row in
-  // the sidebar, and the pane on show. The sidebar's other rows say "Working" and "Done" at every
-  // beat, so nothing here reads the page's text as a whole.
+  // the sidebar, and the pane on show. The sidebar's other rows say "Working" or wear the unread
+  // dot at every beat, so nothing here reads the page's text as a whole.
   const bar = () => document.querySelector(".lp-window-header");
   const chat = () => document.querySelector(".lp-window-chat");
   const ledgerRow = () =>
@@ -92,7 +92,7 @@ describe("the hero's three beats", () => {
     expect(bar()).toHaveTextContent("Verified");
     expect(chat()).toHaveTextContent("Plan · 4 of 4 done");
     expect(chat()).toHaveTextContent("Migrations, tests and the build all passed.");
-    expect(ledgerRow()).toHaveTextContent(/Done.*\+358/);
+    expect(ledgerRow()).toHaveTextContent(/Unread.*\+358/);
     expect(document.querySelector(".lp-hero-changes")).toHaveTextContent("3 files · +358");
     expect(document.querySelector(".lp-demo-overlay")).toHaveAttribute("inert");
     // Arriving is the hero's own short fade; the transcript's streaming fade would type it out.
