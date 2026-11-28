@@ -777,8 +777,8 @@ two per turn, and `NAP_CAPTURE_CONCURRENCY` is what stops a worker running twent
 once — but it is the reason this was off at first.
 
 **A missing browser is not an error anywhere.** Capture returns a typed failure, the turn
-succeeds regardless, the thumbnail route 404s and each card falls back to a colour hashed from
-its project id. So the way to tell which state you are in is the boot line: `bun`'s log at
+succeeds regardless, the thumbnail route 404s and the preview pane's put-away and start-up
+screens show with no picture behind them. So the way to tell which state you are in is the boot line: `bun`'s log at
 startup carries `screenshots: "on" | "off"`. If it says `off`, the image lost its Chromium —
 nothing else will tell you, because every layer below is designed to shrug.
 

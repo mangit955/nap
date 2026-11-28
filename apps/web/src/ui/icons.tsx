@@ -50,7 +50,7 @@ export function FileIcon({ className = "size-4" }: IconProps) {
   );
 }
 
-/* Shapes for verbs — reading, writing, running, searching — used wherever an action is named. */
+/* Shapes for verbs — writing, searching — used wherever an action is named. */
 
 export function PencilIcon({ className = "size-4" }: IconProps) {
   return (

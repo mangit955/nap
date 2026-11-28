@@ -1,7 +1,7 @@
 /**
  * The dashboard's arithmetic, kept away from its markup.
  *
- * Which projects the grid shows, which ones the sidebar lists, what to call the person looking
+ * Which projects a filter keeps, which ones the sidebar lists, what to call the person looking
  * at the page. None of it needs React, so none of it is in a component — a filter that can be
  * checked without mounting anything is a filter that stays checked.
  */

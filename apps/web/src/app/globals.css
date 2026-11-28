@@ -83,9 +83,9 @@
    */
   --color-bubble: #1c1c1c;
   /*
-   * Line numbers in the file viewer. They were on `edge` (#242424), which is a *border* colour:
-   * against the panel it measures about 1.2:1, so the gutter was there in the markup and
-   * invisible on screen. This is the dimmest a number can be and still be read at 12px.
+   * The dimmest text that can still be read at 12px. It began as a gutter's line numbers, which
+   * were on `edge` (#242424): that is a *border* colour, and against the panel it measures about
+   * 1.2:1, so the numbers were there in the markup and invisible on screen.
    */
   --color-gutter: #737373;
   /* The accent, legible as text. `accent` is a fill colour and fails contrast on a dark ground at 13px. */
