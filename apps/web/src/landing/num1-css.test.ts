@@ -61,7 +61,9 @@ describe("the front page's motion", () => {
 
   it("holds nothing back for readers who have", () => {
     // A rule that hides something until it is played must sit where the playing does.
-    for (const rule of ALL.filter((each) => each.selector.includes('data-reveal="pending"'))) {
+    // Any selector keyed on the reveal, however it is written (`pending` quoted or not, or
+    // `:not([data-reveal="in"])`), changes what is shown before it plays.
+    for (const rule of ALL.filter((each) => each.selector.includes("data-reveal"))) {
       expect(rule.within, `${rule.path}: ${rule.selector}`).toContain(NO_PREFERENCE);
     }
   });

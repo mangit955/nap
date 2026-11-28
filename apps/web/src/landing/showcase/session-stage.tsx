@@ -11,7 +11,7 @@
  * reduced motion, or no script, sees exactly that.
  */
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, Ref } from "react";
 import { PixelSprite } from "../pixel-sprite.tsx";
 
 const CURSOR = [
@@ -55,7 +55,8 @@ const TERMINAL = [
   { tone: "ok", text: "✓ csv.test.ts (9)" },
 ] as const;
 
-export function SessionStage() {
+/** `deskRef` marks the desk, which holds every piece the stage plays in (`live-stage.tsx`). */
+export function SessionStage({ deskRef }: { deskRef?: Ref<HTMLDivElement> }) {
   return (
     <div className="n1-sess" aria-hidden="true">
       <div className="n1-sess-chat">
@@ -102,7 +103,7 @@ export function SessionStage() {
           <span className="sp" />
           <span className="n1-rec">● REC 00:14</span>
         </div>
-        <div className="n1-desk n1-grid">
+        <div ref={deskRef} className="n1-desk n1-grid">
           <div className="n1-browser">
             <div className="n1-url">
               ← → ↻<span>localhost:3000/import</span>

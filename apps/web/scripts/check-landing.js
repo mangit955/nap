@@ -67,6 +67,12 @@
       });
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
+  // Contrast is computed on the colour alone, so a translucent ring has to be refused outright:
+  // `rgba(0, 0, 0, 0)` would otherwise score as black.
+  const opaque = (colour) => {
+    const alpha = colour.match(/[\d.]+/g)?.[3];
+    return alpha === undefined || Number(alpha) >= 1;
+  };
   const contrast = (a, b) => {
     const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
     return (high + 0.05) / (low + 0.05);
@@ -98,7 +104,7 @@
       const style = getComputedStyle(control);
       const drawn = style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) >= 1;
       check(
-        drawn && contrast(style.outlineColor, groundOf(control)) >= 3,
+        drawn && opaque(style.outlineColor) && contrast(style.outlineColor, groundOf(control)) >= 3,
         `"${control.textContent.trim().slice(0, 40)}" has a visible focus ring`,
       );
     }
