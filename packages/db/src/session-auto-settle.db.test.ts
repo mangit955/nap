@@ -352,10 +352,15 @@ describe("auto-settle when the pull request merges", () => {
   it("does not settle again what its owner un-settled when the merged job is refreshed", async () => {
     const owner = await person({ afterDays: null, onMerge: true });
     const session = await imported(owner, "open", 1);
-    // The integration learns of the merge: the one transition the rule counts.
+    // The integration learns of the merge: the one transition the rule counts. It is stamped a
+    // minute back because the owner's un-settle below stamps the floor with Postgres's `now()`,
+    // and a database clock even a few milliseconds behind this process's would put a merge
+    // stamped `new Date()` after that floor. In use, a person un-settles long after GitHub's
+    // merge time; a minute ago is still days after the session's last turn.
+    const mergedAt = new Date(Date.now() - 60_000).toISOString();
     await github.updateJob(session.jobId, {
       pullRequestState: "merged",
-      pullRequestMergedAt: new Date().toISOString(),
+      pullRequestMergedAt: mergedAt,
     });
     expect(await settles(session.projectId)).toBe(true);
     const unsettled = await store.change(owner, session.projectId, {
@@ -368,7 +373,7 @@ describe("auto-settle when the pull request merges", () => {
     await github.updateJob(session.jobId, { checkState: "passed" });
     await github.updateJob(session.jobId, {
       pullRequestState: "merged",
-      pullRequestMergedAt: new Date().toISOString(),
+      pullRequestMergedAt: mergedAt,
     });
     expect(await settles(session.projectId)).toBe(false);
   });
