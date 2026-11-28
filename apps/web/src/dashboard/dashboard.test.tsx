@@ -115,6 +115,13 @@ it("closes the session action menu before the mobile drawer on Escape", () => {
 // The toasts live outside the drawer, and the drawer's Tab trap would pull focus straight back from
 // a toast's Open or Dismiss to the rows (F6 is how a keyboard reaches the toasts at all).
 it("leaves a toast's keys to the toast while mobile sessions stays open", async () => {
+  // jsdom lays nothing out, and the trap skips anything with no box: without one it would find
+  // no targets and let Tab pass whatever it was told about the toasts.
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue(
+      Object.assign([new DOMRect(0, 0, 100, 30)], { item: () => new DOMRect(0, 0, 100, 30) }),
+    );
   openSessionActions();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
   act(() =>
@@ -132,6 +139,7 @@ it("leaves a toast's keys to the toast while mobile sessions stays open", async 
     "aria-expanded",
     "true",
   );
+  rects.mockRestore();
 });
 
 it("leaves the delete dialog's keys to the dialog while mobile sessions stays open", () => {

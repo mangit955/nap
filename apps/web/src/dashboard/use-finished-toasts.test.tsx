@@ -166,3 +166,18 @@ it("names a session the reader left once the grace has passed", async () => {
     vi.useRealTimers();
   }
 });
+
+// New session takes the reader from the workspace to the dashboard: the session they were on is
+// left as surely as by a switch, though nothing in the workspace is still mounted to say so.
+it("raises nothing for a session left by leaving the workspace, moments before its finish shows", async () => {
+  const watched = row("Watched to the end");
+  const open = vi.fn();
+  render(<Toaster />);
+  const workspace = render(
+    <Harness projects={[watched]} openProjectId={watched.projectId} open={open} />,
+  );
+  workspace.unmount();
+  render(<Harness projects={[finish(watched)]} openProjectId={undefined} open={open} />);
+  await act(() => Promise.resolve());
+  expect(screen.queryByRole("dialog")).toBeNull();
+});

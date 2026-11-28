@@ -233,9 +233,20 @@ describe("finishedInBackground", () => {
     expect(finishedInBackground([running], [midJob], new Set(), NOW)).toEqual([]);
     const requeued = { ...finish(running, 1), activity: "queued" as const };
     expect(finishedInBackground([running], [requeued], new Set(), NOW)).toEqual([]);
-    // The job's end may not move the finish time again: leaving Working is enough.
-    const ended = { ...midJob, activity: "completed" as const };
-    expect(finishedInBackground([midJob], [ended], new Set(), NOW)).toHaveLength(1);
+    // The job's own end (`job.completed`) moves the finish time again.
+    expect(finishedInBackground([midJob], [finish(running, 0)], new Set(), NOW)).toHaveLength(1);
+  });
+
+  // Publishing a verified job runs and ends without a new finish: the row leaving Working is not
+  // news unless something finished, even when the reader has marked it unread meanwhile.
+  it("names nothing that stops working without its finish moving", () => {
+    const published = { ...finish(working(), 5), activity: "working" as const };
+    const settled = {
+      ...published,
+      activity: "completed" as const,
+      navigation: NavigationSchema.parse({ unread: true }),
+    };
+    expect(finishedInBackground([published], [settled], new Set(), NOW)).toEqual([]);
   });
 
   it("names nothing archived", () => {

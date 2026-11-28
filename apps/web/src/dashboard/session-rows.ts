@@ -116,15 +116,15 @@ export function isUnread(session: SessionSummary): boolean {
 /**
  * The sessions whose job finished between two reads of the list, for the "Session finished" toast.
  *
- * A row counts when it has stopped working — the end of the whole job, not of a turn inside it:
- * a job finishes a turn, verifies, and may run repair turns, and each of those turns moves
- * `turnFinishedAt` while the row still says Working. So the row must be idle now, and either its
- * finish moved later or it was busy on the previous list (the job's end need not move the time
- * again). It must also have been on the previous list — the first list after a load, and a
- * session first seen already finished, are not news — and still be unread, so a turn read in
- * another tab raises nothing. A failed job is not named: its row says Failed, and a green check
- * would contradict it. Nor is an archived session, or any in `viewed`, the sessions the reader
- * was looking at.
+ * A row counts when its finish moved later and it has stopped working — the end of the whole job,
+ * not of a turn inside it: a job finishes a turn, verifies, and may run repair turns, and each of
+ * those turns moves `turnFinishedAt` while the row still says Working. The job's own end
+ * (`job.completed`) moves it once more, which is what is announced. A row that stops working with
+ * no new finish, as a publication does, is not news. It must also have been on the previous list —
+ * the first list after a load, and a session first seen already finished, are not news — and
+ * still be unread, so a turn read in another tab raises nothing. A failed job is not named: its
+ * row says Failed, and a green check would contradict it. Nor is an archived session, or any in
+ * `viewed`, the sessions the reader was looking at.
  */
 export function finishedInBackground(
   previous: readonly SessionSummary[] | undefined,
@@ -139,9 +139,7 @@ export function finishedInBackground(
     if (!prior || viewed.has(row.projectId) || row.turnFinishedAt === null) return false;
     if (row.activity !== "ready" && row.activity !== "completed") return false;
     if (sessionSection(row, now) === "archived") return false;
-    const moved = time(row.turnFinishedAt) > time(prior.turnFinishedAt);
-    const wasBusy = prior.activity === "working" || prior.activity === "queued";
-    return (moved || wasBusy) && isUnread(row);
+    return time(row.turnFinishedAt) > time(prior.turnFinishedAt) && isUnread(row);
   });
 }
 

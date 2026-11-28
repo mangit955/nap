@@ -22,6 +22,13 @@ let lastCompared: readonly SessionSummary[] | undefined;
 export const LEFT_GRACE_MS = 2000;
 
 /**
+ * When each session the reader left was last open, by this tab's clock — for the tab, like
+ * `lastCompared`, because leaving a session can mean leaving the workspace: New session swaps it
+ * for the dashboard, whose own list may be the first to show that session's finish.
+ */
+const leftAt = new Map<string, number>();
+
+/**
  * Says so when a session the reader is not looking at finishes its turn: T3's "Session finished"
  * toast, whose Open goes there. Read from the session list the sidebar already holds — a finished
  * turn moves a row's `turnFinishedAt`, and the list is read again whenever the server says it
@@ -38,22 +45,23 @@ export function useFinishedToasts(
   openProjectId: string | undefined,
   open: (projectId: string) => void,
 ): void {
-  // When each session the reader has left was last open, by this tab's clock.
-  const leftAt = useRef(new Map<string, number>());
-  const wasOpen = useRef(openProjectId);
+  // Leaving a session — for another, or for a page without one — is when it stops being watched.
+  useEffect(() => {
+    if (openProjectId === undefined) return;
+    return () => {
+      leftAt.set(openProjectId, Date.now());
+    };
+  }, [openProjectId]);
   // The newest list and `open`, for a toast's button pressed after both have moved on.
   const latest = useRef({ projects, open });
   latest.current = { projects, open };
   useEffect(() => {
-    const now = Date.now();
-    if (wasOpen.current !== undefined && wasOpen.current !== openProjectId)
-      leftAt.current.set(wasOpen.current, now);
-    wasOpen.current = openProjectId;
     if (!ready || projects === lastCompared) return;
+    const now = Date.now();
     const viewed = new Set(openProjectId === undefined ? [] : [openProjectId]);
-    for (const [projectId, at] of leftAt.current) {
+    for (const [projectId, at] of leftAt) {
       if (now - at < LEFT_GRACE_MS) viewed.add(projectId);
-      else leftAt.current.delete(projectId);
+      else leftAt.delete(projectId);
     }
     const finished = finishedInBackground(lastCompared, projects, viewed, now);
     lastCompared = projects;
@@ -64,7 +72,8 @@ export function useFinishedToasts(
         tone: "finished",
         action: {
           label: "Open",
-          // Deleted or archived while the toast was up: there is nowhere to go.
+          // Deleted while the toast was up: there is nowhere to go. An archived session can still
+          // be opened, so it is.
           onClick: () => {
             const { projects: now, open: go } = latest.current;
             if (now.some((row) => row.projectId === projectId)) go(projectId);
