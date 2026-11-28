@@ -12,8 +12,10 @@ import { useReveal } from "./use-reveal.ts";
  * reduced motion) is the finished frame.
  *
  * What is observed is the session's desk, not the section: the desk holds every piece that is held
- * back, so none can be on screen before the motion plays, and on a wide screen the desk is still
- * below the fold on load, so the motion waits for the reader instead of playing out of sight.
+ * back, so none can be on screen before the motion plays (`live-stage.test.tsx`). On a 900px-tall
+ * screen the desk is still below the fold on load, so the motion waits for the reader; on a screen
+ * 964–1232px tall the desk's top shows on load and the motion plays with the terminal and cursor
+ * still below the fold, ending on the same finished frame.
  */
 export function LiveStage() {
   const { ref, state } = useReveal<HTMLDivElement>();
