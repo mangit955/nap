@@ -33,14 +33,6 @@ export function ChevronRight({ className = "size-4" }: IconProps) {
   );
 }
 
-export function ChevronDown({ className = "size-4" }: IconProps) {
-  return (
-    <svg aria-hidden="true" {...STROKE} className={className}>
-      <path d="m3.5 6 4.5 5 4.5-5" />
-    </svg>
-  );
-}
-
 export function FolderIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>
@@ -60,38 +52,10 @@ export function FileIcon({ className = "size-4" }: IconProps) {
 
 /* Shapes for verbs — reading, writing, running, searching — used wherever an action is named. */
 
-export function EyeIcon({ className = "size-4" }: IconProps) {
-  return (
-    <svg aria-hidden="true" {...STROKE} className={className}>
-      <path d="M1.5 8S4 3.8 8 3.8 14.5 8 14.5 8 12 12.2 8 12.2 1.5 8 1.5 8" />
-      <circle cx="8" cy="8" r="1.9" />
-    </svg>
-  );
-}
-
 export function PencilIcon({ className = "size-4" }: IconProps) {
   return (
     <svg aria-hidden="true" {...STROKE} className={className}>
       <path d="M11.2 2.6a1.4 1.4 0 0 1 2 2L5.6 12.2 2.8 13.2l1-2.8z" />
-    </svg>
-  );
-}
-
-export function TrashIcon({ className = "size-4" }: IconProps) {
-  return (
-    <svg aria-hidden="true" {...STROKE} className={className}>
-      <path d="M3.5 5h9" />
-      <path d="M6 5V3.5h4V5M4.5 5l.7 8h5.6l.7-8" />
-      <path d="M6.8 7.2v3.6M9.2 7.2v3.6" />
-    </svg>
-  );
-}
-
-export function TerminalIcon({ className = "size-4" }: IconProps) {
-  return (
-    <svg aria-hidden="true" {...STROKE} className={className}>
-      <path d="m3 5 3 3-3 3" />
-      <path d="M8 11.5h5" />
     </svg>
   );
 }
@@ -101,15 +65,6 @@ export function SearchIcon({ className = "size-4" }: IconProps) {
     <svg aria-hidden="true" {...STROKE} className={className}>
       <circle cx="7.2" cy="7.2" r="4.2" />
       <path d="m10.4 10.4 3 3" />
-    </svg>
-  );
-}
-
-export function ListIcon({ className = "size-4" }: IconProps) {
-  return (
-    <svg aria-hidden="true" {...STROKE} className={className}>
-      <path d="M6 4.2h7.5M6 8h7.5M6 11.8h7.5" />
-      <path d="M2.8 4.2h.01M2.8 8h.01M2.8 11.8h.01" strokeWidth="1.8" />
     </svg>
   );
 }

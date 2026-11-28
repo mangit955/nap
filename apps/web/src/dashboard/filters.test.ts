@@ -1,12 +1,6 @@
 import type { ProjectSummaryPayload } from "@nap/shared/projects-protocol";
 import { describe, expect, it } from "vitest";
-import {
-  filterProjects,
-  greetingName,
-  recentProjects,
-  scopeCounts,
-  tileGradient,
-} from "./filters.ts";
+import { filterProjects, greetingName, recentProjects, scopeCounts } from "./filters.ts";
 
 /**
  * The dashboard's arithmetic: which projects the grid shows, which ones the sidebar lists, and
@@ -113,23 +107,5 @@ describe("what to call the person signed in", () => {
   it("has something to say when it knows nothing at all", () => {
     // The greeting is the first line on the page; it cannot render "Let's build something, ,".
     expect(greetingName(undefined)).toBe("there");
-  });
-});
-
-describe("a project's tile", () => {
-  it("is the same every visit", () => {
-    // The tile stands in for a screenshot. One that changed on each render would read as the
-    // page failing to remember which project is which.
-    expect(tileGradient("a")).toBe(tileGradient("a"));
-  });
-
-  it("differs between projects", () => {
-    expect(tileGradient("a")).not.toBe(tileGradient("b"));
-  });
-
-  it("is a gradient a browser will accept", () => {
-    expect(tileGradient("3e0fbc41-6f5d-4a8e-ab9c-4d5e6f708192")).toMatch(
-      /^linear-gradient\(135deg, hsl\([\d.]+ \d+% \d+%\), hsl\([\d.]+ \d+% \d+%\)\)$/,
-    );
   });
 });

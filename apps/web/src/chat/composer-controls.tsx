@@ -1,9 +1,8 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useRef } from "react";
 import type { useDictation } from "../dashboard/use-dictation.ts";
-import { type DraftAttachment, MEDIA_ACCEPT } from "./use-media-attachments.ts";
+import type { DraftAttachment } from "./use-media-attachments.ts";
 
 /**
  * Without a colour, for a control that changes colour with its state: two colour utilities on one
@@ -18,54 +17,6 @@ const CONTROL_SHAPE =
   "grid size-8 shrink-0 place-items-center rounded-[8px] transition-[background-color,color,scale] duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover aria-expanded:text-ink motion-safe:[&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 export const CONTROL_CLASS = `${CONTROL_SHAPE} text-muted`;
-
-export function AttachmentButton({
-  disabled,
-  onFiles,
-}: {
-  disabled: boolean;
-  onFiles: (files: File[]) => void;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <input
-        ref={input}
-        type="file"
-        accept={MEDIA_ACCEPT}
-        multiple
-        aria-label="Attach images or videos"
-        className="sr-only"
-        tabIndex={-1}
-        disabled={disabled}
-        onChange={(event) => {
-          onFiles(Array.from(event.target.files ?? []));
-          event.target.value = "";
-        }}
-      />
-      <button
-        type="button"
-        aria-label="Add images or videos"
-        title="Add images or videos"
-        disabled={disabled}
-        onClick={() => input.current?.click()}
-        className={CONTROL_CLASS}
-      >
-        <svg
-          viewBox="0 0 24 24"
-          className="size-5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          aria-hidden="true"
-        >
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
-    </>
-  );
-}
 
 export function DictationButton({
   dictation,
