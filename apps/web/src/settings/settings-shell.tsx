@@ -4,11 +4,10 @@
  * The frame every settings page sits in: a rail of settings on the left, a breadcrumb along the
  * top, and the page scrolling on its own beneath both, so the way back never scrolls away.
  *
- * Laid out after Devin's settings. The rail lists only pages and dialogs that exist — a rail
- * padded with entries that lead nowhere would look more like the reference and be worse to use.
- * Below `md` the rail is hidden and each page's own back link is the way out.
+ * On narrow screens the settings links sit above the breadcrumb.
  */
 
+import { Archive, PanelLeft } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
@@ -21,18 +20,15 @@ const ITEM = `flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left tex
 
 export function SettingsShell({
   crumbs,
-  appHref = "/dashboard",
-  connectionsHref = "/settings/connections",
+  draftId,
   nested = false,
   activePage = "connections",
   onApiKey,
   children,
 }: {
   crumbs: readonly Crumb[];
-  /** Where "Back to app" goes — a draft's own address when the visit started from one. */
-  appHref?: string;
-  /** Where the rail's Connections entry goes, carrying the draft for the same reason. */
-  connectionsHref?: string;
+  /** A composer draft to return to after visiting settings. */
+  draftId?: string | undefined;
   /** The page sits beneath the rail's Connections entry rather than being it. */
   nested?: boolean;
   activePage?: "connections" | "archived" | "sidebar";
@@ -51,8 +47,7 @@ export function SettingsShell({
   const search = useRef<HTMLInputElement>(null);
 
   // `/` jumps to the settings search, as the hint inside the field says — unless the key is
-  // being typed into something. The key is only taken if the field took focus: below `md` the
-  // rail is hidden, and under a dialog it is inert, and either way `/` should do what it did.
+  // being typed into something. Search can be hidden on narrow screens or inert behind a modal.
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -72,9 +67,12 @@ export function SettingsShell({
   const needle = query.trim().toLowerCase();
   const matches = (label: string) => label.toLowerCase().includes(needle);
 
+  const draft = draftId ? `?draft=${draftId}` : "";
+  const appHref = draftId ? `/dashboard${draft}&repositories=1` : "/dashboard";
+
   return (
-    <div className="flex h-dvh bg-surface text-ink">
-      <aside className="hidden w-72 shrink-0 flex-col border-r border-edge bg-sidebar md:flex">
+    <div className="flex h-dvh flex-col bg-surface text-ink md:flex-row">
+      <aside className="flex shrink-0 flex-col border-edge/55 border-b bg-sidebar md:w-72 md:border-r md:border-b-0">
         <div className="flex h-11 shrink-0 items-center px-3">
           <a
             href={appHref}
@@ -84,8 +82,8 @@ export function SettingsShell({
             Back to app
           </a>
         </div>
-        <div className="px-3 pt-1">
-          <label className="flex h-8 items-center gap-2 rounded-lg border border-edge bg-field px-2.5 text-muted focus-within:border-accent">
+        <div className={query ? "px-3 pt-1" : "hidden px-3 pt-1 md:block"}>
+          <label className="flex h-8 items-center gap-2 rounded-lg border border-edge/55 bg-field px-2.5 text-muted focus-within:border-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent">
             <SearchIcon className="size-3.5 shrink-0" />
             <input
               ref={search}
@@ -96,18 +94,21 @@ export function SettingsShell({
               onChange={(event) => setQuery(event.target.value)}
               className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-muted"
             />
-            <kbd className="rounded border border-edge px-1.5 font-sans text-[11px] leading-4 text-muted">
+            <kbd className="rounded border border-edge/55 px-1.5 font-sans text-[11px] leading-4 text-muted">
               /
             </kbd>
           </label>
         </div>
-        <nav aria-label="Settings" className="mt-6 min-h-0 flex-1 overflow-y-auto px-3">
-          <p className="px-2 pb-1.5 text-xs text-muted">Personal</p>
-          <ul className="space-y-0.5">
+        <nav
+          aria-label="Settings"
+          className="min-h-0 flex-1 overflow-auto px-2 py-1 md:mt-6 md:px-3 md:py-0"
+        >
+          <p className="hidden px-2 pb-1.5 text-xs text-muted md:block">Personal</p>
+          <ul className="grid grid-cols-2 gap-1 md:block md:space-y-0.5">
             {matches("Connections") && (
               <li>
                 <a
-                  href={connectionsHref}
+                  href={`/settings/connections${draft}`}
                   aria-current={
                     activePage === "connections" ? (nested ? "true" : "page") : undefined
                   }
@@ -121,10 +122,11 @@ export function SettingsShell({
             {matches("Archived sessions") && (
               <li>
                 <a
-                  href="/settings/archived"
+                  href={`/settings/archived${draft}`}
                   aria-current={activePage === "archived" ? "page" : undefined}
                   className={`${ITEM} ${activePage === "archived" ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover"}`}
                 >
+                  <Archive aria-hidden="true" className="size-4 shrink-0 text-ink-2" />
                   Archived sessions
                 </a>
               </li>
@@ -132,10 +134,11 @@ export function SettingsShell({
             {matches("Sidebar") && (
               <li>
                 <a
-                  href="/settings/sidebar"
+                  href={`/settings/sidebar${draft}`}
                   aria-current={activePage === "sidebar" ? "page" : undefined}
                   className={`${ITEM} ${activePage === "sidebar" ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover"}`}
                 >
+                  <PanelLeft aria-hidden="true" className="size-4 shrink-0 text-ink-2" />
                   Sidebar
                 </a>
               </li>
@@ -160,7 +163,7 @@ export function SettingsShell({
               <p className="px-2 py-1.5 text-[13px] text-muted">No settings match.</p>
             )}
         </nav>
-        <div className="p-3">
+        <div className="hidden p-3 md:block">
           <a
             href="/docs"
             aria-label="Documentation"
@@ -171,8 +174,8 @@ export function SettingsShell({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-11 shrink-0 items-center border-b border-edge px-5 sm:px-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex h-11 shrink-0 items-center gap-3 border-b border-edge/55 px-4 sm:px-6">
           <nav aria-label="Breadcrumb" className="min-w-0">
             <ol className="flex items-center gap-2 text-[13px]">
               {crumbs.map((crumb, index) => {
@@ -204,7 +207,9 @@ export function SettingsShell({
             </ol>
           </nav>
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-20 pt-5 sm:px-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto px-5 pt-8 pb-20 sm:px-6">
+          <div className="mx-auto w-full max-w-[720px]">{children}</div>
+        </main>
       </div>
 
       {keyOpen !== undefined && <RailKeyDialog open={keyOpen} onClose={() => setKeyOpen(false)} />}

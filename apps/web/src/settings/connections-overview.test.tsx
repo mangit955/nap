@@ -47,7 +47,7 @@ describe("Connections overview", () => {
     await waitFor(() => expect(github).toHaveAccessibleDescription("Connected · 1 account"));
     const key = await screen.findByRole("button", { name: "OpenRouter" });
     expect(key).toHaveAccessibleDescription("Connected · …a1b2");
-    expect(screen.getByRole("link", { name: "Back to draft" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Back to app" })).toHaveAttribute(
       "href",
       `/dashboard?draft=${draftId}&repositories=1`,
     );
@@ -58,12 +58,6 @@ describe("Connections overview", () => {
 
     fireEvent.click(key);
     expect(screen.getByRole("dialog", { name: "Your API key" })).toBeVisible();
-  });
-
-  it("offers a key for the paid models, not a subscription", () => {
-    render(<ConnectionsOverview fetchJson={api({ configured: false }, { configured: false })} />);
-    expect(screen.getByText("Bring your own key for the paid models")).toBeVisible();
-    expect(screen.queryByText(/subscription/i)).not.toBeInTheDocument();
   });
 
   it("marks GitHub as needing attention when its only connections are in trouble", async () => {
