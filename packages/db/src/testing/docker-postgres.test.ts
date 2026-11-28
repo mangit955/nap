@@ -120,7 +120,15 @@ describe("startDockerPostgres", { timeout: 20_000 }, () => {
     return promise;
   }
 
-  async function failure(promise: Promise<unknown>, boundMs = 2500) {
+  /**
+   * The error a startup ended with, or a note that it never ended. The bound only catches a hang:
+   * the deadlines under test are the helper's own, on fake timers where a test means them. Every
+   * stub command is a fresh Node process, and up to four of them start in one test; each can take
+   * over a second under the full suite, which is why a 2.5 s bound failed there. 15 s is past any
+   * of that and inside the suite's 20 s timeout. A test that first waits for the stub (`waitFor`,
+   * up to 10 s) can still meet the suite timeout first on a slow start; either way a hang fails.
+   */
+  async function failure(promise: Promise<unknown>, boundMs = 15_000) {
     return Promise.race([
       promise.then(
         () => "unexpected startup success",
@@ -284,9 +292,11 @@ describe("startDockerPostgres", { timeout: 20_000 }, () => {
     await expect(readFile(join(fixture, "resource"))).rejects.toThrow(/ENOENT/);
   });
 
+  // Claims only that rollback ends on its own cleanup deadline rather than the 120 s startup one;
+  // the cleanup deadline's real-time length is not pinned here, since a tight bound is what flaked.
   it("bounds rollback independently when removal hangs", async () => {
     await writeFile(join(fixture, "mode"), "bad-port,rm-hang");
-    expect(await failure(start(), 4000)).toMatch(/cleanup failed.*left owned container/);
+    expect(await failure(start())).toMatch(/cleanup failed.*left owned container/);
     const blocked = (await events()).find((event) => event.args[0] === "rm");
     expect(blocked).toBeDefined();
     expect(() => process.kill(blocked!.pid, 0)).toThrow();

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExecResult, SandboxError } from "@nap/shared/ports/sandbox-manager";
@@ -156,6 +156,23 @@ describe("files, through nothing but a shell", () => {
     });
   });
 
+  it("fails a listing that stops part-way rather than return it shorter", async () => {
+    const { box } = manager();
+    await box.writeFile(ID, `${dir}/a`, "");
+    // The shell listing the entries is killed at the first one, as an out-of-memory kill would,
+    // while whatever reads its output carries on and exits zero. Only the command's own `bash -c`
+    // reads BASH_ENV, so the frame around it is untouched.
+    const env = join(dir, ".bash-env");
+    // A child's `$PPID`, since macOS's bash 3.2 has no `$BASHPID`.
+    await writeFile(env, "printf() { sh -c 'kill -9 $PPID'; }\n");
+    const { channel } = hostChannel(dir, { prelude: `export BASH_ENV=${env}` });
+    const failing = new ChannelSandboxManager({ sandboxId: ID, channel });
+    expect(await failing.listFiles(ID, dir)).toMatchObject({
+      ok: false,
+      error: { code: "exec_failed" },
+    });
+  });
+
   it("lists a whole tree in one command, leaving excluded folders out", async () => {
     const { box, sent } = manager();
     await box.writeFile(ID, `${dir}/src/deep/a.py`, "");
@@ -301,6 +318,57 @@ describe("a read whose output is not base64", () => {
   it("fails rather than hand over garbage when it never comes back clean", async () => {
     const box = new ChannelSandboxManager({ sandboxId: ID, channel: scripted([noisy]) });
     expect(await box.readFile(ID, "/app/f")).toMatchObject({
+      ok: false,
+      error: { code: "exec_failed", message: expect.stringContaining("not base64") },
+    });
+  });
+});
+
+describe("a listing a stray warning lands inside", () => {
+  const WARNING = "bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)\n";
+
+  /**
+   * The host's real shell, with the warning moved inside the frame's stdout on the first `noisy`
+   * commands: the reordering a channel that reads stderr and stdout separately can produce.
+   */
+  function interleaving(noisy: number): ExecChannel {
+    const { channel } = hostChannel(dir);
+    let calls = 0;
+    return async (command, options) => {
+      const ran = await channel(command, options);
+      calls += 1;
+      if (!ran.ok || calls > noisy) return ran;
+      const open = ran.value.stdout.match(/@@nap-out-\w+@@/)?.[0] ?? "";
+      const at = ran.value.stdout.indexOf(open) + open.length;
+      const { stdout } = ran.value;
+      return {
+        ok: true,
+        value: { ...ran.value, stdout: stdout.slice(0, at) + WARNING + stdout.slice(at) },
+      };
+    };
+  }
+
+  it("is tried again rather than handing the warning back as a path", async () => {
+    await new ChannelSandboxManager({ sandboxId: ID, channel: hostChannel(dir).channel }).writeFile(
+      ID,
+      `${dir}/blob.bin`,
+      "",
+    );
+    const box = new ChannelSandboxManager({ sandboxId: ID, channel: interleaving(1) });
+    expect(await box.listFiles(ID, dir)).toEqual({
+      ok: true,
+      value: [{ path: `${dir}/blob.bin`, type: "file" }],
+    });
+  });
+
+  it("fails rather than list a name nobody created when it never comes back clean", async () => {
+    await new ChannelSandboxManager({ sandboxId: ID, channel: hostChannel(dir).channel }).writeFile(
+      ID,
+      `${dir}/blob.bin`,
+      "",
+    );
+    const box = new ChannelSandboxManager({ sandboxId: ID, channel: interleaving(Infinity) });
+    expect(await box.listFiles(ID, dir)).toMatchObject({
       ok: false,
       error: { code: "exec_failed", message: expect.stringContaining("not base64") },
     });

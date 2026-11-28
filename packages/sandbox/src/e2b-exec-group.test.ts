@@ -83,20 +83,32 @@ function isRunning(pid: number): boolean {
   }
 }
 
+/**
+ * How long to wait for a process to start or to go. Each one is a `bash -l` (profiles and all)
+ * and a fork or two: milliseconds on an idle machine, over a second on a loaded CI runner, where
+ * `vi.waitFor`'s own one-second default failed. Ten seconds is far past any start seen, and the
+ * suite's timeout below leaves room for a start and a stop in one test, so a real hang fails as a
+ * clear wait rather than as a test timeout.
+ */
+const PROCESS_WAIT = { timeout: 10_000, interval: 20 };
+const SUITE_TIMEOUT = { timeout: 2 * PROCESS_WAIT.timeout + 5_000 };
+const MAC = process.platform === "darwin";
+
 /** Runs something that outlives its parent and says who it is, and waits until it has. */
 async function startWithGrandchild(start: (typeof STARTS)[number]) {
   const pidFile = join(directory, "grandchild");
   const command = `sh -c 'echo $$ > ${pidFile}; sleep 300; true' & wait`;
   const running = runScript(`${start.prefix}${groupedCommand(command, marker)}`, start.spawn);
-  await vi.waitFor(() =>
-    expect(existsSync(pidFile) && readFileSync(pidFile, "utf8")).toMatch(/\d/),
+  await vi.waitFor(
+    () => expect(existsSync(pidFile) && readFileSync(pidFile, "utf8")).toMatch(/\d/),
+    PROCESS_WAIT,
   );
   const grandchild = Number(readFileSync(pidFile, "utf8"));
   expect(isRunning(grandchild)).toBe(true);
   return { ...running, grandchild };
 }
 
-describe.skipIf(process.platform === "darwin")("a command in its own process group", () => {
+describe.skipIf(MAC)("a command in its own process group", SUITE_TIMEOUT, () => {
   describe.each(STARTS)("started by $name", (start) => {
     const run = (command: string) =>
       runScript(`${start.prefix}${groupedCommand(command, marker)}`, start.spawn).finished;
@@ -129,7 +141,7 @@ describe.skipIf(process.platform === "darwin")("a command in its own process gro
 
       await stop();
 
-      await vi.waitFor(() => expect(isRunning(grandchild)).toBe(false));
+      await vi.waitFor(() => expect(isRunning(grandchild)).toBe(false), PROCESS_WAIT);
     });
   });
 
@@ -188,7 +200,7 @@ describe.skipIf(process.platform === "darwin")("a command in its own process gro
 
     await stop();
 
-    await vi.waitFor(() => expect(isRunning(grandchild)).toBe(false));
+    await vi.waitFor(() => expect(isRunning(grandchild)).toBe(false), PROCESS_WAIT);
   });
 
   it("copes with reading the marker between its creation and its contents", async () => {
