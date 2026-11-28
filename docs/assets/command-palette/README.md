@@ -1,7 +1,7 @@
 # Command palette: evidence
 
 Captured with `verify-nap` (real web app, API, auth and Postgres; scripted model, in-memory sandbox)
-in its headless Chrome at 1440×900, signed in as the fixture user, on the seeded session
+in its headless Chrome at 1440×900 (the dashboard still came out 1440×813), signed in as the fixture user, on the seeded session
 **Seeded notes app**. Driven by keyboard only: ⌘K, arrows, typing, Enter, Escape.
 
 | File | What it shows |
@@ -21,8 +21,8 @@ Measured in the same run, from computed styles (`getComputedStyle`), not from th
 | Backdrop | surface at 64%, `blur(4px)` |
 | Row height, radius | 32px, 6px |
 | Highlight | ink (`#e5e5e5`) at 9% |
-| 90ms into opening | opacity 0.50, scale 0.990: it scales from 0.98 and fades |
-| 90ms after Enter | `open` false, still drawn at opacity 0.50: the close fades too |
+| Opening, sampled by a 90ms timer after the key | opacity 0.50, scale 0.990: it scales from 0.98 and fades. The timer is not the transition's clock, so these are mid-way samples, not values at exactly 90ms |
+| Closing, sampled the same way after Enter | `open` false, still drawn at opacity 0.50: the close fades too |
 | Escape | focus back on the composer (`Message`) |
 | Focus ring | the search row's outline, 1px ink at 22%; under emulated `forced-colors: active` still a solid 1px outline (a box-shadow ring measured `none` there) |
 | Reduced motion | transition 0s; open at opacity 1 and scale 1 at once, gone at once on Escape |
