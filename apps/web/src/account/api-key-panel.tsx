@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { CloseIcon } from "../ui/icons.tsx";
+import { CloseIcon, KeyIcon } from "../ui/icons.tsx";
 import { ApiKeyForm } from "./api-key-form.tsx";
 import type { useApiKey } from "./use-api-key.ts";
 
@@ -67,38 +67,26 @@ export function ApiKeyPanel({
        *
        * The rest is T3 Code's dialog glass — see `.dialog-glass` in `globals.css`.
        */
-      className="nap-dialog dialog-glass ai-stage-dark m-auto w-full max-w-md rounded-[18px] border p-7 text-ink"
+      className="nap-dialog dialog-glass ai-stage-dark m-auto w-[calc(100%-2rem)] max-w-[360px] rounded-xl border p-4 text-ink"
     >
       <div className="flex items-start justify-between gap-5">
-        <div>
-          <h2 className="font-semibold text-[15px] text-ink tracking-tight">Your API key</h2>
-          <p className="mt-1.5 text-pretty text-[13px] text-muted leading-relaxed">
-            Run models on your own account. Work without a key is available only when this
-            deployment offers a free tier.
-          </p>
-        </div>
-        {/*
-          A drawn ✕ rather than the character. The glyph is a different weight, size and
-          baseline in every font a browser might reach for, so it never quite sat on the centre
-          of its own button; this one is on the same 16px grid as every other icon in the app.
-          The well appears on hover rather than sitting there, because dismissing is not the
-          thing anybody opened this to do.
-        */}
+        <h2 className="flex min-w-0 items-center gap-2 font-medium text-ink text-sm">
+          <KeyIcon className="size-4 text-ink-2" />
+          Your API key
+        </h2>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="-mr-1.5 -mt-1.5 flex size-8 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="-mr-1 -mt-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          <CloseIcon className="size-4" />
+          <CloseIcon className="size-3.5" />
         </button>
       </div>
 
-      {/* A full-bleed rule, so the head reads as a head rather than as the first paragraph. */}
-      <div aria-hidden="true" className="-mx-7 mt-5 h-px bg-edge" />
-
-      <div className="mt-6">
+      <div className="mt-4">
         <ApiKeyForm
+          compact
           state={keyState.state ?? { configured: false }}
           onSave={(apiKey) => void keyState.save(apiKey)}
           onRemove={() => void keyState.remove()}

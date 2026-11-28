@@ -14,11 +14,11 @@ import { ApiKeyPanel } from "../account/api-key-panel.tsx";
 import { useApiKey } from "../account/use-api-key.ts";
 import { credentialedFetch } from "../api/credentialed-fetch.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
-import { TROUBLE } from "../github/connection-drawer.tsx";
+import { TROUBLE } from "../github/connections.tsx";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import { ChevronRight, GithubIcon, KeyIcon } from "../ui/icons.tsx";
 import { SettingsShell } from "./settings-shell.tsx";
-import { BackLink, Callout, Card, PRIMARY_BUTTON, ROW_BUTTON, Section } from "./settings-ui.tsx";
+import { Card, ROW_BUTTON, Section } from "./settings-ui.tsx";
 
 type GitHubState =
   | { kind: "loading" }
@@ -40,7 +40,6 @@ export function ConnectionsOverview({
   const [keyOpen, setKeyOpen] = useState(false);
   const key = useApiKey({ baseUrl, fetchJson });
   const draft = draftId ? `?draft=${draftId}` : "";
-  const appHref = draftId ? `/dashboard?draft=${draftId}&repositories=1` : "/dashboard";
 
   useEffect(() => {
     let live = true;
@@ -87,57 +86,33 @@ export function ConnectionsOverview({
   return (
     <SettingsShell
       crumbs={[{ label: "Settings" }, { label: "Connections" }]}
-      appHref={appHref}
-      connectionsHref={`/settings/connections${draft}`}
+      draftId={draftId}
       onApiKey={() => setKeyOpen(true)}
     >
-      <BackLink href={appHref}>{draftId ? "Back to your draft" : "Back to workspace"}</BackLink>
-      <div className="mx-auto mt-8 max-w-[720px]">
-        <h1 className="text-lg font-medium text-ink">Connections</h1>
-        <p className="mt-1 text-[13px] text-muted">
-          Connect the services nap works with on your behalf.
-        </p>
+      <h1 className="text-xl font-medium tracking-tight text-ink">Connections</h1>
+      <Section title="Git providers">
+        <Card>
+          <ProviderRow
+            href={`/settings/connections/github${draft}`}
+            icon={<GithubIcon className="size-5" />}
+            name="GitHub"
+            status={githubStatus}
+            configure={accounts > 0}
+          />
+        </Card>
+      </Section>
 
-        <Callout
-          title={draftId ? "Your draft is waiting" : "Repositories start from the dashboard"}
-          action={
-            <a href={appHref} className={PRIMARY_BUTTON}>
-              {draftId ? "Back to draft" : "Open dashboard"}
-            </a>
-          }
-        >
-          Pick a connected repository in the new-session composer and nap opens it in a workspace of
-          its own.
-        </Callout>
-
-        <p className="mt-6 inline-flex h-8 items-center gap-2 rounded-lg bg-hover px-2.5 text-[13px] text-ink">
-          Integrations <span className="text-muted">3</span>
-        </p>
-
-        <Section title="Git providers" description="Let nap work on your codebase">
-          <Card>
-            <ProviderRow
-              href={`/settings/connections/github${draft}`}
-              icon={<GithubIcon className="size-5" />}
-              name="GitHub"
-              status={githubStatus}
-              configure={accounts > 0}
-            />
-          </Card>
-        </Section>
-
-        <Section title="Model providers" description="Bring your own key for the paid models">
-          <Card>
-            <ProviderRow
-              onClick={() => setKeyOpen(true)}
-              icon={<KeyIcon className="size-5" />}
-              name={key.state?.configured ? PLATFORM[key.state.platform] : "API key"}
-              status={keyStatus}
-              configure={key.state?.configured === true}
-            />
-          </Card>
-        </Section>
-      </div>
+      <Section title="Model providers">
+        <Card>
+          <ProviderRow
+            onClick={() => setKeyOpen(true)}
+            icon={<KeyIcon className="size-5" />}
+            name={key.state?.configured ? PLATFORM[key.state.platform] : "API key"}
+            status={keyStatus}
+            configure={key.state?.configured === true}
+          />
+        </Card>
+      </Section>
       <ApiKeyPanel open={keyOpen} onClose={() => setKeyOpen(false)} keyState={key} />
     </SettingsShell>
   );

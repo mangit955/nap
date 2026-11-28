@@ -23,8 +23,8 @@ The chat pane's timeline is a clone of T3 Code's chat timeline:
   `src/chat/context-control.tsx`)
 - the compaction divider and its short token counts (`src/chat/compaction-row.tsx`)
 
-The menu and popover glass, floating surface, dialog glass, and dialog and sheet backdrops
-(`.composer-surface`, `.glass-popover`, `.surface-glass`, `.dialog-glass`, `.sheet-backdrop` in
+The menu and popover glass, floating surface, dialog glass, and dialog backdrop
+(`.composer-surface`, `.glass-popover`, `.surface-glass`, `.dialog-glass` in
 `src/app/globals.css`) are adapted from T3 Code at commit
 `71a283aed253f23be1860a31d4ea48f1c06e0b1c`.
 

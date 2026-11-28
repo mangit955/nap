@@ -13,6 +13,9 @@
 
 import { useState } from "react";
 
+const COMPACT_FOCUS =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+
 export type KeyState =
   | { configured: false }
   | { configured: true; platform: "openrouter" | "anthropic"; hint: string };
@@ -24,6 +27,7 @@ export type ApiKeyFormProps = {
   /** In words, for the person who just tried. Undefined when nothing has gone wrong. */
   error?: string | undefined;
   busy?: boolean;
+  compact?: boolean;
 };
 
 /** Where each key comes from, for somebody who does not have one yet. */
@@ -52,13 +56,24 @@ const PILL =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--s-text-primary)] " +
   "disabled:opacity-50";
 
-export function ApiKeyForm({ state, onSave, onRemove, error, busy = false }: ApiKeyFormProps) {
-  const [apiKey, setApiKey] = useState("");
-
+export function ApiKeyForm({
+  state,
+  onSave,
+  onRemove,
+  error,
+  busy = false,
+  compact = false,
+}: ApiKeyFormProps) {
   if (state.configured) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-4 rounded-[10px] border border-[var(--s-border-1)] bg-[var(--s-surface-2)] px-3.5 py-3">
+      <div className={compact ? "flex flex-col gap-2" : "flex flex-col gap-4"}>
+        <div
+          className={
+            compact
+              ? "flex items-center justify-between gap-3 rounded-lg border border-edge bg-field px-2.5 py-2"
+              : "flex items-center justify-between gap-4 rounded-[10px] border border-[var(--s-border-1)] bg-[var(--s-surface-2)] px-3.5 py-3"
+          }
+        >
           <div className="min-w-0">
             <p className="font-medium text-[var(--s-text-primary)] text-sm">
               {WHERE[state.platform].name}
@@ -70,7 +85,11 @@ export function ApiKeyForm({ state, onSave, onRemove, error, busy = false }: Api
             type="button"
             onClick={onRemove}
             disabled={busy}
-            className={`${PILL} shrink-0 border border-[var(--s-border-1)] text-[var(--s-text-body)] hover:border-[var(--s-text-subtle)]`}
+            className={
+              compact
+                ? `h-7 shrink-0 rounded-md px-2 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-50 ${COMPACT_FOCUS}`
+                : `${PILL} shrink-0 border border-[var(--s-border-1)] text-[var(--s-text-body)] hover:border-[var(--s-text-subtle)]`
+            }
           >
             Remove
           </button>
@@ -90,16 +109,30 @@ export function ApiKeyForm({ state, onSave, onRemove, error, busy = false }: Api
     );
   }
 
+  return <ApiKeyEntry onSave={onSave} error={error} busy={busy} compact={compact} />;
+}
+
+function ApiKeyEntry({
+  onSave,
+  error,
+  busy,
+  compact,
+}: Pick<ApiKeyFormProps, "onSave" | "error" | "busy" | "compact">) {
+  const [apiKey, setApiKey] = useState("");
+  const canSave = !busy && apiKey.trim() !== "";
+
   return (
     <form
-      className="flex flex-col gap-4"
+      className={compact ? "flex flex-col gap-2.5" : "flex flex-col gap-4"}
       onSubmit={(event) => {
         event.preventDefault();
-        onSave(apiKey);
+        if (canSave) onSave(apiKey);
       }}
     >
       <label className="flex flex-col gap-1.5">
-        <span className="font-medium text-[var(--s-text-body)] text-xs">API key</span>
+        <span className={compact ? "sr-only" : "font-medium text-[var(--s-text-body)] text-xs"}>
+          API key
+        </span>
         <input
           // A password field: this is a credential, and a browser that offers to remember it or
           // a screen-share that catches it are both worse than one extra paste later.
@@ -109,7 +142,11 @@ export function ApiKeyForm({ state, onSave, onRemove, error, busy = false }: Api
           placeholder="sk-or-…"
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
-          className={FIELD}
+          className={
+            compact
+              ? `h-8 w-full rounded-lg border border-edge bg-field px-2.5 font-mono text-[13px] text-ink placeholder:text-muted ${COMPACT_FOCUS}`
+              : FIELD
+          }
         />
       </label>
 
@@ -119,35 +156,65 @@ export function ApiKeyForm({ state, onSave, onRemove, error, busy = false }: Api
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={busy || apiKey.trim() === ""}
-        className={`${PILL} bg-[var(--s-text-primary)] text-[var(--s-text-inverse)] hover:opacity-90`}
-      >
-        {busy ? "Checking…" : "Save key"}
-      </button>
-
-      <p className="text-[var(--s-text-muted)] text-xs leading-relaxed">
-        Get one from{" "}
-        <a
-          href={WHERE.openrouter.url}
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-4"
+      <div className={compact ? "flex items-center justify-between gap-2" : "contents"}>
+        {compact && (
+          <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
+            <a
+              href={WHERE.openrouter.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`rounded-sm hover:text-ink ${COMPACT_FOCUS}`}
+            >
+              OpenRouter
+            </a>
+            <span aria-hidden="true">·</span>
+            <a
+              href={WHERE.anthropic.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`rounded-sm hover:text-ink ${COMPACT_FOCUS}`}
+            >
+              Anthropic
+            </a>
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={!canSave}
+          className={
+            compact
+              ? `h-7 shrink-0 rounded-md bg-ink px-2.5 font-medium text-surface text-xs hover:bg-ink-2 disabled:opacity-45 ${COMPACT_FOCUS}`
+              : `${PILL} bg-[var(--s-text-primary)] text-[var(--s-text-inverse)] hover:opacity-90`
+          }
         >
-          OpenRouter
-        </a>{" "}
-        — where you can also cap what it is allowed to spend — or use an{" "}
-        <a
-          href={WHERE.anthropic.url}
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-4"
-        >
-          Anthropic
-        </a>{" "}
-        key for the Claude models. It is stored encrypted and never shown again.
-      </p>
+          {busy ? "Checking…" : "Save key"}
+        </button>
+      </div>
+      {compact ? (
+        <p className="text-xs text-muted">Stored encrypted and never shown again.</p>
+      ) : (
+        <p className="text-[var(--s-text-muted)] text-xs leading-relaxed">
+          Get one from{" "}
+          <a
+            href={WHERE.openrouter.url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4"
+          >
+            OpenRouter
+          </a>{" "}
+          — where you can also cap what it is allowed to spend — or use an{" "}
+          <a
+            href={WHERE.anthropic.url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4"
+          >
+            Anthropic
+          </a>{" "}
+          key for the Claude models. It is stored encrypted and never shown again.
+        </p>
+      )}
     </form>
   );
 }

@@ -1294,30 +1294,6 @@ body {
 }
 
 /*
- * A drawer pinned to the right edge — the settings connection drawer. The same entrance as
- * `.nap-dialog`, for the same reason, but travelling in from the edge it is attached to.
- */
-@keyframes nap-sheet-in {
-  from {
-    transform: translateX(100%);
-  }
-}
-
-.nap-sheet[open] {
-  animation: nap-sheet-in 220ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.nap-sheet[open]::backdrop {
-  animation: nap-backdrop-in 220ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .nap-sheet[open] {
-    animation-name: nap-backdrop-in;
-  }
-}
-
-/*
  * One layer of the falloff. The mask — a blurred, stroked, partially transparent ring drawn on
  * a canvas — is what turns this flat gradient into a band of light hugging the shape.
  *
@@ -2030,20 +2006,10 @@ body {
     inset 0 1px rgb(255 255 255 / 4%),
     0 24px 72px -20px rgb(0 0 0 / 90%);
 }
-.dialog-glass::backdrop,
-.sheet-backdrop::backdrop {
+.dialog-glass::backdrop {
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
-}
-.dialog-glass::backdrop {
   background: color-mix(in srgb, var(--color-surface, #0a0a0a) 64%, transparent);
-}
-/*
- * T3's sheet: an opaque panel, over the same softened room at 60%.
- * Adapted from T3 Code (MIT — see apps/web/THIRD_PARTY_NOTICES.md).
- */
-.sheet-backdrop::backdrop {
-  background: color-mix(in srgb, var(--color-surface, #0a0a0a) 60%, transparent);
 }
 /*
  * A popup that lives in a `<details>` — the context popup, the sidebar's settings menu — is

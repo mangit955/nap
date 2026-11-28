@@ -96,6 +96,19 @@ describe("with a key saved", () => {
     expect(screen.getByText("OpenRouter")).toBeInTheDocument();
   });
 
+  it("starts with a blank masked field after saving and removing a key", () => {
+    const actions = { onSave: vi.fn(), onRemove: vi.fn(), compact: true };
+    const { rerender } = render(<ApiKeyForm state={{ configured: false }} {...actions} />);
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: KEY } });
+    fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+    expect(actions.onSave).toHaveBeenCalledWith(KEY);
+
+    rerender(<ApiKeyForm state={saved} {...actions} />);
+    rerender(<ApiKeyForm state={{ configured: false }} {...actions} />);
+    expect(screen.getByLabelText("API key")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Save key" })).toBeDisabled();
+  });
+
   it("offers to remove it, and says what that means", () => {
     const props = setup({ state: saved });
 

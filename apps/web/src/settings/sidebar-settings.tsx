@@ -18,12 +18,12 @@ import { authClient } from "../auth/client.ts";
 import type { FetchJson } from "../files/use-project-files.ts";
 import { GITHUB_API_URL, githubRequest } from "../github/request.ts";
 import { SettingsShell } from "./settings-shell.tsx";
-import { Card, FOCUS, Row, Section } from "./settings-ui.tsx";
+import { FOCUS, Section } from "./settings-ui.tsx";
 
 /** What "after days" starts at when somebody turns it on. */
 const DEFAULT_DAYS = 7;
 
-export function LiveSidebarSettings() {
+export function LiveSidebarSettings({ draftId }: { draftId?: string | undefined }) {
   const { data, isPending } = authClient.useSession();
   const router = useRouter();
   useEffect(() => {
@@ -31,8 +31,12 @@ export function LiveSidebarSettings() {
   }, [data, isPending, router]);
   if (!data) return <main role="status">Loading settings…</main>;
   return (
-    <SettingsShell crumbs={[{ label: "Settings" }, { label: "Sidebar" }]} activePage="sidebar">
-      <h1 className="text-xl font-medium">Sidebar</h1>
+    <SettingsShell
+      crumbs={[{ label: "Settings" }, { label: "Sidebar" }]}
+      activePage="sidebar"
+      draftId={draftId}
+    >
+      <h1 className="text-xl font-medium tracking-tight text-ink">Sidebar</h1>
       <SidebarSettings />
     </SettingsShell>
   );
@@ -122,68 +126,85 @@ export function SidebarSettings({
 
   const afterOn = saved.afterDays !== null;
   return (
-    <Section
-      title="Auto-settle"
-      description="Move sessions to Settled for you. Pinned and working sessions are never moved, and a session you un-settle stays put until something new happens in it."
-    >
-      <Card>
-        <Row
-          title={
-            <label className="flex items-center gap-2">
+    <Section title="Auto-settle" description="Pinned and working sessions stay in the sidebar.">
+      <div className="max-w-[520px] divide-y divide-edge/45 rounded-lg border border-edge/55 bg-panel/40">
+        <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2">
+          <div>
+            <p className="text-[13px]">After inactivity</p>
+            <p className="text-xs text-muted">Since the last message, turn or PR update.</p>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-muted">
               <input
-                type="checkbox"
-                checked={afterOn}
-                onChange={(event) => {
-                  const value = parsedDays() ?? DEFAULT_DAYS;
-                  setDays(String(value));
-                  save({ afterDays: event.target.checked ? value : null });
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={AUTO_SETTLE_MAX_DAYS}
+                aria-label="Days without activity"
+                value={days}
+                disabled={!afterOn}
+                onChange={(event) => setDays(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") commitDays(saved);
                 }}
+                onBlur={() => commitDays(saved)}
+                className={`h-6 w-[30px] rounded-md border border-edge/55 bg-field px-0.5 text-center text-ink tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-45 ${FOCUS}`}
               />
-              Settle sessions with no activity
+              days
             </label>
-          }
-          description="Counted from the last message, turn or pull request feedback."
-        >
-          <label className="flex items-center gap-2 text-[13px] text-ink-2">
-            after
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={AUTO_SETTLE_MAX_DAYS}
-              aria-label="Days without activity"
-              value={days}
-              disabled={!afterOn}
-              onChange={(event) => setDays(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") commitDays(saved);
+            <Toggle
+              label="Settle after inactivity"
+              checked={afterOn}
+              onChange={(checked) => {
+                const value = parsedDays() ?? DEFAULT_DAYS;
+                setDays(String(value));
+                save({ afterDays: checked ? value : null });
               }}
-              onBlur={() => commitDays(saved)}
-              className={`h-8 w-16 rounded-lg border border-edge bg-field px-2 text-ink ${FOCUS}`}
             />
-            days
-          </label>
-        </Row>
-        <div className="border-t border-edge" />
-        <Row
-          title={
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={saved.onMerge}
-                onChange={(event) => save({ onMerge: event.target.checked })}
-              />
-              Settle a session when its pull request merges
-            </label>
-          }
-          description="Only for sessions imported from GitHub, and only when the merge came after the session's last turn."
-        />
-      </Card>
+          </div>
+        </div>
+        <div className="flex min-h-12 items-center justify-between gap-3 px-3 py-2">
+          <div>
+            <p className="text-[13px]">After a pull request merges</p>
+            <p className="text-xs text-muted">GitHub sessions only, after the last turn.</p>
+          </div>
+          <Toggle
+            label="Settle after a pull request merges"
+            checked={saved.onMerge}
+            onChange={(checked) => save({ onMerge: checked })}
+          />
+        </div>
+      </div>
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {error}
         </p>
       )}
     </Section>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-label={label}
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full border p-[2px] transition-colors motion-reduce:transition-none ${checked ? "border-ink bg-ink" : "border-edge/55 bg-field"} ${FOCUS}`}
+    >
+      <span
+        className={`size-2.5 rounded-full transition-transform motion-reduce:transition-none ${checked ? "translate-x-3 bg-surface" : "bg-muted"}`}
+      />
+    </button>
   );
 }
