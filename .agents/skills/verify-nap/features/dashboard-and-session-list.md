@@ -79,6 +79,9 @@ Preconditions:
 - Each user may run four projects at once on the fixture, the seeded one included. Past that,
   Send shows the alert "You already have 4 projects running, which is the limit". Settling does
   not free a slot; choose `Put away workspace` in a project's menu first.
+- A session left less than two seconds before its finish shows counts as watched, and raises no
+  toast — only its dot. A fake turn lasts about 7.5 s, so switch away as soon as `Chat` appears;
+  `snapshot` straight after the switch should show the new row's status `Working`.
 - The `Session finished` toast closes itself after 8 seconds, and every driver command takes a second
   or two: click `Open` straight after the wait, with nothing in between. Its `Dismiss` button is
   hidden from the tree until the toast holds focus or the pointer, so `click --name "Dismiss"`

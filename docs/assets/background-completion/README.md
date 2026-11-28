@@ -1,8 +1,9 @@
 # A session finishing out of sight: the toast and the unread dot
 
 Recorded with `bun run verify-nap:up` (`next dev` of the real web app, with the real API, worker and
-Postgres, and a scripted model and fake sandbox). Chrome was headless at 1440×813. The code is the
-branch `feat/phase4-background-completion` on top of `main` at 30f69061. The approved design is
+Postgres, and a scripted model and fake sandbox). Chrome was headless at 1440×813. The stills and recordings are from the branch's first commit, c43083f9, on top of `main` at
+30f69061. Review then narrowed *when* the toast fires without changing how it looks, and the
+flow was driven again on 0dccf9bd: toast, dot, Open, and the dot clearing. The approved design is
 `.scratch/premium-ui-trial/phase-4-t3/` (`trial14`), stills `14-background-completion.png` and
 `14b-after-open.png`.
 
