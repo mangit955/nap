@@ -43,6 +43,16 @@ export function opensPalette(event: Keys, mac: boolean): boolean {
   );
 }
 
+/**
+ * Whether a modal dialog owns the keyboard. A window-wide shortcut must yield to one: `inert`
+ * stops a person's clicks on the page behind it, not the `click()` a shortcut sends, so ⌘1 under
+ * the command palette would switch sessions out of sight. Only modal ones: the thread details card
+ * is a non-modal `<dialog open>` and takes nothing from the page.
+ */
+export function modalIsOpen(): boolean {
+  return document.querySelector("dialog:modal") !== null;
+}
+
 /** The keyboard's ways of asking for a context menu. */
 export function opensMenu(event: Pick<Keys, "key" | "shiftKey">): boolean {
   return event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);

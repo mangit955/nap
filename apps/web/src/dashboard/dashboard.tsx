@@ -75,6 +75,7 @@ export function Dashboard({
   const [navigationOpen, setNavigationOpen] = useState(false);
   const mobileTrigger = useRef<HTMLButtonElement>(null);
   const navigation = useRef<HTMLDivElement>(null);
+  const desktopTrigger = useRef<HTMLButtonElement>(null);
   const toggleCollapsed = () => {
     setSidebarMotion(true);
     setCollapsed(!collapsed);
@@ -95,11 +96,19 @@ export function Dashboard({
         order: 1,
         label: "Toggle sidebar",
         icon: <PanelLeft className="size-4" aria-hidden />,
-        // A narrow screen has no column to collapse; its sidebar is the drawer.
-        run: () =>
-          window.matchMedia("(max-width: 767px)").matches
-            ? setNavigationOpen((open) => !open)
-            : toggleCollapsed(),
+        // A narrow screen has no column to collapse; its sidebar is the drawer, which the palette
+        // has already put away by the time this runs (`beforeRun` below) if it was open.
+        run: () => {
+          if (window.matchMedia("(max-width: 767px)").matches) {
+            if (!navigationOpen) setNavigationOpen(true);
+            return;
+          }
+          // Collapsing makes the column inert, which would drop focus held inside it to the body;
+          // the toggle button keeps it, as clicking the button itself does.
+          if (!collapsed && navigation.current?.contains(document.activeElement))
+            desktopTrigger.current?.focus();
+          toggleCollapsed();
+        },
       },
     ],
     commands,
@@ -197,7 +206,8 @@ export function Dashboard({
     <TooltipProvider>
       <CommandRegistryContext.Provider value={commands}>
         <Toaster />
-        <CommandPalette registry={commands} />
+        {/* Whatever a command shows is in the content the open drawer covers. */}
+        <CommandPalette registry={commands} beforeRun={closeNavigation} />
         <div
           style={frameStyle}
           aria-busy={fading}
@@ -210,6 +220,7 @@ export function Dashboard({
         >
           <Tooltip label={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
             <button
+              ref={desktopTrigger}
               type="button"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!collapsed}

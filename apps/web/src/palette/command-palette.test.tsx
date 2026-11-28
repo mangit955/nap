@@ -23,7 +23,9 @@ beforeAll(() => {
 
 const chord = () => fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true });
 
-function setup() {
+function setup({ beforeRun }: { beforeRun?: () => void } = {}) {
+  // A command run while the palette is still open is recorded as such, so every expectation on
+  // `ran` below also says the palette closed first.
   const ran: string[] = [];
   const command = (id: string, group: Command["group"], order: number, label: string) => ({
     id,
@@ -31,20 +33,26 @@ function setup() {
     order,
     label,
     icon: null,
-    run: vi.fn(() => ran.push(id)),
+    run: vi.fn(() =>
+      ran.push(document.querySelector("dialog")?.hasAttribute("open") ? `${id} (open)` : id),
+    ),
   });
   const registry = createCommandRegistry();
-  const commands = [
+  let commands = [
     command("new", "Actions", 0, "New session"),
     command("files", "Actions", 2, "Open Files"),
     command("changes", "Actions", 4, "Show changed files"),
     command("fix", "Sessions", 0, "Fix empty-state copy"),
   ];
   registry.add({ current: () => commands });
+  const replace = (next: typeof commands) => {
+    commands = next;
+    act(() => registry.changed());
+  };
   render(
     <>
       <button type="button">Before</button>
-      <CommandPalette registry={registry} />
+      <CommandPalette registry={registry} beforeRun={beforeRun} />
     </>,
   );
   const dialog = screen.getByRole("dialog", { hidden: true }) as HTMLDialogElement;
@@ -52,7 +60,7 @@ function setup() {
   const options = () => screen.getAllByRole("option").map((option) => option.textContent);
   const highlighted = () =>
     document.getElementById(field().getAttribute("aria-activedescendant") ?? "")?.textContent;
-  return { ran, registry, dialog, field, options, highlighted };
+  return { ran, registry, dialog, field, options, highlighted, replace, command };
 }
 
 describe("CommandPalette", () => {
@@ -159,11 +167,59 @@ describe("CommandPalette", () => {
 
   it("leaves the page alone while another modal is open", () => {
     const { dialog } = setup();
-    const other = document.createElement("dialog");
-    other.setAttribute("open", "");
-    document.body.append(other);
+    // jsdom never makes a dialog modal, so stand one in for the browser's answer to `:modal`.
+    const query = document.querySelector.bind(document);
+    const spy = vi
+      .spyOn(document, "querySelector")
+      .mockImplementation((selector: string) =>
+        selector === "dialog:modal" ? document.body : query(selector),
+      );
     chord();
     expect(dialog.open).toBe(false);
-    other.remove();
+    spy.mockRestore();
+  });
+
+  it("opens over a non-modal dialog, such as the thread details card", () => {
+    const { dialog } = setup();
+    const card = document.createElement("dialog");
+    card.setAttribute("open", "");
+    document.body.append(card);
+    chord();
+    expect(dialog.open).toBe(true);
+    card.remove();
+  });
+
+  it("ignores the chord's auto-repeat while it is held", () => {
+    const { dialog } = setup();
+    chord();
+    fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true, repeat: true });
+    expect(dialog.open).toBe(true);
+  });
+
+  it("redraws while open when a source changes, keeping the highlight on its command", () => {
+    const { ran, field, options, highlighted, replace, command } = setup();
+    chord();
+    fireEvent.keyDown(field(), { key: "ArrowDown" });
+    expect(highlighted()).toBe("Open Files");
+    replace([
+      command("new", "Actions", 0, "New session"),
+      command("browser", "Actions", 1, "Open Browser"),
+      command("files", "Actions", 2, "Open Files"),
+    ]);
+    expect(options()).toEqual(["New session", "Open Browser", "Open Files"]);
+    expect(highlighted()).toBe("Open Files");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(ran).toEqual(["files"]);
+  });
+
+  it("puts the page right after closing and before the command runs", () => {
+    const order: string[] = [];
+    const { field } = setup({
+      beforeRun: () =>
+        order.push(document.querySelector("dialog")?.hasAttribute("open") ? "open" : "closed"),
+    });
+    chord();
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(order).toEqual(["closed"]);
   });
 });

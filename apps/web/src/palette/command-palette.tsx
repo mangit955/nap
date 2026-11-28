@@ -1,8 +1,17 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { type ReactNode, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
-import { isMacPlatform, opensPalette } from "../dashboard/sidebar-keys.ts";
+import {
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
+import { isMacPlatform, modalIsOpen, opensPalette } from "../dashboard/sidebar-keys.ts";
 import { type Command, groupCommands, stepIndex } from "./commands.ts";
 import type { CommandRegistry } from "./registry.ts";
 
@@ -11,29 +20,46 @@ import type { CommandRegistry } from "./registry.ts";
  * has offered (see `registry.ts`), drawn as T3 Code draws its own.
  *
  * A native modal `<dialog>`, like the repo's other dialogs, for its focus trap, Escape and inert
- * page. It stays mounted while closed so the way out can fade too; see `.command-palette` in
- * `globals.css`. The field is a combobox and the rows a listbox it points into, so the field
+ * page. It stays mounted while closed so the way out can fade too; see `command-palette.css`. The field is a combobox and the rows a listbox it points into, so the field
  * keeps focus while arrows move the highlight — the pattern the sidebar's search uses.
  */
-export function CommandPalette({ registry }: { registry: CommandRegistry }) {
+export function CommandPalette({
+  registry,
+  beforeRun,
+}: {
+  registry: CommandRegistry;
+  /** Runs after the palette closes and before the command, such as putting away a drawer. */
+  beforeRun?: (() => void) | undefined;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
   const listId = useId();
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  // Bumped on each opening, so a reopening with the same empty query still reads the commands
-  // afresh: sessions may have arrived since the last time.
-  const [, setOpenings] = useState(0);
+  // By id rather than position, so a list that redraws under the highlight keeps it on the same
+  // command; `null`, or an id no longer listed, is the first row.
+  const [activeId, setActiveId] = useState<string | null>(null);
+  // Bumped on each opening and on each change a source reports while open, so the list is read
+  // afresh even when nothing in this component's own state moved.
+  const [, redraw] = useReducer((count: number) => count + 1, 0);
   const mac = useMemo(isMacPlatform, []);
 
   const sections = groupCommands(registry.list(), query);
   const rows = sections.flatMap((section) => section.commands);
-  const current = Math.min(active, Math.max(0, rows.length - 1));
+  const current = Math.max(
+    0,
+    rows.findIndex((command) => command.id === activeId),
+  );
   const optionId = (index: number) => `${listId}-option-${index}`;
 
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing || !opensPalette(event, mac)) return;
+    // Held down, the chord repeats, and each repeat would flip the palette open and shut.
+    if (event.repeat) {
+      event.preventDefault();
+      return;
+    }
     const element = dialog.current;
     if (!element) return;
     event.preventDefault();
@@ -41,14 +67,17 @@ export function CommandPalette({ registry }: { registry: CommandRegistry }) {
       dismiss();
       return;
     }
-    // Another modal — a delete confirmation, the API key panel — owns the page until it closes.
-    if (document.querySelector("dialog[open]")) return;
+    // Another modal (a delete confirmation, the API key panel) owns the page until it closes.
+    if (modalIsOpen()) return;
     returnTo.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setQuery("");
-    setActive(0);
-    setOpenings((count) => count + 1);
+    setActiveId(null);
+    redraw();
     element.showModal();
+    // The dialog stays mounted, so it would reopen scrolled to wherever the wheel left it. After
+    // `showModal`, because a closed dialog is not drawn and a box that is not drawn ignores this.
+    if (list.current) list.current.scrollTop = 0;
     field.current?.focus();
   });
   useEffect(() => {
@@ -56,6 +85,14 @@ export function CommandPalette({ registry }: { registry: CommandRegistry }) {
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
+  // A closed palette keeps what it last drew, so the way out fades the list it showed.
+  useEffect(
+    () =>
+      registry.subscribe(() => {
+        if (dialog.current?.open) redraw();
+      }),
+    [registry],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow the highlight, not every render.
   useEffect(() => {
@@ -77,6 +114,7 @@ export function CommandPalette({ registry }: { registry: CommandRegistry }) {
   function run(command: Command | undefined) {
     if (!command) return;
     dismiss();
+    beforeRun?.();
     command.run();
   }
 
@@ -114,13 +152,18 @@ export function CommandPalette({ registry }: { registry: CommandRegistry }) {
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
-            setActive(0);
+            setActiveId(null);
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
-              setActive(stepIndex(current, event.key === "ArrowDown" ? 1 : -1, rows.length));
+              const next = stepIndex(current, event.key === "ArrowDown" ? 1 : -1, rows.length);
+              setActiveId(rows[next]?.id ?? null);
+            } else if (event.key === "Tab") {
+              // The field is the palette's one stop. A modal dialog lets Tab carry focus out to
+              // the browser's own toolbar, which leaves the palette open with nothing focused.
+              event.preventDefault();
             } else if (event.key === "Enter") {
               event.preventDefault();
               run(rows[current]);
@@ -129,7 +172,16 @@ export function CommandPalette({ registry }: { registry: CommandRegistry }) {
         />
       </div>
       {rows.length > 0 ? (
-        <div id={listId} role="listbox" aria-label="Commands" className="command-palette-list">
+        <div
+          ref={list}
+          id={listId}
+          role="listbox"
+          aria-label="Commands"
+          // Chrome makes a scrolling box a tab stop; here it would take focus from the field,
+          // whose keys are the only ones that move and run the highlight.
+          tabIndex={-1}
+          className="command-palette-list"
+        >
           {sections.map((section) => {
             const headingId = `${listId}-${section.name}`;
             return (
@@ -147,7 +199,7 @@ export function CommandPalette({ registry }: { registry: CommandRegistry }) {
                       highlighted={at === current}
                       icon={command.icon}
                       meta={command.meta}
-                      onPoint={() => setActive(at)}
+                      onPoint={() => setActiveId(command.id)}
                       onRun={() => run(command)}
                     >
                       {command.label}
@@ -159,7 +211,9 @@ export function CommandPalette({ registry }: { registry: CommandRegistry }) {
           })}
         </div>
       ) : (
-        <p className="command-palette-empty">No matching commands or sessions.</p>
+        <p role="status" className="command-palette-empty">
+          No matching commands or sessions.
+        </p>
       )}
       <div className="command-palette-footer" aria-hidden>
         <span>
