@@ -66,6 +66,69 @@ describe("showToast and Toaster", () => {
     expect(await screen.findByRole("dialog", { name: "Branch copied" })).toBeInTheDocument();
   });
 
+  describe("a finished session's toast", () => {
+    const finished = (onOpen = vi.fn()) => ({
+      title: "Session finished",
+      description: "Fix empty-state copy",
+      tone: "finished" as const,
+      action: { label: "Open", onClick: onOpen },
+    });
+
+    it("is announced politely, with Open and Dismiss as buttons a keyboard reaches", async () => {
+      render(<Toaster />);
+      act(() => showToast(finished()));
+      const toast = await screen.findByRole("dialog", { name: "Session finished" });
+      expect(toast).toHaveAccessibleDescription("Fix empty-state copy");
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(document.querySelector('[aria-live="polite"]')).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Open" }).tabIndex).toBe(0);
+      // Base UI hides the close button from a screen reader until the stack is hovered or holds
+      // focus; tabbing to it is what a keyboard does, and that names it.
+      const dismiss = screen.getByLabelText("Dismiss");
+      expect(dismiss.tabIndex).toBe(0);
+      act(() => dismiss.focus());
+      expect(screen.getByRole("button", { name: "Dismiss" })).toHaveFocus();
+    });
+
+    it("runs its action and goes when Open is pressed", async () => {
+      const onOpen = vi.fn();
+      render(<Toaster />);
+      act(() => showToast(finished(onOpen)));
+      fireEvent.click(await screen.findByRole("button", { name: "Open" }));
+      expect(onOpen).toHaveBeenCalledOnce();
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Session finished" })).toBeNull(),
+      );
+    });
+
+    it("goes when dismissed, without running its action", async () => {
+      const onOpen = vi.fn();
+      render(<Toaster />);
+      act(() => showToast(finished(onOpen)));
+      fireEvent.click(await screen.findByLabelText("Dismiss"));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Session finished" })).toBeNull(),
+      );
+      expect(onOpen).not.toHaveBeenCalled();
+    });
+
+    // It has something to press, so a press elsewhere is the reader carrying on, not a sign they
+    // have read it — unlike a confirmation, which the next press clears.
+    it("stays through a press elsewhere, which still clears a plain toast", async () => {
+      render(<Toaster />);
+      act(() => {
+        showToast(finished());
+        showToast({ title: "Branch copied" });
+      });
+      await screen.findByRole("dialog", { name: "Branch copied" });
+      fireEvent.pointerDown(document.body);
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Branch copied" })).toBeNull(),
+      );
+      expect(screen.getByRole("dialog", { name: "Session finished" })).toBeInTheDocument();
+    });
+  });
+
   it("a listener stops hearing toasts once it unsubscribes", () => {
     const heard: string[] = [];
     const stop = subscribeToToasts(({ title }) => heard.push(title));

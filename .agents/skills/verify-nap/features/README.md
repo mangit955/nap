@@ -9,7 +9,7 @@ recipe came from an ARIA snapshot of a live fixture run, not from the source.
 - A fixture from `bun run verify-nap:up` is running, and `bun run verify-nap doctor` prints `ok`
   on every line.
 - `bun run verify-nap signin` has landed on `/dashboard` as `verify@nap.test`.
-- The session list holds **Seeded notes app** (status `Done`), whose files are `src/App.tsx`,
+- The session list holds **Seeded notes app** (status `Unread`), whose files are `src/App.tsx`,
   `src/components/NoteList.tsx` and `package.json`.
 - Every project previews the same static page. Its iframe is titled `App preview`, and inside it
   are the heading `Fixture notes`, a button `Add note` and a list `Notes`.

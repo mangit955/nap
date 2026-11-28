@@ -1,8 +1,13 @@
-/** What a toast says. An `error` is drawn in the danger colour and announced at once. */
+/**
+ * What a toast says. An `error` is drawn in the danger colour and announced at once. `finished`
+ * is a session's turn ending out of sight: a success check and, with `action`, a way to go there.
+ */
 export type ToastMessage = {
   title: string;
   description?: string | undefined;
-  tone?: "error" | undefined;
+  tone?: "error" | "finished" | undefined;
+  /** One button beside the text. The toast closes once it is pressed. */
+  action?: { label: string; onClick: () => void } | undefined;
 };
 
 const listeners = new Set<(message: ToastMessage) => void>();

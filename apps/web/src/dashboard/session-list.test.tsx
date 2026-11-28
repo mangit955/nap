@@ -169,7 +169,7 @@ it("snoozes with a preset, settles, and edits a title inline without following i
   }
 });
 
-it("shows working and failed states, and Done only until completion has been read", () => {
+it("shows working and failed states, and the unread dot only until completion has been read", () => {
   const work = {
     ...row("Building"),
     activity: "working" as const,
@@ -184,7 +184,7 @@ it("shows working and failed states, and Done only until completion has been rea
     <SessionList sessions={[work, queued, failed, done]} query="" repository="" />,
   );
   expect(screen.getAllByRole("status").map((element) => element.textContent)).toEqual(
-    expect.arrayContaining(["Working", "Queued", "Failed", "Done"]),
+    expect.arrayContaining(["Working", "Queued", "Failed", "Unread"]),
   );
   view.rerender(
     <SessionList

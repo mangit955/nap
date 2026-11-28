@@ -114,6 +114,27 @@ export function isUnread(session: SessionSummary): boolean {
 }
 
 /**
+ * The sessions whose turn finished between two reads of the list, for the "Session finished"
+ * toast. A row counts only when it was on the previous list too — the first list after a load,
+ * and a session first seen already finished, are not news — when its finished turn moved later,
+ * and when it is still unread, so a turn read in another tab raises nothing. The open session is
+ * never named: the reader is watching it finish.
+ */
+export function finishedInBackground(
+  previous: readonly SessionSummary[] | undefined,
+  next: readonly SessionSummary[],
+  openProjectId: string | undefined,
+): SessionSummary[] {
+  if (previous === undefined) return [];
+  const before = new Map(previous.map((row) => [row.projectId, row]));
+  return next.filter((row) => {
+    const prior = before.get(row.projectId);
+    if (!prior || row.projectId === openProjectId || row.turnFinishedAt === null) return false;
+    return time(row.turnFinishedAt) > time(prior.turnFinishedAt) && isUnread(row);
+  });
+}
+
+/**
  * A snooze that ran out, on a session nobody has looked at since — T3's *Woke*. Only a row back
  * in the inbox can be Woke: one settled or archived after its snooze ended has been dealt with.
  * Looking at it moves the read watermark past the wake (`seenChange`), which is what ends it.

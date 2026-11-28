@@ -6,7 +6,6 @@ import {
   AlarmClockOff,
   Check,
   CircleAlert,
-  CircleCheck,
   CircleDashed,
   Clock,
   Ellipsis,
@@ -477,10 +476,15 @@ function StatusSlot({
         <span role="status">Woke</span>
       </span>
     );
+  // A finished turn nobody has read: T3's plain unread dot beside the time, not a word. Blue marks
+  // status here and nowhere else, and the dot neither glows nor pulses — it waits.
   return (
-    <span className="inline-flex items-center gap-1 font-medium text-success">
-      <CircleCheck aria-hidden className="size-4 shrink-0" />
-      <span role="status">Done</span>
+    <span className="inline-flex items-center gap-1.5">
+      <span role="status" className="inline-flex">
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-info" />
+        <span className="sr-only">Unread</span>
+      </span>
+      <span>{compactTime(timestamp, now)}</span>
     </span>
   );
 }

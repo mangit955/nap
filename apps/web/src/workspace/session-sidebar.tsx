@@ -9,6 +9,7 @@ import { forgetSignedOut } from "../auth/forget-signed-out.ts";
 import { recentProjects } from "../dashboard/filters.ts";
 import { seenChange } from "../dashboard/session-rows.ts";
 import { Sidebar } from "../dashboard/sidebar.tsx";
+import { useFinishedToasts } from "../dashboard/use-finished-toasts.ts";
 import { useSessionNavigation } from "../projects/use-session-navigation.ts";
 
 /**
@@ -40,6 +41,17 @@ export function SessionSidebar({
     const seen = seenChange(row, Date.now());
     if (seen) void navigation.change(projectId, seen, { quiet: true });
   }, [projectId, projects, navigation]);
+  // By the history API, not the router, so a switch asks the server for nothing: the router
+  // would fetch `/p/<id>` again on every click, since Next keeps a dynamic page for 0 seconds,
+  // and that page holds nothing but the id. Next 16 folds a `pushState` into its router — back,
+  // forward and `usePathname` follow it — and the workspace reads the project from the pathname
+  // (`open-project.ts`), keyed so it starts over. A row is still a link, so a modified click opens
+  // a new tab and a deep link loads as before. The toast's Open takes the same road.
+  const select = (id: string) => {
+    if (id !== projectId) window.history.pushState(null, "", `/p/${encodeURIComponent(id)}`);
+    onNavigate?.();
+  };
+  useFinishedToasts(projects, projectId, select);
   const [settings, setSettings] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const key = useApiKey();
@@ -55,16 +67,7 @@ export function SessionSidebar({
         recents={recentProjects(projects, projects.length)}
         activeProjectId={projectId}
         onNewProject={() => router.push("/dashboard")}
-        // By the history API, not the router, so a switch asks the server for nothing: the router
-        // would fetch `/p/<id>` again on every click, since Next keeps a dynamic page for 0
-        // seconds, and that page holds nothing but the id. Next 16 folds a `pushState` into its
-        // router — back, forward and `usePathname` follow it — and the workspace reads the project
-        // from the pathname (`open-project.ts`), keyed so it starts over. The row is still a link,
-        // so a modified click opens a new tab and a deep link loads as before.
-        onSelectProject={(id) => {
-          if (id !== projectId) window.history.pushState(null, "", `/p/${encodeURIComponent(id)}`);
-          onNavigate?.();
-        }}
+        onSelectProject={select}
         onApiKey={() => setSettings(true)}
         keyHint={key.state?.configured ? key.state.hint : undefined}
         signingOut={signingOut}
